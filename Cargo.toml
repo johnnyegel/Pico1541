@@ -1,0 +1,15 @@
+[workspace]
+members = [
+    "crates/pico1541-emu",
+    "crates/pico1541-manager",
+    "crates/pico1541-rp2040"
+]
+resolver = "2"
+
+[profile.release]
+opt-level = 3       # Crucial for 6502 emulation speed
+lto = true          # Link Time Optimization for smaller/faster binaries
+panic = "abort"
+
+[profile.dev]
+panic = "abort"
