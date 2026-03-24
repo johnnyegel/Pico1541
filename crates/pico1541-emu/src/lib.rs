@@ -5,9 +5,6 @@ pub mod systembus;
 pub mod drivemechanics;
 pub mod activetrack;
 
-#[cfg(test)]
-mod test_boot;
-
 use mos6502::cpu::CPU;
 use mos6502::instruction::Nmos6502;
 use mos6502::registers::Status;
