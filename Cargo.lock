@@ -559,6 +559,7 @@ checksum = "5be167a7af36ee22fe3115051bc51f6e6c7054c9348e28deb4f49bd6f705a315"
 name = "pico1541-emu"
 version = "0.1.0"
 dependencies = [
+ "heapless",
  "mos6502",
 ]
 
@@ -572,6 +573,7 @@ version = "0.1.0"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",
+ "heapless",
  "panic-halt",
  "pico1541-emu",
  "pico1541-manager",

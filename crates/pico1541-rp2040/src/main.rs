@@ -2,7 +2,7 @@
 #![no_main]
 
 use cortex_m_rt::entry;
-use panic_halt as _; // Halts on panic. In the future, change to a USB logging panicking crate.
+use panic_halt as _;
 use rp2040_hal::{
     clocks::init_clocks_and_plls,
     multicore::{Multicore, Stack},
@@ -10,19 +10,26 @@ use rp2040_hal::{
     sio::Sio,
     watchdog::Watchdog,
 };
+use pico1541_emu::{
+    activetrack::ActiveTrack,
+    Emulator,
+    Command, HardwareBridge,
+};
+use heapless::spsc::Queue;
+
+/// Shared memory for the current track.
+static ACTIVE_TRACK: ActiveTrack = ActiveTrack::new();
+
+/// SPSC Queue for sending commands from Emulator (Core 0) to Manager (Core 1).
+static mut COMMAND_QUEUE: Queue<Command, 16> = Queue::new();
 
 // Allocate a stack for Core 1 (4KB)
 static CORE1_STACK: Stack<4096> = Stack::new();
 
 /// This is the entry point for Core 1 (The Manager)
 fn core1_task() {
-    // 1. Initialize USB Host / SD Card SPI
-    // 2. Initialize Display / Buttons
-    // 3. Run the pico1541_manager loop to handle generic operations
-    
-    // Example call: pico1541_manager::run_manager_loop();
     loop {
-        cortex_m::asm::wfi(); // Wait for interrupt (sleep to save power for now)
+        cortex_m::asm::wfi();
     }
 }
 
@@ -33,9 +40,9 @@ fn main() -> ! {
     let mut watchdog = Watchdog::new(pac.WATCHDOG);
     let mut sio = Sio::new(pac.SIO);
 
-    // Set up clocks (133 MHz standard)
+    // Set up clocks
     let _clocks = init_clocks_and_plls(
-        12_000_000u32, // External crystal frequency
+        12_000_000u32,
         pac.XOSC,
         pac.CLOCKS,
         pac.PLL_SYS,
@@ -51,14 +58,27 @@ fn main() -> ! {
     let cores = mc.cores();
     let core1 = &mut cores[1];
 
+    // Split the command queue safely
+    let (cmd_tx, _cmd_rx) = unsafe { (*core::ptr::addr_of_mut!(COMMAND_QUEUE)).split() };
+
     // Spawn the manager task on Core 1
     let _ = core1.spawn(CORE1_STACK.take().unwrap(), core1_task);
 
-    // Core 0: Initialize PIO for the IEC Bus
-    // Core 0: Run the cycle-exact 6502 emulator
+    // Create the hardware bridge using the static track buffer and the queue producer
+    let bridge = HardwareBridge::new(&ACTIVE_TRACK, cmd_tx);
+
+    // Initialize a dummy ROM byte array.
+    // In a production build, this would be the actual 1541 ROM.
+    let rom = [0u8; 16384];
     
-    // Example call: pico1541_emu::run_emulator_loop();
+    // Initialize the drive emulator
+    let mut drive = Emulator::new(rom, bridge);
+    drive.reset();
+
     loop {
-        cortex_m::asm::nop(); // Placeholder for 6502 execution cycle
+        // Step the emulation by one instruction.
+        // In the future, we will use a hardware timer here to ensure 
+        // 1MHz execution speed.
+        drive.step();
     }
 }
