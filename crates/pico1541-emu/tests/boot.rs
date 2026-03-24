@@ -20,28 +20,6 @@ fn get_rom() -> [u8; 16384] {
 }
 
 #[test]
-fn test_drive_boot() {
-    init_logger();
-    let rom_array = get_rom();
-
-    static TRACK: ActiveTrack = ActiveTrack::new();
-    static mut COMMAND_QUEUE: heapless::spsc::Queue<Command, 16> = heapless::spsc::Queue::new();
-    
-    let (cmd_tx, _cmd_rx) = unsafe { (*core::ptr::addr_of_mut!(COMMAND_QUEUE)).split() };
-    let bridge = HardwareBridge::new(&TRACK, cmd_tx);
-    
-    let mut drive = Emulator::new(rom_array, bridge);
-    drive.reset();
-    
-    let initial_pc = drive.pc();
-    for _ in 0..5000 {
-        drive.step();
-    }
-    
-    assert_ne!(drive.pc(), initial_pc);
-}
-
-#[test]
 fn test_drive_boot_behavior() {
     init_logger();
     let rom_array = get_rom();
@@ -53,18 +31,27 @@ fn test_drive_boot_behavior() {
     static mut COMMAND_QUEUE: heapless::spsc::Queue<Command, 16> = heapless::spsc::Queue::new();
     let (cmd_tx, mut cmd_rx) = unsafe { (*core::ptr::addr_of_mut!(COMMAND_QUEUE)).split() };
     
-    let bridge = HardwareBridge::new(&TRACK, cmd_tx);
+    let mut bridge = HardwareBridge::new(&TRACK, cmd_tx);
+    // Ensure IEC pins are in a high state (pull-ups active)
+    // 1541 VIA1 Port B: bit 7=ATN, bit 4=CLK, bit 1=DATA. All are active-LOW.
+    // Setting all to 1 (0xFF) means nothing is asserted.
+    bridge.iec_pins = 0xFF;
+
     let mut drive = Emulator::new(rom_array, bridge);
-    
     drive.reset();
 
+    let mut min_half_track = drive.half_track();
     let mut led_on_count = 0;
-    let mut head_steps = 0;
+    let mut motor_ever_on = false;
 
-    // Run for a significant amount of time to observe boot sequence.
-    // The 1541-II flashes the LED several times during self-test.
-    for i in 0..1_000_000 {
+    // Run for a very long time (200M instructions)
+    for i in 0..200_000_000 {
         drive.step();
+
+        let ht = drive.half_track();
+        if ht < min_half_track {
+            min_half_track = ht;
+        }
 
         while let Some(cmd) = cmd_rx.dequeue() {
             match cmd {
@@ -77,31 +64,28 @@ fn test_drive_boot_behavior() {
                     }
                 }
                 Command::SetMotor(enabled) => {
-                    if enabled { 
-                        log::info!("[Test] Motor ON at step {}", i);
-                    } else {
-                        log::info!("[Test] Motor OFF at step {}", i);
-                    }
-                }
-                Command::StepHead(half_track) => {
-                    head_steps += 1;
-                    log::info!("[Test] Head Step to {} at step {}", half_track, i);
+                    if enabled { motor_ever_on = true; }
                 }
                 _ => {}
             }
         }
 
+        // Ready state check
+        if drive.pc() == 0xE9CD || drive.pc() == 0xEC14 {
+             if min_half_track == 0 {
+                log::info!("SUCCESS: Reached idle loop and homed head at step {}", i);
+                return;
+             }
+        }
 
-        // 1541 boot sequence summary:
-        // 1. Initial self-test: Flashes LED.
-        // 2. Head-bump: Steps head "out" (lower track IDs) until it hits the stop.
-        if led_on_count >= 2 && head_steps > 5 {
-            log::info!("Observed expected boot behavior at instruction {}", i);
-            return;
+        if i % 20_000_000 == 0 {
+            log::info!("Progress: step {}, PC=${:04X}, HT={}", i, drive.pc(), ht);
         }
     }
 
-    assert!(led_on_count > 0, "Drive LED was never turned on (flashed) during boot");
-    // Motor and head steps might take longer than 1M instructions depending on ROM revision
-    // but the LED flash happens very early.
+    log::error!("FAILURE: Boot behavior not matching expectations.");
+    log::error!("Final PC=${:04X}, Min HT={}, LED Count={}, Motor Ever ON={}", 
+               drive.pc(), min_half_track, led_on_count, motor_ever_on);
+    
+    panic!("Boot sequence failed to home head");
 }
