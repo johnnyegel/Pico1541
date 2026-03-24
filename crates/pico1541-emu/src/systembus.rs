@@ -2,6 +2,7 @@ use mos6502::memory::Bus;
 use crate::via6522::Via6522;
 use crate::DriveHardware;
 use crate::drivemechanics::DriveMechanics;
+use log::{trace, info};
 
 const RAM_SIZE: usize = 0x0800; // 2KB
 const ROM_SIZE: usize = 0x4000; // 16KB
@@ -15,6 +16,10 @@ pub struct SystemBus<H: DriveHardware> {
     pub hardware: H,
     pub mechanics: DriveMechanics,
     pub so_pending: bool,
+    
+    // Cached state to detect changes
+    last_motor_on: bool,
+    last_led_on: bool,
 }
 
 impl<H: DriveHardware> SystemBus<H> {
@@ -27,6 +32,8 @@ impl<H: DriveHardware> SystemBus<H> {
             hardware,
             mechanics: DriveMechanics::new(),
             so_pending: false,
+            last_motor_on: false,
+            last_led_on: false,
         }
     }
 
@@ -42,6 +49,34 @@ impl<H: DriveHardware> SystemBus<H> {
 
         self.via1.tick_cycle();
         self.via2.tick_cycle();
+    }
+
+    fn check_state_changes(&mut self) {
+        // --- Motor (VIA2 Port B bit 2) ---
+        let motor_on = (self.via2.orb & 0x04) != 0;
+        if motor_on != self.last_motor_on {
+            info!("Motor changed: {} -> {}", self.last_motor_on, motor_on);
+            self.last_motor_on = motor_on;
+            self.hardware.notify_motor_changed(motor_on);
+        }
+
+        // --- LED (VIA2 CA2 / PCR bits 1-3) ---
+        // On a 1541, CA2 is used as an output to control the LED.
+        // PCR bits 3,2,1:
+        // 110: Output LOW (LED ON)
+        // 111: Output HIGH (LED OFF)
+        let pcr_ca2 = (self.via2.pcr >> 1) & 0x07;
+        let led_on = match pcr_ca2 {
+            0b110 => true,  // Manual output low
+            0b111 => false, // Manual output high
+            _ => false,
+        };
+        
+        if led_on != self.last_led_on {
+            info!("LED changed: {} -> {}", self.last_led_on, led_on);
+            self.last_led_on = led_on;
+            self.hardware.notify_led_changed(led_on);
+        }
     }
 }
 
@@ -64,7 +99,15 @@ impl<H: DriveHardware> Bus for SystemBus<H> {
         match addr {
             0x0000..=0x07FF => self.ram[addr as usize] = value,
             0x1800..=0x1BFF => self.via1.write(addr, value),
-            0x1C00..=0x1FFF => self.via2.write(addr, value),
+            0x1C00..=0x1FFF => {
+                trace!("VIA2 Write: Addr=${:04X}, Val=${:02X}", addr, value);
+                self.via2.write(addr, value);
+                // Check if ORB ($1C00) or PCR ($1C0C) was written
+                let reg = addr & 0x0F;
+                if reg == 0x00 || reg == 0x0C {
+                    self.check_state_changes();
+                }
+            }
             0xC000..=0xFFFF => { /* ROM is read-only */ }
             _ => {}
         }
@@ -80,7 +123,6 @@ mod tests {
     use super::*;
     use mos6502::{cpu::CPU, instruction::Nmos6502};
     use crate::activetrack::ActiveTrack;
-    use crate::Command;
 
     struct MockHardware {
         track: ActiveTrack,
@@ -90,6 +132,8 @@ mod tests {
         fn get_active_track(&self) -> &ActiveTrack { &self.track }
         fn notify_head_stepped(&mut self, _current_half_track: u8) {}
         fn notify_track_dirty(&mut self) {}
+        fn notify_led_changed(&mut self, _enabled: bool) {}
+        fn notify_motor_changed(&mut self, _enabled: bool) {}
         fn get_iec_pins(&self) -> u8 { 0xFF }
         fn set_iec_pins(&mut self, _pins: u8) {}
     }

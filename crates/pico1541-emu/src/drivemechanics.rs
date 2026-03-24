@@ -48,23 +48,25 @@ impl DriveMechanics {
             self.last_step_phase = current_phase;
             
             if stepped {
-                // Notify hardware interface of the step
                 hardware.notify_head_stepped(self.current_half_track);
             }
         }
 
-        // Fetch shared state data once
+        // 2. Handle Motor and Rotation
+        // Motor state is managed by SystemBus notifications, but DriveMechanics 
+        // needs it to know whether to rotate.
+        let motor_on = (via2.orb & 0x04) != 0;
+
+        // Fetch shared metadata
         let active_track = hardware.get_active_track();
         let disk_inserted = active_track.disk_inserted.load(Ordering::Relaxed);
         let bit_length = active_track.bit_length;
 
-        // 2. Handle Motor and Bitrate
-        let motor_on = (via2.orb & 0x04) != 0;
         if !motor_on || !disk_inserted {
             return false;
         }
 
-        // Density (VIA2 Port B bits 5-6)
+        // 3. Bitrate and Disk Rotation
         let bitrate_bits = (via2.orb >> 5) & 0x03;
         let cycles_per_byte = match bitrate_bits {
             0 => 32,
@@ -74,7 +76,6 @@ impl DriveMechanics {
             _ => 32,
         };
 
-        // 3. Disk Rotation
         self.sub_cycle_counter += 1;
         if self.sub_cycle_counter >= cycles_per_byte {
             self.sub_cycle_counter = 0;
@@ -83,32 +84,27 @@ impl DriveMechanics {
             if track_bytes > 0 {
                 self.current_byte_idx = (self.current_byte_idx + 1) % track_bytes;
 
-                // VIA2 Port B bit 4: Read/Write mode (0 = Read, 1 = Write)
+                // VIA2 Port B bit 4: Read/Write mode
                 let write_mode = (via2.orb & 0x10) != 0;
 
                 if write_mode {
-                    // Safety: We are the only ones writing to gcr_data while motor is on.
                     let gcr_data_ptr = active_track.gcr_data.as_ptr() as *mut u8;
                     unsafe {
                         *gcr_data_ptr.add(self.current_byte_idx) = via2.ora;
                     }
                     if !active_track.is_dirty.swap(true, Ordering::Relaxed) {
-                        // Notify hardware interface that the track buffer is dirty
                         hardware.notify_track_dirty();
                     }
-                    
                     return true;
                 } else {
                     let gcr_byte = active_track.gcr_data[self.current_byte_idx];
                     via2.in_a = gcr_byte;
 
-                    // SYNC detection (VIA2 Port B bit 7)
                     if gcr_byte == 0xFF {
-                        via2.in_b &= !0x80; // Pull LOW
+                        via2.in_b &= !0x80; // SYNC Pull LOW
                     } else {
-                        via2.in_b |= 0x80;  // Release HIGH
+                        via2.in_b |= 0x80;  // SYNC Release HIGH
                     }
-
                     return true;
                 }
             }

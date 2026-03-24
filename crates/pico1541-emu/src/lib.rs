@@ -11,9 +11,10 @@ use mos6502::registers::Status;
 use systembus::SystemBus;
 use activetrack::ActiveTrack;
 use heapless::spsc::Producer;
+use log::info;
 
 /// Commands sent from the Emulator (Core 0) to the Manager (Core 1).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Command {
     /// Request to load a specific half-track.
     StepHead(u8),
@@ -36,6 +37,12 @@ pub trait DriveHardware {
 
     /// Notifies the manager that the track buffer has been modified.
     fn notify_track_dirty(&mut self);
+
+    /// Notifies the manager that the LED state has changed.
+    fn notify_led_changed(&mut self, enabled: bool);
+
+    /// Notifies the manager that the motor state has changed.
+    fn notify_motor_changed(&mut self, enabled: bool);
 
     /// Get the state of the IEC bus pins (ATN, CLK, DATA).
     fn get_iec_pins(&self) -> u8;
@@ -73,11 +80,23 @@ impl DriveHardware for HardwareBridge {
     }
 
     fn notify_head_stepped(&mut self, current_half_track: u8) {
+        info!("Head stepped to half-track {}", current_half_track);
         let _ = self.command_tx.enqueue(Command::StepHead(current_half_track));
     }
     
     fn notify_track_dirty(&mut self) {
+        info!("Track buffer marked dirty");
         let _ = self.command_tx.enqueue(Command::FlushTrack);
+    }
+
+    fn notify_led_changed(&mut self, enabled: bool) {
+        info!("LED changed to {}", if enabled { "ON" } else { "OFF" });
+        let _ = self.command_tx.enqueue(Command::SetLed(enabled));
+    }
+
+    fn notify_motor_changed(&mut self, enabled: bool) {
+        info!("Motor changed to {}", if enabled { "ON" } else { "OFF" });
+        let _ = self.command_tx.enqueue(Command::SetMotor(enabled));
     }
 
     fn get_iec_pins(&self) -> u8 {
@@ -104,6 +123,7 @@ impl<H: DriveHardware> Emulator<H> {
 
     /// Resets the 6502 CPU and VIAs.
     pub fn reset(&mut self) {
+        info!("Emulator Reset");
         self.cpu.reset();
     }
 
