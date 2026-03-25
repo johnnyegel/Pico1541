@@ -2,7 +2,7 @@ use racc6502::bus::Bus;
 use crate::via6522::Via6522;
 use crate::DriveHardware;
 use crate::drivemechanics::DriveMechanics;
-use log::{trace, info, warn};
+use log;
 
 const RAM_SIZE: usize = 0x0800; // 2KB
 const ROM_SIZE: usize = 0x4000; // 16KB
@@ -25,9 +25,8 @@ pub struct SystemBus<H: DriveHardware> {
 impl<H: DriveHardware> SystemBus<H> {
     pub fn new(rom: [u8; ROM_SIZE], hardware: H) -> Self {
         let mut via1 = Via6522::new();
-        // Culprit 1: Track 0 Sensor (VIA 1, Port A, Bit 0)
-        // Defaults to 0 (Not at Track 0) to allow homing sequence to start.
-        via1.in_a &= !0x01; 
+        // Track 0 Sensor is tied to Ground, The rest of the port is unused
+        via1.in_a = 0x0;
 
         Self {
             ram: [0; RAM_SIZE],
@@ -49,12 +48,14 @@ impl<H: DriveHardware> SystemBus<H> {
             self.so_active = false;
         }
 
-        // Update Track 0 sensor state based on mechanics
+        // Update Track 0 sensor state based on mechanics (Active-LOW)
+        /* FIXME! Remove this, as track 0 sensor was not present in 1541-II 
         if self.mechanics.current_half_track == 0 {
-            self.via1.in_a |= 0x01; // At Track 0
+            self.via1.in_a &= !0x01; // At Track 0
         } else {
-            self.via1.in_a &= !0x01; // Not at Track 0
+            self.via1.in_a |= 0x01; // Not at Track 0
         }
+        */
 
         self.via1.in_b = self.hardware.get_iec_pins();
         self.hardware.set_iec_pins(self.via1.get_port_b());
@@ -64,25 +65,20 @@ impl<H: DriveHardware> SystemBus<H> {
 
     fn check_state_changes(&mut self) {
         // --- Motor (VIA2 Port B bit 2) ---
-        let motor_on = (self.via2.orb & 0x04) != 0;
+        // Active-LOW on 1541-II (0 = Motor ON)
+        let motor_on = (self.via2.orb & 0x04) == 0;
         if motor_on != self.last_motor_on {
-            info!("Motor changed: {} -> {}", self.last_motor_on, motor_on);
+            log::info!("Motor changed: {} -> {}", self.last_motor_on, motor_on);
             self.last_motor_on = motor_on;
             self.hardware.notify_motor_changed(motor_on);
         }
 
-        // --- LED (1541-II uses VIA2 Port B bit 3 OR CA2) ---
-        let led_pb3 = (self.via2.orb & 0x08) != 0;
-        let pcr_ca2 = (self.via2.pcr >> 1) & 0x07;
-        let led_ca2 = match pcr_ca2 {
-            0b110 => true,  // Manual output low (LED ON)
-            0b111 => false, // Manual output high (LED OFF)
-            _ => false,
-        };
-        let led_on = led_pb3 || led_ca2;
+        // --- LED (VIA2 Port B bit 3) ---
+        // Active-LOW on 1541-II (0 = LED ON)
+        let led_on = (self.via2.orb & 0x08) == 0;
         
         if led_on != self.last_led_on {
-            info!("LED changed: {} -> {}", self.last_led_on, led_on);
+            log::info!("LED changed: {} -> {}", self.last_led_on, led_on);
             self.last_led_on = led_on;
             self.hardware.notify_led_changed(led_on);
         }
@@ -99,7 +95,7 @@ impl<H: DriveHardware> Bus for SystemBus<H> {
             0x8000..=0xBFFF => self.rom[(addr - 0x8000) as usize],
             0xC000..=0xFFFF => self.rom[(addr - 0xC000) as usize],
             _ => {
-                warn!("Unmapped Read: Addr=${:04X}", addr);
+                log::warn!("Unmapped Read: Addr=${:04X}", addr);
                 0
             }
         }
@@ -111,7 +107,7 @@ impl<H: DriveHardware> Bus for SystemBus<H> {
             0x0000..=0x17FF => self.ram[(addr as usize) % RAM_SIZE] = value,
             0x1800..=0x1BFF => self.via1.write(addr, value),
             0x1C00..=0x1FFF => {
-                trace!("VIA2 Write: Addr=${:04X}, Val=${:02X}", addr, value);
+                log::trace!("VIA2 Write: Addr=${:04X}, Val=${:02X}", addr, value);
                 self.via2.write(addr, value);
                 let reg = addr & 0x0F;
                 if reg == 0x00 || reg == 0x0C {
@@ -120,7 +116,7 @@ impl<H: DriveHardware> Bus for SystemBus<H> {
             }
             0x8000..=0xFFFF => {}
             _ => {
-                warn!("Unmapped Write: Addr=${:04X}, Val=${:02X}", addr, value);
+                log::warn!("Unmapped Write: Addr=${:04X}, Val=${:02X}", addr, value);
             }
         }
     }

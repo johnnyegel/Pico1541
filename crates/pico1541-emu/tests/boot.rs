@@ -10,6 +10,7 @@ fn init_logger() {
     let _ = env_logger::builder()
         .filter_module("mos6502", log::LevelFilter::Warn)
         .filter_module("pico1541_emu::systembus", log::LevelFilter::Warn)
+        .filter_module("pico1541_emu::drivemechanics", log::LevelFilter::Info)
         .filter_module("pico1541_emu", log::LevelFilter::Info)
         .filter_module("boot", log::LevelFilter::Info)
         .is_test(true)
@@ -60,23 +61,31 @@ fn test_drive_boot_behavior() {
     let bridge = HardwareBridge::new(&TRACK, cmd_tx);
     let mut drive = Emulator::new(rom_array, bridge);
     
+    //#[cfg(debug_assertions)]
+    //use racc6502::disasm;
+
     // Instruction tracing for debugging
     fn boot_debug_hook<B: racc6502::bus::Bus>(cpu: &racc6502::cpu::CPU<B>, _data: *mut core::ffi::c_void) {
-        if cpu.pc >= 0xEA00 { // Only log interesting ROM areas or early boot
-            // log::info!("PC:${:04X} A:${:02X} X:${:02X} Y:${:02X} S:${:02X} P:${:02X}", cpu.pc, cpu.a, cpu.x, cpu.y, cpu.s, cpu.p);
-        }
+        /*
+        match cpu.debug_pc {
+            0xEAA0 | 0xEAC9 | 0xEAEA | 0xEB3A | 0xEB4B | 0xEBE7 => {
+                //let op_str = disasm::disassemble(cpu);
+                log::info!("PC:${:04X} {:<12} A:${:02X} X:${:02X} Y:${:02X} S:${:02X} P:${:02X}", cpu.debug_pc, op_str, cpu.a, cpu.x, cpu.y, cpu.s, cpu.p);
+            }
+            _ => {}
+        } */
+        //log::info!("PC:${:04X} A:${:02X} X:${:02X} Y:${:02X} S:${:02X} P:${:02X}", cpu.pc, cpu.a, cpu.x, cpu.y, cpu.s, cpu.p);
     }
-    // drive.cpu.debug_hook = Some(boot_debug_hook);
+    drive.cpu.debug_hook = Some(boot_debug_hook);
 
     drive.reset();
 
     let mut led_on_count = 0;
     let mut min_half_track = drive.half_track();
-    let mut last_logged_ht = 255;
     let mut total_cycles: u64 = 0;
 
     // Run for 10 million instructions (~10s of real drive time)
-    for i in 0..10_000_000 {
+    for i in 0..10_000_000 { // 10_000_000 {
         // Run until we start fetching the next opcode (Sync point)
         loop {
             drive.cpu.tick();
@@ -85,17 +94,12 @@ fn test_drive_boot_behavior() {
                 break;
             }
         }
-
+        
         let ht = drive.half_track();
         if ht < min_half_track {
             min_half_track = ht;
         }
         
-        if ht != last_logged_ht {
-            log::info!("[Test] Half-Track changed to {} at step {}, cycle {}", ht, i, total_cycles);
-            last_logged_ht = ht;
-        }
-
         while let Some(cmd) = cmd_rx.dequeue() {
             match cmd {
                 Command::SetLed(enabled) => {
@@ -109,6 +113,9 @@ fn test_drive_boot_behavior() {
                 Command::SetMotor(enabled) => {
                     log::info!("[Test] Motor changed to {} at step {}, cycle {}", if enabled { "ON" } else { "OFF" }, i, total_cycles);
                 }
+                Command::StepHead(ht) => {
+                    log::info!("[Test] StepHead to half-track {} at step {}, cycle {}", ht, i, total_cycles);
+                }
                 _ => {}
             }
         }
@@ -116,12 +123,6 @@ fn test_drive_boot_behavior() {
         // Periodically log progress every 1 million steps
         if i % 1_000_000 == 0 {
             log::info!("Progress: step {}, cycle {}, PC=${:04X}, HT={}", i, total_cycles, drive.pc(), ht);
-        }
-
-        // If we reached half-track 0, we've successfully homed!
-        if ht == 0 {
-            log::info!("SUCCESS: Reached Track 0 at step {}", i);
-            return;
         }
     }
 

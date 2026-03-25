@@ -1,6 +1,9 @@
 use crate::via6522::Via6522;
 use crate::DriveHardware;
 use core::sync::atomic::Ordering;
+use log;
+
+const MAX_HALF_TRACK: i8 = 84; // 42 tracks * 2 half-tracks per track
 
 /// Simulates the analog read/write head and motor logic.
 pub struct DriveMechanics {
@@ -15,6 +18,7 @@ pub struct DriveMechanics {
 }
 
 impl DriveMechanics {
+
     pub fn new() -> Self {
         Self {
             current_byte_idx: 0,
@@ -28,33 +32,31 @@ impl DriveMechanics {
     pub fn tick<H: DriveHardware>(&mut self, hardware: &mut H, via2: &mut Via6522) -> bool {
         // 1. Handle Stepping (VIA2 Port B bits 0-1)
         let current_phase = via2.orb & 0x03;
-        if current_phase != self.last_step_phase {
-            let mut stepped = false;
-            match (self.last_step_phase, current_phase) {
-                (0, 1) | (1, 2) | (2, 3) | (3, 0) => {
-                    if self.current_half_track < 84 {
-                        self.current_half_track += 1;
-                        stepped = true;
-                    }
-                }
-                (0, 3) | (3, 2) | (2, 1) | (1, 0) => {
-                    if self.current_half_track > 0 {
-                        self.current_half_track -= 1;
-                        stepped = true;
-                    }
-                }
-                _ => {}
-            }
-            self.last_step_phase = current_phase;
-            
-            if stepped {
-                hardware.notify_head_stepped(self.current_half_track);
-            }
+        let diff = current_phase.wrapping_sub(self.last_step_phase) & 0x03;
+
+        let step_direction: i8 = match diff {
+            1 => 1,   // Stepped inward
+            3 => -1,  // Stepped outward
+            _ => 0,   // No movement, or invalid double-step
+        };
+
+        // Update half-track position based on step direction
+        let next_track = self.current_half_track as i8 + step_direction;
+        self.current_half_track = next_track.clamp(0, MAX_HALF_TRACK) as u8;
+
+        // Notify hardware of head step if there was a change
+        if step_direction != 0 {
+            log::info!("HEAD Stepped: {} -> {}: {}, Track: {}", 
+                    self.last_step_phase, current_phase, step_direction, self.current_half_track);
+            hardware.notify_head_stepped(self.current_half_track);
         }
 
+        self.last_step_phase = current_phase;
+
+
         // 2. Handle Motor and Rotation
-        // On a 1541-II, the motor bit (VIA2 ORB bit 2) is active-HIGH.
-        let motor_on = (via2.orb & 0x04) != 0;
+        // On a 1541-II, the motor bit (VIA2 ORB bit 2) is active-LOW.
+        let motor_on = (via2.orb & 0x04) == 0;
 
         // Fetch shared metadata
         let active_track = hardware.get_active_track();

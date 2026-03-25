@@ -63,6 +63,16 @@ pub struct CPU<B: Bus> {
     /// An optional hook called at the end of every instruction.
     #[cfg(debug_assertions)]
     pub debug_hook: Option<DebugHook<B>>,
+    /// The PC value when the last instruction was fetched. The debug hook is called at the 
+    /// end of the instruction, so this will be the start address of the instruction just executed.
+    #[cfg(debug_assertions)]
+    pub debug_pc: u16,
+    /// The operand bytes for the instruction just executed.
+    #[cfg(debug_assertions)]
+    pub debug_operand: [u8; 2],
+    /// The length of the operand for the instruction just executed.
+    #[cfg(debug_assertions)]
+    pub debug_operand_len: u8,
     /// Optional user data pointer passed to the debug hook.
     #[cfg(debug_assertions)]
     pub debug_user_data: *mut core::ffi::c_void,
@@ -91,6 +101,12 @@ impl<B: Bus> CPU<B> {
             bus,
             #[cfg(debug_assertions)]
             debug_hook: None,
+            #[cfg(debug_assertions)]
+            debug_pc: 0,
+            #[cfg(debug_assertions)]
+            debug_operand: [0; 2],
+            #[cfg(debug_assertions)]
+            debug_operand_len: 0,
             #[cfg(debug_assertions)]
             debug_user_data: core::ptr::null_mut(),
         };
@@ -210,6 +226,13 @@ impl<B: Bus> CPU<B> {
             return;
         }
 
+        #[cfg(debug_assertions)]
+        {
+            self.debug_pc = self.pc; // Sample the PC at the start of the instruction for debugging
+            // Reset operand capture for the new instruction
+            self.debug_operand_len = 0;
+        }
+        
         self.ir = self.bus.read(self.pc);
         self.pc = self.pc.wrapping_add(1);
         self.state = CycleState::AddrMode;
@@ -292,12 +315,24 @@ impl<B: Bus> CPU<B> {
     fn execute_addr_uop(&mut self, uop: AddrMicroOp) {
         match uop {
             AddrMicroOp::FetchAddrLo => {
-                self.effective_addr = self.bus.read(self.pc) as u16;
+                let lo = self.bus.read(self.pc);
+                #[cfg(debug_assertions)]
+                {
+                    self.debug_operand[0] = lo;
+                    self.debug_operand_len = 1;
+                }
+                self.effective_addr = lo as u16;
                 self.pc = self.pc.wrapping_add(1);
             }
             AddrMicroOp::FetchAddrHi => {
-                let hi = self.bus.read(self.pc) as u16;
-                self.effective_addr |= hi << 8;
+                let hi = self.bus.read(self.pc);
+                #[cfg(debug_assertions)]
+                {
+                    // This assumes FetchAddrLo was called first
+                    self.debug_operand[1] = hi;
+                    self.debug_operand_len = 2;
+                }
+                self.effective_addr |= (hi as u16) << 8;
                 self.pc = self.pc.wrapping_add(1);
             }
             AddrMicroOp::FetchAddrHiAndJump => {
@@ -374,17 +409,17 @@ impl<B: Bus> CPU<B> {
             ExecMicroOp::ReadEffAndCMP => { let val = self.bus.read(self.effective_addr); self.do_compare(self.a, val); }
             ExecMicroOp::ReadEffAndCPX => { let val = self.bus.read(self.effective_addr); self.do_compare(self.x, val); }
             ExecMicroOp::ReadEffAndCPY => { let val = self.bus.read(self.effective_addr); self.do_compare(self.y, val); }
-            ExecMicroOp::FetchImmAndLDA => { self.a = self.bus.read(self.pc); self.pc = self.pc.wrapping_add(1); self.update_zn(self.a); }
-            ExecMicroOp::FetchImmAndLDX => { self.x = self.bus.read(self.pc); self.pc = self.pc.wrapping_add(1); self.update_zn(self.x); }
-            ExecMicroOp::FetchImmAndLDY => { self.y = self.bus.read(self.pc); self.pc = self.pc.wrapping_add(1); self.update_zn(self.y); }
-            ExecMicroOp::FetchImmAndADC => { let val = self.bus.read(self.pc); self.pc = self.pc.wrapping_add(1); self.do_adc(val); }
-            ExecMicroOp::FetchImmAndSBC => { let val = self.bus.read(self.pc); self.pc = self.pc.wrapping_add(1); self.do_sbc(val); }
-            ExecMicroOp::FetchImmAndAND => { let val = self.bus.read(self.pc); self.pc = self.pc.wrapping_add(1); self.a &= val; self.update_zn(self.a); }
-            ExecMicroOp::FetchImmAndORA => { let val = self.bus.read(self.pc); self.pc = self.pc.wrapping_add(1); self.a |= val; self.update_zn(self.a); }
-            ExecMicroOp::FetchImmAndEOR => { let val = self.bus.read(self.pc); self.pc = self.pc.wrapping_add(1); self.a ^= val; self.update_zn(self.a); }
-            ExecMicroOp::FetchImmAndCMP => { let val = self.bus.read(self.pc); self.pc = self.pc.wrapping_add(1); self.do_compare(self.a, val); }
-            ExecMicroOp::FetchImmAndCPX => { let val = self.bus.read(self.pc); self.pc = self.pc.wrapping_add(1); self.do_compare(self.x, val); }
-            ExecMicroOp::FetchImmAndCPY => { let val = self.bus.read(self.pc); self.pc = self.pc.wrapping_add(1); self.do_compare(self.y, val); }
+            ExecMicroOp::FetchImmAndLDA => { let val = self.fetch_imm(); self.a = val; self.update_zn(self.a); }
+            ExecMicroOp::FetchImmAndLDX => { let val = self.fetch_imm(); self.x = val; self.update_zn(self.x); }
+            ExecMicroOp::FetchImmAndLDY => { let val = self.fetch_imm(); self.y = val; self.update_zn(self.y); }
+            ExecMicroOp::FetchImmAndADC => { let val = self.fetch_imm(); self.do_adc(val); }
+            ExecMicroOp::FetchImmAndSBC => { let val = self.fetch_imm(); self.do_sbc(val); }
+            ExecMicroOp::FetchImmAndAND => { let val = self.fetch_imm(); self.a &= val; self.update_zn(self.a); }
+            ExecMicroOp::FetchImmAndORA => { let val = self.fetch_imm(); self.a |= val; self.update_zn(self.a); }
+            ExecMicroOp::FetchImmAndEOR => { let val = self.fetch_imm(); self.a ^= val; self.update_zn(self.a); }
+            ExecMicroOp::FetchImmAndCMP => { let val = self.fetch_imm(); self.do_compare(self.a, val); }
+            ExecMicroOp::FetchImmAndCPX => { let val = self.fetch_imm(); self.do_compare(self.x, val); }
+            ExecMicroOp::FetchImmAndCPY => { let val = self.fetch_imm(); self.do_compare(self.y, val); }
             ExecMicroOp::WriteEffA => { self.bus.write(self.effective_addr, self.a); }
             ExecMicroOp::WriteEffX => { self.bus.write(self.effective_addr, self.x); }
             ExecMicroOp::WriteEffY => { self.bus.write(self.effective_addr, self.y); }
@@ -478,7 +513,13 @@ impl<B: Bus> CPU<B> {
                 self.pc = (hi as u16) << 8 | (lo as u16);
             }
             ExecMicroOp::BranchCycle2 => {
-                let offset = self.bus.read(self.pc) as i8;
+                let offset_u8 = self.bus.read(self.pc);
+                #[cfg(debug_assertions)]
+                {
+                    self.debug_operand[0] = offset_u8;
+                    self.debug_operand_len = 1;
+                }
+                let offset = offset_u8 as i8;
                 self.pc = self.pc.wrapping_add(1);
                 let condition = match self.ir {
                     0x10 => !self.get_flag(7), 0x30 => self.get_flag(7),
@@ -541,6 +582,20 @@ impl<B: Bus> CPU<B> {
             ExecMicroOp::DummyReadEff => { self.bus.read(self.effective_addr); }
             ExecMicroOp::Unimplemented => { self.bus.read(self.pc); }
         }
+    }
+
+    /// Helper for immediate-mode instructions that fetches the operand,
+    /// advances PC, and captures the operand for debugging.
+    #[inline(always)]
+    fn fetch_imm(&mut self) -> u8 {
+        let val = self.bus.read(self.pc);
+        #[cfg(debug_assertions)]
+        {
+            self.debug_operand[0] = val;
+            self.debug_operand_len = 1;
+        }
+        self.pc = self.pc.wrapping_add(1);
+        val
     }
 
     /// Updates the Zero (Z) and Negative (N) flags based on the provided value.
