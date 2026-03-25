@@ -17,6 +17,7 @@ pub struct SystemBus<H: DriveHardware> {
     pub mechanics: DriveMechanics,
     pub so_pending: bool,
     
+    // Cached state to detect changes
     last_motor_on: bool,
     last_led_on: bool,
     pub ticks_this_step: u32,
@@ -50,19 +51,23 @@ impl<H: DriveHardware> SystemBus<H> {
     }
 
     fn check_state_changes(&mut self) {
-        let motor_on = (self.via2.orb & 0x04) == 0; // standard 1541 motor is active-low
+        // --- Motor (VIA2 Port B bit 2) ---
+        // On a 1541-II, 1 = Motor ON, 0 = Motor OFF.
+        let motor_on = (self.via2.orb & 0x04) != 0;
         if motor_on != self.last_motor_on {
             info!("Motor changed: {} -> {}", self.last_motor_on, motor_on);
             self.last_motor_on = motor_on;
             self.hardware.notify_motor_changed(motor_on);
         }
 
+        // --- LED (VIA2 CA2 / PCR bits 1-3) ---
         let pcr_ca2 = (self.via2.pcr >> 1) & 0x07;
         let led_on = match pcr_ca2 {
-            0b110 => true,
-            0b111 => false,
+            0b110 => true,  // Manual output low (LED ON)
+            0b111 => false, // Manual output high (LED OFF)
             _ => false,
         };
+        
         if led_on != self.last_led_on {
             info!("LED changed: {} -> {}", self.last_led_on, led_on);
             self.last_led_on = led_on;
@@ -76,16 +81,8 @@ impl<H: DriveHardware> Bus for SystemBus<H> {
         self.tick_cycle();
         match addr {
             0x0000..=0x17FF => self.ram[(addr as usize) % RAM_SIZE],
-            0x1800..=0x1BFF => {
-                let val = self.via1.read(addr);
-                trace!("VIA1 Read: Addr=${:04X}, Val=${:02X}", addr, val);
-                val
-            }
-            0x1C00..=0x1FFF => {
-                let val = self.via2.read(addr);
-                trace!("VIA2 Read: Addr=${:04X}, Val=${:02X}", addr, val);
-                val
-            }
+            0x1800..=0x1BFF => self.via1.read(addr),
+            0x1C00..=0x1FFF => self.via2.read(addr),
             0x8000..=0xBFFF => self.rom[(addr - 0x8000) as usize],
             0xC000..=0xFFFF => self.rom[(addr - 0xC000) as usize],
             _ => {
@@ -99,10 +96,7 @@ impl<H: DriveHardware> Bus for SystemBus<H> {
         self.tick_cycle();
         match addr {
             0x0000..=0x17FF => self.ram[(addr as usize) % RAM_SIZE] = value,
-            0x1800..=0x1BFF => {
-                trace!("VIA1 Write: Addr=${:04X}, Val=${:02X}", addr, value);
-                self.via1.write(addr, value);
-            }
+            0x1800..=0x1BFF => self.via1.write(addr, value),
             0x1C00..=0x1FFF => {
                 trace!("VIA2 Write: Addr=${:04X}, Val=${:02X}", addr, value);
                 self.via2.write(addr, value);

@@ -53,13 +53,8 @@ impl DriveMechanics {
         }
 
         // 2. Handle Motor and Rotation
-        // On a 1541, the motor bit (VIA2 ORB bit 2) is active-LOW.
-        // However, many ROMs use it active-HIGH via an inverter on the board.
-        // In the 1541-II schematics, bit 2 goes to a 7406 inverter. 
-        // So 1 = Motor ON, 0 = Motor OFF from the 6502's perspective.
-        // Wait, my trace showed the ROM writing $00 then $60. 
-        // If $00 was ON and $60 was OFF, then it *is* active-low.
-        let motor_on = (via2.orb & 0x04) == 0;
+        // On a 1541-II, the motor bit (VIA2 ORB bit 2) is active-HIGH.
+        let motor_on = (via2.orb & 0x04) != 0;
 
         // Fetch shared metadata
         let active_track = hardware.get_active_track();
