@@ -20,8 +20,9 @@ pub enum CycleState {
 /// A hook that is called at the end of every instruction (the "Sync" point).
 /// 
 /// This type is only available when `debug_assertions` are enabled.
+/// The second argument is a pointer to optional user data.
 #[cfg(debug_assertions)]
-pub type DebugHook<B> = fn(&CPU<B>);
+pub type DebugHook<B> = fn(&CPU<B>, *mut core::ffi::c_void);
 
 /// The cycle-accurate MOS 6502 CPU core.
 pub struct CPU<B: Bus> {
@@ -62,6 +63,9 @@ pub struct CPU<B: Bus> {
     /// An optional hook called at the end of every instruction.
     #[cfg(debug_assertions)]
     pub debug_hook: Option<DebugHook<B>>,
+    /// Optional user data pointer passed to the debug hook.
+    #[cfg(debug_assertions)]
+    pub debug_user_data: *mut core::ffi::c_void,
 }
 
 impl<B: Bus> CPU<B> {
@@ -87,6 +91,8 @@ impl<B: Bus> CPU<B> {
             bus,
             #[cfg(debug_assertions)]
             debug_hook: None,
+            #[cfg(debug_assertions)]
+            debug_user_data: core::ptr::null_mut(),
         };
         cpu.reset();
         cpu
@@ -277,7 +283,7 @@ impl<B: Bus> CPU<B> {
     fn finish_instruction(&mut self) {
         #[cfg(debug_assertions)]
         if let Some(hook) = self.debug_hook {
-            hook(self);
+            hook(self, self.debug_user_data);
         }
         self.state = CycleState::FetchOpcode;
     }
