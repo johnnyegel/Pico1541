@@ -17,6 +17,12 @@ pub enum CycleState {
     Operation,
 }
 
+/// A hook that is called at the end of every instruction (the "Sync" point).
+/// 
+/// This type is only available when `debug_assertions` are enabled.
+#[cfg(debug_assertions)]
+pub type DebugHook<B> = fn(&CPU<B>);
+
 /// The cycle-accurate MOS 6502 CPU core.
 pub struct CPU<B: Bus> {
     /// Accumulator register.
@@ -52,6 +58,10 @@ pub struct CPU<B: Bus> {
     pub pending_vector: u16,
     /// The system bus used for all memory and peripheral access.
     pub bus: B,
+
+    /// An optional hook called at the end of every instruction.
+    #[cfg(debug_assertions)]
+    pub debug_hook: Option<DebugHook<B>>,
 }
 
 impl<B: Bus> CPU<B> {
@@ -75,6 +85,8 @@ impl<B: Bus> CPU<B> {
             page_crossed: false,
             pending_vector: 0,
             bus,
+            #[cfg(debug_assertions)]
+            debug_hook: None,
         };
         cpu.reset();
         cpu
@@ -229,7 +241,7 @@ impl<B: Bus> CPU<B> {
         
         if self.step_index >= current_slice.len() {
             if instruction.exec.is_empty() {
-                self.state = CycleState::FetchOpcode;
+                self.finish_instruction();
             } else {
                 self.state = CycleState::Operation;
             }
@@ -244,7 +256,7 @@ impl<B: Bus> CPU<B> {
 
         if current_slice.is_empty() {
             self.bus.read(self.pc); // Mandatory cycle
-            self.state = CycleState::FetchOpcode;
+            self.finish_instruction();
             self.step_index = 0;
             return;
         }
@@ -256,9 +268,18 @@ impl<B: Bus> CPU<B> {
         }
 
         if self.step_index >= current_slice.len() {
-            self.state = CycleState::FetchOpcode;
+            self.finish_instruction();
             self.step_index = 0;
         }
+    }
+
+    /// Completes the current instruction and invokes the debug hook if present.
+    fn finish_instruction(&mut self) {
+        #[cfg(debug_assertions)]
+        if let Some(hook) = self.debug_hook {
+            hook(self);
+        }
+        self.state = CycleState::FetchOpcode;
     }
 
     /// Maps a single `AddrMicroOp` to its cycle-accurate bus and state logic.
@@ -404,21 +425,25 @@ impl<B: Bus> CPU<B> {
                 let carry = (self.a & 0x80) != 0;
                 self.a <<= 1;
                 self.set_flag(0, carry); self.update_zn(self.a);
+                self.bus.read(self.pc);
             }
             ExecMicroOp::AccLSR => {
                 let carry = (self.a & 0x01) != 0;
                 self.a >>= 1;
                 self.set_flag(0, carry); self.update_zn(self.a);
+                self.bus.read(self.pc);
             }
             ExecMicroOp::AccROL => {
                 let carry = (self.a & 0x80) != 0;
                 self.a = (self.a << 1) | (if self.get_flag(0) { 1 } else { 0 });
                 self.set_flag(0, carry); self.update_zn(self.a);
+                self.bus.read(self.pc);
             }
             ExecMicroOp::AccROR => {
                 let carry = (self.a & 0x01) != 0;
                 self.a = (self.a >> 1) | (if self.get_flag(0) { 0x80 } else { 0 });
                 self.set_flag(0, carry); self.update_zn(self.a);
+                self.bus.read(self.pc);
             }
 
             ExecMicroOp::TAX => { self.bus.read(self.pc); self.x = self.a; self.update_zn(self.x); }
@@ -485,7 +510,7 @@ impl<B: Bus> CPU<B> {
             ExecMicroOp::RtsCycle6 => { self.bus.read(self.pc); self.pc = self.pc.wrapping_add(1); }
             ExecMicroOp::RtiCycle2 => { self.bus.read(self.pc); }
             ExecMicroOp::RtiCycle3 => { self.bus.read(0x0100 | (self.s as u16)); }
-            ExecMicroOp::RtiCycle4 => { self.s = self.s.wrapping_add(1); self.p = (self.bus.read(0x0100 | (self.s as u16)) & 0xCF) | (self.p & 0x30); }
+            ExecMicroOp::RtiCycle4 => { self.s = self.s.wrapping_add(1); let p = self.bus.read(0x0100 | (self.s as u16)); self.p = (p & 0xCF) | 0x20; }
             ExecMicroOp::RtiCycle5 => { self.s = self.s.wrapping_add(1); self.pc = (self.pc & 0xFF00) | (self.bus.read(0x0100 | (self.s as u16)) as u16); }
             ExecMicroOp::RtiCycle6 => { self.s = self.s.wrapping_add(1); self.pc = ((self.bus.read(0x0100 | (self.s as u16)) as u16) << 8) | (self.pc & 0x00FF); }
 
@@ -501,7 +526,7 @@ impl<B: Bus> CPU<B> {
             ExecMicroOp::PushPCH => { self.bus.write(0x0100 | (self.s as u16), (self.pc >> 8) as u8); self.s = self.s.wrapping_sub(1); }
             ExecMicroOp::PushPCL => { self.bus.write(0x0100 | (self.s as u16), (self.pc & 0xFF) as u8); self.s = self.s.wrapping_sub(1); }
             ExecMicroOp::PullA => { self.s = self.s.wrapping_add(1); self.a = self.bus.read(0x0100 | (self.s as u16)); self.update_zn(self.a); }
-            ExecMicroOp::PullP => { self.s = self.s.wrapping_add(1); self.p = (self.bus.read(0x0100 | (self.s as u16)) & 0xCF) | 0x20; }
+            ExecMicroOp::PullP => { self.s = self.s.wrapping_add(1); let p = self.bus.read(0x0100 | (self.s as u16)); self.p = (p & 0xCF) | 0x20; }
             ExecMicroOp::PullPCH => { self.s = self.s.wrapping_add(1); let hi = self.bus.read(0x0100 | (self.s as u16)) as u16; self.pc = (hi << 8) | (self.pc & 0x00FF); }
             ExecMicroOp::PullPCL => { self.s = self.s.wrapping_add(1); let lo = self.bus.read(0x0100 | (self.s as u16)) as u16; self.pc = (self.pc & 0xFF00) | lo; }
             

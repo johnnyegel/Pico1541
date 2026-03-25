@@ -28,10 +28,4 @@ pub trait Bus {
     /// This pin is sampled by the CPU at the start of **every** clock cycle.
     /// If it returns `true`, the Overflow (V) flag in the status register is set.
     fn so_pending(&self) -> bool { false }
-
-    /// Indicates that the RDY (Ready) signal is active.
-    /// 
-    /// If `false`, the CPU will "stall" and perform dummy reads until the signal 
-    /// becomes `true`. (Currently used for synchronization in some 6502 variants).
-    fn rdy_pending(&self) -> bool { true }
 }
