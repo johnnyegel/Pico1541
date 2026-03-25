@@ -2,35 +2,62 @@ use crate::bus::Bus;
 use crate::instructions::{AddrMicroOp, ExecMicroOp, VECTOR_RESET, VECTOR_NMI, VECTOR_IRQ};
 use crate::instructions::nmos6502::INSTRUCTION_TABLE;
 
+/// Represents the current stage of the CPU's execution cycle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CycleState {
+    /// Performing the 7-cycle reset sequence.
     Reset,
+    /// Performing the 7-cycle interrupt sequence (IRQ/NMI).
     Interrupt,
+    /// Fetching the next opcode from the bus.
     FetchOpcode,
+    /// Executing the micro-ops associated with the addressing mode.
     AddrMode,
+    /// Executing the micro-ops associated with the instruction's operation.
     Operation,
 }
 
+/// The cycle-accurate MOS 6502 CPU core.
 pub struct CPU<B: Bus> {
+    /// Accumulator register.
     pub a: u8,
+    /// X index register.
     pub x: u8,
+    /// Y index register.
     pub y: u8,
+    /// Program Counter.
     pub pc: u16,
+    /// Stack Pointer (offset from $0100).
     pub s: u8,
-    pub p: u8, // Processor Status
+    /// Processor Status register (NV-BDIZC).
+    pub p: u8,
 
-    pub ir: u8, // Instruction Register
+    /// Instruction Register (current opcode).
+    pub ir: u8,
+    /// The index of the current micro-operation within the active slice.
     pub step_index: usize,
+    /// The current high-level state of the execution cycle.
     pub state: CycleState,
 
+    /// Intermediate address buffer used during address calculation.
     pub effective_addr: u16,
+    /// Intermediate data buffer used during multi-cycle instructions.
     pub data_bus: u8,
+    /// Intermediate data buffer used for Read-Modify-Write instructions.
+    pub temp_data: u8,
+    /// Internal flag indicating that a page boundary was crossed during indexing.
+    pub page_crossed: bool,
 
+    /// The hardware vector to jump to after the current interrupt sequence.
     pub pending_vector: u16,
+    /// The system bus used for all memory and peripheral access.
     pub bus: B,
 }
 
 impl<B: Bus> CPU<B> {
+    /// Creates a new CPU instance attached to the provided bus.
+    /// 
+    /// The CPU starts in the `Reset` state.
     pub fn new(bus: B) -> Self {
         let mut cpu = CPU {
             a: 0,
@@ -38,12 +65,14 @@ impl<B: Bus> CPU<B> {
             y: 0,
             pc: 0,
             s: 0xFD,
-            p: 0x34,
+            p: 0x24, // Bits 5 and 2 (Interrupt Disable) set
             ir: 0,
             step_index: 0,
             state: CycleState::Reset,
             effective_addr: 0,
             data_bus: 0,
+            temp_data: 0,
+            page_crossed: false,
             pending_vector: 0,
             bus,
         };
@@ -51,15 +80,23 @@ impl<B: Bus> CPU<B> {
         cpu
     }
 
+    /// Triggers a hard reset of the CPU.
+    /// 
+    /// On the next call to `tick()`, the CPU will begin the hardware-standard
+    /// 7-cycle reset sequence, eventually fetching the start address from `$FFFC`.
     pub fn reset(&mut self) {
         self.state = CycleState::Reset;
         self.step_index = 0;
     }
 
+    /// Executes exactly one clock cycle of the CPU.
+    /// 
+    /// This method performs exactly one bus access (read or write) and updates
+    /// the internal state of the CPU.
     pub fn tick(&mut self) {
-        // Handle SO (Set Overflow) pin transition
+        // Sample the Set Overflow pin transition
         if self.bus.so_pending() {
-            self.p |= 0x40; // Set Overflow flag
+            self.set_flag(6, true);
         }
 
         match self.state {
@@ -71,6 +108,7 @@ impl<B: Bus> CPU<B> {
         }
     }
 
+    /// Progresses the 7-cycle reset sequence.
     fn tick_reset(&mut self) {
         match self.step_index {
             0..=2 => {
@@ -95,6 +133,7 @@ impl<B: Bus> CPU<B> {
         }
     }
 
+    /// Progresses the 7-cycle interrupt sequence (IRQ/NMI).
     fn tick_interrupt(&mut self) {
         match self.step_index {
             0 => {
@@ -116,9 +155,10 @@ impl<B: Bus> CPU<B> {
                 self.step_index += 1;
             }
             4 => {
-                self.bus.write(0x0100 | (self.s as u16), self.p | 0x20); // B=0
+                // Bit 4 (B) is 0 for hardware interrupts
+                self.bus.write(0x0100 | (self.s as u16), self.p | 0x20); 
                 self.s = self.s.wrapping_sub(1);
-                self.p |= 0x04; // Set I flag
+                self.set_flag(2, true); // Set Interrupt Disable
                 self.step_index += 1;
             }
             5 => {
@@ -135,6 +175,7 @@ impl<B: Bus> CPU<B> {
         }
     }
 
+    /// Fetches the next opcode and checks for pending interrupts.
     fn tick_fetch(&mut self) {
         if self.bus.nmi_pending() {
             self.state = CycleState::Interrupt;
@@ -143,7 +184,7 @@ impl<B: Bus> CPU<B> {
             self.tick_interrupt();
             return;
         }
-        if self.bus.irq_pending() && (self.p & 0x04 == 0) {
+        if self.bus.irq_pending() && !self.get_flag(2) {
             self.state = CycleState::Interrupt;
             self.pending_vector = VECTOR_IRQ;
             self.step_index = 0;
@@ -157,6 +198,7 @@ impl<B: Bus> CPU<B> {
         self.step_index = 0;
     }
 
+    /// Executes one cycle of the addressing mode phase.
     fn tick_addr(&mut self) {
         let instruction = &INSTRUCTION_TABLE[self.ir as usize];
         let current_slice = instruction.addr;
@@ -170,22 +212,38 @@ impl<B: Bus> CPU<B> {
 
         if self.step_index < current_slice.len() {
             let uop = current_slice[self.step_index];
-            self.execute_addr_uop(uop);
-            self.step_index += 1;
+            // Handle optional page-cross fixup cycles
+            if (uop == AddrMicroOp::OptionalFixupX || uop == AddrMicroOp::OptionalFixupY || uop == AddrMicroOp::OptionalFixupIndY) && !self.page_crossed {
+                self.step_index += 1;
+                if self.step_index >= current_slice.len() {
+                    self.state = CycleState::Operation;
+                    self.step_index = 0;
+                    self.tick_operation();
+                    return;
+                }
+            } else {
+                self.execute_addr_uop(uop);
+                self.step_index += 1;
+            }
         }
         
         if self.step_index >= current_slice.len() {
-            self.state = CycleState::Operation;
+            if instruction.exec.is_empty() {
+                self.state = CycleState::FetchOpcode;
+            } else {
+                self.state = CycleState::Operation;
+            }
             self.step_index = 0;
         }
     }
 
+    /// Executes one cycle of the operation phase.
     fn tick_operation(&mut self) {
         let instruction = &INSTRUCTION_TABLE[self.ir as usize];
         let current_slice = instruction.exec;
 
         if current_slice.is_empty() {
-            self.bus.read(self.pc); // Mandatory bus access
+            self.bus.read(self.pc); // Mandatory cycle
             self.state = CycleState::FetchOpcode;
             self.step_index = 0;
             return;
@@ -203,6 +261,7 @@ impl<B: Bus> CPU<B> {
         }
     }
 
+    /// Maps a single `AddrMicroOp` to its cycle-accurate bus and state logic.
     fn execute_addr_uop(&mut self, uop: AddrMicroOp) {
         match uop {
             AddrMicroOp::FetchAddrLo => {
@@ -214,8 +273,10 @@ impl<B: Bus> CPU<B> {
                 self.effective_addr |= hi << 8;
                 self.pc = self.pc.wrapping_add(1);
             }
-            AddrMicroOp::DummyReadPC => { self.bus.read(self.pc); }
-            AddrMicroOp::DummyReadEff => { self.bus.read(self.effective_addr); }
+            AddrMicroOp::FetchAddrHiAndJump => {
+                let hi = self.bus.read(self.pc) as u16;
+                self.pc = (hi << 8) | (self.effective_addr & 0x00FF);
+            }
             AddrMicroOp::AddXToZP => {
                 let lo = self.effective_addr as u8;
                 self.bus.read(self.effective_addr);
@@ -227,25 +288,53 @@ impl<B: Bus> CPU<B> {
                 self.effective_addr = lo.wrapping_add(self.y) as u16;
             }
             AddrMicroOp::AddXToAbs => {
+                let hi = self.bus.read(self.pc) as u16;
+                self.pc = self.pc.wrapping_add(1);
                 let (lo, carry) = (self.effective_addr as u8).overflowing_add(self.x);
-                let base_high = self.effective_addr & 0xFF00;
-                self.effective_addr = base_high | (lo as u16);
-                self.bus.read(self.effective_addr);
-                if carry { self.effective_addr = self.effective_addr.wrapping_add(0x100); }
+                self.effective_addr = (hi << 8) | (lo as u16);
+                self.page_crossed = carry;
             }
             AddrMicroOp::AddYToAbs => {
+                let hi = self.bus.read(self.pc) as u16;
+                self.pc = self.pc.wrapping_add(1);
                 let (lo, carry) = (self.effective_addr as u8).overflowing_add(self.y);
-                let base_high = self.effective_addr & 0xFF00;
-                self.effective_addr = base_high | (lo as u16);
-                self.bus.read(self.effective_addr);
-                if carry { self.effective_addr = self.effective_addr.wrapping_add(0x100); }
+                self.effective_addr = (hi << 8) | (lo as u16);
+                self.page_crossed = carry;
             }
+            AddrMicroOp::FetchIndXLo => {
+                self.data_bus = self.bus.read(self.effective_addr);
+                self.effective_addr = (self.effective_addr & 0xFF00) | ((self.effective_addr + 1) & 0x00FF);
+            }
+            AddrMicroOp::FetchIndXHi => {
+                let hi = self.bus.read(self.effective_addr) as u16;
+                self.effective_addr = (hi << 8) | (self.data_bus as u16);
+            }
+            AddrMicroOp::FetchIndYLo => {
+                self.data_bus = self.bus.read(self.effective_addr);
+                self.effective_addr = (self.effective_addr & 0xFF00) | ((self.effective_addr + 1) & 0x00FF);
+            }
+            AddrMicroOp::FetchIndYHi => {
+                let hi = self.bus.read(self.effective_addr) as u16;
+                let al = self.data_bus as u16;
+                let (new_al, carry) = (al as u8).overflowing_add(self.y);
+                self.effective_addr = (hi << 8) | (new_al as u16);
+                self.page_crossed = carry;
+            }
+            AddrMicroOp::OptionalFixupX | AddrMicroOp::OptionalFixupY | AddrMicroOp::OptionalFixupIndY |
+            AddrMicroOp::MandatoryFixupX | AddrMicroOp::MandatoryFixupY | AddrMicroOp::MandatoryFixupIndY => {
+                self.bus.read(self.effective_addr); // Dummy read from wrong page
+                if self.page_crossed {
+                    self.effective_addr = self.effective_addr.wrapping_add(0x100);
+                }
+            }
+            AddrMicroOp::DummyReadPC => { self.bus.read(self.pc); }
+            AddrMicroOp::DummyReadEff => { self.bus.read(self.effective_addr); }
         }
     }
 
+    /// Maps a single `ExecMicroOp` to its cycle-accurate bus and state logic.
     fn execute_exec_uop(&mut self, uop: ExecMicroOp) {
         match uop {
-            ExecMicroOp::ReadEff => { self.data_bus = self.bus.read(self.effective_addr); }
             ExecMicroOp::ReadEffAndLDA => { self.a = self.bus.read(self.effective_addr); self.update_zn(self.a); }
             ExecMicroOp::ReadEffAndLDX => { self.x = self.bus.read(self.effective_addr); self.update_zn(self.x); }
             ExecMicroOp::ReadEffAndLDY => { self.y = self.bus.read(self.effective_addr); self.update_zn(self.y); }
@@ -272,6 +361,66 @@ impl<B: Bus> CPU<B> {
             ExecMicroOp::WriteEffA => { self.bus.write(self.effective_addr, self.a); }
             ExecMicroOp::WriteEffX => { self.bus.write(self.effective_addr, self.x); }
             ExecMicroOp::WriteEffY => { self.bus.write(self.effective_addr, self.y); }
+
+            // RMW
+            ExecMicroOp::ReadEffToData => { self.temp_data = self.bus.read(self.effective_addr); }
+            ExecMicroOp::WriteDataBack => { self.bus.write(self.effective_addr, self.temp_data); }
+            ExecMicroOp::ASLWrite => {
+                let carry = (self.temp_data & 0x80) != 0;
+                let res = self.temp_data << 1;
+                self.set_flag(0, carry); self.update_zn(res);
+                self.bus.write(self.effective_addr, res);
+            }
+            ExecMicroOp::LSRWrite => {
+                let carry = (self.temp_data & 0x01) != 0;
+                let res = self.temp_data >> 1;
+                self.set_flag(0, carry); self.update_zn(res);
+                self.bus.write(self.effective_addr, res);
+            }
+            ExecMicroOp::ROLWrite => {
+                let carry = (self.temp_data & 0x80) != 0;
+                let res = (self.temp_data << 1) | (if self.get_flag(0) { 1 } else { 0 });
+                self.set_flag(0, carry); self.update_zn(res);
+                self.bus.write(self.effective_addr, res);
+            }
+            ExecMicroOp::RORWrite => {
+                let carry = (self.temp_data & 0x01) != 0;
+                let res = (self.temp_data >> 1) | (if self.get_flag(0) { 0x80 } else { 0 });
+                self.set_flag(0, carry); self.update_zn(res);
+                self.bus.write(self.effective_addr, res);
+            }
+            ExecMicroOp::INCWrite => {
+                let res = self.temp_data.wrapping_add(1);
+                self.update_zn(res);
+                self.bus.write(self.effective_addr, res);
+            }
+            ExecMicroOp::DECWrite => {
+                let res = self.temp_data.wrapping_sub(1);
+                self.update_zn(res);
+                self.bus.write(self.effective_addr, res);
+            }
+
+            ExecMicroOp::AccASL => {
+                let carry = (self.a & 0x80) != 0;
+                self.a <<= 1;
+                self.set_flag(0, carry); self.update_zn(self.a);
+            }
+            ExecMicroOp::AccLSR => {
+                let carry = (self.a & 0x01) != 0;
+                self.a >>= 1;
+                self.set_flag(0, carry); self.update_zn(self.a);
+            }
+            ExecMicroOp::AccROL => {
+                let carry = (self.a & 0x80) != 0;
+                self.a = (self.a << 1) | (if self.get_flag(0) { 1 } else { 0 });
+                self.set_flag(0, carry); self.update_zn(self.a);
+            }
+            ExecMicroOp::AccROR => {
+                let carry = (self.a & 0x01) != 0;
+                self.a = (self.a >> 1) | (if self.get_flag(0) { 0x80 } else { 0 });
+                self.set_flag(0, carry); self.update_zn(self.a);
+            }
+
             ExecMicroOp::TAX => { self.bus.read(self.pc); self.x = self.a; self.update_zn(self.x); }
             ExecMicroOp::TXA => { self.bus.read(self.pc); self.a = self.x; self.update_zn(self.a); }
             ExecMicroOp::TAY => { self.bus.read(self.pc); self.y = self.a; self.update_zn(self.y); }
@@ -289,32 +438,166 @@ impl<B: Bus> CPU<B> {
             ExecMicroOp::CLV => { self.bus.read(self.pc); self.set_flag(6, false); }
             ExecMicroOp::CLD => { self.bus.read(self.pc); self.set_flag(3, false); }
             ExecMicroOp::SED => { self.bus.read(self.pc); self.set_flag(3, true); }
+            
+            ExecMicroOp::JumpIndCycle4 => { self.data_bus = self.bus.read(self.effective_addr); }
+            ExecMicroOp::JumpIndCycle5 => {
+                let lo = self.data_bus;
+                let hi_addr = (self.effective_addr & 0xFF00) | (self.effective_addr.wrapping_add(1) & 0x00FF);
+                let hi = self.bus.read(hi_addr);
+                self.pc = (hi as u16) << 8 | (lo as u16);
+            }
+            ExecMicroOp::BranchCycle2 => {
+                let offset = self.bus.read(self.pc) as i8;
+                self.pc = self.pc.wrapping_add(1);
+                let condition = match self.ir {
+                    0x10 => !self.get_flag(7), 0x30 => self.get_flag(7),
+                    0x50 => !self.get_flag(6), 0x70 => self.get_flag(6),
+                    0x90 => !self.get_flag(0), 0xB0 => self.get_flag(0),
+                    0xD0 => !self.get_flag(1), 0xF0 => self.get_flag(1),
+                    _ => unreachable!(),
+                };
+                if condition {
+                    self.effective_addr = self.pc.wrapping_add(offset as u16);
+                } else {
+                    self.step_index = 2; // Finish
+                }
+            }
+            ExecMicroOp::BranchCycle3 => {
+                self.bus.read((self.pc & 0xFF00) | (self.effective_addr & 0x00FF));
+                if (self.pc & 0xFF00) == (self.effective_addr & 0xFF00) {
+                    self.pc = self.effective_addr;
+                    self.step_index = 2; // Finish
+                }
+            }
+            ExecMicroOp::BranchCycle4 => {
+                self.bus.read(self.effective_addr);
+                self.pc = self.effective_addr;
+            }
+            ExecMicroOp::JsrCycle2 => { self.data_bus = self.bus.read(self.pc); self.pc = self.pc.wrapping_add(1); }
+            ExecMicroOp::JsrCycle3 => { self.bus.read(0x0100 | (self.s as u16)); }
+            ExecMicroOp::JsrCycle4 => { self.bus.write(0x0100 | (self.s as u16), (self.pc >> 8) as u8); self.s = self.s.wrapping_sub(1); }
+            ExecMicroOp::JsrCycle5 => { self.bus.write(0x0100 | (self.s as u16), (self.pc & 0xFF) as u8); self.s = self.s.wrapping_sub(1); }
+            ExecMicroOp::JsrCycle6 => { let hi = self.bus.read(self.pc) as u16; self.pc = (hi << 8) | (self.data_bus as u16); }
+            ExecMicroOp::RtsCycle2 => { self.bus.read(self.pc); }
+            ExecMicroOp::RtsCycle3 => { self.bus.read(0x0100 | (self.s as u16)); }
+            ExecMicroOp::RtsCycle4 => { self.s = self.s.wrapping_add(1); self.pc = (self.pc & 0xFF00) | (self.bus.read(0x0100 | (self.s as u16)) as u16); }
+            ExecMicroOp::RtsCycle5 => { self.s = self.s.wrapping_add(1); self.pc = ((self.bus.read(0x0100 | (self.s as u16)) as u16) << 8) | (self.pc & 0x00FF); }
+            ExecMicroOp::RtsCycle6 => { self.bus.read(self.pc); self.pc = self.pc.wrapping_add(1); }
+            ExecMicroOp::RtiCycle2 => { self.bus.read(self.pc); }
+            ExecMicroOp::RtiCycle3 => { self.bus.read(0x0100 | (self.s as u16)); }
+            ExecMicroOp::RtiCycle4 => { self.s = self.s.wrapping_add(1); self.p = (self.bus.read(0x0100 | (self.s as u16)) & 0xCF) | (self.p & 0x30); }
+            ExecMicroOp::RtiCycle5 => { self.s = self.s.wrapping_add(1); self.pc = (self.pc & 0xFF00) | (self.bus.read(0x0100 | (self.s as u16)) as u16); }
+            ExecMicroOp::RtiCycle6 => { self.s = self.s.wrapping_add(1); self.pc = ((self.bus.read(0x0100 | (self.s as u16)) as u16) << 8) | (self.pc & 0x00FF); }
+
+            ExecMicroOp::BrkCycle2 => { self.bus.read(self.pc); self.pc = self.pc.wrapping_add(1); }
+            ExecMicroOp::BrkCycle3 => { self.bus.write(0x0100 | (self.s as u16), (self.pc >> 8) as u8); self.s = self.s.wrapping_sub(1); }
+            ExecMicroOp::BrkCycle4 => { self.bus.write(0x0100 | (self.s as u16), (self.pc & 0xFF) as u8); self.s = self.s.wrapping_sub(1); }
+            ExecMicroOp::BrkCycle5 => { self.bus.write(0x0100 | (self.s as u16), self.p | 0x30); self.s = self.s.wrapping_sub(1); }
+            ExecMicroOp::BrkCycle6 => { self.pc = self.bus.read(VECTOR_IRQ) as u16; self.set_flag(2, true); }
+            ExecMicroOp::BrkCycle7 => { let hi = self.bus.read(VECTOR_IRQ + 1) as u16; self.pc |= hi << 8; }
+
             ExecMicroOp::PushA => { self.bus.write(0x0100 | (self.s as u16), self.a); self.s = self.s.wrapping_sub(1); }
             ExecMicroOp::PushP => { self.bus.write(0x0100 | (self.s as u16), self.p | 0x30); self.s = self.s.wrapping_sub(1); }
+            ExecMicroOp::PushPCH => { self.bus.write(0x0100 | (self.s as u16), (self.pc >> 8) as u8); self.s = self.s.wrapping_sub(1); }
+            ExecMicroOp::PushPCL => { self.bus.write(0x0100 | (self.s as u16), (self.pc & 0xFF) as u8); self.s = self.s.wrapping_sub(1); }
             ExecMicroOp::PullA => { self.s = self.s.wrapping_add(1); self.a = self.bus.read(0x0100 | (self.s as u16)); self.update_zn(self.a); }
-            ExecMicroOp::PullP => { self.s = self.s.wrapping_add(1); self.p = (self.bus.read(0x0100 | (self.s as u16)) & 0xCF) | (self.p & 0x30); }
+            ExecMicroOp::PullP => { self.s = self.s.wrapping_add(1); self.p = (self.bus.read(0x0100 | (self.s as u16)) & 0xCF) | 0x20; }
+            ExecMicroOp::PullPCH => { self.s = self.s.wrapping_add(1); let hi = self.bus.read(0x0100 | (self.s as u16)) as u16; self.pc = (hi << 8) | (self.pc & 0x00FF); }
+            ExecMicroOp::PullPCL => { self.s = self.s.wrapping_add(1); let lo = self.bus.read(0x0100 | (self.s as u16)) as u16; self.pc = (self.pc & 0xFF00) | lo; }
+            
+            ExecMicroOp::DummyReadStack => { self.bus.read(0x0100 | (self.s as u16)); }
             ExecMicroOp::DummyReadPC => { self.bus.read(self.pc); }
             ExecMicroOp::DummyReadEff => { self.bus.read(self.effective_addr); }
-            _ => { self.bus.read(self.pc); }
+            ExecMicroOp::Unimplemented => { self.bus.read(self.pc); }
         }
     }
 
-    fn update_zn(&mut self, val: u8) { self.set_flag(1, val == 0); self.set_flag(7, (val & 0x80) != 0); }
-    fn set_flag(&mut self, bit: u8, val: bool) { if val { self.p |= 1 << bit; } else { self.p &= !(1 << bit); } }
-    fn get_flag(&self, bit: u8) -> bool { (self.p & (1 << bit)) != 0 }
-    fn do_compare(&mut self, reg: u8, val: u8) { let (res, borrow) = reg.overflowing_sub(val); self.set_flag(0, !borrow); self.update_zn(res); }
-    fn do_adc(&mut self, val: u8) {
-        let carry = if self.get_flag(0) { 1 } else { 0 };
-        let a = self.a as u16;
-        let v = val as u16;
-        let result = a + v + carry;
-        self.set_flag(0, result > 0xFF);
-        let result_u8 = (result & 0xFF) as u8;
-        let overflow = (!(a as u8 ^ val) & (a as u8 ^ result_u8) & 0x80) != 0;
-        self.set_flag(6, overflow);
-        self.a = result_u8;
-        self.update_zn(self.a);
+    /// Updates the Zero (Z) and Negative (N) flags based on the provided value.
+    fn update_zn(&mut self, val: u8) { 
+        self.set_flag(1, val == 0); 
+        self.set_flag(7, (val & 0x80) != 0); 
     }
-    fn do_sbc(&mut self, val: u8) { self.do_adc(!val); }
-    fn do_bit(&mut self, val: u8) { self.set_flag(1, (self.a & val) == 0); self.set_flag(7, (val & 0x80) != 0); self.set_flag(6, (val & 0x40) != 0); }
+
+    /// Sets or clears a specific flag bit in the status register.
+    /// 
+    /// Note: Bits 4 (B) and 5 are not stored in the `p` register directly
+    /// but are generated during stack pushes.
+    fn set_flag(&mut self, bit: u8, val: bool) {
+        if bit == 4 || bit == 5 { return; }
+        if val { self.p |= 1 << bit; } else { self.p &= !(1 << bit); }
+    }
+
+    /// Returns the current state of a specific flag bit.
+    fn get_flag(&self, bit: u8) -> bool { (self.p & (1 << bit)) != 0 }
+
+    /// Performs a comparison between a register and a value, updating N, Z, and C flags.
+    fn do_compare(&mut self, reg: u8, val: u8) { 
+        let (res, borrow) = reg.overflowing_sub(val); 
+        self.set_flag(0, !borrow); 
+        self.update_zn(res); 
+    }
+    
+    /// Performs an Addition with Carry, handling decimal mode if the D flag is set.
+    fn do_adc(&mut self, val: u8) {
+        let a = self.a as u16;
+        let b = val as u16;
+        let c = if self.get_flag(0) { 1 } else { 0 };
+        let sum = a + b + c;
+
+        if self.get_flag(3) {
+            let mut low = (a & 0x0F) + (b & 0x0F) + c;
+            if low > 9 { low += 6; }
+            let mut high = (a >> 4) + (b >> 4) + (if low > 15 { 1 } else { 0 });
+            
+            // Flags are binary based on NMOS 6502
+            self.set_flag(0, sum > 0xFF);
+            self.update_zn((sum & 0xFF) as u8);
+            self.set_flag(6, (!(a ^ b) & (a ^ sum) & 0x80) != 0);
+
+            if high > 9 { high += 6; }
+            self.set_flag(0, high > 15);
+            self.a = ((high << 4) | (low & 0x0F)) as u8;
+        } else {
+            self.set_flag(0, sum > 0xFF);
+            let res8 = (sum & 0xFF) as u8;
+            self.set_flag(6, (!(a ^ b) & (a ^ sum) & 0x80) != 0);
+            self.update_zn(res8);
+            self.a = res8;
+        }
+    }
+
+    /// Performs a Subtraction with Borrow, handling decimal mode if the D flag is set.
+    fn do_sbc(&mut self, val: u8) {
+        let a = self.a as i16;
+        let b = val as i16;
+        let c = if self.get_flag(0) { 1 } else { 0 };
+        let diff = a - b - (1 - c);
+
+        if self.get_flag(3) {
+            let mut low = (a & 0x0F) - (b & 0x0F) - (1 - c);
+            if low < 0 { low -= 6; }
+            let mut high = (a >> 4) - (b >> 4) - (if low < 0 { 1 } else { 0 });
+            if high < 0 { high -= 6; }
+            
+            // Flags are binary based on NMOS 6502
+            self.set_flag(0, diff >= 0);
+            self.update_zn((diff & 0xFF) as u8);
+            self.set_flag(6, ((a ^ diff) & (a ^ b) & 0x80) != 0);
+            
+            self.a = ((high as u16) << 4 | (low as u16 & 0x0F)) as u8;
+        } else {
+            self.set_flag(0, diff >= 0);
+            let res8 = (diff & 0xFF) as u8;
+            self.set_flag(6, ((a ^ diff) & (a ^ b) & 0x80) != 0);
+            self.update_zn(res8);
+            self.a = res8;
+        }
+    }
+
+    /// Performs a bitwise AND between the accumulator and memory, updating flags.
+    fn do_bit(&mut self, val: u8) { 
+        self.set_flag(1, (self.a & val) == 0); 
+        self.set_flag(7, (val & 0x80) != 0); 
+        self.set_flag(6, (val & 0x40) != 0); 
+    }
 }

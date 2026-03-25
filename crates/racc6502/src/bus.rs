@@ -1,23 +1,37 @@
-/// Trait that implements the bus for the 6502 CPU. This is used to read and write memory and peripherals.
+/// Trait defining the interface between the CPU and the rest of the system.
 /// 
-/// The 6502 CPU will call these methods to interact with memory and peripherals. The bus is responsible 
-/// for routing these calls to the appropriate devices based on the address.
+/// The `Bus` is the primary interface for cycle-accurate interaction with memory and peripherals.
+/// In `racc6502`, the bus effectively serves as the system clock.
 pub trait Bus {
     /// Reads a byte from the given address.
+    /// 
+    /// Called exactly once per CPU cycle during `CPU::tick()` unless `write` is called.
+    /// This may be a meaningful read (opcode fetch, data access) or a "dummy" read
+    /// used to maintain hardware-accurate timing.
     fn read(&mut self, addr: u16) -> u8;
 
     /// Writes a byte to the given address.
+    /// 
+    /// Called exactly once per CPU cycle during `CPU::tick()` unless `read` is called.
     fn write(&mut self, addr: u16, value: u8);
 
-    /// Indicates that an IRQ interrupt is pending. The CPU will check this flag at the end of each instruction and handle it if set.
+    /// Sampled by the CPU at the start of every opcode fetch to determine if an IRQ
+    /// sequence should be triggered. Returns `true` if an IRQ is active.
     fn irq_pending(&self) -> bool { false }
 
-    /// Indicates that an NMI interrupt is pending. The CPU will check this flag at the end of each instruction and handle it if set.
+    /// Sampled by the CPU at the start of every opcode fetch to determine if an NMI
+    /// sequence should be triggered. Returns `true` if an NMI is active.
     fn nmi_pending(&self) -> bool { false }
 
-    /// Indicates that the SO (Serial Output) signal is pending. The CPU will check this flag at the end of each instruction and handle it if set.
+    /// Simulates the hardware `SO` (Set Overflow) pin.
+    /// 
+    /// This pin is sampled by the CPU at the start of **every** clock cycle.
+    /// If it returns `true`, the Overflow (V) flag in the status register is set.
     fn so_pending(&self) -> bool { false }
 
-    /// Indicates that the RDY (Ready) signal is pending. The CPU will check this flag at the end of each instruction and handle it if set.
-    fn rdy_pending(&self) -> bool { false }
+    /// Indicates that the RDY (Ready) signal is active.
+    /// 
+    /// If `false`, the CPU will "stall" and perform dummy reads until the signal 
+    /// becomes `true`. (Currently used for synchronization in some 6502 variants).
+    fn rdy_pending(&self) -> bool { true }
 }
