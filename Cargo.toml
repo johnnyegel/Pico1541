@@ -2,7 +2,8 @@
 members = [
     "crates/pico1541-emu",
     "crates/pico1541-manager",
-    "crates/pico1541-rp2040"
+    "crates/pico1541-rp2040",
+    "crates/racc6502"
 ]
 resolver = "2"
 
