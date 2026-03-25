@@ -5,9 +5,7 @@ pub mod systembus;
 pub mod drivemechanics;
 pub mod activetrack;
 
-use mos6502::cpu::CPU;
-use mos6502::instruction::Nmos6502;
-use mos6502::registers::Status;
+use racc6502::cpu::{CPU, CycleState};
 use systembus::SystemBus;
 use activetrack::ActiveTrack;
 use heapless::spsc::Producer;
@@ -104,68 +102,51 @@ impl DriveHardware for HardwareBridge {
 
 /// The MOS 1541 Drive Emulator.
 pub struct Emulator<H: DriveHardware> {
-    cpu: CPU<SystemBus<H>, Nmos6502>,
-    last_cpu_cycles: u64,
+    pub cpu: CPU<SystemBus<H>>,
 }
 
 impl<H: DriveHardware> Emulator<H> {
     /// Constructs a new 1541 Emulator with the provided ROM and hardware interface.
     pub fn new(rom: [u8; 16384], hardware: H) -> Self {
         let bus = SystemBus::new(rom, hardware);
-        let cpu = CPU::new(bus, Nmos6502::default());
-        Self { cpu, last_cpu_cycles: 0 }
+        let cpu = CPU::new(bus);
+        Self { cpu }
     }
 
     /// Resets the 6502 CPU and VIAs.
     pub fn reset(&mut self) {
         debug!("Emulator Reset");
         self.cpu.reset();
-        self.last_cpu_cycles = self.cpu.cycles;
     }
 
-    /// Executes a single instruction and synchronizes hardware timers.
+    /// Executes a single instruction.
+    /// 
+    /// This will call `tick()` repeatedly until the CPU reaches the next instruction fetch.
     pub fn step(&mut self) {
-        // 1. Execute one instruction
-        self.cpu.single_step();
-
-        // 2. Calculate cycles elapsed
-        let current_cycles = self.cpu.cycles;
-        let delta = current_cycles.wrapping_sub(self.last_cpu_cycles);
-        self.last_cpu_cycles = current_cycles;
-
-        // 3. Catch up hardware timers for internal CPU cycles
-        let memory_ticks = self.cpu.memory.ticks_this_step;
-        self.cpu.memory.ticks_this_step = 0;
-
-        if delta > memory_ticks as u64 {
-            let extra_ticks = delta - memory_ticks as u64;
-            for _ in 0..extra_ticks {
-                self.cpu.memory.tick_cycle();
+        // Run until we start fetching the next opcode
+        loop {
+            self.cpu.tick();
+            if self.cpu.state == CycleState::FetchOpcode && self.cpu.step_index == 0 {
+                break;
             }
-        }
-
-        // 4. Handle SO signal
-        if self.cpu.memory.so_pending {
-            self.cpu.memory.so_pending = false;
-            self.cpu.registers.status.insert(Status::PS_OVERFLOW);
         }
     }
 
     pub fn pc(&self) -> u16 {
-        self.cpu.registers.program_counter
+        self.cpu.pc
     }
 
     pub fn half_track(&self) -> u8 {
-        self.cpu.memory.mechanics.current_half_track
+        self.cpu.bus.mechanics.current_half_track
     }
 
     /// Direct access to the internal memory bus (e.g. for inspection).
     pub fn bus(&self) -> &SystemBus<H> {
-        &self.cpu.memory
+        &self.cpu.bus
     }
 
     /// Mutable access to the internal memory bus.
     pub fn bus_mut(&mut self) -> &mut SystemBus<H> {
-        &mut self.cpu.memory
+        &mut self.cpu.bus
     }
 }

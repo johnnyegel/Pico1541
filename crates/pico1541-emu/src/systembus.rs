@@ -1,4 +1,4 @@
-use mos6502::memory::Bus;
+use racc6502::bus::Bus;
 use crate::via6522::Via6522;
 use crate::DriveHardware;
 use crate::drivemechanics::DriveMechanics;
@@ -15,35 +15,47 @@ pub struct SystemBus<H: DriveHardware> {
     pub via2: Via6522,
     pub hardware: H,
     pub mechanics: DriveMechanics,
-    pub so_pending: bool,
+    pub so_active: bool,
     
     // Cached state to detect changes
     last_motor_on: bool,
     last_led_on: bool,
-    pub ticks_this_step: u32,
 }
 
 impl<H: DriveHardware> SystemBus<H> {
     pub fn new(rom: [u8; ROM_SIZE], hardware: H) -> Self {
+        let mut via1 = Via6522::new();
+        // Culprit 1: Track 0 Sensor (VIA 1, Port A, Bit 0)
+        // Defaults to 0 (Not at Track 0) to allow homing sequence to start.
+        via1.in_a &= !0x01; 
+
         Self {
             ram: [0; RAM_SIZE],
             rom,
-            via1: Via6522::new(),
+            via1,
             via2: Via6522::new(),
             hardware,
             mechanics: DriveMechanics::new(),
-            so_pending: false,
+            so_active: false,
             last_motor_on: false,
             last_led_on: false,
-            ticks_this_step: 0,
         }
     }
 
     pub fn tick_cycle(&mut self) {
-        self.ticks_this_step += 1;
         if self.mechanics.tick(&mut self.hardware, &mut self.via2) {
-            self.so_pending = true;
+            self.so_active = true;
+        } else {
+            self.so_active = false;
         }
+
+        // Update Track 0 sensor state based on mechanics
+        if self.mechanics.current_half_track == 0 {
+            self.via1.in_a |= 0x01; // At Track 0
+        } else {
+            self.via1.in_a &= !0x01; // Not at Track 0
+        }
+
         self.via1.in_b = self.hardware.get_iec_pins();
         self.hardware.set_iec_pins(self.via1.get_port_b());
         self.via1.tick_cycle();
@@ -52,7 +64,6 @@ impl<H: DriveHardware> SystemBus<H> {
 
     fn check_state_changes(&mut self) {
         // --- Motor (VIA2 Port B bit 2) ---
-        // On a 1541-II, 1 = Motor ON, 0 = Motor OFF.
         let motor_on = (self.via2.orb & 0x04) != 0;
         if motor_on != self.last_motor_on {
             info!("Motor changed: {} -> {}", self.last_motor_on, motor_on);
@@ -60,13 +71,15 @@ impl<H: DriveHardware> SystemBus<H> {
             self.hardware.notify_motor_changed(motor_on);
         }
 
-        // --- LED (VIA2 CA2 / PCR bits 1-3) ---
+        // --- LED (1541-II uses VIA2 Port B bit 3 OR CA2) ---
+        let led_pb3 = (self.via2.orb & 0x08) != 0;
         let pcr_ca2 = (self.via2.pcr >> 1) & 0x07;
-        let led_on = match pcr_ca2 {
+        let led_ca2 = match pcr_ca2 {
             0b110 => true,  // Manual output low (LED ON)
             0b111 => false, // Manual output high (LED OFF)
             _ => false,
         };
+        let led_on = led_pb3 || led_ca2;
         
         if led_on != self.last_led_on {
             info!("LED changed: {} -> {}", self.last_led_on, led_on);
@@ -77,7 +90,7 @@ impl<H: DriveHardware> SystemBus<H> {
 }
 
 impl<H: DriveHardware> Bus for SystemBus<H> {
-    fn get_byte(&mut self, addr: u16) -> u8 {
+    fn read(&mut self, addr: u16) -> u8 {
         self.tick_cycle();
         match addr {
             0x0000..=0x17FF => self.ram[(addr as usize) % RAM_SIZE],
@@ -92,7 +105,7 @@ impl<H: DriveHardware> Bus for SystemBus<H> {
         }
     }
 
-    fn set_byte(&mut self, addr: u16, value: u8) {
+    fn write(&mut self, addr: u16, value: u8) {
         self.tick_cycle();
         match addr {
             0x0000..=0x17FF => self.ram[(addr as usize) % RAM_SIZE] = value,
@@ -112,15 +125,18 @@ impl<H: DriveHardware> Bus for SystemBus<H> {
         }
     }
 
-    fn irq_pending(&mut self) -> bool {
+    fn irq_pending(&self) -> bool {
         self.via1.irq || self.via2.irq
+    }
+
+    fn so_pending(&self) -> bool {
+        self.so_active
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mos6502::{cpu::CPU, instruction::Nmos6502};
     use crate::activetrack::ActiveTrack;
     struct MockHardware { track: ActiveTrack }
     impl DriveHardware for MockHardware {
@@ -135,8 +151,8 @@ mod tests {
     #[test]
     fn test_ram_read_write() {
         let mut pico_bus = SystemBus::new([0; ROM_SIZE], MockHardware { track: ActiveTrack::new() });
-        pico_bus.set_byte(0x0100, 0xAB);
-        assert_eq!(pico_bus.get_byte(0x0100), 0xAB);
-        assert_eq!(pico_bus.get_byte(0x0900), 0xAB);
+        pico_bus.write(0x0100, 0xAB);
+        assert_eq!(pico_bus.read(0x0100), 0xAB);
+        assert_eq!(pico_bus.read(0x0900), 0xAB);
     }
 }
