@@ -132,6 +132,49 @@ impl Via6522 {
         }
     }
 
+    /// Peek at a VIA register without side effects.
+    #[cfg(feature = "debug")]
+    pub fn peek(&self, addr: u16) -> u8 {
+        let register = (addr & 0x0F) as usize;
+        match register {
+            0x00 => { // IRB
+                if (self.acr & 0x02) != 0 {
+                    self.latch_b
+                } else {
+                    (self.orb & self.ddrb) | (self.in_b & !self.ddrb)
+                }
+            }
+            0x01 => { // IRA
+                if (self.acr & 0x01) != 0 {
+                    self.latch_a
+                } else {
+                    (self.ora & self.ddra) | (self.in_a & !self.ddra)
+                }
+            }
+            0x02 => self.ddrb,
+            0x03 => self.ddra,
+            0x04 => (self.t1c & 0xFF) as u8,
+            0x05 => (self.t1c >> 8) as u8,
+            0x06 => (self.t1l & 0xFF) as u8,
+            0x07 => (self.t1l >> 8) as u8,
+            0x08 => (self.t2c & 0xFF) as u8,
+            0x09 => (self.t2c >> 8) as u8,
+            0x0A => self.sr,
+            0x0B => self.acr,
+            0x0C => self.pcr,
+            0x0D => self.ifr,
+            0x0E => self.ier | 0x80,
+            0x0F => { // IRA (no handshake)
+                if (self.acr & 0x01) != 0 {
+                    self.latch_a
+                } else {
+                    (self.ora & self.ddra) | (self.in_a & !self.ddra)
+                }
+            }
+            _ => 0,
+        }
+    }
+
     /// Write a byte to a VIA register.
     pub fn write(&mut self, addr: u16, value: u8) {
         let register = (addr & 0x0F) as usize;

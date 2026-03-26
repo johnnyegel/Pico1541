@@ -63,6 +63,28 @@ impl<H: DriveHardware> SystemBus<H> {
         self.via2.tick_cycle();
     }
 
+    #[cfg(feature = "debug")]
+    pub fn peek(&self, addr: u16) -> u8 {
+        match addr {
+            0x0000..=0x17FF => self.ram[(addr as usize) % RAM_SIZE],
+            0x1800..=0x1BFF => self.via1.peek(addr),
+            0x1C00..=0x1FFF => self.via2.peek(addr),
+            0x8000..=0xBFFF => self.rom[(addr - 0x8000) as usize],
+            0xC000..=0xFFFF => self.rom[(addr - 0xC000) as usize],
+            _ => 0,
+        }
+    }
+
+    #[cfg(feature = "debug")]
+    pub fn motor_on(&self) -> bool {
+        self.last_motor_on
+    }
+
+    #[cfg(feature = "debug")]
+    pub fn led_on(&self) -> bool {
+        self.last_led_on
+    }
+
     fn check_state_changes(&mut self) {
         // --- Motor (VIA2 Port B bit 2) ---
         // Active-LOW on 1541-II (0 = Motor ON)

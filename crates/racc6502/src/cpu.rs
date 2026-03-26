@@ -21,7 +21,7 @@ pub enum CycleState {
 /// 
 /// This type is only available when `debug_assertions` are enabled.
 /// The second argument is a pointer to optional user data.
-#[cfg(debug_assertions)]
+#[cfg(feature = "debug")]
 pub type DebugHook<B> = fn(&CPU<B>, *mut core::ffi::c_void);
 
 /// The cycle-accurate MOS 6502 CPU core.
@@ -61,23 +61,23 @@ pub struct CPU<B: Bus> {
     pub bus: B,
 
     /// An optional hook called at the end of every instruction.
-    #[cfg(debug_assertions)]
+    #[cfg(feature = "debug")]
     pub debug_hook: Option<DebugHook<B>>,
     /// The PC value when the last instruction was fetched. The debug hook is called at the 
     /// end of the instruction, so this will be the start address of the instruction just executed.
-    #[cfg(debug_assertions)]
+    #[cfg(feature = "debug")]
     pub debug_pc: u16,
     /// The operand bytes for the instruction just executed.
-    #[cfg(debug_assertions)]
+    #[cfg(feature = "debug")]
     pub debug_operand: [u8; 2],
     /// The length of the operand for the instruction just executed.
-    #[cfg(debug_assertions)]
+    #[cfg(feature = "debug")]
     pub debug_operand_len: u8,
     /// Optional user data pointer passed to the debug hook.
-    #[cfg(debug_assertions)]
+    #[cfg(feature = "debug")]
     pub debug_user_data: *mut core::ffi::c_void,
     /// The current interrupt nesting level (0 = main thread).
-    #[cfg(debug_assertions)]
+    #[cfg(feature = "debug")]
     pub debug_interrupt_level: u8,
 }
 
@@ -102,17 +102,17 @@ impl<B: Bus> CPU<B> {
             page_crossed: false,
             pending_vector: 0,
             bus,
-            #[cfg(debug_assertions)]
+            #[cfg(feature = "debug")]
             debug_hook: None,
-            #[cfg(debug_assertions)]
+            #[cfg(feature = "debug")]
             debug_pc: 0,
-            #[cfg(debug_assertions)]
+            #[cfg(feature = "debug")]
             debug_operand: [0; 2],
-            #[cfg(debug_assertions)]
+            #[cfg(feature = "debug")]
             debug_operand_len: 0,
-            #[cfg(debug_assertions)]
+            #[cfg(feature = "debug")]
             debug_user_data: core::ptr::null_mut(),
-            #[cfg(debug_assertions)]
+            #[cfg(feature = "debug")]
             debug_interrupt_level: 0,
         };
         cpu.reset();
@@ -209,7 +209,7 @@ impl<B: Bus> CPU<B> {
                 self.pc |= hi << 8;
                 self.state = CycleState::FetchOpcode;
                 self.step_index = 0;
-                #[cfg(debug_assertions)]
+                #[cfg(feature = "debug")]
                 {
                     self.debug_interrupt_level = self.debug_interrupt_level.wrapping_add(1);
                 }
@@ -235,7 +235,7 @@ impl<B: Bus> CPU<B> {
             return;
         }
 
-        #[cfg(debug_assertions)]
+        #[cfg(feature = "debug")]
         {
             self.debug_pc = self.pc; // Sample the PC at the start of the instruction for debugging
             // Reset operand capture for the new instruction
@@ -313,7 +313,7 @@ impl<B: Bus> CPU<B> {
 
     /// Completes the current instruction and invokes the debug hook if present.
     fn finish_instruction(&mut self) {
-        #[cfg(debug_assertions)]
+        #[cfg(feature = "debug")]
         if let Some(hook) = self.debug_hook {
             hook(self, self.debug_user_data);
         }
@@ -325,7 +325,7 @@ impl<B: Bus> CPU<B> {
         match uop {
             AddrMicroOp::FetchAddrLo => {
                 let lo = self.bus.read(self.pc);
-                #[cfg(debug_assertions)]
+                #[cfg(feature = "debug")]
                 {
                     self.debug_operand[0] = lo;
                     self.debug_operand_len = 1;
@@ -335,7 +335,7 @@ impl<B: Bus> CPU<B> {
             }
             AddrMicroOp::FetchAddrHi => {
                 let hi = self.bus.read(self.pc);
-                #[cfg(debug_assertions)]
+                #[cfg(feature = "debug")]
                 {
                     // This assumes FetchAddrLo was called first
                     self.debug_operand[1] = hi;
@@ -523,7 +523,7 @@ impl<B: Bus> CPU<B> {
             }
             ExecMicroOp::BranchCycle2 => {
                 let offset_u8 = self.bus.read(self.pc);
-                #[cfg(debug_assertions)]
+                #[cfg(feature = "debug")]
                 {
                     self.debug_operand[0] = offset_u8;
                     self.debug_operand_len = 1;
@@ -571,7 +571,7 @@ impl<B: Bus> CPU<B> {
             ExecMicroOp::RtiCycle6 => { 
                 self.s = self.s.wrapping_add(1); 
                 self.pc = ((self.bus.read(0x0100 | (self.s as u16)) as u16) << 8) | (self.pc & 0x00FF);
-                #[cfg(debug_assertions)]
+                #[cfg(feature = "debug")]
                 {
                     self.debug_interrupt_level = self.debug_interrupt_level.saturating_sub(1);
                 }
@@ -585,7 +585,7 @@ impl<B: Bus> CPU<B> {
             ExecMicroOp::BrkCycle7 => { 
                 let hi = self.bus.read(VECTOR_IRQ + 1) as u16; 
                 self.pc |= hi << 8; 
-                #[cfg(debug_assertions)]
+                #[cfg(feature = "debug")]
                 {
                     self.debug_interrupt_level = self.debug_interrupt_level.wrapping_add(1);
                 }
@@ -612,7 +612,7 @@ impl<B: Bus> CPU<B> {
     #[inline(always)]
     fn fetch_imm(&mut self) -> u8 {
         let val = self.bus.read(self.pc);
-        #[cfg(debug_assertions)]
+        #[cfg(feature = "debug")]
         {
             self.debug_operand[0] = val;
             self.debug_operand_len = 1;

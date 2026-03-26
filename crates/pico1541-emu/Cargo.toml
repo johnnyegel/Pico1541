@@ -10,5 +10,8 @@ racc6502 = { path = "../racc6502" }
 heapless = "0.8.0"
 log = "0.4.20"
 
+[features]
+debug = ["racc6502/debug"]
+
 [dev-dependencies]
 env_logger = "0.10.0"

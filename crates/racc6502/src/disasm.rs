@@ -1,4 +1,4 @@
-#![cfg(debug_assertions)]
+#[cfg(feature = "debug")]
 
 use crate::bus::Bus;
 use crate::cpu::CPU;
