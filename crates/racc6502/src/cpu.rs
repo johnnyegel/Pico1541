@@ -76,6 +76,9 @@ pub struct CPU<B: Bus> {
     /// Optional user data pointer passed to the debug hook.
     #[cfg(debug_assertions)]
     pub debug_user_data: *mut core::ffi::c_void,
+    /// The current interrupt nesting level (0 = main thread).
+    #[cfg(debug_assertions)]
+    pub debug_interrupt_level: u8,
 }
 
 impl<B: Bus> CPU<B> {
@@ -109,6 +112,8 @@ impl<B: Bus> CPU<B> {
             debug_operand_len: 0,
             #[cfg(debug_assertions)]
             debug_user_data: core::ptr::null_mut(),
+            #[cfg(debug_assertions)]
+            debug_interrupt_level: 0,
         };
         cpu.reset();
         cpu
@@ -204,6 +209,10 @@ impl<B: Bus> CPU<B> {
                 self.pc |= hi << 8;
                 self.state = CycleState::FetchOpcode;
                 self.step_index = 0;
+                #[cfg(debug_assertions)]
+                {
+                    self.debug_interrupt_level = self.debug_interrupt_level.wrapping_add(1);
+                }
             }
             _ => unreachable!(),
         }
@@ -559,14 +568,28 @@ impl<B: Bus> CPU<B> {
             ExecMicroOp::RtiCycle3 => { self.bus.read(0x0100 | (self.s as u16)); }
             ExecMicroOp::RtiCycle4 => { self.s = self.s.wrapping_add(1); let p = self.bus.read(0x0100 | (self.s as u16)); self.p = (p & 0xCF) | 0x20; }
             ExecMicroOp::RtiCycle5 => { self.s = self.s.wrapping_add(1); self.pc = (self.pc & 0xFF00) | (self.bus.read(0x0100 | (self.s as u16)) as u16); }
-            ExecMicroOp::RtiCycle6 => { self.s = self.s.wrapping_add(1); self.pc = ((self.bus.read(0x0100 | (self.s as u16)) as u16) << 8) | (self.pc & 0x00FF); }
+            ExecMicroOp::RtiCycle6 => { 
+                self.s = self.s.wrapping_add(1); 
+                self.pc = ((self.bus.read(0x0100 | (self.s as u16)) as u16) << 8) | (self.pc & 0x00FF);
+                #[cfg(debug_assertions)]
+                {
+                    self.debug_interrupt_level = self.debug_interrupt_level.saturating_sub(1);
+                }
+            }
 
             ExecMicroOp::BrkCycle2 => { self.bus.read(self.pc); self.pc = self.pc.wrapping_add(1); }
             ExecMicroOp::BrkCycle3 => { self.bus.write(0x0100 | (self.s as u16), (self.pc >> 8) as u8); self.s = self.s.wrapping_sub(1); }
             ExecMicroOp::BrkCycle4 => { self.bus.write(0x0100 | (self.s as u16), (self.pc & 0xFF) as u8); self.s = self.s.wrapping_sub(1); }
             ExecMicroOp::BrkCycle5 => { self.bus.write(0x0100 | (self.s as u16), self.p | 0x30); self.s = self.s.wrapping_sub(1); }
             ExecMicroOp::BrkCycle6 => { self.pc = self.bus.read(VECTOR_IRQ) as u16; self.set_flag(2, true); }
-            ExecMicroOp::BrkCycle7 => { let hi = self.bus.read(VECTOR_IRQ + 1) as u16; self.pc |= hi << 8; }
+            ExecMicroOp::BrkCycle7 => { 
+                let hi = self.bus.read(VECTOR_IRQ + 1) as u16; 
+                self.pc |= hi << 8; 
+                #[cfg(debug_assertions)]
+                {
+                    self.debug_interrupt_level = self.debug_interrupt_level.wrapping_add(1);
+                }
+            }
 
             ExecMicroOp::PushA => { self.bus.write(0x0100 | (self.s as u16), self.a); self.s = self.s.wrapping_sub(1); }
             ExecMicroOp::PushP => { self.bus.write(0x0100 | (self.s as u16), self.p | 0x30); self.s = self.s.wrapping_sub(1); }

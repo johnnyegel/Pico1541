@@ -3,5 +3,7 @@ name = "racc6502"
 version = "0.1.0"
 edition = "2021"
 
-[dev-dependencies]
+[dependencies]
 heapless = "0.9.2"
+
+[dev-dependencies]

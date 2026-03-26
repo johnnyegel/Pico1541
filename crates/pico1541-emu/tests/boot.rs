@@ -61,20 +61,20 @@ fn test_drive_boot_behavior() {
     let bridge = HardwareBridge::new(&TRACK, cmd_tx);
     let mut drive = Emulator::new(rom_array, bridge);
     
-    //#[cfg(debug_assertions)]
-    //use racc6502::disasm;
+    use racc6502::disasm;
 
     // Instruction tracing for debugging
     fn boot_debug_hook<B: racc6502::bus::Bus>(cpu: &racc6502::cpu::CPU<B>, _data: *mut core::ffi::c_void) {
-        /*
+        // Log specific points of interest or a range of addresses
         match cpu.debug_pc {
-            0xEAA0 | 0xEAC9 | 0xEAEA | 0xEB3A | 0xEB4B | 0xEBE7 => {
-                //let op_str = disasm::disassemble(cpu);
-                log::info!("PC:${:04X} {:<12} A:${:02X} X:${:02X} Y:${:02X} S:${:02X} P:${:02X}", cpu.debug_pc, op_str, cpu.a, cpu.x, cpu.y, cpu.s, cpu.p);
+            // Initialization and Main Loop areas
+            0xEAA0..=0xEFFF | 0xF97E..=0xF9AF => {
+                let op_str = disasm::disassemble(cpu);
+                let interrupt_str = if cpu.debug_interrupt_level > 0 { " [INT]" } else { "" };
+                log::info!("PC:${:04X} {:<12} A:${:02X} X:${:02X} Y:${:02X} S:${:02X} P:${:02X}{}", cpu.debug_pc, op_str, cpu.a, cpu.x, cpu.y, cpu.s, cpu.p, interrupt_str);
             }
             _ => {}
-        } */
-        //log::info!("PC:${:04X} A:${:02X} X:${:02X} Y:${:02X} S:${:02X} P:${:02X}", cpu.pc, cpu.a, cpu.x, cpu.y, cpu.s, cpu.p);
+        }
     }
     drive.cpu.debug_hook = Some(boot_debug_hook);
 

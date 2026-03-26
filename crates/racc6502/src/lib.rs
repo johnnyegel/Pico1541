@@ -44,5 +44,5 @@ pub mod bus;
 pub mod cpu;
 pub mod instructions;
 
-//#[cfg(debug_assertions)]
-//pub mod disasm;
+#[cfg(debug_assertions)]
+pub mod disasm;
