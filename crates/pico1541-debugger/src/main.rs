@@ -8,8 +8,10 @@ use crossterm::{
 use pico1541_emu::activetrack::ActiveTrack;
 use pico1541_emu::{Command as EmuCommand, DriveHardware, Emulator, HardwareBridge};
 use racc6502::cpu::CycleState;
-use racc6502::disasm;
+use racc6502::bus::MemoryMonitor;
+use disasm6502;
 use ratatui::{
+
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
@@ -39,6 +41,12 @@ enum DebugCommand {
 }
 
 #[derive(Debug, Clone)]
+struct DisasmLine {
+    addr: u16,
+    text: String,
+}
+
+#[derive(Debug, Clone)]
 struct CpuContext {
     pc: u16,
     a: u8,
@@ -49,8 +57,7 @@ struct CpuContext {
     ht: u8,
     led: bool,
     motor: bool,
-    disasm_prev: String,
-    disasm_next: String,
+    disasm_window: Vec<DisasmLine>,
 }
 
 #[derive(Debug)]
@@ -256,7 +263,7 @@ fn ui(f: &mut ratatui::Frame, app: &mut App) {
             Constraint::Min(10),   // Logs and Context
             Constraint::Length(3), // Command Prompt
         ])
-        .split(f.size());
+        .split(f.area());
 
     // Status Bar
     let is_running = app.running.load(Ordering::SeqCst);
@@ -321,12 +328,21 @@ fn ui(f: &mut ratatui::Frame, app: &mut App) {
         context_lines.push(Line::from(format!("  P:${:02X} [{}]", ctx.p, flags)));
         context_lines.push(Line::from(""));
         context_lines.push(Line::from(vec![
-            Span::styled("Instruction Trace: ", Style::default().add_modifier(Modifier::BOLD)),
+            Span::styled("Disassembly: ", Style::default().add_modifier(Modifier::BOLD)),
         ]));
-        context_lines.push(Line::from(format!("  Processed: {}", ctx.disasm_prev)));
-        context_lines.push(Line::from(vec![
-            Span::styled(format!("  Next:      {}", ctx.disasm_next), Style::default().fg(Color::Cyan)),
-        ]));
+        
+        for line in &ctx.disasm_window {
+            let style = if line.addr == ctx.pc {
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Gray)
+            };
+            
+            let prefix = if line.addr == ctx.pc { ">> " } else { "   " };
+            context_lines.push(Line::from(vec![
+                Span::styled(format!("{}{}", prefix, line.text), style),
+            ]));
+        }
     }
 
     if let Some((addr, data)) = &app.memory_dump {
@@ -364,11 +380,29 @@ fn parse_addr(s: &str) -> Result<u16> {
 }
 
 fn get_cpu_context<H: DriveHardware>(drive: &Emulator<H>) -> CpuContext {
-    let (disasm_next, _) = disasm::disassemble_at(drive.pc(), |addr| drive.bus().peek(addr));
-    let disasm_prev = disasm::disassemble(&drive.cpu).to_string();
+    let pc = drive.pc();
+    
+    // Disassemble a window around PC
+    // We try to start disassembling from PC - 16 bytes to get some context before
+    let start_addr = pc.saturating_sub(16);
+    let mut buffer = [0u8; 48]; // 16 before + 32 after roughly
+    for i in 0..48 {
+        buffer[i] = drive.bus().peek(start_addr.wrapping_add(i as u16));
+    }
+    
+    let instructions = disasm6502::from_addr_array(&buffer, start_addr).unwrap_or_default();
+    
+    let mut disasm_window = Vec::new();
+    for inst in instructions {
+        let text = format!("${:04X}: {}", inst.address, inst.as_str());
+        disasm_window.push(DisasmLine {
+            addr: inst.address,
+            text,
+        });
+    }
 
     CpuContext {
-        pc: drive.pc(),
+        pc,
         a: drive.cpu.a,
         x: drive.cpu.x,
         y: drive.cpu.y,
@@ -377,8 +411,7 @@ fn get_cpu_context<H: DriveHardware>(drive: &Emulator<H>) -> CpuContext {
         ht: drive.half_track(),
         led: drive.bus().led_on(),
         motor: drive.bus().motor_on(),
-        disasm_prev,
-        disasm_next: disasm_next.to_string(),
+        disasm_window,
     }
 }
 
@@ -427,7 +460,7 @@ fn emulation_loop(
                 DebugCommand::Step => {
                     drive.step();
                     let ctx = get_cpu_context(&drive);
-                    resp_tx.send(DebugResponse::DriveEvent(format!("Step: {}", ctx.disasm_prev)))?;
+                    resp_tx.send(DebugResponse::DriveEvent(format!("Step to ${:04X}", ctx.pc)))?;
                     resp_tx.send(DebugResponse::Context(ctx))?;
                 }
                 DebugCommand::Reset => {

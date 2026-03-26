@@ -321,7 +321,7 @@ impl Via6522 {
 #[cfg(feature = "debug")]
 impl MemoryMonitor for Via6522 {
     
-    /// Peek at a VIA register without side effects.
+    /// Peek at a VIA register without side effects.ge
     fn peek(&self, addr: u16) -> u8 {
         let register = (addr & 0x0F) as usize;
         match register {

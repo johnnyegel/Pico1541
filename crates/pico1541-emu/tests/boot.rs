@@ -66,8 +66,9 @@ fn test_drive_boot_behavior() {
         // Log specific points of interest or a range of addresses
         match cpu.pc {
             // Initialization and Main Loop areas
-            0xEAA0..=0xEFFF | 0xF97E..=0xF9AF => {
-                log::info!("PC:${:04X} A:${:02X} X:${:02X} Y:${:02X} S:${:02X} P:${:02X}", cpu.pc, cpu.a, cpu.x, cpu.y, cpu.s, cpu.p);
+            //0xEAA0..=0xEFFF | 0xF97E..=0xF9AF | 0xEB22 => {
+            0xEAA0 | 0xEB22 | 0xF259 | 0xF263 => {
+                log::info!("PC:${:04X} IR:${:02X} A:${:02X} X:${:02X} Y:${:02X} S:${:02X} P:${:02X}", cpu.pc, cpu.ir, cpu.a, cpu.x, cpu.y, cpu.s, cpu.p);
             }
             _ => {}
         }
