@@ -1,0 +1,16 @@
+[package]
+name = "pico1541-debugger"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pico1541-emu = { path = "../pico1541-emu", features = ["debug"] }
+racc6502 = { path = "../racc6502" }
+anyhow = "1.0.75"
+log = "0.4.20"
+env_logger = "0.10.0"
+crossbeam-channel = "0.5.8"
+heapless = "0.8.0"
+bitflags = "2.4.1"
+ratatui = "0.26.0"
+crossterm = "0.27.0"
