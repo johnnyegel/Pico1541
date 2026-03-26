@@ -1,4 +1,4 @@
-use racc6502::bus::Bus;
+use racc6502::bus::{Bus, MemoryMonitor};
 use crate::via6522::Via6522;
 use crate::DriveHardware;
 use crate::drivemechanics::DriveMechanics;
@@ -48,31 +48,10 @@ impl<H: DriveHardware> SystemBus<H> {
             self.so_active = false;
         }
 
-        // Update Track 0 sensor state based on mechanics (Active-LOW)
-        /* FIXME! Remove this, as track 0 sensor was not present in 1541-II 
-        if self.mechanics.current_half_track == 0 {
-            self.via1.in_a &= !0x01; // At Track 0
-        } else {
-            self.via1.in_a |= 0x01; // Not at Track 0
-        }
-        */
-
         self.via1.in_b = self.hardware.get_iec_pins();
         self.hardware.set_iec_pins(self.via1.get_port_b());
         self.via1.tick_cycle();
         self.via2.tick_cycle();
-    }
-
-    #[cfg(feature = "debug")]
-    pub fn peek(&self, addr: u16) -> u8 {
-        match addr {
-            0x0000..=0x17FF => self.ram[(addr as usize) % RAM_SIZE],
-            0x1800..=0x1BFF => self.via1.peek(addr),
-            0x1C00..=0x1FFF => self.via2.peek(addr),
-            0x8000..=0xBFFF => self.rom[(addr - 0x8000) as usize],
-            0xC000..=0xFFFF => self.rom[(addr - 0xC000) as usize],
-            _ => 0,
-        }
     }
 
     #[cfg(feature = "debug")]
@@ -149,6 +128,26 @@ impl<H: DriveHardware> Bus for SystemBus<H> {
 
     fn so_pending(&self) -> bool {
         self.so_active
+    }
+}
+
+/// Implement MemoryMonitor for SystemBus to allow peeking at memory without affecting timing.
+#[cfg(feature = "debug")]
+impl<H: DriveHardware> MemoryMonitor for SystemBus<H> {
+    
+    fn peek(&self, addr: u16) -> u8 {
+        match addr {
+            0x0000..=0x17FF => self.ram[(addr as usize) % RAM_SIZE],
+            0x1800..=0x1BFF => self.via1.peek(addr),
+            0x1C00..=0x1FFF => self.via2.peek(addr),
+            0x8000..=0xBFFF => self.rom[(addr - 0x8000) as usize],
+            0xC000..=0xFFFF => self.rom[(addr - 0xC000) as usize],
+            _ => 0,
+        }
+    }
+    
+    fn poke(&mut self, _addr: u16, _value: u8) {
+        // NOT implemented yet!
     }
 }
 

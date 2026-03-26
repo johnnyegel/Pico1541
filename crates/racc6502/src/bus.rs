@@ -29,3 +29,17 @@ pub trait Bus {
     /// If it returns `true`, the Overflow (V) flag in the status register is set.
     fn so_pending(&self) -> bool { false }
 }
+
+
+/// Optional trait which can be implemented by a bus for monitoring memory content.
+/// This is required for features like breakpoints and watchpoints, but is not necessary for basic CPU operation.
+pub trait MemoryMonitor {
+    
+    /// Reads a byte from the given address.
+    /// This does NOT affect the bus timing!
+    fn peek(&self, addr: u16) -> u8;
+    
+    /// Writes a byte to the given address.
+    /// This does NOT affect the bus timing!
+    fn poke(&mut self, addr: u16, value: u8);
+}

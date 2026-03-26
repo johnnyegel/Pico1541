@@ -43,6 +43,3 @@
 pub mod bus;
 pub mod cpu;
 pub mod instructions;
-
-#[cfg(feature = "debug")]
-pub mod disasm;

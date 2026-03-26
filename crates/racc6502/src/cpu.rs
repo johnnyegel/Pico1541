@@ -63,16 +63,6 @@ pub struct CPU<B: Bus> {
     /// An optional hook called at the end of every instruction.
     #[cfg(feature = "debug")]
     pub debug_hook: Option<DebugHook<B>>,
-    /// The PC value when the last instruction was fetched. The debug hook is called at the 
-    /// end of the instruction, so this will be the start address of the instruction just executed.
-    #[cfg(feature = "debug")]
-    pub debug_pc: u16,
-    /// The operand bytes for the instruction just executed.
-    #[cfg(feature = "debug")]
-    pub debug_operand: [u8; 2],
-    /// The length of the operand for the instruction just executed.
-    #[cfg(feature = "debug")]
-    pub debug_operand_len: u8,
     /// Optional user data pointer passed to the debug hook.
     #[cfg(feature = "debug")]
     pub debug_user_data: *mut core::ffi::c_void,
@@ -104,12 +94,6 @@ impl<B: Bus> CPU<B> {
             bus,
             #[cfg(feature = "debug")]
             debug_hook: None,
-            #[cfg(feature = "debug")]
-            debug_pc: 0,
-            #[cfg(feature = "debug")]
-            debug_operand: [0; 2],
-            #[cfg(feature = "debug")]
-            debug_operand_len: 0,
             #[cfg(feature = "debug")]
             debug_user_data: core::ptr::null_mut(),
             #[cfg(feature = "debug")]
@@ -220,6 +204,13 @@ impl<B: Bus> CPU<B> {
 
     /// Fetches the next opcode and checks for pending interrupts.
     fn tick_fetch(&mut self) {
+        // :? Is there a debug hook present?
+        #[cfg(feature = "debug")]
+        if let Some(hook) = self.debug_hook {
+            // -> Yes, then call the hook with the current CPU state and user data pointer
+            hook(self, self.debug_user_data);
+        }
+
         if self.bus.nmi_pending() {
             self.state = CycleState::Interrupt;
             self.pending_vector = VECTOR_NMI;
@@ -233,13 +224,6 @@ impl<B: Bus> CPU<B> {
             self.step_index = 0;
             self.tick_interrupt();
             return;
-        }
-
-        #[cfg(feature = "debug")]
-        {
-            self.debug_pc = self.pc; // Sample the PC at the start of the instruction for debugging
-            // Reset operand capture for the new instruction
-            self.debug_operand_len = 0;
         }
         
         self.ir = self.bus.read(self.pc);
@@ -313,10 +297,6 @@ impl<B: Bus> CPU<B> {
 
     /// Completes the current instruction and invokes the debug hook if present.
     fn finish_instruction(&mut self) {
-        #[cfg(feature = "debug")]
-        if let Some(hook) = self.debug_hook {
-            hook(self, self.debug_user_data);
-        }
         self.state = CycleState::FetchOpcode;
     }
 
@@ -325,22 +305,11 @@ impl<B: Bus> CPU<B> {
         match uop {
             AddrMicroOp::FetchAddrLo => {
                 let lo = self.bus.read(self.pc);
-                #[cfg(feature = "debug")]
-                {
-                    self.debug_operand[0] = lo;
-                    self.debug_operand_len = 1;
-                }
                 self.effective_addr = lo as u16;
                 self.pc = self.pc.wrapping_add(1);
             }
             AddrMicroOp::FetchAddrHi => {
                 let hi = self.bus.read(self.pc);
-                #[cfg(feature = "debug")]
-                {
-                    // This assumes FetchAddrLo was called first
-                    self.debug_operand[1] = hi;
-                    self.debug_operand_len = 2;
-                }
                 self.effective_addr |= (hi as u16) << 8;
                 self.pc = self.pc.wrapping_add(1);
             }
@@ -523,11 +492,6 @@ impl<B: Bus> CPU<B> {
             }
             ExecMicroOp::BranchCycle2 => {
                 let offset_u8 = self.bus.read(self.pc);
-                #[cfg(feature = "debug")]
-                {
-                    self.debug_operand[0] = offset_u8;
-                    self.debug_operand_len = 1;
-                }
                 let offset = offset_u8 as i8;
                 self.pc = self.pc.wrapping_add(1);
                 let condition = match self.ir {
@@ -612,11 +576,6 @@ impl<B: Bus> CPU<B> {
     #[inline(always)]
     fn fetch_imm(&mut self) -> u8 {
         let val = self.bus.read(self.pc);
-        #[cfg(feature = "debug")]
-        {
-            self.debug_operand[0] = val;
-            self.debug_operand_len = 1;
-        }
         self.pc = self.pc.wrapping_add(1);
         val
     }

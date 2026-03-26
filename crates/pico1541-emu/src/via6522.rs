@@ -3,6 +3,8 @@
 //! This module provides a detailed simulation of the 6522 VIA,
 //! including timers, interrupts, and I/O ports.
 
+use racc6502::bus::MemoryMonitor;
+
 #[derive(Clone, Copy, Default)]
 pub struct Via6522 {
     /// Output Register B
@@ -121,49 +123,6 @@ impl Via6522 {
             0x0C => self.pcr,
             0x0D => self.ifr,
             0x0E => self.ier | 0x80, // Bit 7 is always 1 on read
-            0x0F => { // IRA (no handshake)
-                if (self.acr & 0x01) != 0 {
-                    self.latch_a
-                } else {
-                    (self.ora & self.ddra) | (self.in_a & !self.ddra)
-                }
-            }
-            _ => 0,
-        }
-    }
-
-    /// Peek at a VIA register without side effects.
-    #[cfg(feature = "debug")]
-    pub fn peek(&self, addr: u16) -> u8 {
-        let register = (addr & 0x0F) as usize;
-        match register {
-            0x00 => { // IRB
-                if (self.acr & 0x02) != 0 {
-                    self.latch_b
-                } else {
-                    (self.orb & self.ddrb) | (self.in_b & !self.ddrb)
-                }
-            }
-            0x01 => { // IRA
-                if (self.acr & 0x01) != 0 {
-                    self.latch_a
-                } else {
-                    (self.ora & self.ddra) | (self.in_a & !self.ddra)
-                }
-            }
-            0x02 => self.ddrb,
-            0x03 => self.ddra,
-            0x04 => (self.t1c & 0xFF) as u8,
-            0x05 => (self.t1c >> 8) as u8,
-            0x06 => (self.t1l & 0xFF) as u8,
-            0x07 => (self.t1l >> 8) as u8,
-            0x08 => (self.t2c & 0xFF) as u8,
-            0x09 => (self.t2c >> 8) as u8,
-            0x0A => self.sr,
-            0x0B => self.acr,
-            0x0C => self.pcr,
-            0x0D => self.ifr,
-            0x0E => self.ier | 0x80,
             0x0F => { // IRA (no handshake)
                 if (self.acr & 0x01) != 0 {
                     self.latch_a
@@ -356,6 +315,56 @@ impl Via6522 {
 
     pub fn get_port_a(&self) -> u8 {
         (self.ora & self.ddra) | (self.in_a & !self.ddra)
+    }
+}
+
+#[cfg(feature = "debug")]
+impl MemoryMonitor for Via6522 {
+    
+    /// Peek at a VIA register without side effects.
+    fn peek(&self, addr: u16) -> u8 {
+        let register = (addr & 0x0F) as usize;
+        match register {
+            0x00 => { // IRB
+                if (self.acr & 0x02) != 0 {
+                    self.latch_b
+                } else {
+                    (self.orb & self.ddrb) | (self.in_b & !self.ddrb)
+                }
+            }
+            0x01 => { // IRA
+                if (self.acr & 0x01) != 0 {
+                    self.latch_a
+                } else {
+                    (self.ora & self.ddra) | (self.in_a & !self.ddra)
+                }
+            }
+            0x02 => self.ddrb,
+            0x03 => self.ddra,
+            0x04 => (self.t1c & 0xFF) as u8,
+            0x05 => (self.t1c >> 8) as u8,
+            0x06 => (self.t1l & 0xFF) as u8,
+            0x07 => (self.t1l >> 8) as u8,
+            0x08 => (self.t2c & 0xFF) as u8,
+            0x09 => (self.t2c >> 8) as u8,
+            0x0A => self.sr,
+            0x0B => self.acr,
+            0x0C => self.pcr,
+            0x0D => self.ifr,
+            0x0E => self.ier | 0x80,
+            0x0F => { // IRA (no handshake)
+                if (self.acr & 0x01) != 0 {
+                    self.latch_a
+                } else {
+                    (self.ora & self.ddra) | (self.in_a & !self.ddra)
+                }
+            }
+            _ => 0,
+        }
+    }
+    
+    fn poke(&mut self, _addr: u16, _value: u8) {
+        // NOT implemented yet!
     }
 }
 

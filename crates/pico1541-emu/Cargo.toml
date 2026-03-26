@@ -7,11 +7,16 @@ edition = "2021"
 
 [dependencies]
 racc6502 = { path = "../racc6502" }
-heapless = "0.8.0"
+heapless = "0.9.2"
 log = "0.4.20"
 
 [features]
 debug = ["racc6502/debug"]
 
 [dev-dependencies]
-env_logger = "0.10.0"
+env_logger = "0.11.10"
+
+# Unit test configuration
+[[test]]
+name="boot"
+required-features = ["debug"]

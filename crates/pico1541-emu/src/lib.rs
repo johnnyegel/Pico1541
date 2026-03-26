@@ -51,7 +51,7 @@ pub trait DriveHardware {
 /// A concrete bridge that implements DriveHardware using an SPSC Queue.
 pub struct HardwareBridge {
     /// SPSC Queue: Emu (Producer) sends track change requests -> Manager (Consumer)
-    pub command_tx: Producer<'static, Command, 16>,
+    pub command_tx: Producer<'static, Command>,
     
     /// The shared track data (using atomics internally)
     pub track_buffer: &'static ActiveTrack,
@@ -61,7 +61,7 @@ pub struct HardwareBridge {
 }
 
 impl HardwareBridge {
-    pub fn new(track_buffer: &'static ActiveTrack, command_tx: Producer<'static, Command, 16>) -> Self {
+    pub fn new(track_buffer: &'static ActiveTrack, command_tx: Producer<'static, Command>) -> Self {
         Self {
             track_buffer,
             command_tx,
