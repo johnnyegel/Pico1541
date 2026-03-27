@@ -15,6 +15,10 @@ pub struct DriveMechanics {
     pub last_step_phase: u8,
     /// Current physical half-track position (0 to 84).
     pub current_half_track: u8,
+    /// Counter for motor spin-up/down delay (500,000 cycles).
+    pub motor_delay_counter: u32,
+    /// True if the motor is fully spun up and delivering data.
+    pub motor_spun_up: bool,
 }
 
 impl DriveMechanics {
@@ -25,6 +29,8 @@ impl DriveMechanics {
             sub_cycle_counter: 0,
             last_step_phase: 0,
             current_half_track: 36, // Start at Track 18.0
+            motor_delay_counter: 0,
+            motor_spun_up: false,
         }
     }
 
@@ -56,14 +62,37 @@ impl DriveMechanics {
 
         // 2. Handle Motor and Rotation
         // On a 1541-II, the motor bit (VIA2 ORB bit 2) is active-LOW.
-        let motor_on = (via2.orb & 0x04) == 0;
+        let motor_on_target = (via2.orb & 0x04) == 0;
+
+        const MOTOR_DELAY_CYCLES: u32 = 500_000;
+
+        if motor_on_target {
+            if !self.motor_spun_up {
+                self.motor_delay_counter += 1;
+                if self.motor_delay_counter >= MOTOR_DELAY_CYCLES {
+                    self.motor_spun_up = true;
+                    self.motor_delay_counter = MOTOR_DELAY_CYCLES;
+                    log::info!("Motor SPUN UP");
+                }
+            }
+        } else {
+            if self.motor_spun_up {
+                self.motor_delay_counter = self.motor_delay_counter.saturating_sub(1);
+                if self.motor_delay_counter == 0 {
+                    self.motor_spun_up = false;
+                    log::info!("Motor SPUN DOWN");
+                }
+            } else {
+                self.motor_delay_counter = 0;
+            }
+        }
 
         // Fetch shared metadata
         let active_track = hardware.get_active_track();
         let disk_inserted = active_track.disk_inserted.load(Ordering::Relaxed);
-        let bit_length = active_track.bit_length;
+        let bit_length = active_track.bit_length.load(Ordering::Relaxed);
 
-        if !motor_on || !disk_inserted {
+        if !self.motor_spun_up || !disk_inserted {
             return false;
         }
 
@@ -89,8 +118,8 @@ impl DriveMechanics {
                 let write_mode = (via2.orb & 0x10) != 0;
 
                 if write_mode {
-                    let gcr_data_ptr = active_track.gcr_data.as_ptr() as *mut u8;
                     unsafe {
+                        let gcr_data_ptr = active_track.gcr_data.get() as *mut u8;
                         *gcr_data_ptr.add(self.current_byte_idx) = via2.ora;
                     }
                     if !active_track.is_dirty.swap(true, Ordering::Relaxed) {
@@ -98,7 +127,10 @@ impl DriveMechanics {
                     }
                     return true;
                 } else {
-                    let gcr_byte = active_track.gcr_data[self.current_byte_idx];
+                    let gcr_byte = unsafe {
+                        let gcr_data_ptr = active_track.gcr_data.get() as *const u8;
+                        *gcr_data_ptr.add(self.current_byte_idx)
+                    };
                     via2.in_a = gcr_byte;
 
                     if gcr_byte == 0xFF {

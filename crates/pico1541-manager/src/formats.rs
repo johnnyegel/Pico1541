@@ -54,9 +54,8 @@ impl<S: Read + Seek> D64Image<S> {
 impl<S: Read + Seek> DiskImage for D64Image<S> {
     async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<u32, Error> {
         if half_track % 2 != 0 {
-            // Half-track (e.g. 1.5, 2.5) are usually empty in D64
-            dest.fill(0x55); // Filler
-            return Ok(35000); // Nominal bit length
+            dest.fill(0x55);
+            return Ok(35000);
         }
 
         let track = half_track / 2;
@@ -75,7 +74,6 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
             let mut sector_data = [0u8; 256];
             self.storage.read_exact(&mut sector_data).await.map_err(|_| Error::Io)?;
 
-            // 1. Header Sync
             for _ in 0..8 {
                 if write_ptr < dest.len() {
                     dest[write_ptr] = 0xFF;
@@ -83,12 +81,9 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
                 }
             }
 
-            // 2. Header Block (GCR encoded)
-            // Header: $08, checksum, sector, track, id2, id1, $0F, $0F
             let checksum = sector ^ track ^ self.id[0] ^ self.id[1];
             let header_raw = [0x08, checksum, sector, track, self.id[1], self.id[0], 0x0F, 0x0F];
             
-            // Encode header (8 bytes -> 10 bytes GCR)
             for i in 0..2 {
                 let mut src = [0u8; 4];
                 src.copy_from_slice(&header_raw[i*4..(i+1)*4]);
@@ -100,7 +95,6 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
                 }
             }
 
-            // 3. Header Gap
             for _ in 0..8 {
                 if write_ptr < dest.len() {
                     dest[write_ptr] = 0x55;
@@ -108,7 +102,6 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
                 }
             }
 
-            // 4. Data Sync
             for _ in 0..8 {
                 if write_ptr < dest.len() {
                     dest[write_ptr] = 0xFF;
@@ -116,15 +109,11 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
                 }
             }
 
-            // 5. Data Block (GCR encoded)
-            // Data Header: $07, 256 bytes data, checksum, $00, $00
             let mut data_checksum = 0u8;
             for b in sector_data.iter() {
                 data_checksum ^= b;
             }
             
-            // Data block is 260 bytes: $07, 256 data, checksum, 0, 0
-            // 260 bytes -> 260 / 4 * 5 = 65 blocks * 5 = 325 bytes GCR
             let mut data_raw = [0u8; 260];
             data_raw[0] = 0x07;
             data_raw[1..257].copy_from_slice(&sector_data);
@@ -143,7 +132,6 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
                 }
             }
 
-            // 6. Inter-sector Gap
             for _ in 0..8 {
                 if write_ptr < dest.len() {
                     dest[write_ptr] = 0x55;
@@ -152,7 +140,6 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
             }
         }
 
-        // Fill remaining track with gap bytes
         let nominal_bytes = match track {
             1..=17 => 6250,
             18..=24 => 5625,
@@ -185,8 +172,6 @@ impl<S: Read + Seek> DiskImage for G64Image<S> {
             return Err(Error::InvalidTrack);
         }
 
-        // G64 Header: "GCR-1541", Version, Tracks, Max Track Length
-        // Track offsets start at byte 12. 84 tracks * 4 bytes = 336 bytes.
         let track_ptr_offset = 12 + (half_track as u64 - 1) * 4;
         
         self.storage.seek(SeekFrom::Start(track_ptr_offset)).await.map_err(|_| Error::Io)?;
@@ -211,5 +196,20 @@ impl<S: Read + Seek> DiskImage for G64Image<S> {
         self.storage.read_exact(&mut dest[0..track_len]).await.map_err(|_| Error::Io)?;
 
         Ok((track_len as u32) * 8)
+    }
+}
+
+/// An enum-based wrapper for DiskImage to allow dynamic selection without dyn trait in no_std.
+pub enum AnyDiskImage<S: Read + Seek> {
+    D64(D64Image<S>),
+    G64(G64Image<S>),
+}
+
+impl<S: Read + Seek> DiskImage for AnyDiskImage<S> {
+    async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<u32, Error> {
+        match self {
+            Self::D64(img) => img.read_track(half_track, dest).await,
+            Self::G64(img) => img.read_track(half_track, dest).await,
+        }
     }
 }

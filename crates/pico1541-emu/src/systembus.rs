@@ -1,4 +1,6 @@
 use racc6502::bus::Bus;
+#[cfg(feature = "debug")]
+use racc6502::bus::MemoryMonitor;
 use crate::via6522::Via6522;
 use crate::DriveHardware;
 use crate::drivemechanics::DriveMechanics;
