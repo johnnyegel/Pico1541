@@ -1,8 +1,5 @@
 #![no_std]
 
-pub mod gcr;
-pub mod formats;
-pub mod storage;
-
-pub use formats::{DiskImage, D64Image, G64Image, AnyDiskImage, Error};
-pub use storage::MemoryStorage;
+// Disk format code lives in pico1541-common; re-exported here for API compatibility.
+pub use pico1541_common::{DiskImage, D64Image, G64Image, AnyDiskImage, Error, MemoryStorage};
+pub use pico1541_common::gcr;

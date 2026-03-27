@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 pico1541-emulator = { path = "../pico1541-emulator", features = ["debug"] }
-pico1541-manager = { path = "../pico1541-manager" }
+pico1541-common = { path = "../pico1541-common" }
 racc6502 = { path = "../racc6502", features = ["debug"] }
 anyhow = "1.0.75"
 crossbeam-channel = "0.5.8"

@@ -25,7 +25,8 @@ impl HostInterface for HostBridge {
     fn read_iec(&self) -> IecBus { self.iec_bus }
     fn write_iec(&mut self, pins: IecBus) { self.iec_bus = pins; }
 }
-use pico1541_manager::{D64Image, G64Image, MemoryStorage, DiskImage, AnyDiskImage};
+use pico1541_common::{D64Image, G64Image, MemoryStorage, DiskImage, AnyDiskImage};
+use pico1541_common::disk_info::{inspect_d64, petscii_to_ascii, G64_MAGIC};
 use racc6502::cpu::CycleState;
 use racc6502::bus::MemoryMonitor;
 use disasm6502;
@@ -98,12 +99,12 @@ enum DebugResponse {
 // No Send bound because we use LocalSet.
 #[async_trait(?Send)]
 trait DebuggerDiskImage {
-    async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<u32, pico1541_manager::Error>;
+    async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<u32, pico1541_common::Error>;
 }
 
 #[async_trait(?Send)]
 impl<S: embedded_io_async::Read + embedded_io_async::Seek> DebuggerDiskImage for AnyDiskImage<S> {
-    async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<u32, pico1541_manager::Error> {
+    async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<u32, pico1541_common::Error> {
         DiskImage::read_track(self, half_track, dest).await
     }
 }
@@ -210,6 +211,7 @@ fn main() -> Result<()> {
                     KeyCode::Enter => {
                         let cmd_str = app.input.clone();
                         if !cmd_str.is_empty() {
+                            app.add_log(format!("> {}", cmd_str));
                             handle_command(cmd_str, &mut app, &cmd_tx)?;
                             app.input.clear();
                         }
@@ -365,8 +367,13 @@ fn ui(f: &mut ratatui::Frame, app: &mut App) {
     let context_box = Paragraph::new(context_lines).block(Block::default().borders(Borders::ALL).title("CPU Context"));
     f.render_widget(context_box, middle_chunks[1]);
 
-    let input = Paragraph::new(app.input.as_str()).block(Block::default().borders(Borders::ALL).title("Command  F5:Run/Pause  F6:Step  F7:Reset  Esc:Quit"));
+    let input_text = format!("> {}", app.input);
+    let input = Paragraph::new(input_text.as_str()).block(Block::default().borders(Borders::ALL).title("Command  F5:Run/Pause  F6:Step  F7:Reset  Esc:Quit"));
     f.render_widget(input, chunks[2]);
+    f.set_cursor_position((
+        chunks[2].x + 1 + 2 + app.input.len() as u16, // border + "> " + typed text
+        chunks[2].y + 1,                                // border
+    ));
 }
 
 fn parse_addr(s: &str) -> Result<u16> {
@@ -426,25 +433,64 @@ async fn emulation_loop(
                 }
                 DebugCommand::Mount(path) => {
                     let file_data = fs::read(&path)?;
-                    let storage = MemoryStorage::new(Box::leak(file_data.into_boxed_slice()));
-                    let mut img = if path.to_lowercase().ends_with(".d64") { AnyDiskImage::D64(D64Image::new(storage)) }
-                    else if path.to_lowercase().ends_with(".g64") { AnyDiskImage::G64(G64Image::new(storage)) }
-                    else { return Err(anyhow!("Unsupported disk format")); };
+                    let path_lower = path.to_lowercase();
 
-                    // Load the initial track (track 18.0 = half-track 36)
-                    let maybe_track = {
-                        let mut temp_buf = vec![0u8; MAX_TRACK_BYTES];
-                        let bit_len = DiskImage::read_track(&mut img, 36, &mut temp_buf).await.unwrap_or(0);
-                        (bit_len, temp_buf)
+                    let mut img = if path_lower.ends_with(".d64") {
+                        let info = inspect_d64(&file_data);
+                        let (valid, disk_id) = info.as_ref()
+                            .map(|i| (i.valid_size, i.disk_id))
+                            .unwrap_or((false, [0x31, 0x31]));
+                        let disk_name = info.as_ref().map(|i| {
+                            let mut buf = [0u8; 16];
+                            let len = petscii_to_ascii(&i.disk_name_petscii, &mut buf);
+                            String::from_utf8_lossy(&buf[..len]).into_owned()
+                        }).unwrap_or_else(|| "(file too small to read BAM)".to_string());
+                        resp_tx.send(DebugResponse::DriveEvent(format!(
+                            "Type: D64  Size: {} bytes ({} KB)  {}",
+                            file_data.len(), file_data.len() / 1024,
+                            if valid { "OK - known valid size" } else { "WARN - unexpected file size" }
+                        )))?;
+                        resp_tx.send(DebugResponse::DriveEvent(format!(
+                            "Disk name: \"{}\"  ID: {:02X} {:02X} ('{}{}')",
+                            disk_name, disk_id[0], disk_id[1],
+                            disk_id[0].clamp(0x20, 0x7E) as char,
+                            disk_id[1].clamp(0x20, 0x7E) as char,
+                        )))?;
+                        let storage = MemoryStorage::new(Box::leak(file_data.into_boxed_slice()));
+                        let mut d64 = D64Image::new(storage);
+                        d64.set_id(disk_id);
+                        AnyDiskImage::D64(d64)
+                    } else if path_lower.ends_with(".g64") {
+                        let valid = file_data.len() >= 8 && file_data[..8] == *G64_MAGIC;
+                        resp_tx.send(DebugResponse::DriveEvent(format!(
+                            "Type: G64  Size: {} bytes  {}",
+                            file_data.len(),
+                            if valid { "OK - valid header" } else { "WARN - header mismatch" }
+                        )))?;
+                        let storage = MemoryStorage::new(Box::leak(file_data.into_boxed_slice()));
+                        AnyDiskImage::G64(G64Image::new(storage))
+                    } else {
+                        return Err(anyhow!("Unsupported disk format"));
+                    };
+
+                    // Load track 18.0 (half-track 36) as the initial active track
+                    let (bit_len, temp_buf) = {
+                        let mut buf = vec![0u8; MAX_TRACK_BYTES];
+                        let bits = DiskImage::read_track(&mut img, 36, &mut buf).await.unwrap_or(0);
+                        (bits, buf)
                     };
                     {
                         let track = drive.cpu.bus.hardware.get_active_track();
-                        track.gcr_data.copy_from_slice(&maybe_track.1);
-                        track.bit_length = maybe_track.0;
+                        track.gcr_data.copy_from_slice(&temp_buf);
+                        track.bit_length = bit_len;
                         track.disk_inserted = true;
                     }
-                    disk_image = Some(Box::new(img));
+                    resp_tx.send(DebugResponse::DriveEvent(format!(
+                        "Track 18 loaded: {} bits ({} bytes of GCR)",
+                        bit_len, bit_len / 8
+                    )))?;
                     resp_tx.send(DebugResponse::DriveEvent(format!("Mounted: {}", path)))?;
+                    disk_image = Some(Box::new(img));
                 }
                 DebugCommand::Unmount => {
                     disk_image = None;
@@ -459,8 +505,7 @@ async fn emulation_loop(
                         let filename = &s[5..];
                         let data = iec_load_file(&mut drive, filename).await?;
                         if filename == "$" {
-                            let dir = parse_directory(&data);
-                            resp_tx.send(DebugResponse::IECResponse(dir))?;
+                            resp_tx.send(DebugResponse::IECResponse(parse_directory(&data)))?;
                         } else {
                             resp_tx.send(DebugResponse::IECResponse(format!("Loaded {} bytes", data.len())))?;
                         }
@@ -523,14 +568,20 @@ async fn emulation_loop(
 }
 
 async fn iec_read_status<H: HostInterface>(_drive: &mut Emulator<H>) -> Result<String> {
-    Ok("00, OK, 00, 00".to_string())
+    // IEC bus communication is not yet implemented.
+    // The real status channel requires the 6502 ROM to respond to ATN/CLK/DATA toggling.
+    Ok("IEC STATUS: not implemented (requires IEC bus simulation)".to_string())
 }
 
 async fn iec_load_file<H: HostInterface>(_drive: &mut Emulator<H>, _filename: &str) -> Result<Vec<u8>> {
+    // IEC bus communication is not yet implemented.
     Ok(vec![])
 }
 
 fn parse_directory(data: &[u8]) -> String {
-    if data.is_empty() { return "Empty directory".to_string(); }
+    if data.is_empty() {
+        return "IEC DIR: not implemented — IEC bus simulation is not yet wired up. \
+                Mount a disk and run the emulator; the 1541 ROM handles the protocol.".to_string();
+    }
     "Directory listing...".to_string()
 }
