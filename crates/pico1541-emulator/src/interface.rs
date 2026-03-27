@@ -8,6 +8,21 @@ pub struct ActiveTrack {
     pub gcr_data: [u8; MAX_TRACK_BYTES],
 }
 
+impl ActiveTrack {
+    pub fn new() -> Self {
+        Self {
+            bit_length: 0,
+            is_dirty: false,
+            disk_inserted: false,
+            gcr_data: [0; MAX_TRACK_BYTES],
+        }
+    }
+}
+
+impl Default for ActiveTrack {
+    fn default() -> Self { Self::new() }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DriveEvent {
     LedChanged(bool),

@@ -2,7 +2,7 @@ use racc6502::bus::Bus;
 #[cfg(feature = "debug")]
 use racc6502::bus::MemoryMonitor;
 use crate::via6522::Via6522;
-use crate::DriveHardware;
+use crate::interface::{DriveEvent, HostInterface, IecBus};
 use crate::drivemechanics::DriveMechanics;
 use log;
 
@@ -10,7 +10,7 @@ const RAM_SIZE: usize = 0x0800; // 2KB
 const ROM_SIZE: usize = 0x4000; // 16KB
 
 /// Represents the 1541's memory bus, mapping access to RAM, ROM, and I/O.
-pub struct SystemBus<H: DriveHardware> {
+pub struct SystemBus<H: HostInterface> {
     ram: [u8; RAM_SIZE],
     rom: [u8; ROM_SIZE],
     pub via1: Via6522,
@@ -18,13 +18,13 @@ pub struct SystemBus<H: DriveHardware> {
     pub hardware: H,
     pub mechanics: DriveMechanics,
     pub so_active: bool,
-    
+
     // Cached state to detect changes
     last_motor_on: bool,
     last_led_on: bool,
 }
 
-impl<H: DriveHardware> SystemBus<H> {
+impl<H: HostInterface> SystemBus<H> {
     pub fn new(rom: [u8; ROM_SIZE], hardware: H) -> Self {
         let mut via1 = Via6522::new();
         // Track 0 Sensor is tied to Ground, The rest of the port is unused
@@ -50,8 +50,8 @@ impl<H: DriveHardware> SystemBus<H> {
             self.so_active = false;
         }
 
-        self.via1.in_b = self.hardware.get_iec_pins();
-        self.hardware.set_iec_pins(self.via1.get_port_b());
+        self.via1.in_b = self.hardware.read_iec().0;
+        self.hardware.write_iec(IecBus(self.via1.get_port_b()));
         self.via1.tick_cycle();
         self.via2.tick_cycle();
     }
@@ -72,7 +72,7 @@ impl<H: DriveHardware> SystemBus<H> {
         if motor_on != self.last_motor_on {
             log::info!("Motor changed: {} -> {}", self.last_motor_on, motor_on);
             self.last_motor_on = motor_on;
-            self.hardware.notify_motor_changed(motor_on);
+            self.hardware.send_event(DriveEvent::MotorChanged(motor_on));
         }
 
         // --- LED (VIA2 Port B bit 3) ---
@@ -81,12 +81,12 @@ impl<H: DriveHardware> SystemBus<H> {
         if led_on != self.last_led_on {
             log::info!("LED changed: {} -> {}", self.last_led_on, led_on);
             self.last_led_on = led_on;
-            self.hardware.notify_led_changed(led_on);
+            self.hardware.send_event(DriveEvent::LedChanged(led_on));
         }
     }
 }
 
-impl<H: DriveHardware> Bus for SystemBus<H> {
+impl<H: HostInterface> Bus for SystemBus<H> {
     fn read(&mut self, addr: u16) -> u8 {
         self.tick_cycle();
         match addr {
@@ -133,8 +133,7 @@ impl<H: DriveHardware> Bus for SystemBus<H> {
 
 /// Implement MemoryMonitor for SystemBus to allow peeking at memory without affecting timing.
 #[cfg(feature = "debug")]
-impl<H: DriveHardware> MemoryMonitor for SystemBus<H> {
-    
+impl<H: HostInterface> MemoryMonitor for SystemBus<H> {
     fn peek(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x17FF => self.ram[(addr as usize) % RAM_SIZE],
@@ -145,7 +144,7 @@ impl<H: DriveHardware> MemoryMonitor for SystemBus<H> {
             _ => 0,
         }
     }
-    
+
     fn poke(&mut self, _addr: u16, _value: u8) {
         // NOT implemented yet!
     }
@@ -154,16 +153,13 @@ impl<H: DriveHardware> MemoryMonitor for SystemBus<H> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::activetrack::ActiveTrack;
+    use crate::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus};
     struct MockHardware { track: ActiveTrack }
-    impl DriveHardware for MockHardware {
-        fn get_active_track(&self) -> &ActiveTrack { &self.track }
-        fn notify_head_stepped(&mut self, _ht: u8) {}
-        fn notify_track_dirty(&mut self) {}
-        fn notify_led_changed(&mut self, _en: bool) {}
-        fn notify_motor_changed(&mut self, _en: bool) {}
-        fn get_iec_pins(&self) -> u8 { 0xFF }
-        fn set_iec_pins(&mut self, _p: u8) {}
+    impl HostInterface for MockHardware {
+        fn get_active_track(&mut self) -> &mut ActiveTrack { &mut self.track }
+        fn send_event(&mut self, _: DriveEvent) {}
+        fn read_iec(&self) -> IecBus { IecBus(0xFF) }
+        fn write_iec(&mut self, _: IecBus) {}
     }
     #[test]
     fn test_ram_read_write() {

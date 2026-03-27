@@ -1,6 +1,5 @@
 use crate::via6522::Via6522;
-use crate::DriveHardware;
-use core::sync::atomic::Ordering;
+use crate::interface::{DriveEvent, HostInterface};
 use log;
 
 const MAX_HALF_TRACK: i8 = 84; // 42 tracks * 2 half-tracks per track
@@ -35,7 +34,7 @@ impl DriveMechanics {
     }
 
     /// Returns true if a new byte was just processed by the disk head.
-    pub fn tick<H: DriveHardware>(&mut self, hardware: &mut H, via2: &mut Via6522) -> bool {
+    pub fn tick<H: HostInterface>(&mut self, hardware: &mut H, via2: &mut Via6522) -> bool {
         // 1. Handle Stepping (VIA2 Port B bits 0-1)
         let current_phase = via2.orb & 0x03;
         let diff = current_phase.wrapping_sub(self.last_step_phase) & 0x03;
@@ -52,9 +51,9 @@ impl DriveMechanics {
 
         // Notify hardware of head step if there was a change
         if step_direction != 0 {
-            log::info!("HEAD Stepped: {} -> {}: {}, Track: {}", 
+            log::info!("HEAD Stepped: {} -> {}: {}, Track: {}",
                     self.last_step_phase, current_phase, step_direction, self.current_half_track);
-            hardware.notify_head_stepped(self.current_half_track);
+            hardware.send_event(DriveEvent::HeadStepped { new_half_track: self.current_half_track });
         }
 
         self.last_step_phase = current_phase;
@@ -87,10 +86,11 @@ impl DriveMechanics {
             }
         }
 
-        // Fetch shared metadata
-        let active_track = hardware.get_active_track();
-        let disk_inserted = active_track.disk_inserted.load(Ordering::Relaxed);
-        let bit_length = active_track.bit_length.load(Ordering::Relaxed);
+        // Fetch shared metadata — drop the reference before calling any other hardware methods
+        let (disk_inserted, bit_length) = {
+            let track = hardware.get_active_track();
+            (track.disk_inserted, track.bit_length)
+        };
 
         if !self.motor_spun_up || !disk_inserted {
             return false;
@@ -118,18 +118,14 @@ impl DriveMechanics {
                 let write_mode = (via2.orb & 0x10) != 0;
 
                 if write_mode {
-                    unsafe {
-                        let gcr_data_ptr = active_track.gcr_data.get() as *mut u8;
-                        *gcr_data_ptr.add(self.current_byte_idx) = via2.ora;
-                    }
-                    if !active_track.is_dirty.swap(true, Ordering::Relaxed) {
-                        hardware.notify_track_dirty();
-                    }
+                    let track = hardware.get_active_track();
+                    track.gcr_data[self.current_byte_idx] = via2.ora;
+                    track.is_dirty = true;
                     return true;
                 } else {
-                    let gcr_byte = unsafe {
-                        let gcr_data_ptr = active_track.gcr_data.get() as *const u8;
-                        *gcr_data_ptr.add(self.current_byte_idx)
+                    let gcr_byte = {
+                        let track = hardware.get_active_track();
+                        track.gcr_data[self.current_byte_idx]
                     };
                     via2.in_a = gcr_byte;
 

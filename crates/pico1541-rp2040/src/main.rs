@@ -10,18 +10,45 @@ use rp2040_hal::{
     sio::Sio,
     watchdog::Watchdog,
 };
-use pico1541_emu::{
-    activetrack::ActiveTrack,
+use pico1541_emulator::{
     Emulator,
-    Command, HardwareBridge,
+    interface::{ActiveTrack, DriveEvent, HostInterface, IecBus},
 };
-use heapless::spsc::Queue;
 
-/// Shared memory for the current track.
-static ACTIVE_TRACK: ActiveTrack = ActiveTrack::new();
+/// Local HostInterface implementation for the RP2040.
+/// Owns the active track buffer and handles events on Core 0.
+/// TODO: forward events to Core 1 via the SIO FIFO for manager processing.
+struct HardwareBridge {
+    track: ActiveTrack,
+    iec_bus: IecBus,
+}
 
-/// SPSC Queue for sending commands from Emulator (Core 0) to Manager (Core 1).
-static mut COMMAND_QUEUE: Queue<Command, 16> = Queue::new();
+impl HardwareBridge {
+    fn new() -> Self {
+        Self {
+            track: ActiveTrack::new(),
+            iec_bus: IecBus(0xFF),
+        }
+    }
+}
+
+impl HostInterface for HardwareBridge {
+    fn get_active_track(&mut self) -> &mut ActiveTrack {
+        &mut self.track
+    }
+
+    fn send_event(&mut self, _event: DriveEvent) {
+        // TODO: forward to Core 1 via SIO FIFO
+    }
+
+    fn read_iec(&self) -> IecBus {
+        self.iec_bus
+    }
+
+    fn write_iec(&mut self, pins: IecBus) {
+        self.iec_bus = pins;
+    }
+}
 
 // Allocate a stack for Core 1 (4KB)
 static CORE1_STACK: Stack<4096> = Stack::new();
@@ -58,26 +85,23 @@ fn main() -> ! {
     let cores = mc.cores();
     let core1 = &mut cores[1];
 
-    // Split the command queue safely
-    let (cmd_tx, _cmd_rx) = unsafe { (*core::ptr::addr_of_mut!(COMMAND_QUEUE)).split() };
-
     // Spawn the manager task on Core 1
     let _ = core1.spawn(CORE1_STACK.take().unwrap(), core1_task);
 
-    // Create the hardware bridge using the static track buffer and the queue producer
-    let bridge = HardwareBridge::new(&ACTIVE_TRACK, cmd_tx);
+    // Create the hardware bridge
+    let bridge = HardwareBridge::new();
 
     // Initialize a dummy ROM byte array.
     // In a production build, this would be the actual 1541 ROM.
     let rom = [0u8; 16384];
-    
+
     // Initialize the drive emulator
     let mut drive = Emulator::new(rom, bridge);
     drive.reset();
 
     loop {
         // Step the emulation by one instruction.
-        // In the future, we will use a hardware timer here to ensure 
+        // In the future, we will use a hardware timer here to ensure
         // 1MHz execution speed.
         drive.step();
     }

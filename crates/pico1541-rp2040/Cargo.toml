@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 # Your internal crates
-pico1541-emu = { path = "../pico1541-emu" }
+pico1541-emulator = { path = "../pico1541-emulator" }
 pico1541-manager = { path = "../pico1541-manager" }
 
 # RP2040 Hardware Abstraction Layer
@@ -14,4 +14,3 @@ rp2040-boot2 = "0.3.0"
 cortex-m = "0.7.7"
 cortex-m-rt = "0.7.3"
 panic-halt = "1.0.0"
-heapless = "0.8.0"

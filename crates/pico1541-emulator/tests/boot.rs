@@ -1,17 +1,14 @@
-use pico1541_emu::Emulator;
-use pico1541_emu::activetrack::ActiveTrack;
-use pico1541_emu::HardwareBridge;
-use pico1541_emu::Command;
+use pico1541_emulator::Emulator;
+use pico1541_emulator::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus};
 use racc6502::cpu::CycleState;
-use core::sync::atomic::Ordering;
 
 fn init_logger() {
     // We must ensure the logger is initialized only once across all tests.
     let _ = env_logger::builder()
         .filter_module("mos6502", log::LevelFilter::Warn)
-        .filter_module("pico1541_emu::systembus", log::LevelFilter::Info)
-        .filter_module("pico1541_emu::drivemechanics", log::LevelFilter::Info)
-        .filter_module("pico1541_emu", log::LevelFilter::Info)
+        .filter_module("pico1541_emulator::systembus", log::LevelFilter::Info)
+        .filter_module("pico1541_emulator::drivemechanics", log::LevelFilter::Info)
+        .filter_module("pico1541_emulator", log::LevelFilter::Info)
         .filter_module("boot", log::LevelFilter::Info)
         .is_test(true)
         .try_init();
@@ -24,25 +21,44 @@ fn get_rom() -> [u8; 16384] {
     rom_array
 }
 
+/// A test-only HostInterface implementation that records all drive events.
+struct TestBridge {
+    track: ActiveTrack,
+    events: Vec<DriveEvent>,
+    iec_bus: IecBus,
+}
+
+impl TestBridge {
+    fn new() -> Self {
+        Self {
+            track: ActiveTrack::new(),
+            events: Vec::new(),
+            iec_bus: IecBus(0xFF),
+        }
+    }
+}
+
+impl HostInterface for TestBridge {
+    fn get_active_track(&mut self) -> &mut ActiveTrack { &mut self.track }
+    fn send_event(&mut self, event: DriveEvent) { self.events.push(event); }
+    fn read_iec(&self) -> IecBus { self.iec_bus }
+    fn write_iec(&mut self, pins: IecBus) { self.iec_bus = pins; }
+}
+
 #[test]
 fn test_drive_boot() {
     init_logger();
     let rom_array = get_rom();
 
-    static TRACK: ActiveTrack = ActiveTrack::new();
-    static mut COMMAND_QUEUE: heapless::spsc::Queue<Command, 16> = heapless::spsc::Queue::new();
-    
-    let (cmd_tx, _cmd_rx) = unsafe { (*core::ptr::addr_of_mut!(COMMAND_QUEUE)).split() };
-    let bridge = HardwareBridge::new(&TRACK, cmd_tx);
-    
+    let bridge = TestBridge::new();
     let mut drive = Emulator::new(rom_array, bridge);
     drive.reset();
-    
+
     let initial_pc = drive.pc();
     for _ in 0..5000 {
         drive.step();
     }
-    
+
     assert_ne!(drive.pc(), initial_pc);
 }
 
@@ -51,22 +67,14 @@ fn test_drive_boot_behavior() {
     init_logger();
     let rom_array = get_rom();
 
-    // Set up hardware
-    static TRACK: ActiveTrack = ActiveTrack::new();
-    TRACK.disk_inserted.store(false, Ordering::Relaxed);
+    let mut bridge = TestBridge::new();
+    bridge.track.disk_inserted = false;
 
-    static mut COMMAND_QUEUE: heapless::spsc::Queue<Command, 16> = heapless::spsc::Queue::new();
-    let (cmd_tx, mut cmd_rx) = unsafe { (*core::ptr::addr_of_mut!(COMMAND_QUEUE)).split() };
-    
-    let bridge = HardwareBridge::new(&TRACK, cmd_tx);
     let mut drive = Emulator::new(rom_array, bridge);
- 
+
     // Instruction tracing for debugging
     fn boot_debug_hook<B: racc6502::bus::Bus>(cpu: &racc6502::cpu::CPU<B>, _data: *mut core::ffi::c_void) {
-        // Log specific points of interest or a range of addresses
         match cpu.pc {
-            // Initialization and Main Loop areas
-            //0xEAA0..=0xEFFF | 0xF97E..=0xF9AF | 0xEB22 => {
             0xEAA0 | 0xEB22 | 0xF259 | 0xF263 => {
                 log::info!("PC:${:04X} IR:${:02X} A:${:02X} X:${:02X} Y:${:02X} S:${:02X} P:${:02X}", cpu.pc, cpu.ir, cpu.a, cpu.x, cpu.y, cpu.s, cpu.p);
             }
@@ -95,16 +103,17 @@ fn test_drive_boot_behavior() {
                 break;
             }
         }
-        
+
         let ht = drive.half_track();
         if ht < min_half_track {
             min_half_track = ht;
         }
-        
-        while let Some(cmd) = cmd_rx.dequeue() {
-            match cmd {
-                Command::SetLed(enabled) => {
-                    if enabled { 
+
+        let events = std::mem::take(&mut drive.cpu.bus.hardware.events);
+        for event in events {
+            match event {
+                DriveEvent::LedChanged(enabled) => {
+                    if enabled {
                         led_on_count += 1;
                         log::info!("[Test] LED ON at step {}, cycle {}, count={}", i, total_cycles, led_on_count);
                     } else {
@@ -112,7 +121,7 @@ fn test_drive_boot_behavior() {
                         log::info!("[Test] LED OFF at step {}, cycle {}", i, total_cycles);
                     }
                 }
-                Command::SetMotor(enabled) => {
+                DriveEvent::MotorChanged(enabled) => {
                     if enabled {
                         motor_on_count += 1;
                     } else {
@@ -120,10 +129,9 @@ fn test_drive_boot_behavior() {
                     }
                     log::info!("[Test] Motor changed to {} at step {}, cycle {}", if enabled { "ON" } else { "OFF" }, i, total_cycles);
                 }
-                Command::StepHead(ht) => {
-                    log::info!("[Test] StepHead to half-track {} at step {}, cycle {}", ht, i, total_cycles);
+                DriveEvent::HeadStepped { new_half_track } => {
+                    log::info!("[Test] HeadStepped to half-track {} at step {}, cycle {}", new_half_track, i, total_cycles);
                 }
-                _ => {}
             }
         }
     }

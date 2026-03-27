@@ -5,8 +5,26 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use pico1541_emu::activetrack::ActiveTrack;
-use pico1541_emu::{Command as EmuCommand, DriveHardware, Emulator};
+use pico1541_emulator::{Emulator, interface::{ActiveTrack, DriveEvent, HostInterface, IecBus, MAX_TRACK_BYTES}};
+
+struct HostBridge {
+    pub active_track: ActiveTrack,
+    event_tx: crossbeam_channel::Sender<DriveEvent>,
+    pub iec_bus: IecBus,
+}
+
+impl HostBridge {
+    fn new(event_tx: crossbeam_channel::Sender<DriveEvent>) -> Self {
+        Self { active_track: ActiveTrack::new(), event_tx, iec_bus: IecBus(0xFF) }
+    }
+}
+
+impl HostInterface for HostBridge {
+    fn get_active_track(&mut self) -> &mut ActiveTrack { &mut self.active_track }
+    fn send_event(&mut self, event: DriveEvent) { let _ = self.event_tx.send(event); }
+    fn read_iec(&self) -> IecBus { self.iec_bus }
+    fn write_iec(&mut self, pins: IecBus) { self.iec_bus = pins; }
+}
 use pico1541_manager::{D64Image, G64Image, MemoryStorage, DiskImage, AnyDiskImage};
 use racc6502::cpu::CycleState;
 use racc6502::bus::MemoryMonitor;
@@ -76,7 +94,7 @@ enum DebugResponse {
     IECResponse(String),
 }
 
-// Local dyn-compatible trait for the debugger. 
+// Local dyn-compatible trait for the debugger.
 // No Send bound because we use LocalSet.
 #[async_trait(?Send)]
 trait DebuggerDiskImage {
@@ -326,7 +344,7 @@ fn ui(f: &mut ratatui::Frame, app: &mut App) {
         context_lines.push(Line::from(format!("  P:${:02X} [{}]", ctx.p, flags)));
         context_lines.push(Line::from(""));
         context_lines.push(Line::from(vec![Span::styled("Disassembly: ", Style::default().add_modifier(Modifier::BOLD))]));
-        
+
         for line in &ctx.disasm_window {
             let style = if line.addr == ctx.pc { Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD) } else { Style::default().fg(Color::Gray) };
             let prefix = if line.addr == ctx.pc { ">> " } else { "   " };
@@ -357,7 +375,7 @@ fn parse_addr(s: &str) -> Result<u16> {
     else { s.parse().map_err(Into::into) }
 }
 
-fn get_cpu_context<H: DriveHardware>(drive: &Emulator<H>) -> CpuContext {
+fn get_cpu_context<H: HostInterface>(drive: &Emulator<H>) -> CpuContext {
     let pc = drive.pc();
     let start_addr = pc.saturating_sub(16);
     let mut buffer = [0u8; 48];
@@ -381,38 +399,16 @@ async fn emulation_loop(
     let mut rom_array = [0u8; 16384];
     rom_array.copy_from_slice(ROM_BYTES);
 
-    static TRACK: ActiveTrack = ActiveTrack::new();
-    static mut COMMAND_QUEUE: heapless::spsc::Queue<EmuCommand, 16> = heapless::spsc::Queue::new();
-    let (cmd_tx_emu, mut cmd_rx_emu) = unsafe { (*core::ptr::addr_of_mut!(COMMAND_QUEUE)).split() };
-    
-    struct DebuggerHardware {
-        track: &'static ActiveTrack,
-        cmd_tx: heapless::spsc::Producer<'static, EmuCommand>,
-        iec_pins: u8,
-        disk_image: Option<Box<dyn DebuggerDiskImage>>,
-    }
-
-    impl DriveHardware for DebuggerHardware {
-        fn get_active_track(&self) -> &ActiveTrack { self.track }
-        fn notify_head_stepped(&mut self, ht: u8) { let _ = self.cmd_tx.enqueue(EmuCommand::StepHead(ht)); }
-        fn notify_track_dirty(&mut self) { let _ = self.cmd_tx.enqueue(EmuCommand::FlushTrack); }
-        fn notify_led_changed(&mut self, en: bool) { let _ = self.cmd_tx.enqueue(EmuCommand::SetLed(en)); }
-        fn notify_motor_changed(&mut self, en: bool) { let _ = self.cmd_tx.enqueue(EmuCommand::SetMotor(en)); }
-        fn get_iec_pins(&self) -> u8 { self.iec_pins }
-        fn set_iec_pins(&mut self, pins: u8) { self.iec_pins = pins; }
-    }
-
-    let hardware = DebuggerHardware { track: &TRACK, cmd_tx: cmd_tx_emu, iec_pins: 0xFF, disk_image: None };
-    let mut drive = Emulator::new(rom_array, hardware);
+    let (event_tx, event_rx) = unbounded::<DriveEvent>();
+    let bridge = HostBridge::new(event_tx);
+    let mut drive = Emulator::new(rom_array, bridge);
     drive.reset();
 
+    let mut disk_image: Option<Box<dyn DebuggerDiskImage>> = None;
     let mut breakpoints: HashSet<u16> = HashSet::new();
     let mut last_tick = Instant::now();
     let mut cycle_accumulator = 0.0;
     let cycles_per_sec = 1_000_000.0;
-    let mut last_motor = false;
-    let mut last_led = false;
-    let mut last_ht = 0;
 
     loop {
         while let Ok(cmd) = if running.load(Ordering::SeqCst) { cmd_rx.try_recv() } else { cmd_rx.recv().map_err(|_| crossbeam_channel::TryRecvError::Disconnected) } {
@@ -434,18 +430,25 @@ async fn emulation_loop(
                     let mut img = if path.to_lowercase().ends_with(".d64") { AnyDiskImage::D64(D64Image::new(storage)) }
                     else if path.to_lowercase().ends_with(".g64") { AnyDiskImage::G64(G64Image::new(storage)) }
                     else { return Err(anyhow!("Unsupported disk format")); };
-                    
-                    let track_buffer = unsafe { &mut *TRACK.gcr_data.get() };
-                    let bit_len = DiskImage::read_track(&mut img, 36, track_buffer).await.unwrap();
-                    TRACK.half_track_id.store(36, Ordering::Relaxed);
-                    TRACK.bit_length.store(bit_len, Ordering::Relaxed);
-                    TRACK.disk_inserted.store(true, Ordering::Relaxed);
-                    drive.cpu.bus.hardware.disk_image = Some(Box::new(img));
+
+                    // Load the initial track (track 18.0 = half-track 36)
+                    let maybe_track = {
+                        let mut temp_buf = vec![0u8; MAX_TRACK_BYTES];
+                        let bit_len = DiskImage::read_track(&mut img, 36, &mut temp_buf).await.unwrap_or(0);
+                        (bit_len, temp_buf)
+                    };
+                    {
+                        let track = drive.cpu.bus.hardware.get_active_track();
+                        track.gcr_data.copy_from_slice(&maybe_track.1);
+                        track.bit_length = maybe_track.0;
+                        track.disk_inserted = true;
+                    }
+                    disk_image = Some(Box::new(img));
                     resp_tx.send(DebugResponse::DriveEvent(format!("Mounted: {}", path)))?;
                 }
                 DebugCommand::Unmount => {
-                    drive.cpu.bus.hardware.disk_image = None;
-                    TRACK.disk_inserted.store(false, Ordering::Relaxed);
+                    disk_image = None;
+                    drive.cpu.bus.hardware.get_active_track().disk_inserted = false;
                     resp_tx.send(DebugResponse::DriveEvent("Unmounted".to_string()))?;
                 }
                 DebugCommand::IECCommand(s) => {
@@ -486,33 +489,44 @@ async fn emulation_loop(
                     }
                 }
             }
-            let motor = drive.bus().motor_on();
-            if motor != last_motor { resp_tx.send(DebugResponse::DriveEvent(format!("Motor: {}", if motor { "ON" } else { "OFF" })))?; last_motor = motor; }
-            let led = drive.bus().led_on();
-            if led != last_led { resp_tx.send(DebugResponse::DriveEvent(format!("LED: {}", if led { "ON" } else { "OFF" })))?; last_led = led; }
-            let ht = drive.half_track();
-            if ht != last_ht { resp_tx.send(DebugResponse::DriveEvent(format!("Head: HT={}", ht)))?; last_ht = ht; }
 
-            while let Some(emu_cmd) = cmd_rx_emu.dequeue() {
-                if let EmuCommand::StepHead(ht) = emu_cmd {
-                    if let Some(img) = &mut drive.cpu.bus.hardware.disk_image {
-                        let track_buffer = unsafe { &mut *TRACK.gcr_data.get() };
-                        let bit_len = img.read_track(ht, track_buffer).await.unwrap();
-                        TRACK.half_track_id.store(ht, Ordering::Relaxed);
-                        TRACK.bit_length.store(bit_len, Ordering::Relaxed);
+            // Process drive events from the HostBridge
+            while let Ok(event) = event_rx.try_recv() {
+                match event {
+                    DriveEvent::HeadStepped { new_half_track } => {
+                        let maybe_track = if let Some(img) = &mut disk_image {
+                            let mut temp_buf = vec![0u8; MAX_TRACK_BYTES];
+                            let bit_len = img.read_track(new_half_track, &mut temp_buf).await.unwrap_or(0);
+                            Some((bit_len, temp_buf))
+                        } else {
+                            None
+                        };
+                        if let Some((bit_len, temp_buf)) = maybe_track {
+                            let track = drive.cpu.bus.hardware.get_active_track();
+                            track.gcr_data.copy_from_slice(&temp_buf);
+                            track.bit_length = bit_len;
+                        }
+                        resp_tx.send(DebugResponse::DriveEvent(format!("Head: HT={}", new_half_track)))?;
+                    }
+                    DriveEvent::LedChanged(on) => {
+                        resp_tx.send(DebugResponse::DriveEvent(format!("LED: {}", if on { "ON" } else { "OFF" })))?;
+                    }
+                    DriveEvent::MotorChanged(on) => {
+                        resp_tx.send(DebugResponse::DriveEvent(format!("Motor: {}", if on { "ON" } else { "OFF" })))?;
                     }
                 }
             }
+
             if cycles_to_run == 0 { thread::sleep(Duration::from_micros(100)); }
         } else { thread::sleep(Duration::from_millis(10)); }
     }
 }
 
-async fn iec_read_status<H: DriveHardware>(_drive: &mut Emulator<H>) -> Result<String> {
+async fn iec_read_status<H: HostInterface>(_drive: &mut Emulator<H>) -> Result<String> {
     Ok("00, OK, 00, 00".to_string())
 }
 
-async fn iec_load_file<H: DriveHardware>(_drive: &mut Emulator<H>, _filename: &str) -> Result<Vec<u8>> {
+async fn iec_load_file<H: HostInterface>(_drive: &mut Emulator<H>, _filename: &str) -> Result<Vec<u8>> {
     Ok(vec![])
 }
 
