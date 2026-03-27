@@ -10,20 +10,24 @@ use pico1541_emulator::{Emulator, interface::{ActiveTrack, DriveEvent, HostInter
 struct HostBridge {
     pub active_track: ActiveTrack,
     event_tx: crossbeam_channel::Sender<DriveEvent>,
-    pub iec_bus: IecBus,
+    /// What the host (debugger/C64) drives on the bus: 1=HIGH/released, 0=LOW/asserted
+    pub host_drives: IecBus,
+    /// Combined open-drain bus state written back by emulator each cycle
+    pub bus_state: IecBus,
 }
 
 impl HostBridge {
     fn new(event_tx: crossbeam_channel::Sender<DriveEvent>) -> Self {
-        Self { active_track: ActiveTrack::new(), event_tx, iec_bus: IecBus(0xFF) }
+        let all_released = IecBus(IecBus::DATA | IecBus::CLK | IecBus::ATN);
+        Self { active_track: ActiveTrack::new(), event_tx, host_drives: all_released, bus_state: all_released }
     }
 }
 
 impl HostInterface for HostBridge {
     fn get_active_track(&mut self) -> &mut ActiveTrack { &mut self.active_track }
     fn send_event(&mut self, event: DriveEvent) { let _ = self.event_tx.send(event); }
-    fn read_iec(&self) -> IecBus { self.iec_bus }
-    fn write_iec(&mut self, pins: IecBus) { self.iec_bus = pins; }
+    fn read_iec(&self) -> IecBus { self.host_drives }
+    fn write_iec(&mut self, pins: IecBus) { self.bus_state = pins; }
 }
 use pico1541_common::{D64Image, G64Image, MemoryStorage, DiskImage, AnyDiskImage};
 use pico1541_common::disk_info::{inspect_d64, petscii_to_ascii, G64_MAGIC};
@@ -498,18 +502,32 @@ async fn emulation_loop(
                     resp_tx.send(DebugResponse::DriveEvent("Unmounted".to_string()))?;
                 }
                 DebugCommand::IECCommand(s) => {
-                    if s == "STATUS" {
-                        let status = iec_read_status(&mut drive).await?;
-                        resp_tx.send(DebugResponse::IECResponse(status))?;
+                    // Pause emulation while doing IEC – the IEC functions run cycles themselves
+                    let was_running = running.load(Ordering::SeqCst);
+                    running.store(false, Ordering::SeqCst);
+
+                    let iec_result = if s == "STATUS" {
+                        iec_read_status(&mut drive).await
+                            .map(|status| DebugResponse::IECResponse(status))
                     } else if s.starts_with("LOAD:") {
-                        let filename = &s[5..];
-                        let data = iec_load_file(&mut drive, filename).await?;
-                        if filename == "$" {
-                            resp_tx.send(DebugResponse::IECResponse(parse_directory(&data)))?;
-                        } else {
-                            resp_tx.send(DebugResponse::IECResponse(format!("Loaded {} bytes", data.len())))?;
-                        }
+                        let filename = s[5..].to_string();
+                        iec_load_file(&mut drive, &filename).await.map(|data| {
+                            if filename == "$" {
+                                DebugResponse::IECResponse(parse_directory(&data))
+                            } else {
+                                DebugResponse::IECResponse(format!("Loaded {} bytes", data.len()))
+                            }
+                        })
+                    } else {
+                        Err(anyhow!("Unknown IEC command: {}", s))
+                    };
+
+                    match iec_result {
+                        Ok(resp) => { resp_tx.send(resp)?; }
+                        Err(e) => { resp_tx.send(DebugResponse::IECResponse(format!("IEC error: {}", e)))?; }
                     }
+
+                    if was_running { running.store(true, Ordering::SeqCst); last_tick = Instant::now(); }
                 }
                 DebugCommand::Exit => return Ok(()),
             }
@@ -567,21 +585,234 @@ async fn emulation_loop(
     }
 }
 
-async fn iec_read_status<H: HostInterface>(_drive: &mut Emulator<H>) -> Result<String> {
-    // IEC bus communication is not yet implemented.
-    // The real status channel requires the 6502 ROM to respond to ATN/CLK/DATA toggling.
-    Ok("IEC STATUS: not implemented (requires IEC bus simulation)".to_string())
+// ─── IEC Bus helpers ─────────────────────────────────────────────────────────
+
+const IEC_TIMEOUT: u32 = 1_000_000; // 1 second worth of cycles at 1 MHz
+const IEC_BIT_DELAY: u32 = 20;      // ~20µs per half-bit
+const IEC_EOI_THRESHOLD: u32 = 300; // ~300µs marks EOI
+
+fn iec_tick(drive: &mut Emulator<HostBridge>) {
+    drive.cpu.tick();
 }
 
-async fn iec_load_file<H: HostInterface>(_drive: &mut Emulator<H>, _filename: &str) -> Result<Vec<u8>> {
-    // IEC bus communication is not yet implemented.
-    Ok(vec![])
+fn iec_run(drive: &mut Emulator<HostBridge>, n: u32) {
+    for _ in 0..n { drive.cpu.tick(); }
+}
+
+fn iec_bus(drive: &Emulator<HostBridge>) -> IecBus {
+    drive.cpu.bus.hardware.bus_state
+}
+
+fn iec_set_data(drive: &mut Emulator<HostBridge>, high: bool) {
+    drive.cpu.bus.hardware.host_drives.set_data(high);
+}
+fn iec_set_clk(drive: &mut Emulator<HostBridge>, high: bool) {
+    drive.cpu.bus.hardware.host_drives.set_clk(high);
+}
+fn iec_set_atn(drive: &mut Emulator<HostBridge>, high: bool) {
+    drive.cpu.bus.hardware.host_drives.set_atn(high);
+}
+
+/// Wait running emulator until predicate returns true on the combined bus state.
+fn iec_wait(drive: &mut Emulator<HostBridge>, pred: impl Fn(IecBus) -> bool) -> Result<()> {
+    for _ in 0..IEC_TIMEOUT {
+        iec_tick(drive);
+        if pred(iec_bus(drive)) { return Ok(()); }
+    }
+    Err(anyhow!("IEC timeout"))
+}
+
+/// Assert ATN and wait for drive to acknowledge by pulling DATA LOW.
+fn iec_atn_start(drive: &mut Emulator<HostBridge>) -> Result<()> {
+    iec_set_atn(drive, false); // assert ATN
+    iec_set_clk(drive, false); // host holds CLK during ATN
+    iec_run(drive, 100);
+    // Drive should assert DATA within ~1ms
+    iec_wait(drive, |b| !b.data())
+}
+
+/// Release ATN. Drive continues as current TALKER/LISTENER role.
+fn iec_atn_release(drive: &mut Emulator<HostBridge>) {
+    iec_set_atn(drive, true);
+    iec_run(drive, 100);
+}
+
+/// Send one byte with ATN already asserted (host is sender).
+fn iec_send_byte_under_atn(drive: &mut Emulator<HostBridge>, byte: u8) -> Result<()> {
+    // Release CLK to signal "ready to send byte"
+    iec_set_clk(drive, true);
+    // Wait for drive DATA HIGH = drive ready to receive byte
+    iec_wait(drive, |b| b.data())?;
+    // Assert CLK briefly (setup)
+    iec_set_clk(drive, false);
+    iec_run(drive, IEC_BIT_DELAY * 2);
+
+    // Send 8 bits LSB-first
+    for bit_idx in 0..8u8 {
+        let bit = (byte >> bit_idx) & 1 != 0;
+        iec_set_data(drive, bit);           // set DATA to bit value
+        iec_set_clk(drive, true);           // CLK HIGH = bit valid
+        iec_run(drive, IEC_BIT_DELAY);
+        iec_set_clk(drive, false);          // CLK LOW = bit done
+        iec_run(drive, IEC_BIT_DELAY);
+    }
+    // Release DATA
+    iec_set_data(drive, true);
+    // Wait for drive DATA LOW = byte acknowledged
+    iec_wait(drive, |b| !b.data())?;
+    // Reassert CLK for next byte
+    iec_set_clk(drive, false);
+    iec_run(drive, 50);
+    Ok(())
+}
+
+/// Perform TALK + secondary address handshake, then receive bytes until EOI.
+/// Call iec_atn_start() before this, then release ATN after last command byte.
+fn iec_receive_data(drive: &mut Emulator<HostBridge>) -> Result<Vec<u8>> {
+    // Talker turnaround: drive takes CLK, host releases CLK
+    iec_set_clk(drive, true);  // host releases CLK
+    iec_set_data(drive, true); // host releases DATA initially
+    iec_run(drive, 200);       // wait for drive to set up
+
+    let mut result = Vec::new();
+
+    loop {
+        // --- per-byte receive ---
+        // Assert DATA = "not ready yet"
+        iec_set_data(drive, false);
+        iec_run(drive, 50);
+        // Release DATA = "ready to receive"
+        iec_set_data(drive, true);
+
+        // Wait for drive to release CLK (drive is ready to send byte / signal EOI)
+        iec_wait(drive, |b| b.clk())?;
+
+        // Check for EOI: if CLK stays HIGH > threshold, it's the last byte
+        let mut eoi = false;
+        let mut high_count = 0u32;
+        loop {
+            iec_tick(drive);
+            if !iec_bus(drive).clk() {
+                break; // CLK went LOW, sending started
+            }
+            high_count += 1;
+            if high_count > IEC_EOI_THRESHOLD {
+                // EOI: acknowledge by asserting DATA ~60µs, then release
+                iec_set_data(drive, false);
+                iec_run(drive, 60);
+                iec_set_data(drive, true);
+                eoi = true;
+                // Now wait for drive to actually start sending
+                iec_wait(drive, |b| !b.clk())?;
+                break;
+            }
+        }
+
+        // Read 8 bits LSB-first: each bit valid when CLK HIGH
+        let mut byte_val: u8 = 0;
+        for bit_idx in 0..8u8 {
+            // Wait for CLK LOW→HIGH (bit valid)
+            iec_wait(drive, |b| b.clk())?;
+            if iec_bus(drive).data() { byte_val |= 1 << bit_idx; }
+            // Wait for CLK HIGH→LOW (bit done)
+            iec_wait(drive, |b| !b.clk())?;
+        }
+        result.push(byte_val);
+
+        // Acknowledge byte
+        iec_set_data(drive, false);
+        iec_run(drive, 60);
+        iec_set_data(drive, true);
+
+        if eoi { break; }
+    }
+
+    Ok(result)
+}
+
+/// Read the 1541 status channel (channel 15).
+async fn iec_read_status(drive: &mut Emulator<HostBridge>) -> Result<String> {
+    // TALK 0x48, OPEN_CHANNEL 0x6F (sa=15)
+    iec_atn_start(drive)?;
+    iec_send_byte_under_atn(drive, 0x48)?; // TALK device 8
+    iec_send_byte_under_atn(drive, 0x6F)?; // DATA channel 15
+    iec_atn_release(drive);
+
+    let data = iec_receive_data(drive)?;
+
+    // Restore bus to idle
+    iec_set_data(drive, true);
+    iec_set_clk(drive, true);
+    iec_set_atn(drive, true);
+
+    Ok(String::from_utf8_lossy(&data).trim_end_matches('\r').to_string())
+}
+
+/// Load a file by name from the 1541 (LISTEN→OPEN→UNLISTEN→TALK→DATA→receive).
+async fn iec_load_file(drive: &mut Emulator<HostBridge>, filename: &str) -> Result<Vec<u8>> {
+    // Step 1: LISTEN + OPEN channel 0 (secondary 0xF0), send filename
+    iec_atn_start(drive)?;
+    iec_send_byte_under_atn(drive, 0x28)?; // LISTEN device 8
+    iec_send_byte_under_atn(drive, 0xF0)?; // OPEN channel 0
+    iec_atn_release(drive);
+
+    // Send filename bytes (drive is now LISTENER)
+    // For sending as LISTENER: drive holds CLK, we send via DATA
+    // Actually after ATN released with LISTEN: host sends filename bytes
+    // using the standard byte send protocol (but host holds CLK now)
+    iec_set_clk(drive, false); // host takes CLK
+    for &b in filename.as_bytes() {
+        iec_send_byte_under_atn(drive, b)?;
+    }
+
+    // Step 2: UNLISTEN
+    iec_atn_start(drive)?;
+    iec_send_byte_under_atn(drive, 0x3F)?; // UNLISTEN
+    iec_atn_release(drive);
+
+    // Step 3: TALK + DATA channel 0
+    iec_atn_start(drive)?;
+    iec_send_byte_under_atn(drive, 0x48)?; // TALK device 8
+    iec_send_byte_under_atn(drive, 0x60)?; // DATA channel 0
+    iec_atn_release(drive);
+
+    let data = iec_receive_data(drive)?;
+
+    // Restore bus to idle
+    iec_set_data(drive, true);
+    iec_set_clk(drive, true);
+    iec_set_atn(drive, true);
+
+    Ok(data)
 }
 
 fn parse_directory(data: &[u8]) -> String {
-    if data.is_empty() {
-        return "IEC DIR: not implemented — IEC bus simulation is not yet wired up. \
-                Mount a disk and run the emulator; the 1541 ROM handles the protocol.".to_string();
+    if data.len() < 2 {
+        return "(empty directory data)".to_string();
     }
-    "Directory listing...".to_string()
+    let mut lines = Vec::new();
+    let mut pos = 2; // skip load address
+    while pos + 4 <= data.len() {
+        let _next_link = u16::from_le_bytes([data[pos], data[pos + 1]]);
+        if _next_link == 0 { break; }
+        let line_num = u16::from_le_bytes([data[pos + 2], data[pos + 3]]);
+        pos += 4;
+        // Collect PETSCII bytes until 0x00
+        let mut text = String::new();
+        while pos < data.len() && data[pos] != 0x00 {
+            let c = data[pos];
+            // PETSCII to ASCII: uppercase letters are 0x41-0x5A
+            let ascii = match c {
+                0x20..=0x5F => c,           // printable ASCII range
+                0x60..=0x7E => c - 0x20,    // PETSCII lowercase → uppercase
+                0xC1..=0xDA => c - 0x80,    // PETSCII uppercase shifted
+                _ => b'.',
+            };
+            text.push(ascii as char);
+            pos += 1;
+        }
+        pos += 1; // skip null terminator
+        lines.push(format!("{:5} {}", line_num, text));
+    }
+    if lines.is_empty() { "(no entries)".to_string() } else { lines.join("\n") }
 }

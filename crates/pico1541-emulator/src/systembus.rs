@@ -50,8 +50,38 @@ impl<H: HostInterface> SystemBus<H> {
             self.so_active = false;
         }
 
-        self.via1.in_b = self.hardware.read_iec().0;
-        self.hardware.write_iec(IecBus(self.via1.get_port_b()));
+        // --- IEC Bus open-drain model ---
+        // host_bus: 1 = HIGH (released), 0 = LOW (asserted)
+        let host = self.hardware.read_iec();
+
+        // VIA1 Drive outputs (open-drain transistors: 1 in ORB = pulls line LOW)
+        // PB0 = DATA_OUT, PB2 = CLK_OUT
+        let drv_data_lo = (self.via1.orb & 0x01) != 0;
+        let drv_clk_lo  = (self.via1.orb & 0x04) != 0;
+
+        // Combined bus: HIGH only if NOBODY pulls it LOW
+        let bus_data = host.data() && !drv_data_lo;
+        let bus_clk  = host.clk()  && !drv_clk_lo;
+        let bus_atn  = host.atn(); // ATN driven only by host (C64)
+
+        // VIA1 in_b: inputs are active-HIGH (1 = line is asserted/LOW)
+        // PB7 = DATA_IN, PB6 = CLK_IN, PB3 = ATN_IN
+        let mut in_b: u8 = 0;
+        if !bus_data { in_b |= 0x80; } // PB7 HIGH when DATA LOW
+        if !bus_clk  { in_b |= 0x40; } // PB6 HIGH when CLK LOW
+        if !bus_atn  { in_b |= 0x08; } // PB3 HIGH when ATN LOW
+        self.via1.in_b = in_b;
+
+        // CA1 = ATN line (raw bus voltage); falling edge = ATN asserted = IRQ
+        self.via1.set_ca1(bus_atn);
+
+        // Write combined state back so host can observe the open-drain result
+        let mut combined = IecBus::default();
+        combined.set_data(bus_data);
+        combined.set_clk(bus_clk);
+        combined.set_atn(bus_atn);
+        self.hardware.write_iec(combined);
+
         self.via1.tick_cycle();
         self.via2.tick_cycle();
     }
