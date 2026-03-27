@@ -121,7 +121,7 @@ struct App {
 impl App {
     fn new(running: Arc<AtomicBool>) -> Self {
         Self {
-            log: vec!["Debugger started. F5:Run/Pause  F10:Step  F12:Reset".to_string()],
+            log: vec!["Debugger started.".to_string()],
             log_state: ListState::default(),
             cpu_context: None,
             running,
@@ -200,8 +200,8 @@ fn main() -> Result<()> {
                             cmd_tx.send(DebugCommand::Run)?;
                         }
                     }
-                    KeyCode::F(10) => { cmd_tx.send(DebugCommand::Step)?; }
-                    KeyCode::F(12) => {
+                    KeyCode::F(6) => { cmd_tx.send(DebugCommand::Step)?; }
+                    KeyCode::F(7) => {
                         cmd_tx.send(DebugCommand::Reset)?;
                         app.add_log("Drive Reset.".to_string());
                     }
@@ -365,7 +365,7 @@ fn ui(f: &mut ratatui::Frame, app: &mut App) {
     let context_box = Paragraph::new(context_lines).block(Block::default().borders(Borders::ALL).title("CPU Context"));
     f.render_widget(context_box, middle_chunks[1]);
 
-    let input = Paragraph::new(app.input.as_str()).block(Block::default().borders(Borders::ALL).title("Command Prompt"));
+    let input = Paragraph::new(app.input.as_str()).block(Block::default().borders(Borders::ALL).title("Command  F5:Run/Pause  F6:Step  F7:Reset  Esc:Quit"));
     f.render_widget(input, chunks[2]);
 }
 
