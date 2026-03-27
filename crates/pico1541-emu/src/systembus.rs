@@ -65,7 +65,6 @@ impl<H: DriveHardware> SystemBus<H> {
     }
 
     fn check_state_changes(&mut self) {
-        // --- Motor (VIA2 Port B bit 2) ---
         // Active-LOW on 1541-II (1 = Motor ON)
         let motor_on = (self.via2.orb & 0x04) != 0;
         if motor_on != self.last_motor_on {
@@ -77,7 +76,6 @@ impl<H: DriveHardware> SystemBus<H> {
         // --- LED (VIA2 Port B bit 3) ---
         // Active-LOW on 1541-II (1 = LED ON)
         let led_on = (self.via2.orb & 0x08) != 0;
-        
         if led_on != self.last_led_on {
             log::info!("LED changed: {} -> {}", self.last_led_on, led_on);
             self.last_led_on = led_on;

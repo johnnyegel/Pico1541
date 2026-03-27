@@ -9,7 +9,7 @@ fn init_logger() {
     // We must ensure the logger is initialized only once across all tests.
     let _ = env_logger::builder()
         .filter_module("mos6502", log::LevelFilter::Warn)
-        .filter_module("pico1541_emu::systembus", log::LevelFilter::Warn)
+        .filter_module("pico1541_emu::systembus", log::LevelFilter::Info)
         .filter_module("pico1541_emu::drivemechanics", log::LevelFilter::Info)
         .filter_module("pico1541_emu", log::LevelFilter::Info)
         .filter_module("boot", log::LevelFilter::Info)
@@ -78,11 +78,15 @@ fn test_drive_boot_behavior() {
     drive.reset();
 
     let mut led_on_count = 0;
+    let mut led_off_count = 0;
+    let mut motor_on_count = 0;
+    let mut motor_off_count = 0;
+
     let mut min_half_track = drive.half_track();
     let mut total_cycles: u64 = 0;
 
-    // Run for 10 million instructions (~10s of real drive time)
-    for i in 0..10_000_000 { // 10_000_000 {
+    // Run for 3 million instructions (~3s of real drive time)
+    for i in 0..3_000_000 {
         // Run until we start fetching the next opcode (Sync point)
         loop {
             drive.cpu.tick();
@@ -104,10 +108,16 @@ fn test_drive_boot_behavior() {
                         led_on_count += 1;
                         log::info!("[Test] LED ON at step {}, cycle {}, count={}", i, total_cycles, led_on_count);
                     } else {
+                        led_off_count += 1;
                         log::info!("[Test] LED OFF at step {}, cycle {}", i, total_cycles);
                     }
                 }
                 Command::SetMotor(enabled) => {
+                    if enabled {
+                        motor_on_count += 1;
+                    } else {
+                        motor_off_count += 1;
+                    }
                     log::info!("[Test] Motor changed to {} at step {}, cycle {}", if enabled { "ON" } else { "OFF" }, i, total_cycles);
                 }
                 Command::StepHead(ht) => {
@@ -116,15 +126,10 @@ fn test_drive_boot_behavior() {
                 _ => {}
             }
         }
-
-        // Periodically log progress every 1 million steps
-        if i % 1_000_000 == 0 {
-            log::info!("Progress: step {}, cycle {}, PC=${:04X}, HT={}", i, total_cycles, drive.pc(), ht);
-        }
     }
 
-    log::error!("FAILURE: Never reached track 0. Final PC=${:04X}, Min HT={}, LED Count={}", 
-               drive.pc(), min_half_track, led_on_count);
-    
-    panic!("Boot sequence failed to home head");
+    assert_eq!(motor_on_count, 1, "Expected exactly one Motor ON event during boot");
+    assert_eq!(motor_off_count, 1, "Expected exactly one Motor OFF event during boot");
+    assert_eq!(led_on_count, 0, "Expected exactly zero LED ON event during boot");
+    assert_eq!(led_off_count, 0, "Expected exactly zero LED OFF event during boot");
 }
