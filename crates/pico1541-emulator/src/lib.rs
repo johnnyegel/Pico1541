@@ -4,6 +4,7 @@ pub mod via6522;
 pub mod systembus;
 pub mod drivemechanics;
 pub mod activetrack;
+pub mod interface;
 
 use racc6502::cpu::{CPU, CycleState};
 use systembus::SystemBus;

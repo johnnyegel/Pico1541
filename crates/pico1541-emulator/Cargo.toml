@@ -1,5 +1,5 @@
 [package]
-name = "pico1541-emu"
+name = "pico1541-emulator"
 version = "0.1.0"
 edition = "2021"
 
