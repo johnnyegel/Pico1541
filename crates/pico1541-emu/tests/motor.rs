@@ -22,9 +22,12 @@ impl DriveHardware for MockHardware {
 fn test_motor_delay() {
     let mut hardware = MockHardware { track: ActiveTrack::new() };
     hardware.track.disk_inserted.store(true, Ordering::Relaxed);
-    hardware.track.bit_length = 8000 * 8;
-    hardware.track.gcr_data[0] = 0xAA;
-    hardware.track.gcr_data[1] = 0x55;
+    hardware.track.bit_length.store(8000 * 8, Ordering::Relaxed);
+    unsafe {
+        let data = &mut *hardware.track.gcr_data.get();
+        data[0] = 0xAA;
+        data[1] = 0x55;
+    }
 
     let mut via2 = Via6522::default();
     let mut mechanics = DriveMechanics::new();
