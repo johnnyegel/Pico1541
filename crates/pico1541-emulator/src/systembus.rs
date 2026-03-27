@@ -54,22 +54,26 @@ impl<H: HostInterface> SystemBus<H> {
         // host_bus: 1 = HIGH (released), 0 = LOW (asserted)
         let host = self.hardware.read_iec();
 
-        // VIA1 Drive outputs (open-drain transistors: 1 in ORB = pulls line LOW)
+        // VIA1 Drive outputs (open-drain transistors: 1 in ORB = pulls line LOW).
+        // Only effective when the corresponding DDRB bit is set to output (1).
         // PB0 = DATA_OUT, PB2 = CLK_OUT
-        let drv_data_lo = (self.via1.orb & 0x01) != 0;
-        let drv_clk_lo  = (self.via1.orb & 0x04) != 0;
+        let drv_data_lo = (self.via1.orb & self.via1.ddrb & 0x01) != 0;
+        let drv_clk_lo  = (self.via1.orb & self.via1.ddrb & 0x04) != 0;
 
         // Combined bus: HIGH only if NOBODY pulls it LOW
         let bus_data = host.data() && !drv_data_lo;
         let bus_clk  = host.clk()  && !drv_clk_lo;
         let bus_atn  = host.atn(); // ATN driven only by host (C64)
 
-        // VIA1 in_b: inputs are active-HIGH (1 = line is asserted/LOW)
-        // PB7 = DATA_IN, PB6 = CLK_IN, PB3 = ATN_IN
+        // VIA1 in_b: inputs are active-HIGH (1 = line is asserted/LOW).
+        // 1541-II VIA1 pin assignments (confirmed from hardware schematic):
+        //   PB7 = DATA_IN  (1 when DATA bus is LOW)
+        //   PB6 = CLK_IN   (1 when CLK bus is LOW)
+        //   PB4 = ATN_IN   (1 when ATN bus is LOW)  ← PB4, not PB3
         let mut in_b: u8 = 0;
         if !bus_data { in_b |= 0x80; } // PB7 HIGH when DATA LOW
         if !bus_clk  { in_b |= 0x40; } // PB6 HIGH when CLK LOW
-        if !bus_atn  { in_b |= 0x08; } // PB3 HIGH when ATN LOW
+        if !bus_atn  { in_b |= 0x10; } // PB4 HIGH when ATN LOW
         self.via1.in_b = in_b;
 
         // CA1 = ATN line (raw bus voltage); falling edge = ATN asserted = IRQ

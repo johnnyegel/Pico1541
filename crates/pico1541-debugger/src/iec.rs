@@ -78,11 +78,22 @@ pub fn iec_wait(drive: &mut Emulator<HostBridge>, pred: impl Fn(IecBus) -> bool)
 // ─── Handshake ────────────────────────────────────────────────────────────────
 
 /// Assert ATN and wait for the drive to acknowledge by pulling DATA LOW.
-/// The CA1 interrupt on the 1541 fires on ATN's falling edge, causing the
-/// ROM's ISR to assert DATA within a few dozen cycles.
+///
+/// The 1541 ROM responds two ways:
+///   • CA1 interrupt: fires on ATN's *falling edge* (HIGH→LOW transition).
+///     `via1.last_ca1` must be `true` before we pull ATN LOW, otherwise the
+///     edge detector sees false→false and no IRQ fires.  We guarantee this by
+///     running a few cycles with ATN=HIGH first.
+///   • PB4 polling: the ROM's main loop also reads ATN_IN (PB4) directly.
+///     This is the fallback if the interrupt was already missed.
 pub fn iec_atn_start(drive: &mut Emulator<HostBridge>) -> Result<()> {
-    iec_set_atn(drive, false); // assert ATN (LOW)
-    iec_set_clk(drive, false); // host holds CLK during ATN
+    // Release ATN and run a few cycles so CA1 sees HIGH → last_ca1 = true
+    iec_set_atn(drive, true);
+    iec_set_clk(drive, false); // host holds CLK throughout
+    iec_run(drive, 20);        // just enough to register the HIGH on CA1
+
+    // Now assert ATN — this creates a clean HIGH→LOW falling edge on CA1
+    iec_set_atn(drive, false);
     iec_run(drive, IEC_SETUP_DELAY);
     iec_wait(drive, |b| !b.data())
 }
