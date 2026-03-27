@@ -3,7 +3,6 @@
 //! This module provides a detailed simulation of the 6522 VIA,
 //! including timers, interrupts, and I/O ports.
 
-use racc6502::bus::MemoryMonitor;
 
 #[derive(Clone, Copy, Default)]
 pub struct Via6522 {

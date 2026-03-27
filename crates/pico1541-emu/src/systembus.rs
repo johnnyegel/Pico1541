@@ -1,4 +1,4 @@
-use racc6502::bus::{Bus, MemoryMonitor};
+use racc6502::bus::Bus;
 use crate::via6522::Via6522;
 use crate::DriveHardware;
 use crate::drivemechanics::DriveMechanics;
