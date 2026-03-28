@@ -6,7 +6,7 @@ use pico1541_emulator::interface::{ActiveTrack, DriveEvent, HostInterface, IecBu
 pub struct HostBridge {
     pub active_track: ActiveTrack,
     event_tx: Sender<DriveEvent>,
-    /// What the host (debugger/C64 side) drives: 1=HIGH/released, 0=LOW/asserted
+    /// What the host (debugger/C64 side) drives: 1=LOW/asserted, 0=HIGH/released
     pub host_drives: IecBus,
     /// Combined open-drain bus state, written back by emulator each cycle
     pub bus_state: IecBus,
@@ -14,12 +14,11 @@ pub struct HostBridge {
 
 impl HostBridge {
     pub fn new(event_tx: Sender<DriveEvent>) -> Self {
-        let all_released = IecBus(IecBus::DATA | IecBus::CLK | IecBus::ATN);
         Self {
             active_track: ActiveTrack::new(),
             event_tx,
-            host_drives: all_released,
-            bus_state: all_released,
+            host_drives: IecBus::default(), // 0x00 = all released
+            bus_state: IecBus::default(),
         }
     }
 }

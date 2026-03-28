@@ -9,17 +9,15 @@
 //! IEC_BIT_DELAY cycles, giving the 1541 ROM's polling loops enough time to
 //! execute multiple iterations before the signal changes again.
 //!
-//! IEC bus convention (compact IecBus format):
-//!   bit 0 = DATA  (1=HIGH/released, 0=LOW/asserted)
-//!   bit 1 = CLK   (1=HIGH/released, 0=LOW/asserted)
-//!   bit 2 = ATN   (1=HIGH/released, 0=LOW/asserted)
+//! IEC bus convention (compact IecBus format, open-drain asserted):
+//!   bit 0 = DATA  (1=LOW/asserted, 0=HIGH/released)
+//!   bit 1 = CLK   (1=LOW/asserted, 0=HIGH/released)
+//!   bit 2 = ATN   (1=LOW/asserted, 0=HIGH/released)
 //!
-//! VIA1 convention (active-HIGH inputs, inverted from bus):
-//!   PB7 = DATA_IN  (1 when DATA is LOW)
-//!   PB6 = CLK_IN   (1 when CLK is LOW)
-//!   PB4 = ATN_IN   (1 when ATN is LOW)
-//!   PB0 = DATA_OUT drive output (1 = transistor pulls DATA LOW)
-//!   PB2 = CLK_OUT  drive output (1 = transistor pulls CLK LOW)
+//! VIA1 inputs (7406 inversion captured by convention, direct mapping):
+//!   PB0 = DATA_IN  (1 when DATA is asserted/LOW)
+//!   PB2 = CLK_IN   (1 when CLK is asserted/LOW)
+//!   PB7 = ATN_IN   (1 when ATN is asserted/LOW)
 
 use anyhow::{anyhow, Result};
 use pico1541_emulator::{interface::IecBus, Emulator};
@@ -32,10 +30,6 @@ const IEC_BIT_DELAY: u32 = 200;
 
 /// Settling/turnaround delay used after ATN changes and talker handshakes.
 const IEC_SETUP_DELAY: u32 = 600;
-
-/// Cycles CLK must stay HIGH from the drive before we treat it as EOI.
-/// 400 cycles ≈ 400 µs at 1 MHz, safely above the 200 µs spec threshold.
-const IEC_EOI_THRESHOLD: u32 = 400;
 
 /// Maximum cycles to wait for any bus event before declaring a timeout.
 pub const IEC_TIMEOUT: u32 = 2_000_000; // 2 seconds at 1 MHz
@@ -56,14 +50,14 @@ pub fn iec_bus(drive: &Emulator<HostBridge>) -> IecBus {
     drive.cpu.bus.hardware.bus_state
 }
 
-pub fn iec_set_data(drive: &mut Emulator<HostBridge>, high: bool) {
-    drive.cpu.bus.hardware.host_drives.set_data(high);
+pub fn iec_set_data(drive: &mut Emulator<HostBridge>, asserted: bool) {
+    drive.cpu.bus.hardware.host_drives.set_data(asserted);
 }
-pub fn iec_set_clk(drive: &mut Emulator<HostBridge>, high: bool) {
-    drive.cpu.bus.hardware.host_drives.set_clk(high);
+pub fn iec_set_clk(drive: &mut Emulator<HostBridge>, asserted: bool) {
+    drive.cpu.bus.hardware.host_drives.set_clk(asserted);
 }
-pub fn iec_set_atn(drive: &mut Emulator<HostBridge>, high: bool) {
-    drive.cpu.bus.hardware.host_drives.set_atn(high);
+pub fn iec_set_atn(drive: &mut Emulator<HostBridge>, asserted: bool) {
+    drive.cpu.bus.hardware.host_drives.set_atn(asserted);
 }
 
 /// Run the emulator until `pred(bus_state)` returns true, or IEC_TIMEOUT cycles.
@@ -80,142 +74,160 @@ pub fn iec_wait(drive: &mut Emulator<HostBridge>, pred: impl Fn(IecBus) -> bool)
 /// Assert ATN and wait for the drive to acknowledge by pulling DATA LOW.
 ///
 /// The 1541 ROM responds two ways:
-///   • CA1 interrupt: fires on ATN's *falling edge* (HIGH→LOW transition).
-///     `via1.last_ca1` must be `true` before we pull ATN LOW, otherwise the
-///     edge detector sees false→false and no IRQ fires.  We guarantee this by
-///     running a few cycles with ATN=HIGH first.
-///   • PB4 polling: the ROM's main loop also reads ATN_IN (PB4) directly.
+///   • CA1 interrupt: fires on ATN's positive edge at the VIA (LOW→HIGH transition
+///     after the 7406 inverter). `via1.last_ca1` must be `false` before we assert
+///     ATN, otherwise the edge detector sees true→true and no IRQ fires. We
+///     guarantee this by releasing ATN for a few cycles first.
+///   • PB7 polling: the ROM's main loop also reads ATN_IN (PB7) directly.
 ///     This is the fallback if the interrupt was already missed.
 pub fn iec_atn_start(drive: &mut Emulator<HostBridge>) -> Result<()> {
-    // Release ATN and run a few cycles so CA1 sees HIGH → last_ca1 = true
-    iec_set_atn(drive, true);
-    iec_set_clk(drive, false); // host holds CLK throughout
-    iec_run(drive, 20);        // just enough to register the HIGH on CA1
-
-    // Now assert ATN — this creates a clean HIGH→LOW falling edge on CA1
+    // Release ATN and run a few cycles so CA1 goes LOW → last_ca1 = false
     iec_set_atn(drive, false);
+    iec_set_clk(drive, true); // host asserts CLK throughout
+    iec_run(drive, 20);       // just enough to register the LOW on CA1
+
+    // Now assert ATN — 7406 inverts to HIGH at CA1 → positive edge → IRQ
+    iec_set_atn(drive, true);
     iec_run(drive, IEC_SETUP_DELAY);
-    iec_wait(drive, |b| !b.data())
+    iec_wait(drive, |b| b.data())
 }
 
 /// Release ATN and run a settling delay.
 pub fn iec_atn_release(drive: &mut Emulator<HostBridge>) {
-    iec_set_atn(drive, true);
+    iec_set_atn(drive, false);
     iec_run(drive, IEC_SETUP_DELAY);
 }
 
 /// Release the bus to idle (all lines HIGH/released).
 pub fn iec_idle(drive: &mut Emulator<HostBridge>) {
-    iec_set_data(drive, true);
-    iec_set_clk(drive, true);
-    iec_set_atn(drive, true);
+    iec_set_data(drive, false);
+    iec_set_clk(drive, false);
+    iec_set_atn(drive, false);
 }
 
 // ─── Byte send (host is SENDER) ───────────────────────────────────────────────
 
 /// Send one byte.  ATN may be asserted or released; the protocol is the same.
-/// The 1541 ROM byte-receive routine (GBIT) expects:
-///   1. CLK HIGH  → ROM releases DATA ("ready to receive")
-///   2. CLK LOW   → ROM enters bit-read loop ("sender about to send")
-///   3. CLK HIGH  → bit N valid on DATA; CLK LOW → bit done  (×8)
-///   4. After bit 7: ROM asserts DATA (byte acknowledge)
+///
+/// The 1541 ROM byte-receive routine (LE9C9/LEA0B) expects:
+///   1. CLK released → ROM (LE87B/LE9CD) exits its CLK-asserted wait,
+///      drive asserts own CLK (LE99C), waits for host DATA released via LFF20
+///      (PB0 = host DATA only, so exits immediately), then waits at LE9DF for CLK asserted.
+///   2. CLK asserted → LE9DF exits → ROM enters bit-read loop (LEA0B).
+///   3. CLK released → bit N valid on DATA; CLK asserted → bit done (×8).
+///      LEA0B checks PB2 = host CLK only (drive's own CLK_OUT does not feed back).
+///   4. After bit 7: ROM releases drive CLK (LE9A5) and returns. No DATA handshake
+///      during ATN-phase command bytes; host uses a timing delay instead.
 pub fn iec_send_byte(drive: &mut Emulator<HostBridge>, byte: u8) -> Result<()> {
-    // Step 1: release CLK → ROM releases DATA
-    iec_set_clk(drive, true);
-    iec_wait(drive, |b| b.data())?; // wait for drive DATA HIGH (ready)
-
-    // Step 2: assert CLK → ROM transitions to bit-read loop
+    // Step 1: release CLK → ROM (LE87B or LE9CD) exits, drive asserts CLK (LE99C),
+    // LFF20 exits immediately (host DATA not asserted), ROM reaches LE9DF.
     iec_set_clk(drive, false);
-    iec_run(drive, IEC_BIT_DELAY * 2); // generous setup: ROM must reach "wait for CLK HIGH"
+    iec_run(drive, IEC_BIT_DELAY); // give ROM time to run through LE99C/LFF20/reach LE9DF
+
+    // Step 2: assert CLK → LE9DF (waiting for PB2=1) exits → ROM enters LEA0B bit loop.
+    iec_set_clk(drive, true);
+    iec_run(drive, IEC_BIT_DELAY); // setup: ROM must reach LEA0B and be in CLK-high wait
 
     // Step 3: send 8 bits LSB-first
+    // DATA HIGH (released, not asserted) = bit 1; DATA LOW (asserted) = bit 0.
+    // LEA0B exits on CLK released (PB2=0 = host CLK only); LEA1A exits on CLK asserted.
     for bit_idx in 0..8u8 {
         let bit = (byte >> bit_idx) & 1 != 0;
-        iec_set_data(drive, bit);        // put bit on DATA line
-        iec_set_clk(drive, true);        // CLK HIGH = bit valid
-        iec_run(drive, IEC_BIT_DELAY);   // hold: ROM must sample DATA
-        iec_set_clk(drive, false);       // CLK LOW = bit done
-        iec_run(drive, IEC_BIT_DELAY);   // hold: ROM must register edge
+        iec_set_data(drive, !bit);       // bit=1 → DATA released (not asserted)
+        iec_set_clk(drive, false);       // CLK released = bit valid on wire
+        iec_run(drive, IEC_BIT_DELAY);   // hold: ROM (LEA0B) must sample DATA
+        iec_set_clk(drive, true);        // CLK asserted = bit done
+        iec_run(drive, IEC_BIT_DELAY);   // hold: ROM (LEA1A) must register edge
     }
 
-    // Step 4: release DATA; wait for drive to pull DATA LOW (byte acknowledge)
-    iec_set_data(drive, true);
-    iec_wait(drive, |b| !b.data())?;
-
-    // Reassert CLK for next byte (host still controls it)
-    iec_set_clk(drive, false);
+    // Step 4: release DATA; delay for ROM to process byte and re-enter LE9CD.
+    // The 1541 does not assert DATA as an ACK between ATN-phase command bytes.
+    iec_set_data(drive, false);
     iec_run(drive, IEC_BIT_DELAY);
     Ok(())
 }
 
 // ─── Byte receive (host is LISTENER, drive is TALKER) ─────────────────────────
 
-/// Receive all bytes until the drive signals EOI (last byte).
+/// Receive all bytes until the drive signals EOI (no more data).
 ///
-/// After ATN is released with a TALK command the drive performs the
-/// talker-turnaround: it asserts CLK (holding) then releases CLK per byte.
-/// The host signals "ready" by releasing DATA, then reads bits on each
-/// CLK HIGH phase.
+/// The 1541-II ROM talker protocol (LE916/LE94B/LE95C) uses CLK=bit value and
+/// DATA=strobe (released=valid, asserted=done via LFEFB). This differs from
+/// standard CBM serial.
+///
+/// Per-byte sequence:
+///   Handshake: host asserts DATA → LE941 exits; drive asserts DATA (LE94B);
+///              host releases DATA → LE94B exits; drive enters LE95C.
+///   Per bit (LE95C):
+///     1. Drive sets CLK = bit value (asserted=1, released=0).
+///     2. Drive releases DATA (LE9B7) → "bit valid".
+///     3. Host reads CLK for the bit value.
+///     4. Drive asserts DATA + CLK (LFEFB) → "bit done".
+///   Byte ack: host asserts DATA briefly (LE987 waits for PB0=1).
+///
+/// EOI detection: both LE941 (waiting for next byte) and LEA4E (main loop/EOI)
+/// leave CLK asserted, so CLK cannot distinguish them. The difference is
+/// behavioural: at LE941 the drive monitors PB0 and responds to host DATA by
+/// asserting its own DATA (LE94B). At LEA4E/EBE7 the drive ignores host DATA.
+/// We probe by asserting host DATA and checking whether the combined bus DATA
+/// stays high after releasing — the drive's open-drain DATA_OUT holds the bus
+/// high if and only if it responded from LE941.
 pub fn iec_receive_data(drive: &mut Emulator<HostBridge>) -> Result<Vec<u8>> {
-    // Talker turnaround: host releases CLK so drive can take it
-    iec_set_clk(drive, true);
-    iec_set_data(drive, true);
-    iec_run(drive, IEC_SETUP_DELAY); // give drive time to assert CLK and set up
+    // Talker turnaround: host releases CLK and DATA.
+    // Drive (LE8ED) asserts CLK+DATA, processes secondary address, releases DATA
+    // (LE916:LE9B7), then waits at LE941 for host to assert DATA.
+    iec_set_clk(drive, false);
+    iec_set_data(drive, false);
+    iec_run(drive, IEC_SETUP_DELAY); // give ROM time to reach LE941
 
     let mut result = Vec::new();
 
+    // Probe/handshake loop: each iteration first checks whether the drive
+    // is still at LE941 (more data) or at EBE7/LEA4E (EOI), then receives
+    // one byte if the drive responded.
     loop {
-        // --- per-byte receive ---
-
-        // Brief DATA=LOW ("not ready yet"), then release to signal "ready"
-        iec_set_data(drive, false);
-        iec_run(drive, IEC_BIT_DELAY);
-        iec_set_data(drive, true); // ready to receive
-
-        // Wait for drive to release CLK (HIGH) = "I have a byte for you"
-        // The drive holds CLK LOW when idle / not ready to send.
-        iec_wait(drive, |b| b.clk())?;
-
-        // EOI detection: count cycles CLK stays HIGH before first bit.
-        // If drive keeps CLK HIGH past IEC_EOI_THRESHOLD, this is the last byte.
-        let mut clk_high_cycles = 0u32;
-        let mut eoi = false;
-
-        loop {
-            iec_tick(drive);
-            if !iec_bus(drive).clk() {
-                // CLK went LOW: drive starting bit transmission (no EOI yet)
-                break;
-            }
-            clk_high_cycles += 1;
-            if clk_high_cycles > IEC_EOI_THRESHOLD {
-                // EOI: acknowledge by pulsing DATA LOW ~60 µs, then release
-                iec_set_data(drive, false);
-                iec_run(drive, 60);
-                iec_set_data(drive, true);
-                eoi = true;
-                // Wait for drive to assert CLK (start sending after EOI ack)
-                iec_wait(drive, |b| !b.clk())?;
-                break;
-            }
+        // ── Probe / handshake ────────────────────────────────────────────────
+        // Assert DATA → if drive is at LE941, it exits and enters LE94B,
+        // where it asserts its own DATA_OUT (LE9AE: ORA #$08 → PB3=1).
+        // The combined open-drain bus DATA then stays HIGH even after we
+        // release our host DATA, because the drive holds it.
+        // If the drive is at EBE7 (main loop / EOI), it ignores host DATA
+        // and its DATA_OUT remains 0 → bus DATA drops LOW when we release.
+        iec_set_data(drive, true);
+        iec_run(drive, IEC_BIT_DELAY);  // drive: LE941 exits → LE94B → asserts DATA_OUT
+        iec_set_data(drive, false);     // release host DATA
+        iec_run(drive, 1);              // 1 tick so tick_cycle recomputes bus_state
+        // bus DATA = host.data() | drv_data = 0 | drv_data
+        if !iec_bus(drive).data() {
+            break; // drive didn't assert DATA_OUT → EOI
         }
+        // Drive is in LE94B (DATA_OUT asserted, waiting for PB0=0, which we just set).
+        // Do NOT run extra cycles here — the iec_wait(!data) in the bit loop below will
+        // wait the correct amount of time for the drive to exit LE94B → LE95C → LE9B7
+        // (DATA released = first bit valid).
 
-        // Read 8 bits LSB-first.
-        // Drive: CLK HIGH = bit valid on DATA; CLK LOW = bit done.
+        // ── Receive 8 bits LSB-first ──────────────────────────────────────
+        // LE95C: drive releases DATA → bit valid; CLK = bit value.
+        //        drive asserts DATA+CLK (LFEFB) → bit done.
         let mut byte_val: u8 = 0;
         for bit_idx in 0..8u8 {
-            iec_wait(drive, |b| b.clk())?;  // CLK HIGH: bit is valid
-            if iec_bus(drive).data() { byte_val |= 1 << bit_idx; }
-            iec_wait(drive, |b| !b.clk())?; // CLK LOW: bit done
+            iec_wait(drive, |b| !b.data())?;    // DATA released = bit valid
+            let bit = iec_bus(drive).clk();      // CLK state = bit value
+            if bit { byte_val |= 1 << bit_idx; }
+            iec_wait(drive, |b| b.data())?;      // DATA asserted = bit done
         }
+        log::debug!("iec_receive_data: byte = 0x{:02X} ('{}')", byte_val, byte_val as char);
         result.push(byte_val);
 
-        // Acknowledge: assert DATA briefly, release
-        iec_set_data(drive, false);
-        iec_run(drive, 60);
+        // ── Byte ack ─────────────────────────────────────────────────────────
+        // Assert DATA (LE987 waits for PB0=1), then release.
+        // Drive calls LD3AA → LE90F:
+        //   more data  → BMI LE916 → LE9B7 (release DATA) → LE941 (wait)
+        //   no more    → RTS → (caller) → JMP LEA4E → EBE7
         iec_set_data(drive, true);
-
-        if eoi { break; }
+        iec_run(drive, IEC_BIT_DELAY);   // LE987 sees PB0=1, exits, calls LD3AA
+        iec_set_data(drive, false);
+        iec_run(drive, IEC_SETUP_DELAY); // drive completes LD3AA → reaches LE941 or EBE7
     }
 
     Ok(result)

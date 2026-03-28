@@ -27,7 +27,7 @@ impl HardwareBridge {
     fn new() -> Self {
         Self {
             track: ActiveTrack::new(),
-            iec_bus: IecBus(0xFF),
+            iec_bus: IecBus(0x00),
         }
     }
 }

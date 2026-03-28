@@ -33,7 +33,7 @@ impl TestBridge {
         Self {
             track: ActiveTrack::new(),
             events: Vec::new(),
-            iec_bus: IecBus(0xFF),
+            iec_bus: IecBus(0x00),
         }
     }
 }

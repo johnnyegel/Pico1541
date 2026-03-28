@@ -30,11 +30,11 @@ pub enum DriveEvent {
     HeadStepped { new_half_track: u8 },
 }
 
-/// Represents the physical state of the IEC bus.
-/// Bit 0: DATA
-/// Bit 1: CLK
-/// Bit 2: ATN
-/// (1 = HIGH / 5V / Floating, 0 = LOW / 0V / Asserted)
+/// Represents the physical state of the IEC bus (open-drain asserted convention).
+/// Bit 0: DATA  (1 = LOW/asserted/pulled-to-ground, 0 = HIGH/released/floating)
+/// Bit 1: CLK   (1 = LOW/asserted, 0 = HIGH/released)
+/// Bit 2: ATN   (1 = LOW/asserted, 0 = HIGH/released)
+/// IecBus(0x00) = all lines released = idle. Open-drain OR: bus = host | drive.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct IecBus(pub u8);
 

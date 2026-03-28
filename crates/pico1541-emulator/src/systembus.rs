@@ -50,52 +50,53 @@ impl<H: HostInterface> SystemBus<H> {
             self.so_active = false;
         }
 
-        // --- IEC Bus open-drain model ---
-        // host_bus: 1 = HIGH (released), 0 = LOW (asserted)
+        // --- IEC Bus open-drain model (1=LOW/asserted, 0=HIGH/released) ---
         let host = self.hardware.read_iec();
 
-        // VIA1 1541-II pin assignments, confirmed by ROM disassembly:
+        // VIA1 1541-II drive outputs (confirmed by ROM disassembly):
+        //   PB1 = CLK_OUT  active-LOW:  ORB=0 with DDRB[1]=out → drive asserts CLK
+        //   PB3 = DATA_OUT active-HIGH: ORB=1 with DDRB[3]=out → drive asserts DATA
+        //   PB4 = ATNA     active-HIGH, gated by ATN: asserts DATA only when ATN asserted
         //
-        //   Inputs (all pass through 7406 inverting buffer → active-HIGH at VIA):
-        //     PB0 = DATA_IN  (1 when DATA bus is LOW/asserted)
-        //     PB2 = CLK_IN   (1 when CLK bus is LOW/asserted)
-        //     PB7 = ATN_IN   (1 when ATN bus is LOW/asserted)
-        //     PB5, PB6 = device-address jumpers (left 0 → device 8)
+        // VIA1 inputs (7406 inversion captured by IecBus convention, direct mapping):
+        //   PB0 = DATA_IN  (1 when DATA asserted)
+        //   PB2 = CLK_IN   (1 when CLK asserted)
+        //   PB7 = ATN_IN   (1 when ATN asserted)
+        //   PB5, PB6 = device-address jumpers (0 → device 8)
         //
-        //   Outputs (all open-drain transistors to the bus):
-        //     PB1 = CLK_OUT  active-LOW: ORB=0 pulls CLK LOW, ORB=1 releases
-        //     PB3 = DATA_OUT active-HIGH: ORB=1 pulls DATA LOW, ORB=0 releases
-        //     PB4 = ATNA     active-HIGH: ORB=1 pulls DATA LOW (ATN acknowledge)
-        //
-        //   CA1 = ATN through inverter: HIGH when ATN is asserted (LOW on bus).
-        //         PCR=$01 → positive-edge interrupt = fires when ATN asserted.
+        // CA1 = ATN through 7406: HIGH when ATN asserted. PCR=$01 → positive-edge IRQ.
 
-        // CLK_OUT: active-LOW — PB1=0 with DDRB=output pulls CLK LOW
-        let drv_clk_lo  = (self.via1.ddrb & 0x02) != 0 && (self.via1.orb & 0x02) == 0;
-        // DATA_OUT + ATNA: PB3=1 or PB4=1 (with DDRB=output) pulls DATA LOW
-        let drv_data_lo = (self.via1.orb & self.via1.ddrb & 0x18) != 0;
+        let drv_clk  = (self.via1.ddrb & 0x02) != 0 && (self.via1.orb & 0x02) == 0;
+        let drv_data = (self.via1.orb & self.via1.ddrb & 0x08) != 0;
+        let drv_atna = (self.via1.orb & self.via1.ddrb & 0x10) != 0 && host.atn();
 
-        // Combined open-drain bus: HIGH only if nobody is asserting
-        let bus_data = host.data() && !drv_data_lo;
-        let bus_clk  = host.clk()  && !drv_clk_lo;
+        // Open-drain OR: any asserted bit makes the bus asserted
+        let bus_data = host.data() | drv_data | drv_atna;
+        let bus_clk  = host.clk()  | drv_clk;
         let bus_atn  = host.atn(); // ATN driven only by host (C64 side)
 
-        // VIA1 input register: all inverted (bus LOW → VIA HIGH)
+        // VIA1 input register: direct mapping (7406 inversion captured by convention)
+        // PB0 (DATA_IN) and PB2 (CLK_IN) read only the external (host) signals.
+        // The drive's own open-drain outputs (DATA_OUT, CLK_OUT, ATNA) do not feed back
+        // into their respective input buffers — the input path is isolated on real hardware.
+        // This is required for:
+        //   - LFF20: drive waits for host DATA released; ATNA would cause infinite loop otherwise
+        //   - LEA0B: bit-read loop waits for host CLK released; drive's own CLK_OUT (from LE99C)
+        //     would cause infinite loop otherwise
         let mut in_b: u8 = 0;
-        if !bus_data { in_b |= 0x01; } // PB0 HIGH when DATA LOW
-        if !bus_clk  { in_b |= 0x04; } // PB2 HIGH when CLK LOW
-        if !bus_atn  { in_b |= 0x80; } // PB7 HIGH when ATN LOW
+        if host.data() { in_b |= 0x01; } // PB0 = DATA_IN (external/host only)
+        if host.clk()  { in_b |= 0x04; } // PB2 = CLK_IN (external/host only)
+        if bus_atn     { in_b |= 0x80; } // PB7 = ATN_IN
         self.via1.in_b = in_b;
 
-        // CA1: inverted ATN. Goes HIGH when ATN is asserted (bus LOW).
-        // Positive-edge interrupt (PCR=1) fires when ATN is asserted.
-        self.via1.set_ca1(!bus_atn);
+        // CA1: HIGH when ATN asserted. PCR=$01 → positive-edge IRQ fires when ATN asserted.
+        self.via1.set_ca1(bus_atn);
 
-        // Write combined state back so host can observe the open-drain result
+        // Write combined open-drain result back so host can observe it
         let mut combined = IecBus::default();
-        combined.set_data(bus_data);
-        combined.set_clk(bus_clk);
-        combined.set_atn(bus_atn);
+        if bus_data { combined.set_data(true); }
+        if bus_clk  { combined.set_clk(true); }
+        if bus_atn  { combined.set_atn(true); }
         self.hardware.write_iec(combined);
 
         self.via1.tick_cycle();
@@ -204,7 +205,7 @@ mod tests {
     impl HostInterface for MockHardware {
         fn get_active_track(&mut self) -> &mut ActiveTrack { &mut self.track }
         fn send_event(&mut self, _: DriveEvent) {}
-        fn read_iec(&self) -> IecBus { IecBus(0xFF) }
+        fn read_iec(&self) -> IecBus { IecBus(0x00) }
         fn write_iec(&mut self, _: IecBus) {}
     }
     #[test]
