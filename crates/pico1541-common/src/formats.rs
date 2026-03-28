@@ -9,6 +9,7 @@ pub enum Error {
     TrackTooLarge,
 }
 
+#[allow(async_fn_in_trait)]
 pub trait DiskImage {
     /// Loads a specific half-track into the provided buffer.
     /// Returns the number of bits in the track.

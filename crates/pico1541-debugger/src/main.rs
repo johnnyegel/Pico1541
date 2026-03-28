@@ -1,8 +1,3 @@
-mod app;
-mod bridge;
-mod emulation;
-mod iec;
-
 use anyhow::Result;
 use crossbeam_channel::unbounded;
 use crossterm::{
@@ -19,9 +14,9 @@ use std::time::Duration;
 use tokio::runtime::Builder;
 use tokio::task::LocalSet;
 
-use app::{handle_command, ui, App};
-use bridge::{DebugCommand, DebugResponse};
-use emulation::emulation_loop;
+use pico1541_debugger::app::{handle_command, ui, App};
+use pico1541_debugger::bridge::{DebugCommand, DebugResponse};
+use pico1541_debugger::emulation::emulation_loop;
 
 fn main() -> Result<()> {
     enable_raw_mode()?;

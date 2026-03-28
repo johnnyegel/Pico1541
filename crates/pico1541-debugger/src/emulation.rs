@@ -18,7 +18,7 @@ use std::fs;
 use crate::bridge::{CpuContext, DebugCommand, DebugResponse, DisasmLine, HostBridge};
 use crate::iec::{iec_idle, iec_load_file, iec_read_status, parse_directory};
 
-const ROM_BYTES: &[u8] = include_bytes!("../../../roms/1541-II.251968-03.bin");
+pub const ROM_BYTES: &[u8] = include_bytes!("../../../roms/1541-II.251968-03.bin");
 
 // ─── Disk image abstraction ───────────────────────────────────────────────────
 
@@ -281,11 +281,11 @@ async fn handle_iec_command(
     iec_idle(drive);
 
     let result = if s == "STATUS" {
-        iec_read_status(drive).await
+        iec_read_status(drive)
             .map(|status| DebugResponse::IECResponse(status))
     } else if s.starts_with("LOAD:") {
         let filename = s[5..].to_string();
-        iec_load_file(drive, &filename).await.map(|data| {
+        iec_load_file(drive, &filename).map(|data| {
             if filename == "$" {
                 DebugResponse::IECResponse(parse_directory(&data))
             } else {

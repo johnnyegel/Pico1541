@@ -17,7 +17,7 @@
 //! VIA1 convention (active-HIGH inputs, inverted from bus):
 //!   PB7 = DATA_IN  (1 when DATA is LOW)
 //!   PB6 = CLK_IN   (1 when CLK is LOW)
-//!   PB3 = ATN_IN   (1 when ATN is LOW)
+//!   PB4 = ATN_IN   (1 when ATN is LOW)
 //!   PB0 = DATA_OUT drive output (1 = transistor pulls DATA LOW)
 //!   PB2 = CLK_OUT  drive output (1 = transistor pulls CLK LOW)
 
@@ -38,7 +38,7 @@ const IEC_SETUP_DELAY: u32 = 600;
 const IEC_EOI_THRESHOLD: u32 = 400;
 
 /// Maximum cycles to wait for any bus event before declaring a timeout.
-const IEC_TIMEOUT: u32 = 2_000_000; // 2 seconds at 1 MHz
+pub const IEC_TIMEOUT: u32 = 2_000_000; // 2 seconds at 1 MHz
 
 // ─── Low-level helpers ────────────────────────────────────────────────────────
 
@@ -224,7 +224,7 @@ pub fn iec_receive_data(drive: &mut Emulator<HostBridge>) -> Result<Vec<u8>> {
 // ─── High-level IEC commands ─────────────────────────────────────────────────
 
 /// Read the 1541 status channel (device 8, secondary address 15).
-pub async fn iec_read_status(drive: &mut Emulator<HostBridge>) -> Result<String> {
+pub fn iec_read_status(drive: &mut Emulator<HostBridge>) -> Result<String> {
     iec_atn_start(drive)?;
     iec_send_byte(drive, 0x48)?; // TALK device 8
     iec_send_byte(drive, 0x6F)?; // DATA channel 15 (status)
@@ -238,7 +238,7 @@ pub async fn iec_read_status(drive: &mut Emulator<HostBridge>) -> Result<String>
 
 /// Load a file by name from the 1541 using LOAD protocol.
 /// Filename "$" retrieves the directory as a BASIC program.
-pub async fn iec_load_file(drive: &mut Emulator<HostBridge>, filename: &str) -> Result<Vec<u8>> {
+pub fn iec_load_file(drive: &mut Emulator<HostBridge>, filename: &str) -> Result<Vec<u8>> {
     // 1. LISTEN + OPEN channel 0, then send filename
     iec_atn_start(drive)?;
     iec_send_byte(drive, 0x28)?; // LISTEN device 8
