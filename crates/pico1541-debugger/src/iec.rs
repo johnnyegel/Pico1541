@@ -26,13 +26,13 @@ use crate::bridge::HostBridge;
 
 /// Cycles per half-bit phase. The 1541 ROM polling loop is ~10–15 cycles/iter;
 /// 200 cycles gives it ~15+ iterations to sample each signal edge.
-const IEC_BIT_DELAY: u32 = 200;
+const IEC_BIT_DELAY: u32 = 1000;
 
 /// Settling/turnaround delay used after ATN changes and talker handshakes.
-const IEC_SETUP_DELAY: u32 = 600;
+const IEC_SETUP_DELAY: u32 = 2000;
 
 /// Maximum cycles to wait for any bus event before declaring a timeout.
-pub const IEC_TIMEOUT: u32 = 2_000_000; // 2 seconds at 1 MHz
+pub const IEC_TIMEOUT: u32 = 10_000_000; // 10 seconds at 1 MHz
 
 // ─── Low-level helpers ────────────────────────────────────────────────────────
 
@@ -61,12 +61,17 @@ pub fn iec_set_atn(drive: &mut Emulator<HostBridge>, asserted: bool) {
 }
 
 /// Run the emulator until `pred(bus_state)` returns true, or IEC_TIMEOUT cycles.
-pub fn iec_wait(drive: &mut Emulator<HostBridge>, pred: impl Fn(IecBus) -> bool) -> Result<()> {
-    for _ in 0..IEC_TIMEOUT {
+pub fn iec_wait_timeout(drive: &mut Emulator<HostBridge>, timeout: u32, pred: impl Fn(IecBus) -> bool) -> Result<()> {
+    for _ in 0..timeout {
         iec_tick(drive);
         if pred(iec_bus(drive)) { return Ok(()); }
     }
-    Err(anyhow!("IEC timeout"))
+    let pc = drive.cpu.pc;
+    Err(anyhow!("IEC timeout (CPU PC = ${:04X})", pc))
+}
+
+pub fn iec_wait(drive: &mut Emulator<HostBridge>, pred: impl Fn(IecBus) -> bool) -> Result<()> {
+    iec_wait_timeout(drive, IEC_TIMEOUT, pred)
 }
 
 // ─── Handshake ────────────────────────────────────────────────────────────────
@@ -152,96 +157,74 @@ pub fn iec_send_byte(drive: &mut Emulator<HostBridge>, byte: u8) -> Result<()> {
 /// Receive all bytes until the drive signals EOI (no more data).
 ///
 /// The 1541-II ROM talker protocol (LE916/LE94B/LE95C) uses CLK=bit value and
-/// DATA=strobe (released=valid, asserted=done via LFEFB). This differs from
-/// standard CBM serial.
+/// DATA=strobe (released=valid, asserted=done via LFEFB).
 ///
-/// Per-byte handshake and receive:
-///   Probe: host asserts DATA → if drive is at LE941, it exits to LE94B and
-///          asserts its own DATA_OUT; host releases DATA; check bus DATA.
-///   Per bit (LE95C):
-///     1. Drive sets CLK = bit value (asserted=1, released=0).
-///     2. Drive releases DATA (LE9B7) → "bit valid".
-///     3. Host reads CLK for the bit value.
-///     4. Drive asserts DATA + CLK (LFEFB) → "bit done".
-///   Byte ack: host asserts DATA briefly (LE987 waits for PB0=1).
-///
-/// EOI detection: both LE941 (next byte ready) and EBE7 (main loop/EOI) leave
-/// CLK asserted and DATA released.  The difference is behavioural: at LE941
-/// the drive responds to host DATA by asserting its own DATA_OUT (LE94B).
-/// At EBE7 it ignores host DATA.  We probe repeatedly (up to IEC_TIMEOUT
-/// cycles) so that disk-channel first-byte waits (motor spin-up ~500k cycles)
-/// are covered, while the probe loop doubles as the EOI detector.
+/// Per-byte handshake:
+///   1. Wait for bus DATA=0: drive cleared DATA_OUT (LE9B7), approaching LE941.
+///      This naturally covers the initial LD0EB setup delay and, on a disk
+///      channel, the motor spin-up (~500 000 cycles) and GCR decoding.
+///   2. Probe: host asserts DATA → if drive is at LE941 it exits to LE94B,
+///      calls LE9AE (DATA_OUT=1), then waits for PB0=0.  Host releases DATA.
+///      If bus DATA is still 1 (drive holding it): genuine response, receive byte.
+///      If bus DATA is 0 (drive at LEBE7 main loop, ignored probe): EOI, stop.
+///   3. Receive 8 bits (LE95C): DATA released (LE9B7) = bit valid, CLK = bit;
+///      DATA asserted + CLK (LFEFB) = bit done.
+///   4. Byte ack: host asserts DATA briefly (LE987 polls PB0=1).
+///      Outer loop restarts at step 1, waiting for LE9B7 of the next byte.
 pub fn iec_receive_data(drive: &mut Emulator<HostBridge>) -> Result<Vec<u8>> {
     // Talker turnaround: host releases CLK and DATA.
-    // The drive will process the secondary address and reach LE941 at its own pace
-    // (near-instant for the status channel; ~500k+ cycles for a disk channel).
-    // The probe/retry loop below handles both cases.
     iec_set_clk(drive, false);
     iec_set_data(drive, false);
 
     let mut result = Vec::new();
 
-    // Probe/handshake loop: each iteration first checks whether the drive
-    // is still at LE941 (more data) or at EBE7/LEA4E (EOI), then receives
-    // one byte if the drive responded.
     loop {
-        // ── Probe / EOI check ────────────────────────────────────────────────
-        // Assert host DATA → if drive is at LE941, it exits to LE94B and
-        // asserts its own DATA_OUT (LE9AE: ORA #$08 → PB3=1).  After we
-        // release host DATA we read the combined bus: if drv_data=1, the
-        // drive responded (more data); if 0, EOI.
-        //
-        // The drive may need hundreds of thousands of cycles to reach LE941
-        // on a disk channel (motor spin-up ~500k + GCR decode).  We retry
-        // the probe at IEC_BIT_DELAY + IEC_SETUP_DELAY intervals up to
-        // IEC_TIMEOUT total cycles so the first byte wait covers disk I/O,
-        // while subsequent bytes (served from RAM) are detected immediately.
-        let mut responded = false;
-        let retry_interval = IEC_BIT_DELAY + IEC_SETUP_DELAY + 1;
-        let max_retries = IEC_TIMEOUT / retry_interval + 1;
-        for _ in 0..max_retries {
-            iec_set_data(drive, true);
-            iec_run(drive, IEC_BIT_DELAY);  // drive: LE941 exits → LE94B → asserts DATA_OUT
-            iec_set_data(drive, false);     // release host DATA
-            iec_run(drive, 1);              // 1 tick so tick_cycle recomputes bus_state
-            // bus DATA = host.data() | drv_data = 0 | drv_data
-            if iec_bus(drive).data() {
-                responded = true;
-                break;
-            }
-            // Drive not at LE941 yet (disk I/O) or at EBE7 (EOI) → wait and retry.
-            iec_run(drive, IEC_SETUP_DELAY);
-        }
-        if !responded {
-            break; // EOI: drive never asserted DATA_OUT within IEC_TIMEOUT cycles
-        }
-        // Drive is in LE94B (DATA_OUT asserted, waiting for PB0=0, which we just set).
-        // Do NOT run extra cycles here — the iec_wait(!data) in the bit loop below will
-        // wait the correct amount of time for the drive to exit LE94B → LE95C → LE9B7
-        // (DATA released = first bit valid).
+        // Step 1: wait for drive to clear DATA_OUT.
+        // After LE8ED→LE9AE→LD0EB, the drive calls LE9B7 (DATA=0) then reaches
+        // LE941.  On the first byte this covers initial setup; on subsequent bytes
+        // it covers inter-byte re-initialisation (and disk I/O on file channels).
+        eprintln!("[iec] waiting for DATA=0... bus.data={} ORB=${:02X} PC=${:04X}",
+            iec_bus(drive).data() as u8, drive.cpu.bus.via1.orb, drive.cpu.pc);
+        iec_wait(drive, |b| !b.data())?;
+        eprintln!("[iec] DATA=0 seen: ORB=${:02X} PC=${:04X}", drive.cpu.bus.via1.orb, drive.cpu.pc);
+        iec_run(drive, IEC_BIT_DELAY); // settling: drive completes LE937 → LE941
 
-        // ── Receive 8 bits LSB-first ──────────────────────────────────────
-        // LE95C: drive releases DATA → bit valid; CLK = bit value.
-        //        drive asserts DATA+CLK (LFEFB) → bit done.
+        // Step 2: probe.
+        iec_set_data(drive, true);
+        iec_run(drive, IEC_BIT_DELAY); // ≥1 LE941 polling iteration guaranteed
+        iec_set_data(drive, false);
+        iec_run(drive, 2);             // refresh bus_state; LE9B7 is ~30+ cycles away
+
+        eprintln!("[iec] after probe release: bus.data={} ORB=${:02X} PC=${:04X}",
+            iec_bus(drive).data() as u8, drive.cpu.bus.via1.orb, drive.cpu.pc);
+        if !iec_bus(drive).data() {
+            eprintln!("[iec] EOI detected (no probe response)");
+            break; // EOI: drive at LEBE7, did not assert DATA_OUT
+        }
+
+        // Step 3: receive 8 bits LSB-first.
+        // Drive is in LE94B / transitioning to LE95C (DATA_OUT=1, saw PB0=0).
         let mut byte_val: u8 = 0;
         for bit_idx in 0..8u8 {
-            iec_wait(drive, |b| !b.data())?;    // DATA released = bit valid
-            let bit = iec_bus(drive).clk();      // CLK state = bit value
-            if bit { byte_val |= 1 << bit_idx; }
-            iec_wait(drive, |b| b.data())?;      // DATA asserted = bit done
+            iec_wait(drive, |b| !b.data())?; // DATA released (LE9B7) = bit valid
+            if iec_bus(drive).clk() { byte_val |= 1 << bit_idx; }
+            iec_wait(drive, |b| b.data())?;  // DATA asserted (LFEFB) = bit done
         }
-        log::debug!("iec_receive_data: byte = 0x{:02X} ('{}')", byte_val, byte_val as char);
+        eprintln!("[iec] received byte #{}: 0x{:02X}", result.len(), byte_val);
         result.push(byte_val);
 
-        // ── Byte ack ─────────────────────────────────────────────────────────
-        // Assert DATA (LE987 waits for PB0=1), then release.
-        // Drive calls LD3AA → LE90F:
-        //   more data  → BMI LE916 → LE9B7 (release DATA) → LE941 (wait)
-        //   no more    → RTS → (caller) → JMP LEA4E → EBE7
+        if byte_val == b'\r' {
+            break; // end of status-channel message
+        }
+
+        // Step 4: byte ack — LE987 polls PB0=1, then advances to next byte.
         iec_set_data(drive, true);
-        iec_run(drive, IEC_BIT_DELAY);   // LE987 sees PB0=1, exits, calls LD3AA
+        iec_run(drive, IEC_BIT_DELAY);   // LE987 sees PB0=1, exits → LD3AA
         iec_set_data(drive, false);
-        iec_run(drive, IEC_SETUP_DELAY); // drive completes LD3AA → reaches LE941 or EBE7
+        eprintln!("[iec] after byte ack release: bus.data={} ORB=${:02X} PC=${:04X}",
+            iec_bus(drive).data() as u8, drive.cpu.bus.via1.orb, drive.cpu.pc);
+        // Outer loop restarts with iec_wait(!b.data()), waiting for LE9B7 of
+        // the next byte (or detecting EOI if drive routes to LEBE7 instead).
     }
 
     Ok(result)

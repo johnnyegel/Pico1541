@@ -34,7 +34,7 @@ fn make_drive() -> Emulator<HostBridge> {
 /// The 1541-II ROM takes roughly 500 000 cycles for self-test + LED flash.
 /// We run 2 000 000 to be safe.
 fn boot_drive(drive: &mut Emulator<HostBridge>) {
-    iec_run(drive, 2_000_000);
+    iec_run(drive, 5_000_000);
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
