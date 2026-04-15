@@ -30,56 +30,32 @@ pub enum DriveEvent {
     HeadStepped { new_half_track: u8 },
 }
 
-/// Represents the physical state of the IEC bus (open-drain asserted convention).
-/// Bit 0: DATA  (1 = LOW/asserted/pulled-to-ground, 0 = HIGH/released/floating)
-/// Bit 1: CLK   (1 = LOW/asserted, 0 = HIGH/released)
-/// Bit 2: ATN   (1 = LOW/asserted, 0 = HIGH/released)
-/// IecBus(0x00) = all lines released = idle. Open-drain OR: bus = host | drive.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct IecBus(pub u8);
+/// Open-drain IEC serial bus interface.
+///
+/// `read_*` methods return the current state of each line as seen from the bus
+/// (true = asserted/LOW, pulled by the host/C64 side).  These must NOT reflect
+/// the drive's own outputs — the input path is isolated on real hardware to
+/// prevent feedback loops in the 1541 ROM.
+///
+/// `drive_*` methods let the emulator assert or release each line.  On real
+/// hardware this toggles a GPIO PINDIR; in simulation it updates the combined
+/// open-drain state that the host makes visible.
+pub trait IecBus {
+    /// Returns true if the line is asserted (pulled LOW by the host)
+    fn read_data(&self) -> bool;
+    fn read_clk(&self) -> bool;
+    fn read_atn(&self) -> bool;
 
-impl IecBus {
-    // Bitmask constants
-    pub const DATA: u8 = 0b001; // Bit 0
-    pub const CLK:  u8 = 0b010; // Bit 1
-    pub const ATN:  u8 = 0b100; // Bit 2
-
-    // --- Fast Individual Getters ---
-    #[inline(always)]
-    pub fn data(self) -> bool { (self.0 & Self::DATA) != 0 }
-    
-    #[inline(always)]
-    pub fn clk(self) -> bool { (self.0 & Self::CLK) != 0 }
-    
-    #[inline(always)]
-    pub fn atn(self) -> bool { (self.0 & Self::ATN) != 0 }
-
-    // --- Fast Individual Setters ---
-    #[inline(always)]
-    pub fn set_data(&mut self, state: bool) {
-        if state { self.0 |= Self::DATA; } else { self.0 &= !Self::DATA; }
-    }
-
-    #[inline(always)]
-    pub fn set_clk(&mut self, state: bool) {
-        if state { self.0 |= Self::CLK; } else { self.0 &= !Self::CLK; }
-    }
-
-    #[inline(always)]
-    pub fn set_atn(&mut self, state: bool) {
-        if state { self.0 |= Self::ATN; } else { self.0 &= !Self::ATN; }
-    }
+    /// Asserts (true) or releases (false) the line
+    fn drive_data(&mut self, assert: bool);
+    fn drive_clk(&mut self, assert: bool);
 }
 
-pub trait HostInterface {
+pub trait HostInterface: IecBus {
     /// Gets a temporary mutable reference to the currently active track.
     /// The Host resolves which of the two double-buffers this actually is.
     fn get_active_track(&mut self) -> &mut ActiveTrack;
 
     /// Send an event (LED, Motor, Step) to the Host
     fn send_event(&mut self, event: DriveEvent);
-
-    /// IEC Bus pins
-    fn read_iec(&self) -> IecBus;
-    fn write_iec(&mut self, pins: IecBus);
 }

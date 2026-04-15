@@ -1,5 +1,8 @@
+mod common;
+
+use common::TestBridge;
 use pico1541_emulator::Emulator;
-use pico1541_emulator::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus};
+use pico1541_emulator::interface::DriveEvent;
 use racc6502::cpu::CycleState;
 
 fn init_logger() {
@@ -19,30 +22,6 @@ fn get_rom() -> [u8; 16384] {
     let mut rom_array = [0u8; 16384];
     rom_array.copy_from_slice(rom);
     rom_array
-}
-
-/// A test-only HostInterface implementation that records all drive events.
-struct TestBridge {
-    track: ActiveTrack,
-    events: Vec<DriveEvent>,
-    iec_bus: IecBus,
-}
-
-impl TestBridge {
-    fn new() -> Self {
-        Self {
-            track: ActiveTrack::new(),
-            events: Vec::new(),
-            iec_bus: IecBus(0x00),
-        }
-    }
-}
-
-impl HostInterface for TestBridge {
-    fn get_active_track(&mut self) -> &mut ActiveTrack { &mut self.track }
-    fn send_event(&mut self, event: DriveEvent) { self.events.push(event); }
-    fn read_iec(&self) -> IecBus { self.iec_bus }
-    fn write_iec(&mut self, pins: IecBus) { self.iec_bus = pins; }
 }
 
 #[test]

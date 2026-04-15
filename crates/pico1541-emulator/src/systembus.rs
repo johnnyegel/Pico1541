@@ -2,7 +2,7 @@ use racc6502::bus::Bus;
 #[cfg(feature = "debug")]
 use racc6502::bus::MemoryMonitor;
 use crate::via6522::Via6522;
-use crate::interface::{DriveEvent, HostInterface, IecBus};
+use crate::interface::{DriveEvent, HostInterface};
 use crate::drivemechanics::DriveMechanics;
 use log;
 
@@ -50,32 +50,34 @@ impl<H: HostInterface> SystemBus<H> {
             self.so_active = false;
         }
 
-        // --- IEC Bus open-drain model (1=LOW/asserted, 0=HIGH/released) ---
-        let host = self.hardware.read_iec();
-
+        // --- IEC Bus open-drain model (true=asserted/LOW, false=released/HIGH) ---
+        //
         // VIA1 1541-II drive outputs (confirmed by ROM disassembly):
         //   PB1 = CLK_OUT  active-LOW:  ORB=0 with DDRB[1]=out → drive asserts CLK
         //   PB3 = DATA_OUT active-HIGH: ORB=1 with DDRB[3]=out → drive asserts DATA
         //   PB4 = ATNA     active-HIGH, gated by ATN: asserts DATA only when ATN asserted
         //
-        // VIA1 inputs (7406 inversion captured by IecBus convention, direct mapping):
-        //   PB0 = DATA_IN  (1 when DATA asserted)
-        //   PB2 = CLK_IN   (1 when CLK asserted)
+        // VIA1 inputs (7406 inversion captured by convention, direct mapping):
+        //   PB0 = DATA_IN  (1 when DATA asserted) — host/external only
+        //   PB2 = CLK_IN   (1 when CLK asserted)  — host/external only
         //   PB7 = ATN_IN   (1 when ATN asserted)
         //   PB5, PB6 = device-address jumpers (0 → device 8)
         //
         // CA1 = ATN through 7406: HIGH when ATN asserted. PCR=$01 → positive-edge IRQ.
 
+        let host_data = self.hardware.read_data();
+        let host_clk  = self.hardware.read_clk();
+        let host_atn  = self.hardware.read_atn();
+
         let drv_clk  = (self.via1.ddrb & 0x02) != 0 && (self.via1.orb & 0x02) == 0;
         let drv_data = (self.via1.orb & self.via1.ddrb & 0x08) != 0;
-        let drv_atna = (self.via1.orb & self.via1.ddrb & 0x10) != 0 && host.atn();
+        let drv_atna = (self.via1.orb & self.via1.ddrb & 0x10) != 0 && host_atn;
 
         // Open-drain OR: any asserted bit makes the bus asserted
-        let bus_data = host.data() | drv_data | drv_atna;
-        let bus_clk  = host.clk()  | drv_clk;
-        let bus_atn  = host.atn(); // ATN driven only by host (C64 side)
+        let bus_data = host_data | drv_data | drv_atna;
+        let bus_clk  = host_clk  | drv_clk;
 
-        // VIA1 input register: direct mapping (7406 inversion captured by convention)
+        // VIA1 input register: direct mapping (7406 inversion captured by convention).
         // PB0 (DATA_IN) and PB2 (CLK_IN) read only the external (host) signals.
         // The drive's own open-drain outputs (DATA_OUT, CLK_OUT, ATNA) do not feed back
         // into their respective input buffers — the input path is isolated on real hardware.
@@ -84,20 +86,17 @@ impl<H: HostInterface> SystemBus<H> {
         //   - LEA0B: bit-read loop waits for host CLK released; drive's own CLK_OUT (from LE99C)
         //     would cause infinite loop otherwise
         let mut in_b: u8 = 0;
-        if host.data() { in_b |= 0x01; } // PB0 = DATA_IN (external/host only)
-        if host.clk()  { in_b |= 0x04; } // PB2 = CLK_IN (external/host only)
-        if bus_atn     { in_b |= 0x80; } // PB7 = ATN_IN
+        if host_data { in_b |= 0x01; } // PB0 = DATA_IN (external/host only)
+        if host_clk  { in_b |= 0x04; } // PB2 = CLK_IN (external/host only)
+        if host_atn  { in_b |= 0x80; } // PB7 = ATN_IN (ATN driven only by host)
         self.via1.in_b = in_b;
 
         // CA1: HIGH when ATN asserted. PCR=$01 → positive-edge IRQ fires when ATN asserted.
-        self.via1.set_ca1(bus_atn);
+        self.via1.set_ca1(host_atn);
 
-        // Write combined open-drain result back so host can observe it
-        let mut combined = IecBus::default();
-        if bus_data { combined.set_data(true); }
-        if bus_clk  { combined.set_clk(true); }
-        if bus_atn  { combined.set_atn(true); }
-        self.hardware.write_iec(combined);
+        // Push combined open-drain result back to the host so it can observe the bus.
+        self.hardware.drive_data(bus_data);
+        self.hardware.drive_clk(bus_clk);
 
         self.via1.tick_cycle();
         self.via2.tick_cycle();
@@ -202,11 +201,16 @@ mod tests {
     use super::*;
     use crate::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus};
     struct MockHardware { track: ActiveTrack }
+    impl IecBus for MockHardware {
+        fn read_data(&self) -> bool { false }
+        fn read_clk(&self) -> bool { false }
+        fn read_atn(&self) -> bool { false }
+        fn drive_data(&mut self, _: bool) {}
+        fn drive_clk(&mut self, _: bool) {}
+    }
     impl HostInterface for MockHardware {
         fn get_active_track(&mut self) -> &mut ActiveTrack { &mut self.track }
         fn send_event(&mut self, _: DriveEvent) {}
-        fn read_iec(&self) -> IecBus { IecBus(0x00) }
-        fn write_iec(&mut self, _: IecBus) {}
     }
     #[test]
     fn test_ram_read_write() {

@@ -1,21 +1,13 @@
+mod common;
+
+use common::TestBridge;
 use pico1541_emulator::via6522::Via6522;
 use pico1541_emulator::drivemechanics::DriveMechanics;
-use pico1541_emulator::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus};
 
-struct MockHardware {
-    track: ActiveTrack,
-}
-
-impl HostInterface for MockHardware {
-    fn get_active_track(&mut self) -> &mut ActiveTrack { &mut self.track }
-    fn send_event(&mut self, _: DriveEvent) {}
-    fn read_iec(&self) -> IecBus { IecBus(0) }
-    fn write_iec(&mut self, _: IecBus) {}
-}
 
 #[test]
 fn test_motor_delay() {
-    let mut hardware = MockHardware { track: ActiveTrack::new() };
+    let mut hardware = TestBridge::new();
     hardware.track.disk_inserted = true;
     hardware.track.bit_length = 8000 * 8;
     hardware.track.gcr_data[0] = 0xAA;

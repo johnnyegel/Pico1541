@@ -65,20 +65,21 @@ fn test_atn_acknowledged() {
 /// Full IEC TALK exchange on channel 15 (status channel).
 /// After boot the 1541 reports: "73,CBM DOS V2.6 1541,00,00"
 /// (decimal 73 = power-on / DOS reset message).
+/// A second read must return error code 00: reading the status channel
+/// clears the pending message and resets it to the "OK" state.
 #[test]
 fn test_status_response() {
     let mut drive = make_drive();
     boot_drive(&mut drive);
 
+    // First read: power-on status (73) or already-cleared (00).
     let status = iec_read_status(&mut drive)
-        .expect("IEC status request timed out");
+        .expect("IEC status request timed out (first read)");
 
-    println!("Drive status: {:?}", status);
+    println!("Drive status (first): {:?}", status);
 
     assert!(!status.is_empty(), "Status string was empty");
 
-    // The first field is always the error number.
-    // On power-on/reset it is "73"; after a successful op it would be "00".
     let error_num: u8 = status
         .split(',')
         .next()
@@ -88,6 +89,23 @@ fn test_status_response() {
     assert!(
         error_num == 73 || error_num == 0,
         "Unexpected error number {} in status: {:?}", error_num, status
+    );
+
+    // Second read: reading the status channel clears the message; must be 00.
+    let status2 = iec_read_status(&mut drive)
+        .expect("IEC status request timed out (second read)");
+
+    println!("Drive status (second): {:?}", status2);
+
+    let error_num2: u8 = status2
+        .split(',')
+        .next()
+        .and_then(|s| s.trim().parse().ok())
+        .expect("Second status did not start with a numeric error code");
+
+    assert_eq!(
+        error_num2, 0,
+        "Expected error code 00 on second read, got {} in: {:?}", error_num2, status2
     );
 }
 

@@ -20,15 +20,35 @@ use pico1541_emulator::{
 /// TODO: forward events to Core 1 via the SIO FIFO for manager processing.
 struct HardwareBridge {
     track: ActiveTrack,
-    iec_bus: IecBus,
+    // TODO: hold references to the actual GPIO pins for IEC bus lines
 }
 
 impl HardwareBridge {
     fn new() -> Self {
         Self {
             track: ActiveTrack::new(),
-            iec_bus: IecBus(0x00),
         }
+    }
+}
+
+impl IecBus for HardwareBridge {
+    fn read_data(&self) -> bool {
+        // TODO: read DATA GPIO pin level
+        false
+    }
+    fn read_clk(&self) -> bool {
+        // TODO: read CLK GPIO pin level
+        false
+    }
+    fn read_atn(&self) -> bool {
+        // TODO: read ATN GPIO pin level
+        false
+    }
+    fn drive_data(&mut self, _assert: bool) {
+        // TODO: toggle DATA PINDIR (assert = output-LOW, release = input/Hi-Z)
+    }
+    fn drive_clk(&mut self, _assert: bool) {
+        // TODO: toggle CLK PINDIR (assert = output-LOW, release = input/Hi-Z)
     }
 }
 
@@ -39,14 +59,6 @@ impl HostInterface for HardwareBridge {
 
     fn send_event(&mut self, _event: DriveEvent) {
         // TODO: forward to Core 1 via SIO FIFO
-    }
-
-    fn read_iec(&self) -> IecBus {
-        self.iec_bus
-    }
-
-    fn write_iec(&mut self, pins: IecBus) {
-        self.iec_bus = pins;
     }
 }
 
