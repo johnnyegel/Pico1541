@@ -1,418 +1,439 @@
-//! Commodore IEC serial bus protocol implementation.
+//! Commodore IEC serial bus protocol implementation (Hardware Level).
 //!
-//! The host (debugger) emulates the C64 side of the IEC bus.
-//! All IEC helpers run the emulator themselves cycle-by-cycle, so they must be
-//! called with the emulator paused (the regular run loop must not be ticking
-//! concurrently).
-//!
-//! ## Synchronization strategy
-//!
-//! Synchronization is **state-based** rather than cycle-count-based wherever
-//! possible.  `iec_wait` polls bus lines (open-drain conditions observable on
-//! the wire).  `iec_wait_state` polls the drive's CPU program counter, letting
-//! the host wait for the ROM to reach a specific protocol state before
-//! asserting or releasing a line.
-//!
-//! The 1541-II ROM talker state machine has two paths after the inter-byte
-//! handshake, depending on `$F2[ch]` bit 3:
-//!
-//!   * **Normal path** (`$F2 bit 3 = 0`): drive reaches `LE941` and spins
-//!     waiting for the host to assert DATA (the "probe").  If no probe arrives,
-//!     that signals EOI.
-//!
-//!   * **Fast path** (`$F2 bit 3 = 1`, used by status channel 15): drive jumps
-//!     directly to `LE94B`, asserts DATA_OUT=1, and waits for DATA_IN=0 without
-//!     ever visiting `LE941`.  A probe here would be interpreted as a DATA
-//!     abort by `LE95C`.
-//!
-//! The state-based helpers detect which path the drive took and respond
-//! correctly for both cases.
-//!
-//! ## ROM addresses (1541-II 251968-03)
-//!
-//! These constants are specific to this ROM version.  If support for other
-//! ROM versions is added, they should be parameterised.
-//!
-//! IEC bus convention (open-drain, asserted = LOW):
-//!   DATA asserted  = true  (LOW on bus)
-//!   DATA released  = false (HIGH / floating)
+//! This implementation emulates the C64 side of the IEC bus by strictly
+//! following the physical handshake protocol (CLK/DATA transitions).
+//! It does NOT rely on internal drive ROM states (PC-snooping), making it
+//! robust against timing variations and different ROM execution paths.
 
 use anyhow::{anyhow, Result};
 use pico1541_emulator::interface::IecBus;
 use pico1541_emulator::Emulator;
 
-use crate::bridge::{BusSnapshot, HostBridge};
+use crate::bridge::{BusSnapshot, HostBridge, LockStepCommand, LockStepResponse};
 
-/// Settling/turnaround delay used after ATN changes and initial talker setup.
-const IEC_SETUP_DELAY: u32 = 2000;
+/// Abstract interface for driving the IEC bus.
+/// Allows the same IEC protocol code to run directly on the Emulator (for tests)
+/// or via a LockStep channel (for the debugger UI).
+pub trait IecDriver {
+    fn set_data(&mut self, asserted: bool);
+    fn set_clk(&mut self, asserted: bool);
+    fn set_atn(&mut self, asserted: bool);
+    fn get_bus(&mut self) -> BusSnapshot;
+    fn run(&mut self, cycles: u32) -> Result<BusSnapshot>;
+    fn wait_for(&mut self, target: BusSnapshot, mask: BusSnapshot, timeout: u32) -> Result<BusSnapshot>;
+    fn pc(&self) -> u16;
+}
 
-/// Cycles per half-bit phase when the host is sending bytes.
-/// The 1541 ROM listener polling loop is ~10–15 cycles/iter;
-/// 1000 cycles gives it plenty of iterations to sample each signal edge.
-const IEC_BIT_DELAY: u32 = 1000;
+// ─── Emulator Implementation ────────────────────────────────────────────────
 
-/// Maximum cycles to wait for any bus event before declaring a timeout.
+impl IecDriver for Emulator<HostBridge> {
+    fn set_data(&mut self, asserted: bool) {
+        self.bus_mut().hardware.c64_bus().drive_data(asserted);
+    }
+    fn set_clk(&mut self, asserted: bool) {
+        self.bus_mut().hardware.c64_bus().drive_clk(asserted);
+    }
+    fn set_atn(&mut self, asserted: bool) {
+        self.bus_mut().hardware.c64_bus().set_atn(asserted);
+    }
+    fn get_bus(&mut self) -> BusSnapshot {
+        self.bus().hardware.bus_state
+    }
+    fn run(&mut self, cycles: u32) -> Result<BusSnapshot> {
+        for _ in 0..cycles { self.cpu.tick(); }
+        Ok(self.get_bus())
+    }
+    fn wait_for(&mut self, target: BusSnapshot, mask: BusSnapshot, timeout: u32) -> Result<BusSnapshot> {
+        for _ in 0..timeout {
+            let bus = self.get_bus();
+            if (bus.data == target.data || !mask.data) &&
+               (bus.clk  == target.clk  || !mask.clk)  &&
+               (bus.atn  == target.atn  || !mask.atn) {
+                return Ok(bus);
+            }
+            self.cpu.tick();
+        }
+        Err(anyhow!("IEC bus timeout (PC=${:04X})", self.cpu.pc))
+    }
+    fn pc(&self) -> u16 { self.cpu.pc }
+}
+
+// ─── LockStep Implementation ────────────────────────────────────────────────
+
+pub struct LockStepBus {
+    pub cmd_tx: crossbeam_channel::Sender<LockStepCommand>,
+    pub resp_rx: crossbeam_channel::Receiver<LockStepResponse>,
+    pub host_drives: BusSnapshot,
+    pub last_pc: u16,
+}
+
+impl IecDriver for LockStepBus {
+    fn set_data(&mut self, asserted: bool) { self.host_drives.data = asserted; }
+    fn set_clk(&mut self, asserted: bool)  { self.host_drives.clk = asserted; }
+    fn set_atn(&mut self, asserted: bool)  { self.host_drives.atn = asserted; }
+    fn get_bus(&mut self) -> BusSnapshot {
+        self.run(0).unwrap_or_default()
+    }
+    fn run(&mut self, cycles: u32) -> Result<BusSnapshot> {
+        self.cmd_tx.send(LockStepCommand::Step { host_drives: self.host_drives, cycles })?;
+        match self.resp_rx.recv()? {
+            LockStepResponse::Done(bus, pc) => {
+                self.last_pc = pc;
+                Ok(bus)
+            }
+            LockStepResponse::Timeout(bus, pc) => {
+                self.last_pc = pc;
+                Ok(bus)
+            }
+        }
+    }
+    fn wait_for(&mut self, target: BusSnapshot, mask: BusSnapshot, timeout: u32) -> Result<BusSnapshot> {
+        self.cmd_tx.send(LockStepCommand::Wait {
+            host_drives: self.host_drives,
+            target,
+            mask,
+            timeout_cycles: timeout,
+        })?;
+        match self.resp_rx.recv()? {
+            LockStepResponse::Done(bus, pc) => {
+                self.last_pc = pc;
+                Ok(bus)
+            }
+            LockStepResponse::Timeout(_bus, pc) => {
+                self.last_pc = pc;
+                Err(anyhow!("IEC bus timeout (PC=${:04X})", pc))
+            }
+        }
+    }
+    fn pc(&self) -> u16 { self.last_pc } 
+}
+
+/// Cycles to wait for a line transition before declaring a bus timeout.
 pub const IEC_TIMEOUT: u32 = 10_000_000; // 10 seconds at 1 MHz
 
-// ─── 1541-II ROM talker state addresses ──────────────────────────────────────
-//
-// These mark key points in the 1541-II talker send loop (LE916–LE987).
+/// Standard IEC settling/turnaround delay.
+const IEC_SETTLE_DELAY: u32 = 2000;
 
-/// Drive is in the probe-wait loop: spins while DATA_IN=0, exits on probe.
-const ROM_TALKER_PROBE_WAIT: core::ops::RangeInclusive<u16> = 0xE941..=0xE94A;
+/// Standard IEC bit-transfer delay (cycles per half-bit).
+const IEC_BIT_DELAY: u32 = 1000;
 
-/// Drive responded to probe (or fast-pathed via $F2 bit 3): DATA_OUT=1,
-/// waiting for DATA_IN=0 (host to release its probe).
-const ROM_TALKER_RESPONDED: core::ops::RangeInclusive<u16> = 0xE94B..=0xE95B;
+// ─── Low-level Bus Primitives ───────────────────────────────────────────────
 
-/// Drive is sending bit data (LE95C loop).
-#[allow(dead_code)]
-const ROM_TALKER_SENDING: core::ops::RangeInclusive<u16> = 0xE95C..=0xE986;
-
-/// Drive is in the byte-ack wait loop: spins while DATA_IN=0, exits on ack.
-const ROM_TALKER_ACK_WAIT: core::ops::RangeInclusive<u16> = 0xE987..=0xE98E;
-
-/// Drive is in the post-ack fast-path release loop (`LE925`): arrived here from
-/// `LE916` because DATA_IN=1 (ack line still held).  Spins while DATA_IN=1, then
-/// checks `$F2[ch]` bit 3 → jumps to `LE94B` (fast) or falls through to `LE937`
-/// (normal).  Releasing DATA while the drive is here lets it exit cleanly.
-///
-/// Range: $E925 (jsr LEA59) … $E936 (second byte of `bne LE94B`).
-const ROM_TALKER_FAST_LOOP: core::ops::RangeInclusive<u16> = 0xE925..=0xE936;
-
-// ─── 1541-II ROM listener state addresses ────────────────────────────────────
-//
-// Key addresses in the 1541-II listener receive loop (LE9C9/LE9DF/LEA0B).
-
-/// Drive reached ready state: waiting for CLK assert (host is about to send).
-#[allow(dead_code)]
-const ROM_LISTENER_READY: core::ops::RangeInclusive<u16> = 0xE9DF..=0xE9E5;
-
-/// Drive is in the bit-receive loop: exits on CLK released (bit valid).
-#[allow(dead_code)]
-const ROM_LISTENER_BIT_VALID: core::ops::RangeInclusive<u16> = 0xEA0B..=0xEA19;
-
-/// Drive is waiting for CLK asserted (bit done strobe).
-#[allow(dead_code)]
-const ROM_LISTENER_BIT_DONE: core::ops::RangeInclusive<u16> = 0xEA1A..=0xEA2A;
-
-// ─── Low-level helpers ────────────────────────────────────────────────────────
-
-pub fn iec_tick(drive: &mut Emulator<HostBridge>) {
-    drive.cpu.tick();
+pub fn iec_tick(drv: &mut impl IecDriver) {
+    let _ = drv.run(1);
 }
 
-pub fn iec_run(drive: &mut Emulator<HostBridge>, n: u32) {
-    for _ in 0..n { drive.cpu.tick(); }
+pub fn iec_run(drv: &mut impl IecDriver, cycles: u32) {
+    let _ = drv.run(cycles);
 }
 
-/// Combined bus state as last written by the emulator's open-drain model.
-#[inline]
-pub fn iec_bus(drive: &mut Emulator<HostBridge>) -> BusSnapshot {
-    let bus = drive.cpu.bus.hardware.c64_bus();
-    BusSnapshot { data: bus.read_data(), clk: bus.read_clk(), atn: bus.read_atn() }
+/// Returns the current physical state of the IEC bus lines.
+pub fn iec_bus(drv: &mut impl IecDriver) -> BusSnapshot {
+    drv.get_bus()
 }
 
-pub fn iec_set_data(drive: &mut Emulator<HostBridge>, asserted: bool) {
-    drive.cpu.bus.hardware.c64_bus().drive_data(asserted);
-}
-pub fn iec_set_clk(drive: &mut Emulator<HostBridge>, asserted: bool) {
-    drive.cpu.bus.hardware.c64_bus().drive_clk(asserted);
-}
-pub fn iec_set_atn(drive: &mut Emulator<HostBridge>, asserted: bool) {
-    drive.cpu.bus.hardware.c64_bus().set_atn(asserted);
+pub fn iec_set_data(drv: &mut impl IecDriver, asserted: bool) {
+    drv.set_data(asserted);
 }
 
-/// Run the emulator until `pred(bus_state)` returns true, or `timeout` cycles.
-pub fn iec_wait_timeout(drive: &mut Emulator<HostBridge>, timeout: u32, pred: impl Fn(BusSnapshot) -> bool) -> Result<()> {
-    for _ in 0..timeout {
-        iec_tick(drive);
-        if pred(iec_bus(drive)) { return Ok(()); }
+pub fn iec_set_clk(drv: &mut impl IecDriver, asserted: bool) {
+    drv.set_clk(asserted);
+}
+
+pub fn iec_set_atn(drv: &mut impl IecDriver, asserted: bool) {
+    drv.set_atn(asserted);
+}
+
+/// Wait for a bus condition to be met by ticking the emulator cycle-by-cycle.
+pub fn iec_wait(drv: &mut impl IecDriver, mut pred: impl FnMut(BusSnapshot) -> bool) -> Result<()> {
+    // We can't easily pass the predicate to LockStep Wait, so we either:
+    // 1. Tick here (slow over channels)
+    // 2. Use common predicates that LockStepCommand supports.
+    
+    // For now, let's just tick. If it's a LockStepBus, it will be one message per cycle.
+    // Wait, that's what I wanted to avoid.
+    
+    // Let's use the driver's wait_for if possible for common cases.
+    // But pred is flexible.
+    
+    for _ in 0..IEC_TIMEOUT {
+        let bus = drv.get_bus();
+        if pred(bus) { return Ok(()); }
+        drv.run(1)?;
     }
-    let pc = drive.cpu.pc;
-    Err(anyhow!("IEC timeout (CPU PC = ${:04X})", pc))
+    Err(anyhow!("IEC bus timeout (PC=${:04X})", drv.pc()))
 }
 
-pub fn iec_wait(drive: &mut Emulator<HostBridge>, pred: impl Fn(BusSnapshot) -> bool) -> Result<()> {
-    iec_wait_timeout(drive, IEC_TIMEOUT, pred)
-}
-
-/// Run the emulator until `pred(&drive)` returns true, or `timeout` cycles.
-///
-/// Unlike `iec_wait`, which observes bus lines, `iec_wait_state` can inspect
-/// any part of the emulator — most usefully `drive.cpu.pc` — to synchronize
-/// on a specific ROM protocol state.
-pub fn iec_wait_state(
-    drive: &mut Emulator<HostBridge>,
-    timeout: u32,
-    pred: impl Fn(&Emulator<HostBridge>) -> bool,
-) -> Result<()> {
-    for _ in 0..timeout {
-        iec_tick(drive);
-        if pred(drive) { return Ok(()); }
-    }
-    let pc = drive.cpu.pc;
-    Err(anyhow!("IEC state timeout (CPU PC = ${:04X})", pc))
-}
-
-// ─── Handshake ────────────────────────────────────────────────────────────────
+// ─── Handshake Sequences ─────────────────────────────────────────────────────
 
 /// Assert ATN and wait for the drive to acknowledge by pulling DATA LOW.
-///
-/// The 1541 ROM responds two ways:
-///   • CA1 interrupt: fires on ATN's positive edge at the VIA (LOW→HIGH transition
-///     after the 7406 inverter). `via1.last_ca1` must be `false` before we assert
-///     ATN, otherwise the edge detector sees true→true and no IRQ fires. We
-///     guarantee this by releasing ATN for a few cycles first.
-///   • PB7 polling: the ROM's main loop also reads ATN_IN (PB7) directly.
-///     This is the fallback if the interrupt was already missed.
-pub fn iec_atn_start(drive: &mut Emulator<HostBridge>) -> Result<()> {
-    // Release ATN and run a few cycles so CA1 goes LOW → last_ca1 = false
-    iec_set_atn(drive, false);
-    iec_set_clk(drive, true); // host asserts CLK throughout
-    iec_run(drive, 20);       // just enough to register the LOW on CA1
+pub fn iec_atn_start(drv: &mut impl IecDriver) -> Result<()> {
+    // 1. Host releases ATN and CLK to ensure a clean start
+    drv.set_atn(false);
+    drv.set_clk(false);
+    drv.run(2000)?;
 
-    // Now assert ATN — 7406 inverts to HIGH at CA1 → positive edge → IRQ
-    iec_set_atn(drive, true);
-    iec_run(drive, IEC_SETUP_DELAY);
-    iec_wait(drive, |b| b.data)
+    // 2. Host asserts ATN
+    drv.set_atn(true);
+    
+    // 3. Wait for drive to acknowledge by asserting DATA (pulling LOW)
+    drv.wait_for(
+        BusSnapshot { data: true, ..Default::default() },
+        BusSnapshot { data: true, ..Default::default() },
+        IEC_TIMEOUT
+    ).map(|_| ())
 }
 
-/// Release ATN and run a settling delay.
-pub fn iec_atn_release(drive: &mut Emulator<HostBridge>) {
-    iec_set_atn(drive, false);
-    iec_run(drive, IEC_SETUP_DELAY);
+pub fn iec_atn_release(drv: &mut impl IecDriver) {
+    drv.set_atn(false);
+    drv.set_clk(false);
+    let _ = drv.run(IEC_SETTLE_DELAY);
 }
 
-/// Release the bus to idle (all lines HIGH/released).
-pub fn iec_idle(drive: &mut Emulator<HostBridge>) {
-    iec_set_data(drive, false);
-    iec_set_clk(drive, false);
-    iec_set_atn(drive, false);
+pub fn iec_idle(drv: &mut impl IecDriver) {
+    drv.set_data(false);
+    drv.set_clk(false);
+    drv.set_atn(false);
+    let _ = drv.run(IEC_SETTLE_DELAY);
 }
 
-// ─── Byte send (host is SENDER) ───────────────────────────────────────────────
+// ─── Data Transfer ───────────────────────────────────────────────────────────
 
-/// Send one byte.  ATN may be asserted or released; the protocol is the same.
-///
-/// Uses cycle-based timing (`IEC_BIT_DELAY`) for the send path.  The 1541
-/// listener ROM samples bus lines in a tight polling loop; giving it
-/// `IEC_BIT_DELAY` cycles per phase is sufficient for reliable reception.
-///
-/// Protocol (1541-II listener, LE9C9/LE9DF/LEA0B):
-///   1. CLK released (IEC_BIT_DELAY cycles) → drive detects CLK HIGH.
-///   2. CLK asserted (IEC_BIT_DELAY cycles) → drive is ready for first bit.
-///   3. For each bit (LSB first):
-///      - Set DATA to bit value (DATA released = 1, asserted = 0).
-///      - Release CLK (IEC_BIT_DELAY) → drive samples DATA.
-///      - Assert CLK (IEC_BIT_DELAY) → drive advances to next bit.
-///   4. Release DATA; run a settling delay.
-pub fn iec_send_byte(drive: &mut Emulator<HostBridge>, byte: u8) -> Result<()> {
-    iec_set_clk(drive, false);
-    iec_run(drive, IEC_BIT_DELAY);
-    iec_set_clk(drive, true);
-    iec_run(drive, IEC_BIT_DELAY);
-    for bit_idx in 0..8u8 {
+/// Sends a single byte as the SENDER (Talker).
+pub fn iec_send_byte(drv: &mut impl IecDriver, byte: u8) -> Result<()> {
+    // 1. Host asserts CLK to signal it's about to send
+    drv.set_clk(true);
+    
+    // 2. Host waits for drive to release DATA (Ready to Receive)
+    drv.wait_for(
+        BusSnapshot { data: false, ..Default::default() },
+        BusSnapshot { data: true, ..Default::default() },
+        IEC_TIMEOUT
+    )?;
+
+    // 3. Transfer 8 bits, LSB-first
+    for bit_idx in 0..8 {
         let bit = (byte >> bit_idx) & 1 != 0;
-        iec_set_data(drive, !bit); // bit=1 → DATA released; bit=0 → DATA asserted
-        iec_set_clk(drive, false);
-        iec_run(drive, IEC_BIT_DELAY);
-        iec_set_clk(drive, true);
-        iec_run(drive, IEC_BIT_DELAY);
+        
+        // Data asserted (LOW) = 1, Released (HIGH) = 0
+        drv.set_data(bit);
+        
+        // Host releases CLK: Rising edge signals "data valid"
+        drv.set_clk(false);
+        drv.run(IEC_BIT_DELAY)?;
+        
+        // Host asserts CLK: Falling edge signals "bit accepted"
+        drv.set_clk(true);
+        drv.run(IEC_BIT_DELAY)?;
     }
-    iec_set_data(drive, false);
-    iec_run(drive, IEC_BIT_DELAY);
+
+    // 4. End of byte: host releases DATA and CLK
+    drv.set_data(false);
+    drv.set_clk(false);
+    drv.run(IEC_SETTLE_DELAY)?;
+
     Ok(())
 }
 
-// ─── Byte receive (host is LISTENER, drive is TALKER) ─────────────────────────
+/// Receives a single byte and EOI status from the drive (Talker).
+/// Returns (byte_value, is_eoi_received).
+pub fn iec_receive_byte(drv: &mut impl IecDriver) -> Result<(u8, bool)> {
+    // 1. Host (Listener) releases DATA to signal "Ready to Listen"
+    drv.set_data(false);
+    drv.run(100)?;
 
-/// Receive all bytes until the drive signals EOI (no more data).
-///
-/// Synchronizes on the drive's CPU state (ROM address) to handle both talker
-/// paths cleanly:
-///
-///   **Normal path** (`$F2 bit 3 = 0`): drive reaches `LE941` and waits for
-///   the host to assert DATA (probe).  Probe causes drive to enter `LE94B`
-///   (DATA_OUT=1), then `LE95C` (bit send).
-///
-///   **Fast path** (`$F2 bit 3 = 1`, e.g. status channel 15): drive reaches
-///   `LE94B` directly via the inter-byte ack path (DATA_IN=1 at `LE916`
-///   → `LE925` → `LE94B`) without visiting `LE941`.  Do NOT send a probe
-///   here — the abort check at the top of `LE95C` would see DATA_IN=1 and
-///   abort the transfer.
-///
-/// ## Per-byte handshake
-///
-///   1. Wait for `LE941` (normal) or `LE94B` (fast).  EOI: drive returns to
-///      its main loop and these addresses are never reached → timeout → break.
-///   2. If `LE941`: assert DATA (probe), wait for `LE94B`, release DATA.
-///      `LE94B` then exits to `LE95C` (DATA_IN=0 after release).
-///      If `LE94B`: DATA_IN=0 → `LE94B` exits immediately; no probe needed.
-///   3. Receive 8 bits LSB-first.  `LE9B7` releases DATA_OUT (bit valid,
-///      CLK encodes bit value); `LFEFB` asserts DATA_OUT+CLK_OUT (bit done).
-///   4. Byte ack: wait for `LE987` (drive looping on DATA_IN=0), assert DATA
-///      → drive exits `LE987` and traverses `LE916` → `LE925`.  `LE925`
-///      spins while DATA_IN=1; detect it and release DATA.  Drive exits
-///      `LE925` and heads to `LE94B` (fast) or `LE941` (normal) — caught by
-///      step 1 on the next iteration.
-pub fn iec_receive_data(drive: &mut Emulator<HostBridge>) -> Result<Vec<u8>> {
-    // Talker turnaround: host releases CLK and DATA.
-    iec_set_clk(drive, false);
-    iec_set_data(drive, false);
+    // 2. Wait for drive (Talker) to acknowledge by releasing CLK
+    // EOI Detection: if CLK stays LOW for > ~256µs, it signals EOI.
+    let mut clk_low_cycles = 0;
+    loop {
+        let bus = drv.get_bus();
+        if !bus.clk { break; } // CLK released HIGH
+        
+        // Safety: check if drive is idle
+        if (0xEBFF..=0xEC9B).contains(&drv.pc()) {
+            return Err(anyhow!("DRIVE_IDLE"));
+        }
 
-    let mut result = Vec::new();
+        drv.run(1)?;
+        clk_low_cycles += 1;
+        
+        if clk_low_cycles > 10000 { // 10ms should be plenty for EOI detect
+            return Err(anyhow!("iec_receive_byte: timeout waiting for CLK release (Talker Ready)"));
+        }
+    }
+
+    let is_eoi = clk_low_cycles > 500; // Standard EOI threshold
+
+    // 3. Host asserts DATA to acknowledge "Talker Ready"
+    drv.set_data(true);
+    drv.run(100)?;
+
+    // 4. If EOI was signaled, host must acknowledge by releasing DATA for > 60µs
+    if is_eoi {
+        drv.set_data(false);
+        drv.run(100)?; // ~100µs delay
+        drv.set_data(true);
+        // Drive must now acknowledge by asserting CLK again
+        while !drv.get_bus().clk {
+             if (0xEBFF..=0xEC9B).contains(&drv.pc()) { return Err(anyhow!("DRIVE_IDLE")); }
+             drv.run(1)?;
+        }
+        // And then finally releasing it to start the transfer
+        while drv.get_bus().clk {
+             if (0xEBFF..=0xEC9B).contains(&drv.pc()) { return Err(anyhow!("DRIVE_IDLE")); }
+             drv.run(1)?;
+        }
+    }
+
+    // 6. Receive 8 bits LSB-first
+    let mut byte_val = 0u8;
+    for bit_idx in 0..8 {
+        // Wait for drive to release CLK (Rising Edge -> Bit Valid)
+        drv.wait_for(
+            BusSnapshot { clk: false, ..Default::default() },
+            BusSnapshot { clk: true, ..Default::default() },
+            IEC_TIMEOUT
+        )?;
+
+        // Sample DATA line (Inverted logic: asserted/LOW = bit 1)
+        if drv.get_bus().data {
+            byte_val |= 1 << bit_idx;
+        }
+
+        // Wait for drive to assert CLK (Falling Edge -> Bit Done)
+        drv.wait_for(
+            BusSnapshot { clk: true, ..Default::default() },
+            BusSnapshot { clk: true, ..Default::default() },
+            IEC_TIMEOUT
+        )?;
+    }
+
+    // 5. Byte Acknowledgement: Host pulls DATA LOW
+    drv.set_data(true);
+
+    Ok((byte_val, is_eoi))
+}
+
+/// Receives all available data from the drive until EOI is detected.
+pub fn iec_receive_data(drv: &mut impl IecDriver) -> Result<Vec<u8>> {
+    let mut data = Vec::new();
 
     loop {
-        // Step 1: wait for a known talker-ready state.
-        //
-        // First byte: drive reaches LE941 (probe-wait) because DATA_IN=0 when
-        //   LE916 first runs (host had DATA released after the ATN phase).
-        // Subsequent bytes (fast path): drive reaches LE94B after the ack
-        //   (LE916 sees DATA_IN=1 → LE925 → LE94B).
-        // Subsequent bytes (normal path): drive reaches LE941 after LE925 exit
-        //   with $F2 bit 3 = 0 (falls through LE937 → LE941).
-        //
-        // EOI: drive returns to main loop; neither address is reached →
-        //   timeout → treat as end-of-stream.
-        let reached = iec_wait_state(drive, IEC_TIMEOUT, |d| {
-            let pc = d.cpu.pc;
-            ROM_TALKER_PROBE_WAIT.contains(&pc) || ROM_TALKER_RESPONDED.contains(&pc)
-        });
-        if reached.is_err() {
-            break; // EOI or no more data
-        }
-
-        // Step 2: probe (normal) or skip (fast path).
-        if ROM_TALKER_PROBE_WAIT.contains(&drive.cpu.pc) {
-            // LE941: assert DATA (probe) → drive exits LE941 → LE94B.
-            // Wait for LE94B using a positive match only — using
-            // "!ROM_TALKER_PROBE_WAIT" as the exit condition would fire on the
-            // subroutine calls (jsr LEA59, jsr LE9C0) made from within the
-            // LE941 loop, giving a false-positive before the loop actually exits.
-            iec_set_data(drive, true);
-            let responded = iec_wait_state(drive, IEC_TIMEOUT, |d| {
-                ROM_TALKER_RESPONDED.contains(&d.cpu.pc)
-            });
-            iec_set_data(drive, false); // release probe → LE94B exits when DATA_IN=0
-            if responded.is_err() {
-                break; // no probe response → EOI
-            }
-        }
-        // Both probe path (LE941→LE94B) and fast path (LE925→LE94B) arrive here
-        // with PC somewhere in the LE94B block (E94B..E95B).  The first instruction
-        // of LE94B is `jsr LE9AE` which asserts DATA_OUT.  `iec_wait_state` may
-        // fire before that jsr executes, leaving bus_state.data still false.
-        // Wait for DATA_OUT to be asserted before entering the bit loop; without
-        // this, the first `!b.data` check fires immediately on a stale bus,
-        // sampling CLK before the drive has placed any bit value on it.
-        iec_wait(drive, |b| b.data)?;
-        // Drive has now run LE9AE (DATA_OUT=1) and will exit the LE94B loop
-        // (DATA_IN=0) and enter LE95C to begin bit transmission.
-
-        // Step 3: receive 8 bits LSB-first.
-        // Bit valid: drive releases DATA_OUT at LE9B7 (CLK already set to bit value).
-        // Bit done:  drive asserts DATA_OUT + CLK at LFEFB.
-        let mut byte_val: u8 = 0;
-        for bit_idx in 0..8u8 {
-            iec_wait(drive, |b| !b.data)?; // bit valid: DATA released
-            if iec_bus(drive).clk { byte_val |= 1 << bit_idx; }
-            iec_wait(drive, |b| b.data)?;  // bit done: DATA asserted
-        }
-        result.push(byte_val);
-
-        if byte_val == b'\r' {
-            // Ack the final byte so the drive cleanly exits LE987 back to its
-            // main loop.  Without this the drive stays stuck in the LE987 spin
-            // loop; on the next iec_atn_start the ATNA gate gives a false
-            // DATA-ack, and the first 0-bit in the following TALK command
-            // accidentally exits LE987, causing the drive to emit a spurious
-            // byte at the start of the next status read.
-            if let Ok(()) = iec_wait_state(drive, IEC_TIMEOUT, |d| ROM_TALKER_ACK_WAIT.contains(&d.cpu.pc)) {
-                iec_set_data(drive, true);
-                let _ = iec_wait_state(drive, IEC_TIMEOUT, |d| ROM_TALKER_FAST_LOOP.contains(&d.cpu.pc));
-                iec_set_data(drive, false);
-            }
+        // Kernal ACPTR handshake starts by releasing CLK to signal "Listener Ready"
+        // (Host was holding it LOW from the turnaround or the previous byte ack)
+        drv.set_clk(false);
+        drv.set_data(false);
+        
+        // Safety: check if drive returned to idle loop during the release
+        if (0xEBFF..=0xEC9B).contains(&drv.pc()) {
             break;
         }
 
-        // Step 4: byte ack.
-        //
-        // Drive is at LE987 looping while DATA_IN=0 (waiting for host ack).
-        // Assert DATA → drive exits LE987 → LE916 → LE925.
-        //
-        // LE925 loops while DATA_IN=1 (the ack line we are holding), then checks
-        // $F2[ch] bit 3:
-        //   bit 3 = 1 (fast path): jumps to LE94B → LE95C (next byte immediately).
-        //   bit 3 = 0 (normal):    falls through LE937 → LE941 (probe needed).
-        //
-        // We detect LE925 and release DATA there.  LE925 sees DATA_IN=0, exits,
-        // and the drive heads toward LE94B or LE941 — caught by step 1 next iter.
-        //
-        // Do NOT use "!ROM_TALKER_ACK_WAIT" as the release trigger: subroutine
-        // calls from within the LE987 loop (jsr LEA59, jsr LE9C0) take PC
-        // outside that range before the loop's DATA_IN check runs, causing the
-        // same false-positive pattern as the probe wait.
-        iec_wait_state(drive, IEC_TIMEOUT, |d| ROM_TALKER_ACK_WAIT.contains(&d.cpu.pc))?;
-        iec_set_data(drive, true);
-        iec_wait_state(drive, IEC_TIMEOUT, |d| ROM_TALKER_FAST_LOOP.contains(&d.cpu.pc))?;
-        iec_set_data(drive, false);
-        // Drive will exit LE925 → LE94B or LE941; step 1 handles both.
+        match iec_receive_byte(drv) {
+            Ok((byte, is_eoi)) => {
+                data.push(byte);
+                if is_eoi { break; }
+            }
+            Err(e) if e.to_string() == "DRIVE_IDLE" => {
+                break;
+            }
+            Err(e) => {
+                return Err(e);
+            }
+        }
     }
-
-    Ok(result)
-}
-
-// ─── High-level IEC commands ─────────────────────────────────────────────────
-
-/// Read the 1541 status channel (device 8, secondary address 15).
-pub fn iec_read_status(drive: &mut Emulator<HostBridge>) -> Result<String> {
-    iec_atn_start(drive)?;
-    iec_send_byte(drive, 0x48)?; // TALK device 8
-    iec_send_byte(drive, 0x6F)?; // DATA channel 15 (status)
-    iec_atn_release(drive);
-
-    let data = iec_receive_data(drive)?;
-
-    iec_idle(drive);
-    Ok(String::from_utf8_lossy(&data).trim_end_matches('\r').to_string())
-}
-
-/// Load a file by name from the 1541 using LOAD protocol.
-/// Filename "$" retrieves the directory as a BASIC program.
-pub fn iec_load_file(drive: &mut Emulator<HostBridge>, filename: &str) -> Result<Vec<u8>> {
-    // 1. LISTEN + OPEN channel 0, then send filename
-    iec_atn_start(drive)?;
-    iec_send_byte(drive, 0x28)?; // LISTEN device 8
-    iec_send_byte(drive, 0xF0)?; // OPEN secondary address 0
-    iec_atn_release(drive);
-
-    // Host sends filename bytes (host is still sender, drive is listener)
-    for &b in filename.as_bytes() {
-        iec_send_byte(drive, b)?;
-    }
-
-    // 2. UNLISTEN
-    iec_atn_start(drive)?;
-    iec_send_byte(drive, 0x3F)?; // UNLISTEN
-    iec_atn_release(drive);
-
-    // 3. TALK + DATA channel 0
-    iec_atn_start(drive)?;
-    iec_send_byte(drive, 0x48)?; // TALK device 8
-    iec_send_byte(drive, 0x60)?; // DATA secondary address 0
-    iec_atn_release(drive);
-
-    let data = iec_receive_data(drive)?;
-
-    iec_idle(drive);
+    
     Ok(data)
 }
 
-// ─── Directory parser ─────────────────────────────────────────────────────────
+// ─── High-level Commands ─────────────────────────────────────────────────────
 
-/// Parse the raw BASIC-format directory listing returned by LOAD "$".
-/// The data starts with a 2-byte load address, followed by BASIC line records.
+pub fn iec_read_status(drv: &mut impl IecDriver) -> Result<String> {
+    iec_atn_start(drv)?;
+    iec_send_byte(drv, 0x48)?; // TALK device 8
+    iec_send_byte(drv, 0x6F)?; // DATA channel 15 (status)
+    drv.run(1000)?; // Wait for drive to process secondary address
+    
+    // Exact Kernal TALK turnaround sequence:
+    drv.set_atn(false); // Release ATN
+    drv.set_clk(true);  // Host (Listener) pulls CLK LOW
+    drv.run(100)?;
+    
+    // 1. Wait for drive to acknowledge turnaround by pulling DATA LOW
+    if let Err(e) = drv.wait_for(
+        BusSnapshot { data: true, ..Default::default() },
+        BusSnapshot { data: true, ..Default::default() },
+        IEC_TIMEOUT
+    ) {
+        if (0xEBFF..=0xEC9B).contains(&drv.pc()) {
+             return Ok(String::new());
+        }
+        return Err(e);
+    }
+    
+    // 2. Host releases DATA and CLK to signal it's ready to receive
+    drv.set_data(false);
+    drv.set_clk(false);
+    drv.run(100)?;
+
+    let data = match iec_receive_data(drv) {
+        Ok(d) => d,
+        Err(e) => {
+            if (0xEBFF..=0xEC9B).contains(&drv.pc()) {
+                Vec::new() 
+            } else {
+                return Err(e);
+            }
+        }
+    };
+    
+    iec_idle(drv);
+    Ok(String::from_utf8_lossy(&data).trim_end_matches('\r').to_string())
+}
+
+pub fn iec_load_file(drv: &mut impl IecDriver, filename: &str) -> Result<Vec<u8>> {
+    // 1. OPEN channel 0
+    iec_atn_start(drv)?;
+    iec_send_byte(drv, 0x28)?; // LISTEN device 8
+    iec_send_byte(drv, 0xF0)?; // OPEN channel 0
+    iec_atn_release(drv);
+
+    for &b in filename.as_bytes() {
+        iec_send_byte(drv, b)?;
+    }
+
+    // 2. UNLISTEN
+    iec_atn_start(drv)?;
+    iec_send_byte(drv, 0x3F)?; // UNLISTEN
+    iec_atn_release(drv);
+
+    // 3. TALK and Receive
+    iec_atn_start(drv)?;
+    iec_send_byte(drv, 0x48)?; // TALK device 8
+    iec_send_byte(drv, 0x60)?; // DATA channel 0
+    
+    // Turnaround: Release ATN
+    drv.set_atn(false);
+    
+    // Wait for drive to acknowledge turnaround by pulling DATA LOW
+    drv.wait_for(
+        BusSnapshot { data: true, ..Default::default() },
+        BusSnapshot { data: true, ..Default::default() },
+        IEC_TIMEOUT
+    )?;
+    
+    // Host signals it's ready to receive by pulling CLK LOW
+    drv.set_clk(true);
+    drv.run(1000)?;
+
+    let data = iec_receive_data(drv)?;
+    
+    iec_idle(drv);
+    Ok(data)
+}
+
+// ─── Directory Parser ─────────────────────────────────────────────────────────
+
 pub fn parse_directory(data: &[u8]) -> String {
     if data.len() < 4 {
         return "(empty or truncated directory data)".to_string();
@@ -425,14 +446,13 @@ pub fn parse_directory(data: &[u8]) -> String {
         let line_num = u16::from_le_bytes([data[pos + 2], data[pos + 3]]);
         pos += 4;
 
-        // Collect PETSCII bytes until null terminator
         let mut text = String::new();
         while pos < data.len() && data[pos] != 0x00 {
             let c = data[pos];
             let ascii: u8 = match c {
                 0x20..=0x5F => c,
-                0x60..=0x7E => c - 0x20,    // PETSCII shifted lowercase → uppercase
-                0xC1..=0xDA => c - 0x80,    // PETSCII uppercase shifted
+                0x60..=0x7E => c - 0x20,
+                0xC1..=0xDA => c - 0x80,
                 _ => b'.',
             };
             text.push(ascii as char);

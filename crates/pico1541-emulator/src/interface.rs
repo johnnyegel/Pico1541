@@ -2,6 +2,7 @@
 pub const MAX_TRACK_BYTES: usize = 10_000;
 
 pub struct ActiveTrack {
+    pub half_track: u8,
     pub bit_length: u32,
     pub is_dirty: bool,
     pub disk_inserted: bool,
@@ -11,6 +12,7 @@ pub struct ActiveTrack {
 impl ActiveTrack {
     pub fn new() -> Self {
         Self {
+            half_track: 0,
             bit_length: 0,
             is_dirty: false,
             disk_inserted: false,
@@ -58,4 +60,7 @@ pub trait HostInterface: IecBus {
 
     /// Send an event (LED, Motor, Step) to the Host
     fn send_event(&mut self, event: DriveEvent);
+
+    /// Synchronization point called every cycle.
+    fn sync(&mut self) {}
 }

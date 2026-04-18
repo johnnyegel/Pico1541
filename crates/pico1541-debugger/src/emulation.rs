@@ -15,8 +15,11 @@ use std::thread;
 use std::time::{Duration, Instant};
 use std::fs;
 
-use crate::bridge::{CpuContext, DebugCommand, DebugResponse, DisasmLine, HostBridge};
-use crate::iec::{iec_idle, iec_load_file, iec_read_status, parse_directory};
+use crate::bridge::{
+    CpuContext, DebugCommand, DebugResponse, DisasmLine, HostBridge, 
+    LockStepCommand, LockStepResponse, BusSnapshot
+};
+use crate::iec::{iec_load_file, iec_read_status, parse_directory, LockStepBus};
 
 pub const ROM_BYTES: &[u8] = include_bytes!("../../../roms/1541-II.251968-03.bin");
 
@@ -125,9 +128,79 @@ pub async fn emulation_loop(
                 }
 
                 DebugCommand::IECCommand(s) => {
-                    handle_iec_command(s, &mut drive, &running, &resp_tx, &mut last_tick).await?;
+                    let (ls_cmd_tx, ls_cmd_rx) = crossbeam_channel::unbounded();
+                    let (ls_resp_tx, ls_resp_rx) = crossbeam_channel::unbounded();
+                    drive.bus_mut().hardware.set_lockstep(ls_cmd_rx, ls_resp_tx);
+                    
+                    let resp_tx_clone = resp_tx.clone();
+                    tokio::task::spawn_local(async move {
+                        let mut bus = LockStepBus { 
+                            cmd_tx: ls_cmd_tx, 
+                            resp_rx: ls_resp_rx, 
+                            host_drives: BusSnapshot::default(),
+                            last_pc: 0,
+                        };
+                        
+                        let result = if s == "STATUS" {
+                            iec_read_status(&mut bus)
+                                .map(|status| DebugResponse::IECResponse(status))
+                        } else if s.starts_with("LOAD:") {
+                            let filename = s[5..].to_string();
+                            iec_load_file(&mut bus, &filename).map(|data| {
+                                if filename == "$" {
+                                    DebugResponse::IECResponse(parse_directory(&data))
+                                } else {
+                                    DebugResponse::IECResponse(format!("Loaded {} bytes", data.len()))
+                                }
+                            })
+                        } else {
+                            Err(anyhow!("Unknown IEC command: {}", s))
+                        };
+
+                        match result {
+                            Ok(resp) => { let _ = resp_tx_clone.send(resp); }
+                            Err(e) => {
+                                let _ = resp_tx_clone.send(DebugResponse::IECResponse(format!("IEC error: {}", e)));
+                            }
+                        }
+                    });
                 }
                 DebugCommand::Exit => return Ok(()),
+            }
+        }
+
+        // ── LockStep synchronization ──────────────────────────────────────────
+        let lockstep_rx = drive.bus().hardware.lockstep_rx.clone();
+        if let Some(rx) = lockstep_rx {
+            while let Ok(cmd) = rx.try_recv() {
+                match cmd {
+                    LockStepCommand::Step { host_drives, cycles } => {
+                        drive.bus_mut().hardware.host_drives = host_drives;
+                        for _ in 0..cycles { drive.cpu.tick(); }
+                        let _ = drive.bus().hardware.lockstep_tx.as_ref().unwrap()
+                            .send(LockStepResponse::Done(drive.bus().hardware.bus_state, drive.pc()));
+                    }
+                    LockStepCommand::Wait { host_drives, target, mask, timeout_cycles } => {
+                        drive.bus_mut().hardware.host_drives = host_drives;
+                        let mut timed_out = true;
+                        for _ in 0..timeout_cycles {
+                            drive.cpu.tick();
+                            let bus = drive.bus().hardware.bus_state;
+                            if (bus.data == target.data || !mask.data) &&
+                               (bus.clk  == target.clk  || !mask.clk)  &&
+                               (bus.atn  == target.atn  || !mask.atn) {
+                                let _ = drive.bus().hardware.lockstep_tx.as_ref().unwrap()
+                                    .send(LockStepResponse::Done(bus, drive.pc()));
+                                timed_out = false;
+                                break;
+                            }
+                        }
+                        if timed_out {
+                            let _ = drive.bus().hardware.lockstep_tx.as_ref().unwrap()
+                                .send(LockStepResponse::Timeout(drive.bus().hardware.bus_state, drive.pc()));
+                        }
+                    }
+                }
             }
         }
 
@@ -265,49 +338,3 @@ async fn handle_mount(
     Ok(())
 }
 
-// ─── IEC command handler ──────────────────────────────────────────────────────
-
-async fn handle_iec_command(
-    s: String,
-    drive: &mut Emulator<HostBridge>,
-    running: &Arc<AtomicBool>,
-    resp_tx: &Sender<DebugResponse>,
-    last_tick: &mut Instant,
-) -> Result<()> {
-    let was_running = running.load(Ordering::SeqCst);
-    running.store(false, Ordering::SeqCst);
-
-    // Ensure bus is idle before starting
-    iec_idle(drive);
-
-    let result = if s == "STATUS" {
-        iec_read_status(drive)
-            .map(|status| DebugResponse::IECResponse(status))
-    } else if s.starts_with("LOAD:") {
-        let filename = s[5..].to_string();
-        iec_load_file(drive, &filename).map(|data| {
-            if filename == "$" {
-                DebugResponse::IECResponse(parse_directory(&data))
-            } else {
-                DebugResponse::IECResponse(format!("Loaded {} bytes", data.len()))
-            }
-        })
-    } else {
-        Err(anyhow!("Unknown IEC command: {}", s))
-    };
-
-    match result {
-        Ok(resp) => { resp_tx.send(resp)?; }
-        Err(e) => {
-            // Release bus on error
-            iec_idle(drive);
-            resp_tx.send(DebugResponse::IECResponse(format!("IEC error: {}", e)))?;
-        }
-    }
-
-    if was_running {
-        running.store(true, Ordering::SeqCst);
-        *last_tick = Instant::now();
-    }
-    Ok(())
-}

@@ -1116,6 +1116,7 @@ dependencies = [
  "crossterm 0.29.0",
  "disasm6502",
  "embedded-io-async",
+ "env_logger",
  "futures",
  "log",
  "pico1541-common",

@@ -1,12 +1,37 @@
-use crossbeam_channel::Sender;
+use crossbeam_channel::{Receiver, Sender};
 use pico1541_emulator::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus};
 
 /// Snapshot of the three IEC bus lines, used by the debugger to observe bus state.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct BusSnapshot {
     pub data: bool,
     pub clk: bool,
     pub atn: bool,
+}
+
+/// Commands sent from the debugger to the emulator during lock-step synchronization.
+#[derive(Debug)]
+pub enum LockStepCommand {
+    /// Update host-driven lines and run for a number of cycles.
+    /// Returns the final BusSnapshot.
+    Step {
+        host_drives: BusSnapshot,
+        cycles: u32,
+    },
+    /// Run until the bus state matches the predicate, or timeout.
+    Wait {
+        host_drives: BusSnapshot,
+        target: BusSnapshot,
+        mask: BusSnapshot,
+        timeout_cycles: u32,
+    },
+}
+
+/// Responses sent from the emulator to the debugger during lock-step synchronization.
+#[derive(Debug)]
+pub enum LockStepResponse {
+    Done(BusSnapshot, u16),
+    Timeout(BusSnapshot, u16),
 }
 
 /// Connects the emulator's HostInterface to the debugger's crossbeam event channel.
@@ -19,6 +44,12 @@ pub struct HostBridge {
     /// Combined open-drain bus state, updated by drive_data/drive_clk each cycle.
     /// ATN is always derived from host_drives.atn (only the C64 drives ATN).
     pub bus_state: BusSnapshot,
+    /// Optional multi-track library: (half_track, gcr_data, bit_length).
+    pub track_library: Vec<(u8, Vec<u8>, u32)>,
+
+    /// LockStep synchronization channels
+    pub lockstep_rx: Option<Receiver<LockStepCommand>>,
+    pub lockstep_tx: Option<Sender<LockStepResponse>>,
 }
 
 impl HostBridge {
@@ -28,6 +59,26 @@ impl HostBridge {
             event_tx,
             host_drives: BusSnapshot::default(),
             bus_state: BusSnapshot::default(),
+            track_library: Vec::new(),
+            lockstep_rx: None,
+            lockstep_tx: None,
+        }
+    }
+
+    pub fn set_lockstep(&mut self, rx: Receiver<LockStepCommand>, tx: Sender<LockStepResponse>) {
+        self.lockstep_rx = Some(rx);
+        self.lockstep_tx = Some(tx);
+    }
+
+    pub fn load_nearest_track(&mut self, half_track: u8) {
+        if let Some((_, gcr, bit_len)) = self.track_library.iter()
+            .min_by_key(|(ht, _, _)| (*ht as i16 - half_track as i16).abs())
+        {
+            let dst = &mut self.active_track.gcr_data;
+            let len = gcr.len().min(dst.len());
+            dst[..len].copy_from_slice(&gcr[..len]);
+            for b in &mut dst[len..] { *b = 0; }
+            self.active_track.bit_length = *bit_len;
         }
     }
 
@@ -80,7 +131,12 @@ impl IecBus for HostBridge {
 
 impl HostInterface for HostBridge {
     fn get_active_track(&mut self) -> &mut ActiveTrack { &mut self.active_track }
-    fn send_event(&mut self, event: DriveEvent) { let _ = self.event_tx.send(event); }
+    fn send_event(&mut self, event: DriveEvent) {
+        if let DriveEvent::HeadStepped { new_half_track } = event {
+            self.load_nearest_track(new_half_track);
+        }
+        let _ = self.event_tx.send(event);
+    }
 }
 
 // ─── Debugger commands and responses ─────────────────────────────────────────

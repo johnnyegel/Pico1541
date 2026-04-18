@@ -2,7 +2,7 @@ use racc6502::bus::Bus;
 #[cfg(feature = "debug")]
 use racc6502::bus::MemoryMonitor;
 use crate::via6522::Via6522;
-use crate::interface::{DriveEvent, HostInterface};
+use crate::interface::HostInterface;
 use crate::drivemechanics::DriveMechanics;
 use log;
 
@@ -18,10 +18,6 @@ pub struct SystemBus<H: HostInterface> {
     pub hardware: H,
     pub mechanics: DriveMechanics,
     pub so_active: bool,
-
-    // Cached state to detect changes
-    last_motor_on: bool,
-    last_led_on: bool,
 }
 
 impl<H: HostInterface> SystemBus<H> {
@@ -37,11 +33,15 @@ impl<H: HostInterface> SystemBus<H> {
             via2: Via6522::new(),
             hardware,
             mechanics: DriveMechanics::new(),
-            so_active: false,
-            last_motor_on: false,
-            last_led_on: false,
+            so_active: false
         }
     }
+
+    #[cfg(feature = "debug")]
+    pub fn led_on(&self) -> bool { self.mechanics.led_on(&self.via2) }
+
+    #[cfg(feature = "debug")]
+    pub fn motor_on(&self) -> bool { self.mechanics.motor_on(&self.via2) }
 
     pub fn tick_cycle(&mut self) {
         if self.mechanics.tick(&mut self.hardware, &mut self.via2) {
@@ -78,57 +78,22 @@ impl<H: HostInterface> SystemBus<H> {
         let bus_clk  = host_clk  | drv_clk;
 
         // VIA1 input register: direct mapping (7406 inversion captured by convention).
-        // PB0 (DATA_IN) and PB2 (CLK_IN) read only the external (host) signals.
-        // The drive's own open-drain outputs (DATA_OUT, CLK_OUT, ATNA) do not feed back
-        // into their respective input buffers — the input path is isolated on real hardware.
-        // This is required for:
-        //   - LFF20: drive waits for host DATA released; ATNA would cause infinite loop otherwise
-        //   - LEA0B: bit-read loop waits for host CLK released; drive's own CLK_OUT (from LE99C)
-        //     would cause infinite loop otherwise
         let mut in_b: u8 = 0;
-        if host_data { in_b |= 0x01; } // PB0 = DATA_IN (external/host only)
-        if host_clk  { in_b |= 0x04; } // PB2 = CLK_IN (external/host only)
-        if host_atn  { in_b |= 0x80; } // PB7 = ATN_IN (ATN driven only by host)
+        if bus_data  { in_b |= 0x01; } // PB0 = DATA_IN (Actual bus state)
+        if bus_clk   { in_b |= 0x04; } // PB2 = CLK_IN  (Actual bus state)
+        if !host_atn { in_b |= 0x80; } // PB7 = ATN_IN  (0 = Asserted/LOW, 1 = Released/HIGH)
         self.via1.in_b = in_b;
 
-        // CA1: HIGH when ATN asserted. PCR=$01 → positive-edge IRQ fires when ATN asserted.
+        // CA1: fires on positive edge. ATN asserted (LOW) -> 7406 HIGH.
         self.via1.set_ca1(host_atn);
 
-        // Push combined open-drain result back to the host so it can observe the bus.
         self.hardware.drive_data(bus_data);
         self.hardware.drive_clk(bus_clk);
 
         self.via1.tick_cycle();
         self.via2.tick_cycle();
-    }
-
-    #[cfg(feature = "debug")]
-    pub fn motor_on(&self) -> bool {
-        self.last_motor_on
-    }
-
-    #[cfg(feature = "debug")]
-    pub fn led_on(&self) -> bool {
-        self.last_led_on
-    }
-
-    fn check_state_changes(&mut self) {
-        // Active-LOW on 1541-II (1 = Motor ON)
-        let motor_on = (self.via2.orb & 0x04) != 0;
-        if motor_on != self.last_motor_on {
-            log::info!("Motor changed: {} -> {}", self.last_motor_on, motor_on);
-            self.last_motor_on = motor_on;
-            self.hardware.send_event(DriveEvent::MotorChanged(motor_on));
-        }
-
-        // --- LED (VIA2 Port B bit 3) ---
-        // Active-LOW on 1541-II (1 = LED ON)
-        let led_on = (self.via2.orb & 0x08) != 0;
-        if led_on != self.last_led_on {
-            log::info!("LED changed: {} -> {}", self.last_led_on, led_on);
-            self.last_led_on = led_on;
-            self.hardware.send_event(DriveEvent::LedChanged(led_on));
-        }
+        
+        self.hardware.sync();
     }
 }
 
@@ -153,14 +118,7 @@ impl<H: HostInterface> Bus for SystemBus<H> {
         match addr {
             0x0000..=0x17FF => self.ram[(addr as usize) % RAM_SIZE] = value,
             0x1800..=0x1BFF => self.via1.write(addr, value),
-            0x1C00..=0x1FFF => {
-                log::trace!("VIA2 Write: Addr=${:04X}, Val=${:02X}", addr, value);
-                self.via2.write(addr, value);
-                let reg = addr & 0x0F;
-                if reg == 0x00 || reg == 0x0C {
-                    self.check_state_changes();
-                }
-            }
+            0x1C00..=0x1FFF => self.via2.write(addr, value),
             0x8000..=0xFFFF => {}
             _ => {
                 log::warn!("Unmapped Write: Addr=${:04X}, Val=${:02X}", addr, value);

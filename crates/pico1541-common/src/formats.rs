@@ -71,11 +71,20 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
 
         let mut write_ptr = 0;
         
+        // Lead-in gap for the track
+        for _ in 0..40 {
+            if write_ptr < dest.len() {
+                dest[write_ptr] = 0x55;
+                write_ptr += 1;
+            }
+        }
+
         for sector in 0..sectors {
             let mut sector_data = [0u8; 256];
             self.storage.read_exact(&mut sector_data).await.map_err(|_| Error::Io)?;
 
-            for _ in 0..8 {
+            // Header SYNC (Standard ~10 bytes)
+            for _ in 0..10 {
                 if write_ptr < dest.len() {
                     dest[write_ptr] = 0xFF;
                     write_ptr += 1;
@@ -96,14 +105,16 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
                 }
             }
 
-            for _ in 0..8 {
+            // Header-to-Data Gap (Standard ~9 bytes)
+            for _ in 0..9 {
                 if write_ptr < dest.len() {
                     dest[write_ptr] = 0x55;
                     write_ptr += 1;
                 }
             }
 
-            for _ in 0..8 {
+            // Data SYNC (Standard ~10 bytes)
+            for _ in 0..10 {
                 if write_ptr < dest.len() {
                     dest[write_ptr] = 0xFF;
                     write_ptr += 1;
@@ -133,6 +144,7 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
                 }
             }
 
+            // Inter-sector gap (Standard ~8 bytes)
             for _ in 0..8 {
                 if write_ptr < dest.len() {
                     dest[write_ptr] = 0x55;
@@ -141,11 +153,11 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
             }
         }
 
-        let nominal_bytes = match track {
-            1..=17 => 6250,
-            18..=24 => 5625,
-            25..=30 => 5000,
-            _ => 4375,
+        let (nominal_bytes, nominal_bits) = match track {
+            1..=17 => (7692, 61536),  // Zone 3: ~7692 bytes
+            18..=24 => (7142, 57136), // Zone 2: ~7142 bytes
+            25..=30 => (6666, 53328), // Zone 1: ~6666 bytes
+            _ => (6250, 50000),       // Zone 0: ~6250 bytes
         };
 
         while write_ptr < nominal_bytes && write_ptr < dest.len() {
@@ -153,7 +165,7 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
             write_ptr += 1;
         }
 
-        Ok((write_ptr as u32) * 8)
+        Ok(nominal_bits)
     }
 }
 

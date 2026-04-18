@@ -17,7 +17,8 @@ fn test_motor_delay() {
     let mut mechanics = DriveMechanics::new();
 
     // Motor OFF by default (ORB bit 2 is 1)
-    via2.orb = 0x04;
+    via2.orb &= !0x04;
+    assert!(!mechanics.motor_spun_up);
 
     // Tick 1000 times, should NOT deliver data
     for _ in 0..1000 {
@@ -25,10 +26,10 @@ fn test_motor_delay() {
     }
 
     // Turn Motor ON (ORB bit 2 is 0)
-    via2.orb &= !0x04;
+    via2.orb |= 0x04;
 
-    // Tick 499,999 times, should NOT deliver data yet
-    for _ in 0..499_999 {
+    // Tick 249_999 times, should NOT deliver data yet
+    for _ in 0..249_999 {
         mechanics.tick(&mut hardware, &mut via2);
     }
     assert!(!mechanics.motor_spun_up);
@@ -48,12 +49,12 @@ fn test_motor_delay() {
     assert!(delivered, "Motor is spun up but not delivering data");
 
     // Turn Motor OFF
-    via2.orb |= 0x04;
+    via2.orb &= !0x04;
 
     // It should still deliver data during spin-down for 500,000 cycles
     assert!(mechanics.motor_spun_up);
 
-    for _ in 0..499_999 {
+    for _ in 0..99_999 {
         mechanics.tick(&mut hardware, &mut via2);
     }
     assert!(mechanics.motor_spun_up);

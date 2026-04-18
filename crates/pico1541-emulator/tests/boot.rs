@@ -73,7 +73,7 @@ fn test_drive_boot_behavior() {
     let mut total_cycles: u64 = 0;
 
     // Run for 3 million instructions (~3s of real drive time)
-    for i in 0..3_000_000 {
+    for i in 0..5_000_000 {
         // Run until we start fetching the next opcode (Sync point)
         loop {
             drive.cpu.tick();
