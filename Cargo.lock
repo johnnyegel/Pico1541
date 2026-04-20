@@ -1103,6 +1103,7 @@ name = "pico1541-common"
 version = "0.1.0"
 dependencies = [
  "embedded-io-async",
+ "log",
  "pico1541-emulator",
 ]
 
@@ -1132,6 +1133,7 @@ version = "0.1.0"
 dependencies = [
  "env_logger",
  "log",
+ "pico1541-emulator",
  "racc6502",
 ]
 

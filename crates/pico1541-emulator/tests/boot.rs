@@ -1,36 +1,12 @@
 mod common;
 
-use common::TestBridge;
-use pico1541_emulator::Emulator;
 use pico1541_emulator::interface::DriveEvent;
 use racc6502::cpu::CycleState;
 
-fn init_logger() {
-    // We must ensure the logger is initialized only once across all tests.
-    let _ = env_logger::builder()
-        .filter_module("mos6502", log::LevelFilter::Warn)
-        .filter_module("pico1541_emulator::systembus", log::LevelFilter::Info)
-        .filter_module("pico1541_emulator::drivemechanics", log::LevelFilter::Info)
-        .filter_module("pico1541_emulator", log::LevelFilter::Info)
-        .filter_module("boot", log::LevelFilter::Info)
-        .is_test(true)
-        .try_init();
-}
-
-fn get_rom() -> [u8; 16384] {
-    let rom = include_bytes!("../../../roms/1541-II.251968-03.bin");
-    let mut rom_array = [0u8; 16384];
-    rom_array.copy_from_slice(rom);
-    rom_array
-}
 
 #[test]
 fn test_drive_boot() {
-    init_logger();
-    let rom_array = get_rom();
-
-    let mut bridge = TestBridge::new();
-    let mut drive = Emulator::new(rom_array);
+    let (mut drive, mut bridge) = common::setup_drive(false, None);
     drive.reset();
 
     let initial_pc = drive.pc();
@@ -43,14 +19,6 @@ fn test_drive_boot() {
 
 #[test]
 fn test_drive_boot_behavior() {
-    init_logger();
-    let rom_array = get_rom();
-
-    let mut bridge = TestBridge::new();
-    bridge.track.disk_inserted = false;
-
-    let mut drive = Emulator::new(rom_array);
-
     // Instruction tracing for debugging
     fn boot_debug_hook(cpu: &racc6502::cpu::CPU, _data: *mut core::ffi::c_void) {
         match cpu.pc {
@@ -60,9 +28,8 @@ fn test_drive_boot_behavior() {
             _ => {}
         }
     }
-    drive.cpu.debug_hook = Some(boot_debug_hook);
 
-    drive.reset();
+    let (mut drive, mut bridge) = common::setup_drive(true, Some(boot_debug_hook));
 
     let mut led_on_count = 0;
     let mut motor_on_count = 0;
@@ -115,7 +82,7 @@ fn test_drive_boot_behavior() {
         }
         
         // If we reached the idle loop, we can stop early
-        if drive.pc() >= 0xEBFF && drive.pc() <= 0xEC9B {
+        if drive.pc() >= common::IDLE_LOW && drive.pc() <= common::IDLE_HIGH {
             log::info!("[Test] Reached idle loop at step {}, cycle {}", i, total_cycles);
             break;
         }
@@ -125,4 +92,59 @@ fn test_drive_boot_behavior() {
     assert_eq!(motor_off_count, 1, "Expected exactly one Motor OFF event during boot (got {})", motor_off_count);
     assert_eq!(stepper_count, 2, "Expected exactly two Stepper events during boot (got {})", stepper_count);
     assert_eq!(led_on_count, 0, "Expected zero LED ON events during boot (got {})", led_on_count);
+}
+
+#[test]
+fn test_dir_no_disk() {
+    let (mut drive, mut bridge) = common::setup_drive(true, None);
+
+    // Ensure NO DISK is present
+    bridge.track.disk_inserted = false;
+    bridge.events.clear();
+
+    // Send the DIRECTORY ("$") command on channel 0.
+    // With no disk the ROM will spin the motor, try to find track 18, 
+    // fail, and eventually rattle the head against the stop (head banding).
+    bridge.atn_start(&mut drive);
+    bridge.send_byte(&mut drive, 0x28, false); // LISTEN 8
+    bridge.send_byte(&mut drive, 0x60, true);  // SEC 0 (Load/Open "$")
+    bridge.atn_stop(&mut drive);
+
+    bridge.send_byte(&mut drive, b'$', true);  // "$"
+
+    bridge.atn_start(&mut drive);
+    bridge.send_byte(&mut drive, 0x3F, true); // UNLISTEN
+    
+    log::info!("Sent DIR command with no disk. Waiting for drive to process...");
+
+    // Read the status response from channel 15.
+    let status = {
+        bridge.send_byte(&mut drive, 0x48, false); // TALK 8
+        bridge.send_byte(&mut drive, 0x6F, true);  // SEC 15
+        
+        bridge.atn_stop(&mut drive);
+        bridge.turnaround(&mut drive);
+        
+        let bytes = bridge.receive_all(&mut drive);
+        bridge.end_communication(&mut drive);
+        String::from_utf8_lossy(&bytes).trim_end_matches('\r').to_string()
+    };
+
+    let final_half_track = drive.half_track();
+    log::info!("Half-track after failed DIR: {}", final_half_track);
+    log::info!("Status: {}", status);
+
+    // Drive should have tried to read and failed — motor events and head movement
+    let motor_events: usize = bridge.events.iter()
+        .filter(|e| matches!(e, pico1541_emulator::interface::DriveEvent::MotorChanged(_)))
+        .count();
+    let step_events: usize = bridge.events.iter()
+        .filter(|e| matches!(e, pico1541_emulator::interface::DriveEvent::HeadStepped { .. }))
+        .count();
+    log::info!("Motor events: {}, Step events: {}", motor_events, step_events);
+
+    assert!(motor_events >= 1, "Expected motor ON event, got {}", motor_events);
+    // A rattle (banding) involves many steps towards track 0.
+    assert!(step_events > 5, "Expected significant head movement (rattle), got only {} steps", step_events);
+    assert!(!status.starts_with("00,"), "Expected an error status, got: {:?}", status);
 }

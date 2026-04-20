@@ -74,6 +74,9 @@ impl DriveMechanics {
             if !track.disk_inserted || !self.motor_spun_up {
                 self.sub_cycle_counter = 0;
                 self.current_byte_idx = 0;
+                // No magnetic signal when the motor isn't running or no disk is present:
+                // clear SYNC so the ROM's sync-wait loop doesn't hang on the init value.
+                via2.in_b &= !0x80;
                 return false;
             }
             (track.bit_length, track.is_formatted)

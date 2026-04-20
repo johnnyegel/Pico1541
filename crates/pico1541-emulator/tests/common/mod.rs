@@ -4,6 +4,11 @@ use pico1541_emulator::Emulator;
 
 use log::debug;
 
+use racc6502::cpu::DebugHook;
+
+//const ROM_BYTES: &[u8] = include_bytes!("roms/1541-II.251968-03.bin");
+const ROM_BYTES: &[u8] = include_bytes!("../../../../roms/1541-II.251968-03.bin");
+
 /// Timeout for spin-waiting on bus transitions (cycles).
 pub const IEC_TIMEOUT: u32 = 1_000_000;
 
@@ -12,12 +17,48 @@ pub const T_SETTLE: u32 = 100;  // ~100us (settle time)
 pub const T_PHASE:  u32 = 60;   // ~60us (C64 minimum rate)
 pub const T_EOI:    u32 = 200;  // >200us
 
-// FIXME! Remove these as they are utter bullshit
-pub const T_BIT:    u32 = 40;   // ~40us (full bit time, including clock low)
-
 /// 1541-II ROM idle loop address range.
 pub const IDLE_LOW:  u16 = 0xEBFF;
 pub const IDLE_HIGH: u16 = 0xEC9B;
+
+pub fn setup_drive(reset: bool, debug_hook: Option<DebugHook>) -> (Emulator<TestBridge>, TestBridge) {
+    let _ = env_logger::builder()
+        .is_test(true)
+        .filter_level(log::LevelFilter::Info)
+        .try_init();
+
+    let mut rom = [0u8; 16384];
+    rom.copy_from_slice(ROM_BYTES);
+
+    let mut drive = Emulator::<TestBridge>::new(rom);
+    let mut bridge = TestBridge::new();
+
+    if let Some(hook) = debug_hook {
+        drive.cpu.debug_hook = Some(hook);
+    }
+
+    if reset {
+        reset_drive(&mut drive, &mut bridge);
+    }
+
+    (drive, bridge)
+}
+
+pub fn reset_drive(drive: &mut Emulator<TestBridge>, bridge: &mut TestBridge) {
+    drive.reset();
+    bridge.reset();
+
+    // Boot: Wait for idle loop
+    for _ in 0..5_000_000 {
+        drive.tick(bridge);
+        if drive.pc() >= IDLE_LOW && drive.pc() <= IDLE_HIGH {
+            return;
+        }
+    }
+
+    panic!("Drive did not reach idle loop after reset (PC=${:04X})", drive.pc());
+}
+
 
 /// Shared test double for HostInterface.
 pub struct TestBridge {
@@ -110,7 +151,6 @@ impl TestBridge {
             // To signal EOI, we wait for the EOI delay, 
             // and then assert the data being asserted and deassered 
             // again to indicate the drive has gotten the message.
-            //self.ticks(drive, T_EOI);
             debug!("Waiting for ACK for EOI for byte {:02X}. PC=${:04X}", byte, drive.pc());
 
             self.wait_bus_data(drive, true);
@@ -158,11 +198,7 @@ impl TestBridge {
     pub fn atn_stop(&mut self, drive: &mut Emulator<Self>) {
         // Host releases ATN
         self.set_atn(false);
-
-        // If the drive was a Listener, it moves to idle/listen loop.
-        // If it was told to Talk, it must acknowledge ATN release by asserting CLK.
-        // We wait a bit to let it process the transition.
-        self.ticks(drive, T_SETTLE);
+        self.wait_bus_data(drive, false);
     }
 
     pub fn end_communication(&mut self, drive: &mut Emulator<Self>) {
@@ -176,7 +212,6 @@ impl TestBridge {
 
     pub fn turnaround(&mut self, drive: &mut Emulator<Self>) {
         // Host releases ATN and CLK to signal it's now a listener
-        self.atn_stop(drive);
         self.set_clk(false);
 
         // Host asserts DATA to indicate it is busy and not signaling EOI (TRUE=Asserted=Not EOI)
@@ -218,7 +253,7 @@ impl TestBridge {
         };
 
         // 4. Small delay before starting bits
-        self.ticks(drive, T_SETTLE);
+        self.ticks(drive, T_PHASE);
 
         // 5. Receive 8 bits
         let mut byte_val = 0u8;

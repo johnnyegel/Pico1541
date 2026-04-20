@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 pico1541-emulator = { path = "../pico1541-emulator" }
 embedded-io-async = "0.7.0"
+log = "0.4.29"
