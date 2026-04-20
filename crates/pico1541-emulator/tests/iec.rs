@@ -3,9 +3,16 @@ mod common;
 use common::TestBridge;
 use pico1541_emulator::Emulator;
 
+use log::info;
+
 const ROM_BYTES: &[u8] = include_bytes!("../../../roms/1541-II.251968-03.bin");
 
 fn setup_drive() -> (Emulator<TestBridge>, TestBridge) {
+    let _ = env_logger::builder()
+        .is_test(true)
+        .filter_level(log::LevelFilter::Info)
+        .try_init();
+
     let mut rom = [0u8; 16384];
     rom.copy_from_slice(ROM_BYTES);
 
@@ -36,21 +43,17 @@ fn reset_drive(drive: &mut Emulator<TestBridge>, bridge: &mut TestBridge) {
 fn read_status(drive: &mut Emulator<TestBridge>, bridge: &mut TestBridge) -> String {
     bridge.atn_start(drive);
 
-    bridge.send_byte(drive, 0x48, false);
-    bridge.send_byte(drive, 0x6F, true);
+    bridge.send_byte(drive, 0x48, false); // TALK 8
+    bridge.send_byte(drive, 0x6F, true);  // SEC 15
     
-    bridge.set_atn(false);
-    bridge.set_clk(false);
-    bridge.set_data(true);
-    
-    bridge.ticks(drive, 100);
+    // Turnaround: Switch from Talker to Listener
+    bridge.turnaround(drive);
 
+    // Receive all bytes until EOI
     let bytes = bridge.receive_all(drive);
 
-    bridge.set_atn(false);
-    bridge.set_clk(false);
-    bridge.set_data(false);
-     bridge.ticks(drive, 100);
+    // End of communication: Host releases everything
+    bridge.end_communication(drive);
 
     String::from_utf8_lossy(&bytes)
         .trim_end_matches('\r')
@@ -83,7 +86,7 @@ fn test_iec_read_status() {
 
     // ── First status read: boot message ──────────────────────────────────────
     let status1 = read_status(&mut drive, &mut bridge);
-    println!("Status 1: {:?}", status1);
+    info!("Status 1: {:?}", status1);
     assert!(
         status1.starts_with("73,"),
         "Expected boot status starting with '73,', got: {:?}", status1
@@ -91,7 +94,7 @@ fn test_iec_read_status() {
 
     // ── Second status read: should clear to 00, OK ────────────────────────────
     let status2 = read_status(&mut drive, &mut bridge);
-    println!("Status 2: {:?}", status2);
+    info!("Status 2: {:?}", status2);
     assert!(
         status2.starts_with("00,"),
         "Expected '00,...' on second read, got: {:?}", status2

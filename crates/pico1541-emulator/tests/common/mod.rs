@@ -2,6 +2,8 @@
 use pico1541_emulator::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus};
 use pico1541_emulator::Emulator;
 
+use log::debug;
+
 /// Timeout for spin-waiting on bus transitions (cycles).
 pub const IEC_TIMEOUT: u32 = 1_000_000;
 
@@ -56,18 +58,16 @@ impl TestBridge {
 
     pub fn ticks(&mut self, drive: &mut Emulator<TestBridge>, n: u32) {
         for _ in 0..n { drive.tick(self); }
-        println!("Ticked {} cycles (PC=${:04X})", n, drive.pc());
+        debug!("Ticked {} cycles (PC=${:04X})", n, drive.pc());
     }
 
     pub fn wait_bus_data(&mut self, drive: &mut Emulator<Self>, want: bool) { 
         let mut cycles = 0;
-        if self.bus_data == want { 
-            panic!("wait_bus_data called but bus_data is already {} (PC=${:04X})", want, drive.pc());
-        }
+        if self.bus_data == want { return; }
         for _ in 0..IEC_TIMEOUT {
             cycles += 1;
             if self.bus_data == want { 
-                println!("Wait Data {} took {} cycles. PC=${:04X}", want, cycles, drive.pc());
+                debug!("Wait Data {} took {} cycles. PC=${:04X}", want, cycles, drive.pc());
                 return; 
             }
             drive.tick(self);
@@ -77,13 +77,11 @@ impl TestBridge {
 
     pub fn wait_bus_clk(&mut self, drive: &mut Emulator<Self>, want: bool) {
         let mut cycles = 0;
-        if self.bus_clk == want { 
-            panic!("wait_bus_clk called but bus_clk is already {} (PC=${:04X})", want, drive.pc());
-        }
+        if self.bus_clk == want { return; }
         for _ in 0..IEC_TIMEOUT {
             cycles += 1;
             if self.bus_clk == want { 
-                println!("Wait CLK {} took {} cycles. PC=${:04X}", want, cycles, drive.pc());
+                debug!("Wait CLK {} took {} cycles. PC=${:04X}", want, cycles, drive.pc());
                 return; 
             }
             drive.tick(self);
@@ -105,7 +103,7 @@ impl TestBridge {
         self.set_clk(false);
         self.wait_bus_data(drive, false);
 
-        println!("Drive ACKed: Ready to send byte {:02X}. EOI: {}", byte, eoi);
+        debug!("Drive ACKed: Ready to send byte {:02X}. EOI: {}", byte, eoi);
 
         // Is this end of instruction?
         if eoi {
@@ -113,12 +111,12 @@ impl TestBridge {
             // and then assert the data being asserted and deassered 
             // again to indicate the drive has gotten the message.
             //self.ticks(drive, T_EOI);
-            println!("Waiting for ACK for EOI for byte {:02X}. PC=${:04X}", byte, drive.pc());
+            debug!("Waiting for ACK for EOI for byte {:02X}. PC=${:04X}", byte, drive.pc());
 
             self.wait_bus_data(drive, true);
             self.wait_bus_data(drive, false);
 
-            println!("EOI acknowledged for byte {:02X}", byte);
+            debug!("EOI acknowledged for byte {:02X}", byte);
         }
 
         // We need to wait some more so the drive is ready to receive the first bit when clock is released.
@@ -148,35 +146,95 @@ impl TestBridge {
             self.set_clk(true);
             self.set_data(false);
             
-            println!("Drive Data Line {}: -> {} - drive: {}", bit, bit_val, self.bus_data);
+            debug!("Drive Data Line {}: -> {} - drive: {}", bit, bit_val, self.bus_data);
         }
 
         // Wait for the drive to assert the data line to acknowledge the byte
-        println!("Drive Data Line ACK: {}", self.bus_data);
+        debug!("Drive Data Line ACK: {}", self.bus_data);
 
         self.wait_bus_data(drive, true);
     }
 
-    pub fn receive_byte(&mut self, drive: &mut Emulator<Self>) -> (u8, bool) {
-        let mut clk_high_cycles = 0;
-        loop {
-            if !self.bus_clk { break; }
-            drive.tick(self);
-            clk_high_cycles += 1;
-            if clk_high_cycles > IEC_TIMEOUT { panic!("IEC timeout waiting for Talker Ready"); }
-        }
-        let is_eoi = clk_high_cycles > T_EOI;
-        self.set_data(true);
-        self.wait_bus_clk(drive, true);
+    pub fn atn_stop(&mut self, drive: &mut Emulator<Self>) {
+        // Host releases ATN
+        self.set_atn(false);
+
+        // If the drive was a Listener, it moves to idle/listen loop.
+        // If it was told to Talk, it must acknowledge ATN release by asserting CLK.
+        // We wait a bit to let it process the transition.
+        self.ticks(drive, T_SETTLE);
+    }
+
+    pub fn end_communication(&mut self, drive: &mut Emulator<Self>) {
+        // Release all lines
+        self.set_atn(false);
+        self.set_clk(false);
         self.set_data(false);
+        // Let things settle
+        self.ticks(drive, 100);
+    }
+
+    pub fn turnaround(&mut self, drive: &mut Emulator<Self>) {
+        // Host releases ATN and CLK to signal it's now a listener
+        self.atn_stop(drive);
+        self.set_clk(false);
+
+        // Host asserts DATA to indicate it is busy and not signaling EOI (TRUE=Asserted=Not EOI)
+        self.set_data(true);
+
+        // Drive must release DATA (ACK for the last byte of command) before it can become a Talker
+        self.wait_bus_data(drive, false);
+
+        // Drive must acknowledge ATN release by asserting CLK
+        self.wait_bus_clk(drive, true);
+    }
+
+    pub fn receive_byte(&mut self, drive: &mut Emulator<Self>) -> (u8, bool) {
+        // 1. Wait for Talker Ready (CLK released)
+        // Host should already be asserting DATA (TRUE) from turnaround or previous byte.
+        self.wait_bus_clk(drive, false);
+        
+        // 2. Host RELEASES DATA to acknowledge Talker Ready
+        self.set_data(false);
+
+        // 3. Wait a bit to see if drive asserts CLK (Normal Byte)
+        // In the normal path, the drive asserts CLK as soon as it sees DATA released.
+        // In the EOI path, it will continue to wait for DATA to be re-asserted.
+        let mut ack_ticks = 0;
+        while !self.bus_clk && ack_ticks < 500 {
+            drive.tick(self);
+            ack_ticks += 1;
+        }
+
+        let is_eoi = if self.bus_clk {
+            false
+        } else {
+            // Drive is still waiting. This is the EOI handshake (waiting for DATA re-assertion).
+            self.set_data(true);
+            self.wait_bus_clk(drive, true);
+            // After drive acknowledges our EOI ACK, we release DATA for the bit loop
+            self.set_data(false);
+            true
+        };
+
+        // 4. Small delay before starting bits
+        self.ticks(drive, T_SETTLE);
+
+        // 5. Receive 8 bits
         let mut byte_val = 0u8;
         for bit in 0..8u8 {
             self.wait_bus_clk(drive, false);
-            if !self.bus_data { byte_val |= 1 << bit; }
+            if !self.bus_data {
+                byte_val |= 1 << bit;
+            }
             self.wait_bus_clk(drive, true);
         }
+
+        // 6. After the byte, Host asserts DATA to say "I'm busy" 
+        // and also signals "Not EOI" for the next potential byte.
         self.set_data(true);
         self.ticks(drive, T_SETTLE);
+        
         (byte_val, is_eoi)
     }
 
@@ -186,11 +244,7 @@ impl TestBridge {
             let (byte, is_eoi) = self.receive_byte(drive);
             data.push(byte);
             if is_eoi { break; }
-            self.set_data(false);
-            self.ticks(drive, T_BIT);
         }
-        self.set_data(false);
-        self.ticks(drive, T_SETTLE);
         data
     }
 
