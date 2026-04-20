@@ -17,11 +17,12 @@ impl FunctionalBus {
 }
 
 impl Bus for FunctionalBus {
-    fn read(&mut self, addr: u16) -> u8 {
+    type Ctx = ();
+    fn read(&mut self, addr: u16, _ctx: &mut ()) -> u8 {
         self.memory[addr as usize]
     }
 
-    fn write(&mut self, addr: u16, value: u8) {
+    fn write(&mut self, addr: u16, value: u8, _ctx: &mut ()) {
         self.memory[addr as usize] = value;
     }
 }
@@ -29,9 +30,9 @@ impl Bus for FunctionalBus {
 #[test]
 #[ignore] // This test is very long, run with --ignored
 fn test_6502_functional() {
-    let bus = FunctionalBus::new("tests/bin/6502_functional_test.bin");
-    let mut cpu = CPU::new(bus);
-    
+    let mut bus = FunctionalBus::new("tests/bin/6502_functional_test.bin");
+    let mut cpu = CPU::new();
+
     // The test starts at $0400
     cpu.pc = 0x0400;
     cpu.state = CycleState::FetchOpcode;
@@ -44,7 +45,7 @@ fn test_6502_functional() {
     println!("Starting 6502 Functional Test at $0400");
 
     while cycles < max_cycles {
-        cpu.tick();
+        cpu.tick(&mut bus, &mut ());
         cycles += 1;
 
         if cpu.state == CycleState::FetchOpcode && cpu.step_index == 0 {

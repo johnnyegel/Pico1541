@@ -36,6 +36,15 @@ impl DriveMechanics {
         }
     }
 
+    pub fn reset(&mut self) {
+        self.current_half_track = 36; // Start at track 18
+        self.motor_spun_up = false;
+        self.motor_delay_counter = 0;
+        self.current_byte_idx = 0;
+        self.sub_cycle_counter = 0;
+        self.last_state = 0;
+    }
+
     /// Progresses the drive mechanics by one CPU cycle.
     /// Returns true if a new byte is ready to be processed by the CPU.
     pub fn tick<H: HostInterface>(&mut self, hardware: &mut H, via2: &mut Via6522) -> bool {

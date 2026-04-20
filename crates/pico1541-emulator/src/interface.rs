@@ -34,22 +34,29 @@ pub enum DriveEvent {
 
 /// Open-drain IEC serial bus interface.
 ///
-/// `read_*` methods return the current state of each line as seen from the bus
-/// (true = asserted/LOW, pulled by the host/C64 side).  These must NOT reflect
-/// the drive's own outputs — the input path is isolated on real hardware to
-/// prevent feedback loops in the 1541 ROM.
+/// All signals use the logical convention: **true = asserted**.
+/// On the physical IEC bus an asserted line is pulled LOW; this inversion is a
+/// hardware concern and is NOT reflected here.  The emulator works entirely in
+/// the logical domain — no caller needs to invert values.
 ///
-/// `drive_*` methods let the emulator assert or release each line.  On real
-/// hardware this toggles a GPIO PINDIR; in simulation it updates the combined
-/// open-drain state that the host makes visible.
+/// `read_*` methods return what the host (C64 side) is currently driving.
+/// They must NOT reflect the drive's own outputs; the 1541's input path is
+/// isolated from its output path on real hardware.
+///
+/// `drive_data` / `drive_clk` are called by the emulator each CPU cycle with
+/// the **combined open-drain bus state**: host assertion OR drive assertion OR
+/// ATNA contribution.  true = the line is asserted by at least one party.
 pub trait IecBus {
-    /// Returns true if the line is asserted (pulled LOW by the host)
+    /// Returns true if the host is asserting DATA.
     fn read_data(&self) -> bool;
+    /// Returns true if the host is asserting CLK.
     fn read_clk(&self) -> bool;
+    /// Returns true if the host is asserting ATN.
     fn read_atn(&self) -> bool;
 
-    /// Asserts (true) or releases (false) the line
+    /// Called each cycle with the combined DATA bus state (true = asserted).
     fn drive_data(&mut self, assert: bool);
+    /// Called each cycle with the combined CLK bus state (true = asserted).
     fn drive_clk(&mut self, assert: bool);
 }
 

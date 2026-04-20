@@ -1,3 +1,4 @@
+use core::marker::PhantomData;
 use racc6502::bus::Bus;
 #[cfg(feature = "debug")]
 use racc6502::bus::MemoryMonitor;
@@ -10,30 +11,37 @@ const RAM_SIZE: usize = 0x0800; // 2KB
 const ROM_SIZE: usize = 0x4000; // 16KB
 
 /// Represents the 1541's memory bus, mapping access to RAM, ROM, and I/O.
+///
+/// `H` identifies the concrete `HostInterface` implementation used at the call
+/// site.  No instance of `H` is stored here — it is passed into every
+/// `read` / `write` call via the `Bus::Ctx` mechanism and forwarded to
+/// `tick_cycle`.
 pub struct SystemBus<H: HostInterface> {
     ram: [u8; RAM_SIZE],
     rom: [u8; ROM_SIZE],
     pub via1: Via6522,
     pub via2: Via6522,
-    pub hardware: H,
     pub mechanics: DriveMechanics,
     pub so_active: bool,
+    _phantom: PhantomData<H>,
 }
 
 impl<H: HostInterface> SystemBus<H> {
-    pub fn new(rom: [u8; ROM_SIZE], hardware: H) -> Self {
+    pub fn new(rom: [u8; ROM_SIZE]) -> Self {
         let mut via1 = Via6522::new();
         // Track 0 Sensor is tied to Ground, The rest of the port is unused
         via1.in_a = 0x0;
+        // Default device address to 8 (PB5=0, PB6=0). Also all lines released.
+        via1.in_b = 0x0;
 
         Self {
             ram: [0; RAM_SIZE],
             rom,
             via1,
             via2: Via6522::new(),
-            hardware,
             mechanics: DriveMechanics::new(),
-            so_active: false
+            so_active: false,
+            _phantom: PhantomData,
         }
     }
 
@@ -43,63 +51,59 @@ impl<H: HostInterface> SystemBus<H> {
     #[cfg(feature = "debug")]
     pub fn motor_on(&self) -> bool { self.mechanics.motor_on(&self.via2) }
 
-    pub fn tick_cycle(&mut self) {
-        if self.mechanics.tick(&mut self.hardware, &mut self.via2) {
+    pub fn reset(&mut self) {
+        self.ram = [0; RAM_SIZE];
+        self.via1.reset();
+        self.via2.reset();
+        self.mechanics.reset();
+        self.so_active = false;
+    }
+
+    pub fn tick_cycle(&mut self, hardware: &mut H) {
+        if self.mechanics.tick(hardware, &mut self.via2) {
             self.so_active = true;
         } else {
             self.so_active = false;
         }
 
-        // --- IEC Bus open-drain model (true=asserted/LOW, false=released/HIGH) ---
-        //
-        // VIA1 1541-II drive outputs (confirmed by ROM disassembly):
-        //   PB1 = CLK_OUT  active-LOW:  ORB=0 with DDRB[1]=out → drive asserts CLK
-        //   PB3 = DATA_OUT active-HIGH: ORB=1 with DDRB[3]=out → drive asserts DATA
-        //   PB4 = ATNA     active-HIGH, gated by ATN: asserts DATA only when ATN asserted
-        //
-        // VIA1 inputs (7406 inversion captured by convention, direct mapping):
-        //   PB0 = DATA_IN  (1 when DATA asserted) — host/external only
-        //   PB2 = CLK_IN   (1 when CLK asserted)  — host/external only
-        //   PB7 = ATN_IN   (1 when ATN asserted)
-        //   PB5, PB6 = device-address jumpers (0 → device 8)
-        //
-        // CA1 = ATN through 7406: HIGH when ATN asserted. PCR=$01 → positive-edge IRQ.
+        let host_data = hardware.read_data();
+        let host_clk  = hardware.read_clk();
+        let host_atn  = hardware.read_atn();
 
-        let host_data = self.hardware.read_data();
-        let host_clk  = self.hardware.read_clk();
-        let host_atn  = self.hardware.read_atn();
+        // VIA1 outputs: PB1=DATA_OUT, PB3=CLK_OUT (1=Asserted/LOW wire)
+        let drv_data = (self.via1.orb & self.via1.ddrb & 0x02) != 0;
+        let drv_clk  = (self.via1.orb & self.via1.ddrb & 0x08) != 0;
 
-        let drv_clk  = (self.via1.ddrb & 0x02) != 0 && (self.via1.orb & 0x02) == 0;
-        let drv_data = (self.via1.orb & self.via1.ddrb & 0x08) != 0;
-        let drv_atna = (self.via1.orb & self.via1.ddrb & 0x10) != 0 && host_atn;
+        // FIXME! Do not put feedback from the host back on the bus. This will happen in hardware!
+        let bus_data = drv_data; // host_data | drv_data;
+        let bus_clk  = drv_clk; //host_clk  | drv_clk;
 
-        // Open-drain OR: any asserted bit makes the bus asserted
-        let bus_data = host_data | drv_data | drv_atna;
-        let bus_clk  = host_clk  | drv_clk;
-
-        // VIA1 input register: direct mapping (7406 inversion captured by convention).
+        // VIA1 inputs: PB0=DATA_IN, PB2=CLK_IN, PB7=ATN_IN (1=Asserted/LOW wire)
         let mut in_b: u8 = 0;
-        if bus_data  { in_b |= 0x01; } // PB0 = DATA_IN (Actual bus state)
-        if bus_clk   { in_b |= 0x04; } // PB2 = CLK_IN  (Actual bus state)
-        if !host_atn { in_b |= 0x80; } // PB7 = ATN_IN  (0 = Asserted/LOW, 1 = Released/HIGH)
+        if host_data { in_b |= 0x01; }
+        if host_clk  { in_b |= 0x04; }
+        if host_atn  { in_b |= 0x80; }
         self.via1.in_b = in_b;
 
-        // CA1: fires on positive edge. ATN asserted (LOW) -> 7406 HIGH.
+        // CA1: fires on positive edge of ATN assertion.
+        // host_atn=true (Asserted/LOW wire) -> 7406 output HIGH.
         self.via1.set_ca1(host_atn);
 
-        self.hardware.drive_data(bus_data);
-        self.hardware.drive_clk(bus_clk);
+        hardware.drive_data(bus_data);
+        hardware.drive_clk(bus_clk);
 
         self.via1.tick_cycle();
         self.via2.tick_cycle();
-        
-        self.hardware.sync();
+
+        hardware.sync();
     }
 }
 
 impl<H: HostInterface> Bus for SystemBus<H> {
-    fn read(&mut self, addr: u16) -> u8 {
-        self.tick_cycle();
+    type Ctx = H;
+
+    fn read(&mut self, addr: u16, ctx: &mut H) -> u8 {
+        self.tick_cycle(ctx);
         match addr {
             0x0000..=0x17FF => self.ram[(addr as usize) % RAM_SIZE],
             0x1800..=0x1BFF => self.via1.read(addr),
@@ -113,8 +117,8 @@ impl<H: HostInterface> Bus for SystemBus<H> {
         }
     }
 
-    fn write(&mut self, addr: u16, value: u8) {
-        self.tick_cycle();
+    fn write(&mut self, addr: u16, value: u8, ctx: &mut H) {
+        self.tick_cycle(ctx);
         match addr {
             0x0000..=0x17FF => self.ram[(addr as usize) % RAM_SIZE] = value,
             0x1800..=0x1BFF => self.via1.write(addr, value),
@@ -172,9 +176,10 @@ mod tests {
     }
     #[test]
     fn test_ram_read_write() {
-        let mut pico_bus = SystemBus::new([0; ROM_SIZE], MockHardware { track: ActiveTrack::new() });
-        pico_bus.write(0x0100, 0xAB);
-        assert_eq!(pico_bus.read(0x0100), 0xAB);
-        assert_eq!(pico_bus.read(0x0900), 0xAB);
+        let mut bus = SystemBus::<MockHardware>::new([0; ROM_SIZE]);
+        let mut hw = MockHardware { track: ActiveTrack::new() };
+        bus.write(0x0100, 0xAB, &mut hw);
+        assert_eq!(bus.read(0x0100, &mut hw), 0xAB);
+        assert_eq!(bus.read(0x0900, &mut hw), 0xAB);
     }
 }

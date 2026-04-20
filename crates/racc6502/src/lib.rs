@@ -27,15 +27,17 @@
 //! ```rust
 //! use racc6502::bus::Bus;
 //! use racc6502::cpu::CPU;
-//! 
+//!
 //! struct MyBus { memory: [u8; 65536] }
 //! impl Bus for MyBus {
-//!     fn read(&mut self, addr: u16) -> u8 { self.memory[addr as usize] }
-//!     fn write(&mut self, addr: u16, val: u8) { self.memory[addr as usize] = val; }
+//!     type Ctx = ();
+//!     fn read(&mut self, addr: u16, _ctx: &mut ()) -> u8 { self.memory[addr as usize] }
+//!     fn write(&mut self, addr: u16, val: u8, _ctx: &mut ()) { self.memory[addr as usize] = val; }
 //! }
-//! 
-//! let mut cpu = CPU::new(MyBus { memory: [0; 65536] });
-//! cpu.tick(); // Execute exactly one clock cycle
+//!
+//! let mut cpu = CPU::new();
+//! let mut bus = MyBus { memory: [0; 65536] };
+//! cpu.tick(&mut bus, &mut ()); // Execute exactly one clock cycle
 //! ```
 
 #![cfg_attr(not(test), no_std)]

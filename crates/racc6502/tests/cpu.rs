@@ -12,8 +12,8 @@ struct MockBus {
 
 impl MockBus {
     fn new() -> Self {
-        Self { 
-            memory: [0; 65536], 
+        Self {
+            memory: [0; 65536],
             access_count: 0,
             irq_pending: false,
             nmi_pending: false,
@@ -23,38 +23,41 @@ impl MockBus {
 }
 
 impl Bus for MockBus {
-    fn read(&mut self, addr: u16) -> u8 { self.access_count += 1; self.memory[addr as usize] }
-    fn write(&mut self, addr: u16, value: u8) { self.access_count += 1; self.memory[addr as usize] = value; }
+    type Ctx = ();
+    fn read(&mut self, addr: u16, _ctx: &mut ()) -> u8 { self.access_count += 1; self.memory[addr as usize] }
+    fn write(&mut self, addr: u16, value: u8, _ctx: &mut ()) { self.access_count += 1; self.memory[addr as usize] = value; }
     fn irq_pending(&self) -> bool { self.irq_pending }
     fn nmi_pending(&self) -> bool { self.nmi_pending }
     fn so_pending(&self) -> bool { self.so_pending }
 }
+
+fn tick(cpu: &mut CPU, bus: &mut MockBus) { cpu.tick(bus, &mut ()); }
 
 #[test]
 fn test_reset_sequence() {
     let mut bus = MockBus::new();
     bus.memory[VECTOR_RESET as usize] = 0x34;
     bus.memory[(VECTOR_RESET + 1) as usize] = 0x12;
-    
+
     // LDA Imm $42
     bus.memory[0x1234] = 0xA9;
     bus.memory[0x1235] = 0x42;
 
-    let mut cpu = CPU::new(bus);
-    
+    let mut cpu = CPU::new();
+
     // Initial state is Reset step 0
     // We need 8 ticks to finish reset
-    for _ in 0..8 { cpu.tick(); }
-    
+    for _ in 0..8 { tick(&mut cpu, &mut bus); }
+
     assert_eq!(cpu.pc, 0x1234);
     assert_eq!(cpu.state, CycleState::FetchOpcode);
-    
+
     // Next tick fetches LDA
-    cpu.tick();
+    tick(&mut cpu, &mut bus);
     assert_eq!(cpu.ir, 0xA9);
-    
+
     // Next tick executes LDA Imm
-    cpu.tick();
+    tick(&mut cpu, &mut bus);
     assert_eq!(cpu.a, 0x42);
 }
 
@@ -63,7 +66,7 @@ fn test_data_movement() {
     let mut bus = MockBus::new();
     bus.memory[VECTOR_RESET as usize] = 0x00;
     bus.memory[(VECTOR_RESET + 1) as usize] = 0x80;
-    
+
     bus.memory[0x8000] = 0xAD; // LDA Abs $1234
     bus.memory[0x8001] = 0x34;
     bus.memory[0x8002] = 0x12;
@@ -73,15 +76,15 @@ fn test_data_movement() {
     bus.memory[0x8005] = 0x85; // STA ZP $10
     bus.memory[0x8006] = 0x10;
 
-    let mut cpu = CPU::new(bus);
-    for _ in 0..8 { cpu.tick(); }
-    
-    for _ in 0..4 { cpu.tick(); } // LDA Abs
+    let mut cpu = CPU::new();
+    for _ in 0..8 { tick(&mut cpu, &mut bus); }
+
+    for _ in 0..4 { tick(&mut cpu, &mut bus); } // LDA Abs
     assert_eq!(cpu.a, 0x42);
-    for _ in 0..2 { cpu.tick(); } // LDX Imm
+    for _ in 0..2 { tick(&mut cpu, &mut bus); } // LDX Imm
     assert_eq!(cpu.x, 0x0F);
-    for _ in 0..3 { cpu.tick(); } // STA ZP
-    assert_eq!(cpu.bus.memory[0x10], 0x42);
+    for _ in 0..3 { tick(&mut cpu, &mut bus); } // STA ZP
+    assert_eq!(bus.memory[0x10], 0x42);
 }
 
 #[test]
@@ -89,7 +92,7 @@ fn test_arithmetic() {
     let mut bus = MockBus::new();
     bus.memory[VECTOR_RESET as usize] = 0x00;
     bus.memory[(VECTOR_RESET + 1) as usize] = 0x80;
-    
+
     bus.memory[0x8000] = 0x38; // SEC
     bus.memory[0x8001] = 0x69; // ADC Imm $05
     bus.memory[0x8002] = 0x05;
@@ -100,19 +103,19 @@ fn test_arithmetic() {
     bus.memory[0x8007] = 0xE9; // SBC Imm $06
     bus.memory[0x8008] = 0x06;
 
-    let mut cpu = CPU::new(bus);
-    for _ in 0..8 { cpu.tick(); }
-    
+    let mut cpu = CPU::new();
+    for _ in 0..8 { tick(&mut cpu, &mut bus); }
+
     cpu.a = 0x10;
-    for _ in 0..2 { cpu.tick(); } // SEC
+    for _ in 0..2 { tick(&mut cpu, &mut bus); } // SEC
     assert_eq!(cpu.p & 0x01, 0x01);
-    for _ in 0..2 { cpu.tick(); } // ADC Imm
+    for _ in 0..2 { tick(&mut cpu, &mut bus); } // ADC Imm
     assert_eq!(cpu.a, 0x16);
-    for _ in 0..2 { cpu.tick(); } // SED
+    for _ in 0..2 { tick(&mut cpu, &mut bus); } // SED
     assert_eq!(cpu.p & 0x08, 0x08);
-    for _ in 0..2 { cpu.tick(); } // LDA Imm
-    for _ in 0..2 { cpu.tick(); } // SEC
-    for _ in 0..2 { cpu.tick(); } // SBC Imm (Decimal: 0x15 - 0x06 = 0x09)
+    for _ in 0..2 { tick(&mut cpu, &mut bus); } // LDA Imm
+    for _ in 0..2 { tick(&mut cpu, &mut bus); } // SEC
+    for _ in 0..2 { tick(&mut cpu, &mut bus); } // SBC Imm (Decimal: 0x15 - 0x06 = 0x09)
     assert_eq!(cpu.a, 0x09);
 }
 
@@ -121,7 +124,7 @@ fn test_logical() {
     let mut bus = MockBus::new();
     bus.memory[VECTOR_RESET as usize] = 0x00;
     bus.memory[(VECTOR_RESET + 1) as usize] = 0x80;
-    
+
     bus.memory[0x8000] = 0x29; // AND Imm $0F
     bus.memory[0x8001] = 0x0F;
     bus.memory[0x8002] = 0x2C; // BIT Abs $1234
@@ -129,14 +132,14 @@ fn test_logical() {
     bus.memory[0x8004] = 0x12;
     bus.memory[0x1234] = 0xC0;
 
-    let mut cpu = CPU::new(bus);
-    for _ in 0..8 { cpu.tick(); }
-    
+    let mut cpu = CPU::new();
+    for _ in 0..8 { tick(&mut cpu, &mut bus); }
+
     cpu.a = 0xFF;
-    for _ in 0..2 { cpu.tick(); } // AND Imm
+    for _ in 0..2 { tick(&mut cpu, &mut bus); } // AND Imm
     assert_eq!(cpu.a, 0x0F);
     cpu.a = 0x01;
-    for _ in 0..4 { cpu.tick(); } // BIT Abs
+    for _ in 0..4 { tick(&mut cpu, &mut bus); } // BIT Abs
     assert_eq!(cpu.p & 0x02, 0x02); // Zero set because (0x01 & 0xC0) == 0
     assert_eq!(cpu.p & 0xC0, 0xC0); // N and V set from memory $C0
 }
@@ -150,11 +153,11 @@ fn test_rmw() {
     bus.memory[0x8001] = 0x10;
     bus.memory[0x0010] = 0x80;
 
-    let mut cpu = CPU::new(bus);
-    for _ in 0..8 { cpu.tick(); }
-    
-    for _ in 0..5 { cpu.tick(); } // ASL ZP
-    assert_eq!(cpu.bus.memory[0x10], 0x00);
+    let mut cpu = CPU::new();
+    for _ in 0..8 { tick(&mut cpu, &mut bus); }
+
+    for _ in 0..5 { tick(&mut cpu, &mut bus); } // ASL ZP
+    assert_eq!(bus.memory[0x10], 0x00);
     assert_eq!(cpu.p & 0x01, 0x01); // Carry set
     assert_eq!(cpu.p & 0x02, 0x02); // Zero set
 }
@@ -169,16 +172,16 @@ fn test_stack() {
     bus.memory[0x8002] = 0x00;
     bus.memory[0x8003] = 0x68; // PLA
 
-    let mut cpu = CPU::new(bus);
-    for _ in 0..8 { cpu.tick(); }
-    
+    let mut cpu = CPU::new();
+    for _ in 0..8 { tick(&mut cpu, &mut bus); }
+
     cpu.a = 0x42;
     let s_before = cpu.s;
-    for _ in 0..3 { cpu.tick(); } // PHA
+    for _ in 0..3 { tick(&mut cpu, &mut bus); } // PHA
     assert_eq!(cpu.s, s_before.wrapping_sub(1));
-    for _ in 0..2 { cpu.tick(); } // LDA Imm
+    for _ in 0..2 { tick(&mut cpu, &mut bus); } // LDA Imm
     assert_eq!(cpu.a, 0x00);
-    for _ in 0..4 { cpu.tick(); } // PLA
+    for _ in 0..4 { tick(&mut cpu, &mut bus); } // PLA
     assert_eq!(cpu.a, 0x42);
     assert_eq!(cpu.s, s_before);
 }
@@ -199,26 +202,26 @@ fn test_control_flow() {
     bus.memory[0x8007] = 0xD0; // BNE -4 (Taken)
     bus.memory[0x8008] = 0xFC;
 
-    let mut cpu = CPU::new(bus);
-    for _ in 0..8 { cpu.tick(); }
-    
-    for _ in 0..6 { cpu.tick(); } // JSR
+    let mut cpu = CPU::new();
+    for _ in 0..8 { tick(&mut cpu, &mut bus); }
+
+    for _ in 0..6 { tick(&mut cpu, &mut bus); } // JSR
     assert_eq!(cpu.pc, 0x9000);
-    for _ in 0..6 { cpu.tick(); } // RTS
+    for _ in 0..6 { tick(&mut cpu, &mut bus); } // RTS
     assert_eq!(cpu.pc, 0x8003);
-    
+
     cpu.p |= 0x02; // Set Zero
-    let cycles_before = cpu.bus.access_count;
-    for _ in 0..2 { cpu.tick(); } // BNE Not taken
+    let cycles_before = bus.access_count;
+    for _ in 0..2 { tick(&mut cpu, &mut bus); } // BNE Not taken
     assert_eq!(cpu.pc, 0x8005);
-    assert_eq!(cpu.bus.access_count - cycles_before, 2);
-    
-    for _ in 0..2 { cpu.tick(); } // LDA Imm (Clears Zero)
+    assert_eq!(bus.access_count - cycles_before, 2);
+
+    for _ in 0..2 { tick(&mut cpu, &mut bus); } // LDA Imm (Clears Zero)
     assert_eq!(cpu.p & 0x02, 0);
-    let cycles_before = cpu.bus.access_count;
-    for _ in 0..3 { cpu.tick(); } // BNE Taken (same page)
+    let cycles_before = bus.access_count;
+    for _ in 0..3 { tick(&mut cpu, &mut bus); } // BNE Taken (same page)
     assert_eq!(cpu.pc, 0x8005);
-    assert_eq!(cpu.bus.access_count - cycles_before, 3);
+    assert_eq!(bus.access_count - cycles_before, 3);
 }
 
 #[test]
@@ -231,15 +234,15 @@ fn test_interrupt_brk() {
     bus.memory[0x8000] = 0x00; // BRK
     bus.memory[0x8001] = 0xEA;
 
-    let mut cpu = CPU::new(bus);
-    for _ in 0..8 { cpu.tick(); }
-    
+    let mut cpu = CPU::new();
+    for _ in 0..8 { tick(&mut cpu, &mut bus); }
+
     let p_before = cpu.p;
-    for _ in 0..7 { cpu.tick(); } // BRK
+    for _ in 0..7 { tick(&mut cpu, &mut bus); } // BRK
     assert_eq!(cpu.pc, 0x9000);
-    assert_eq!(cpu.bus.memory[0x01FD], 0x80); // PCH
-    assert_eq!(cpu.bus.memory[0x01FC], 0x02); // PCL
-    assert_eq!(cpu.bus.memory[0x01FB], p_before | 0x30); // P with B and Bit 5
+    assert_eq!(bus.memory[0x01FD], 0x80); // PCH
+    assert_eq!(bus.memory[0x01FC], 0x02); // PCL
+    assert_eq!(bus.memory[0x01FB], p_before | 0x30); // P with B and Bit 5
 }
 
 #[test]
@@ -249,13 +252,13 @@ fn test_signal_so() {
     bus.memory[(VECTOR_RESET + 1) as usize] = 0x80;
     bus.memory[0x8000] = 0xEA; // NOP
 
-    let mut cpu = CPU::new(bus);
-    for _ in 0..8 { cpu.tick(); }
-    
+    let mut cpu = CPU::new();
+    for _ in 0..8 { tick(&mut cpu, &mut bus); }
+
     assert_eq!(cpu.p & 0x40, 0); // V should be clear
-    
-    cpu.bus.so_pending = true;
-    cpu.tick(); // First cycle of NOP fetch
+
+    bus.so_pending = true;
+    tick(&mut cpu, &mut bus); // First cycle of NOP fetch
     assert_eq!(cpu.p & 0x40, 0x40); // V should be set
 }
 
@@ -268,19 +271,19 @@ fn test_signal_nmi() {
     bus.memory[(VECTOR_NMI + 1) as usize] = 0x90;
     bus.memory[0x8000] = 0xEA; // NOP
 
-    let mut cpu = CPU::new(bus);
-    for _ in 0..8 { cpu.tick(); }
-    
-    cpu.bus.nmi_pending = true;
+    let mut cpu = CPU::new();
+    for _ in 0..8 { tick(&mut cpu, &mut bus); }
+
+    bus.nmi_pending = true;
     let p_before = cpu.p;
-    
+
     // NMI is sampled at the start of tick_fetch.
-    for _ in 0..7 { cpu.tick(); }
-    
+    for _ in 0..7 { tick(&mut cpu, &mut bus); }
+
     assert_eq!(cpu.pc, 0x9000);
-    assert_eq!(cpu.bus.memory[0x01FD], 0x80); // PCH (points to NOP at 0x8000)
-    assert_eq!(cpu.bus.memory[0x01FC], 0x00); // PCL
-    assert_eq!(cpu.bus.memory[0x01FB], (p_before & 0xCF) | 0x20); 
+    assert_eq!(bus.memory[0x01FD], 0x80); // PCH (points to NOP at 0x8000)
+    assert_eq!(bus.memory[0x01FC], 0x00); // PCL
+    assert_eq!(bus.memory[0x01FB], (p_before & 0xCF) | 0x20);
     assert_eq!(cpu.p & 0x04, 0x04); // Interrupt Disable should be set
 }
 
@@ -294,26 +297,26 @@ fn test_signal_irq() {
     bus.memory[0x8000] = 0xEA; // NOP
     bus.memory[0x8001] = 0xEA; // NOP
 
-    let mut cpu = CPU::new(bus);
-    for _ in 0..8 { cpu.tick(); }
-    
+    let mut cpu = CPU::new();
+    for _ in 0..8 { tick(&mut cpu, &mut bus); }
+
     // 1. IRQ ignored when I=1
     cpu.p |= 0x04; // Set I
-    cpu.bus.irq_pending = true;
-    cpu.tick(); // Cycle 1 of NOP: fetches EA
+    bus.irq_pending = true;
+    tick(&mut cpu, &mut bus); // Cycle 1 of NOP: fetches EA
     assert_eq!(cpu.ir, 0xEA);
-    cpu.tick(); // Cycle 2 of NOP
+    tick(&mut cpu, &mut bus); // Cycle 2 of NOP
     assert_ne!(cpu.pc, 0xA000); // Should still be at 0x8001
-    
+
     // 2. IRQ taken when I=0
     cpu.p &= !0x04; // Clear I
-    
+
     let pc_before = cpu.pc;
     let p_before = cpu.p;
-    for _ in 0..7 { cpu.tick(); } // IRQ sequence
-    
+    for _ in 0..7 { tick(&mut cpu, &mut bus); } // IRQ sequence
+
     assert_eq!(cpu.pc, 0xA000);
-    assert_eq!(cpu.bus.memory[0x01FD], (pc_before >> 8) as u8);
-    assert_eq!(cpu.bus.memory[0x01FC], (pc_before & 0xFF) as u8);
-    assert_eq!(cpu.bus.memory[0x01FB], (p_before & 0xCF) | 0x20);
+    assert_eq!(bus.memory[0x01FD], (pc_before >> 8) as u8);
+    assert_eq!(bus.memory[0x01FC], (pc_before & 0xFF) as u8);
+    assert_eq!(bus.memory[0x01FB], (p_before & 0xCF) | 0x20);
 }

@@ -11,30 +11,48 @@ use interface::HostInterface;
 use log::debug;
 
 /// The MOS 1541 Drive Emulator.
+///
+/// `Emulator` holds only the CPU registers and the memory bus (RAM, ROM, VIAs).
+/// The `HostInterface` implementation is **not** stored here — callers own it
+/// and pass it as `&mut H` to every [`tick`](Self::tick) / [`step`](Self::step) call.
 pub struct Emulator<H: HostInterface> {
-    pub cpu: CPU<SystemBus<H>>,
+    pub cpu: CPU,
+    pub bus: SystemBus<H>,
 }
 
 impl<H: HostInterface> Emulator<H> {
-    /// Constructs a new 1541 Emulator with the provided ROM and hardware interface.
-    pub fn new(rom: [u8; 16384], hardware: H) -> Self {
-        let bus = SystemBus::new(rom, hardware);
-        let cpu = CPU::new(bus);
-        Self { cpu }
+    /// Constructs a new 1541 Emulator with the provided ROM.
+    pub fn new(rom: [u8; 16384]) -> Self {
+        Self {
+            cpu: CPU::new(),
+            bus: SystemBus::new(rom),
+        }
     }
 
     /// Resets the 6502 CPU and VIAs.
     pub fn reset(&mut self) {
         debug!("Emulator Reset");
         self.cpu.reset();
+        self.bus.reset();
     }
 
-    /// Executes a single instruction.
-    ///
-    /// This will call `tick()` repeatedly until the CPU reaches the next instruction fetch.
-    pub fn step(&mut self) {
+    /// Executes exactly one CPU clock cycle, passing `hw` to the bus for all
+    /// peripheral interaction during that cycle.
+    pub fn tick(&mut self, hw: &mut H) {
+        self.cpu.tick(&mut self.bus, hw);
+    }
+
+    /// Executes the given number of CPU cycles.
+    pub fn run_for(&mut self, hw: &mut H, cycles: u32) {
+        for _ in 0..cycles {
+            self.tick(hw);
+        }
+    }
+
+    /// Executes a single instruction (ticks until the next opcode fetch).
+    pub fn step(&mut self, hw: &mut H) {
         loop {
-            self.cpu.tick();
+            self.tick(hw);
             if self.cpu.state == CycleState::FetchOpcode && self.cpu.step_index == 0 {
                 break;
             }
@@ -46,16 +64,16 @@ impl<H: HostInterface> Emulator<H> {
     }
 
     pub fn half_track(&self) -> u8 {
-        self.cpu.bus.mechanics.current_half_track
+        self.bus.mechanics.current_half_track
     }
 
-    /// Direct access to the internal memory bus (e.g. for inspection).
+    /// Direct access to the internal memory bus (e.g. for inspection or peek/poke).
     pub fn bus(&self) -> &SystemBus<H> {
-        &self.cpu.bus
+        &self.bus
     }
 
     /// Mutable access to the internal memory bus.
     pub fn bus_mut(&mut self) -> &mut SystemBus<H> {
-        &mut self.cpu.bus
+        &mut self.bus
     }
 }

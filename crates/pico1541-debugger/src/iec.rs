@@ -6,10 +6,8 @@
 //! robust against timing variations and different ROM execution paths.
 
 use anyhow::{anyhow, Result};
-use pico1541_emulator::interface::IecBus;
-use pico1541_emulator::Emulator;
 
-use crate::bridge::{BusSnapshot, HostBridge, LockStepCommand, LockStepResponse};
+use crate::bridge::{BusSnapshot, LockStepCommand, LockStepResponse};
 
 /// Abstract interface for driving the IEC bus.
 /// Allows the same IEC protocol code to run directly on the Emulator (for tests)
@@ -22,40 +20,6 @@ pub trait IecDriver {
     fn run(&mut self, cycles: u32) -> Result<BusSnapshot>;
     fn wait_for(&mut self, target: BusSnapshot, mask: BusSnapshot, timeout: u32) -> Result<BusSnapshot>;
     fn pc(&self) -> u16;
-}
-
-// ─── Emulator Implementation ────────────────────────────────────────────────
-
-impl IecDriver for Emulator<HostBridge> {
-    fn set_data(&mut self, asserted: bool) {
-        self.bus_mut().hardware.c64_bus().drive_data(asserted);
-    }
-    fn set_clk(&mut self, asserted: bool) {
-        self.bus_mut().hardware.c64_bus().drive_clk(asserted);
-    }
-    fn set_atn(&mut self, asserted: bool) {
-        self.bus_mut().hardware.c64_bus().set_atn(asserted);
-    }
-    fn get_bus(&mut self) -> BusSnapshot {
-        self.bus().hardware.bus_state
-    }
-    fn run(&mut self, cycles: u32) -> Result<BusSnapshot> {
-        for _ in 0..cycles { self.cpu.tick(); }
-        Ok(self.get_bus())
-    }
-    fn wait_for(&mut self, target: BusSnapshot, mask: BusSnapshot, timeout: u32) -> Result<BusSnapshot> {
-        for _ in 0..timeout {
-            let bus = self.get_bus();
-            if (bus.data == target.data || !mask.data) &&
-               (bus.clk  == target.clk  || !mask.clk)  &&
-               (bus.atn  == target.atn  || !mask.atn) {
-                return Ok(bus);
-            }
-            self.cpu.tick();
-        }
-        Err(anyhow!("IEC bus timeout (PC=${:04X})", self.cpu.pc))
-    }
-    fn pc(&self) -> u16 { self.cpu.pc }
 }
 
 // ─── LockStep Implementation ────────────────────────────────────────────────

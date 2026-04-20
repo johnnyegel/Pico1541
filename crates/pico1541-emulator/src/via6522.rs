@@ -77,6 +77,10 @@ impl Via6522 {
         }
     }
 
+    pub fn reset(&mut self) {
+        *self = Self::new();
+    }
+
     /// Read a byte from a VIA register.
     pub fn read(&mut self, addr: u16) -> u8 {
         let register = (addr & 0x0F) as usize;

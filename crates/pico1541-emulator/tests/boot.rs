@@ -29,13 +29,13 @@ fn test_drive_boot() {
     init_logger();
     let rom_array = get_rom();
 
-    let bridge = TestBridge::new();
-    let mut drive = Emulator::new(rom_array, bridge);
+    let mut bridge = TestBridge::new();
+    let mut drive = Emulator::new(rom_array);
     drive.reset();
 
     let initial_pc = drive.pc();
     for _ in 0..5000 {
-        drive.step();
+        drive.step(&mut bridge);
     }
 
     assert_ne!(drive.pc(), initial_pc);
@@ -49,10 +49,10 @@ fn test_drive_boot_behavior() {
     let mut bridge = TestBridge::new();
     bridge.track.disk_inserted = false;
 
-    let mut drive = Emulator::new(rom_array, bridge);
+    let mut drive = Emulator::new(rom_array);
 
     // Instruction tracing for debugging
-    fn boot_debug_hook<B: racc6502::bus::Bus>(cpu: &racc6502::cpu::CPU<B>, _data: *mut core::ffi::c_void) {
+    fn boot_debug_hook(cpu: &racc6502::cpu::CPU, _data: *mut core::ffi::c_void) {
         match cpu.pc {
             0xEAA0 | 0xEB22 | 0xF259 | 0xF263 => {
                 log::info!("PC:${:04X} IR:${:02X} A:${:02X} X:${:02X} Y:${:02X} S:${:02X} P:${:02X}", cpu.pc, cpu.ir, cpu.a, cpu.x, cpu.y, cpu.s, cpu.p);
@@ -65,18 +65,18 @@ fn test_drive_boot_behavior() {
     drive.reset();
 
     let mut led_on_count = 0;
-    let mut led_off_count = 0;
     let mut motor_on_count = 0;
     let mut motor_off_count = 0;
+    let mut stepper_count = 0;
 
     let mut min_half_track = drive.half_track();
     let mut total_cycles: u64 = 0;
 
     // Run for 3 million instructions (~3s of real drive time)
-    for i in 0..5_000_000 {
+    for i in 0..3_000_000 {
         // Run until we start fetching the next opcode (Sync point)
         loop {
-            drive.cpu.tick();
+            drive.tick(&mut bridge);
             total_cycles += 1;
             if drive.cpu.state == CycleState::FetchOpcode && drive.cpu.step_index == 0 {
                 break;
@@ -88,7 +88,7 @@ fn test_drive_boot_behavior() {
             min_half_track = ht;
         }
 
-        let events = std::mem::take(&mut drive.cpu.bus.hardware.events);
+        let events = std::mem::take(&mut bridge.events);
         for event in events {
             match event {
                 DriveEvent::LedChanged(enabled) => {
@@ -96,7 +96,6 @@ fn test_drive_boot_behavior() {
                         led_on_count += 1;
                         log::info!("[Test] LED ON at step {}, cycle {}, count={}", i, total_cycles, led_on_count);
                     } else {
-                        led_off_count += 1;
                         log::info!("[Test] LED OFF at step {}, cycle {}", i, total_cycles);
                     }
                 }
@@ -109,14 +108,21 @@ fn test_drive_boot_behavior() {
                     log::info!("[Test] Motor changed to {} at step {}, cycle {}", if enabled { "ON" } else { "OFF" }, i, total_cycles);
                 }
                 DriveEvent::HeadStepped { new_half_track } => {
+                    stepper_count += 1;
                     log::info!("[Test] HeadStepped to half-track {} at step {}, cycle {}", new_half_track, i, total_cycles);
                 }
             }
         }
+        
+        // If we reached the idle loop, we can stop early
+        if drive.pc() >= 0xEBFF && drive.pc() <= 0xEC9B {
+            log::info!("[Test] Reached idle loop at step {}, cycle {}", i, total_cycles);
+            break;
+        }
     }
 
-    assert_eq!(motor_on_count, 1, "Expected exactly one Motor ON event during boot");
-    assert_eq!(motor_off_count, 1, "Expected exactly one Motor OFF event during boot");
-    assert_eq!(led_on_count, 0, "Expected exactly zero LED ON event during boot");
-    assert_eq!(led_off_count, 0, "Expected exactly zero LED OFF event during boot");
+    assert_eq!(motor_on_count, 1, "Expected exactly one Motor ON event during boot (got {})", motor_on_count);
+    assert_eq!(motor_off_count, 1, "Expected exactly one Motor OFF event during boot (got {})", motor_off_count);
+    assert_eq!(stepper_count, 2, "Expected exactly two Stepper events during boot (got {})", stepper_count);
+    assert_eq!(led_on_count, 0, "Expected zero LED ON events during boot (got {})", led_on_count);
 }

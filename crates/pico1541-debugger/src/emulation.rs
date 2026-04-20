@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use std::fs;
 
 use crate::bridge::{
-    CpuContext, DebugCommand, DebugResponse, DisasmLine, HostBridge, 
+    CpuContext, DebugCommand, DebugResponse, DisasmLine, HostBridge,
     LockStepCommand, LockStepResponse, BusSnapshot
 };
 use crate::iec::{iec_load_file, iec_read_status, parse_directory, LockStepBus};
@@ -40,7 +40,8 @@ impl<S: embedded_io_async::Read + embedded_io_async::Seek> DebuggerDiskImage for
 
 // ─── CPU context snapshot ────────────────────────────────────────────────────
 
-pub fn get_cpu_context(drive: &Emulator<HostBridge>) -> CpuContext {
+pub fn get_cpu_context(drive: &Emulator<HostBridge>, bridge: &HostBridge) -> CpuContext {
+    let _ = bridge; // reserved for future hardware-side fields
     let pc = drive.pc();
     let start_addr = pc.saturating_sub(16);
     let mut buffer = [0u8; 48];
@@ -76,8 +77,8 @@ pub async fn emulation_loop(
     rom_array.copy_from_slice(ROM_BYTES);
 
     let (event_tx, event_rx) = crossbeam_channel::unbounded::<DriveEvent>();
-    let bridge = HostBridge::new(event_tx);
-    let mut drive = Emulator::new(rom_array, bridge);
+    let mut bridge = HostBridge::new(event_tx);
+    let mut drive = Emulator::<HostBridge>::new(rom_array);
     drive.reset();
 
     let mut disk_image: Option<Box<dyn DebuggerDiskImage>> = None;
@@ -100,15 +101,15 @@ pub async fn emulation_loop(
                 }
                 DebugCommand::Pause => {
                     running.store(false, Ordering::SeqCst);
-                    resp_tx.send(DebugResponse::Context(get_cpu_context(&drive)))?;
+                    resp_tx.send(DebugResponse::Context(get_cpu_context(&drive, &bridge)))?;
                 }
                 DebugCommand::Step => {
-                    drive.step();
-                    resp_tx.send(DebugResponse::Context(get_cpu_context(&drive)))?;
+                    drive.step(&mut bridge);
+                    resp_tx.send(DebugResponse::Context(get_cpu_context(&drive, &bridge)))?;
                 }
                 DebugCommand::Reset => {
                     drive.reset();
-                    resp_tx.send(DebugResponse::Context(get_cpu_context(&drive)))?;
+                    resp_tx.send(DebugResponse::Context(get_cpu_context(&drive, &bridge)))?;
                 }
                 DebugCommand::SetBreakpoint(addr) => { breakpoints.insert(addr); }
                 DebugCommand::ClearBreakpoint(addr) => { breakpoints.remove(&addr); }
@@ -119,28 +120,28 @@ pub async fn emulation_loop(
                 }
 
                 DebugCommand::Mount(path) => {
-                    handle_mount(&path, &mut drive, &mut disk_image, &resp_tx).await?;
+                    handle_mount(&path, &mut drive, &mut bridge, &mut disk_image, &resp_tx).await?;
                 }
                 DebugCommand::Unmount => {
                     disk_image = None;
-                    drive.cpu.bus.hardware.get_active_track().disk_inserted = false;
+                    bridge.get_active_track().disk_inserted = false;
                     resp_tx.send(DebugResponse::DriveEvent("Unmounted".to_string()))?;
                 }
 
                 DebugCommand::IECCommand(s) => {
                     let (ls_cmd_tx, ls_cmd_rx) = crossbeam_channel::unbounded();
                     let (ls_resp_tx, ls_resp_rx) = crossbeam_channel::unbounded();
-                    drive.bus_mut().hardware.set_lockstep(ls_cmd_rx, ls_resp_tx);
-                    
+                    bridge.set_lockstep(ls_cmd_rx, ls_resp_tx);
+
                     let resp_tx_clone = resp_tx.clone();
                     tokio::task::spawn_local(async move {
-                        let mut bus = LockStepBus { 
-                            cmd_tx: ls_cmd_tx, 
-                            resp_rx: ls_resp_rx, 
+                        let mut bus = LockStepBus {
+                            cmd_tx: ls_cmd_tx,
+                            resp_rx: ls_resp_rx,
                             host_drives: BusSnapshot::default(),
                             last_pc: 0,
                         };
-                        
+
                         let result = if s == "STATUS" {
                             iec_read_status(&mut bus)
                                 .map(|status| DebugResponse::IECResponse(status))
@@ -170,34 +171,34 @@ pub async fn emulation_loop(
         }
 
         // ── LockStep synchronization ──────────────────────────────────────────
-        let lockstep_rx = drive.bus().hardware.lockstep_rx.clone();
+        let lockstep_rx = bridge.lockstep_rx.clone();
         if let Some(rx) = lockstep_rx {
             while let Ok(cmd) = rx.try_recv() {
                 match cmd {
                     LockStepCommand::Step { host_drives, cycles } => {
-                        drive.bus_mut().hardware.host_drives = host_drives;
-                        for _ in 0..cycles { drive.cpu.tick(); }
-                        let _ = drive.bus().hardware.lockstep_tx.as_ref().unwrap()
-                            .send(LockStepResponse::Done(drive.bus().hardware.bus_state, drive.pc()));
+                        bridge.host_drives = host_drives;
+                        for _ in 0..cycles { drive.tick(&mut bridge); }
+                        let _ = bridge.lockstep_tx.as_ref().unwrap()
+                            .send(LockStepResponse::Done(bridge.bus_state, drive.pc()));
                     }
                     LockStepCommand::Wait { host_drives, target, mask, timeout_cycles } => {
-                        drive.bus_mut().hardware.host_drives = host_drives;
+                        bridge.host_drives = host_drives;
                         let mut timed_out = true;
                         for _ in 0..timeout_cycles {
-                            drive.cpu.tick();
-                            let bus = drive.bus().hardware.bus_state;
+                            drive.tick(&mut bridge);
+                            let bus = bridge.bus_state;
                             if (bus.data == target.data || !mask.data) &&
                                (bus.clk  == target.clk  || !mask.clk)  &&
                                (bus.atn  == target.atn  || !mask.atn) {
-                                let _ = drive.bus().hardware.lockstep_tx.as_ref().unwrap()
+                                let _ = bridge.lockstep_tx.as_ref().unwrap()
                                     .send(LockStepResponse::Done(bus, drive.pc()));
                                 timed_out = false;
                                 break;
                             }
                         }
                         if timed_out {
-                            let _ = drive.bus().hardware.lockstep_tx.as_ref().unwrap()
-                                .send(LockStepResponse::Timeout(drive.bus().hardware.bus_state, drive.pc()));
+                            let _ = bridge.lockstep_tx.as_ref().unwrap()
+                                .send(LockStepResponse::Timeout(bridge.bus_state, drive.pc()));
                         }
                     }
                 }
@@ -214,12 +215,12 @@ pub async fn emulation_loop(
             cycle_accumulator -= cycles_to_run as f64;
 
             while cycles_to_run > 0 {
-                drive.cpu.tick();
+                drive.tick(&mut bridge);
                 cycles_to_run -= 1;
                 if drive.cpu.state == CycleState::FetchOpcode && drive.cpu.step_index == 0 {
                     if breakpoints.contains(&drive.pc()) {
                         running.store(false, Ordering::SeqCst);
-                        resp_tx.send(DebugResponse::BreakpointHit(get_cpu_context(&drive)))?;
+                        resp_tx.send(DebugResponse::BreakpointHit(get_cpu_context(&drive, &bridge)))?;
                         break;
                     }
                 }
@@ -237,7 +238,7 @@ pub async fn emulation_loop(
                             None
                         };
                         if let Some((bit_len, temp_buf)) = maybe_track {
-                            let track = drive.cpu.bus.hardware.get_active_track();
+                            let track = bridge.get_active_track();
                             track.gcr_data.copy_from_slice(&temp_buf);
                             track.bit_length = bit_len;
                         }
@@ -270,6 +271,7 @@ pub async fn emulation_loop(
 async fn handle_mount(
     path: &str,
     drive: &mut Emulator<HostBridge>,
+    bridge: &mut HostBridge,
     disk_image: &mut Option<Box<dyn DebuggerDiskImage>>,
     resp_tx: &Sender<DebugResponse>,
 ) -> Result<()> {
@@ -325,11 +327,12 @@ async fn handle_mount(
         (bits, buf)
     };
     {
-        let track = drive.cpu.bus.hardware.get_active_track();
+        let track = bridge.get_active_track();
         track.gcr_data.copy_from_slice(&temp_buf);
         track.bit_length = bit_len;
         track.disk_inserted = true;
     }
+    let _ = drive; // drive is not needed here after the refactor
     resp_tx.send(DebugResponse::DriveEvent(format!(
         "Track 18 loaded: {} bits ({} bytes of GCR)", bit_len, bit_len / 8
     )))?;
@@ -337,4 +340,3 @@ async fn handle_mount(
     *disk_image = Some(Box::new(img));
     Ok(())
 }
-
