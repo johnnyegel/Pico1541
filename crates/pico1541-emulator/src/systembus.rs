@@ -74,10 +74,6 @@ impl<H: HostInterface> SystemBus<H> {
         let drv_data = (self.via1.orb & self.via1.ddrb & 0x02) != 0;
         let drv_clk  = (self.via1.orb & self.via1.ddrb & 0x08) != 0;
 
-        // FIXME! Do not put feedback from the host back on the bus. This will happen in hardware!
-        let bus_data = drv_data; // host_data | drv_data;
-        let bus_clk  = drv_clk; //host_clk  | drv_clk;
-
         // VIA1 inputs: PB0=DATA_IN, PB2=CLK_IN, PB7=ATN_IN (1=Asserted/LOW wire)
         let mut in_b: u8 = 0;
         if host_data { in_b |= 0x01; }
@@ -89,8 +85,8 @@ impl<H: HostInterface> SystemBus<H> {
         // host_atn=true (Asserted/LOW wire) -> 7406 output HIGH.
         self.via1.set_ca1(host_atn);
 
-        hardware.drive_data(bus_data);
-        hardware.drive_clk(bus_clk);
+        hardware.drive_data(drv_data);
+        hardware.drive_clk(drv_clk);
 
         self.via1.tick_cycle();
         self.via2.tick_cycle();

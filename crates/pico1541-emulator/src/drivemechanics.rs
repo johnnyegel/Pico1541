@@ -48,73 +48,26 @@ impl DriveMechanics {
     /// Progresses the drive mechanics by one CPU cycle.
     /// Returns true if a new byte is ready to be processed by the CPU.
     pub fn tick<H: HostInterface>(&mut self, hardware: &mut H, via2: &mut Via6522) -> bool {
-        // Update the drive state and issue events if there are changes
-        let _track_changed = self.update_state(via2, hardware);
-
-        // Was there a track change?
-        // TODO! This needs some consideration. The half track change is not instant on real hardware, and similarly the
-        //       Host will need time to load the new track after a step. We need to delegate the track change to the Host, 
-        //       and once it is ready, we need to pick up the track number change, and realign the byte position.
-        /*
-        if step_direction != 0 {
-            log::info!("HEAD Stepped: {} -> {}: {}, Track: {}",
-                    self.last_step_phase, current_phase, step_direction, self.current_half_track);
-            
-            if self.current_half_track != old_half_track {
-                // When stepping, the head moves but the disk keeps spinning.
-                // Maintain the current rotational position by wrapping it to the new track length.
-                let old_bit_length = {
-                    let track = hardware.get_active_track();
-                    track.bit_length
-                };
-                
-                hardware.send_event(DriveEvent::HeadStepped { new_half_track: self.current_half_track });
-                
-                let new_bit_length = {
-                    let track = hardware.get_active_track();
-                    track.bit_length
-                };
-
-                if old_bit_length > 0 && new_bit_length > 0 {
-                    let old_bytes = (old_bit_length / 8) as usize;
-                    let new_bytes = (new_bit_length / 8) as usize;
-                    self.current_byte_idx = (self.current_byte_idx % old_bytes) % new_bytes;
-                }
-            }
+        // Handle first-tick initialization to avoid immediate bitrate change detection
+        if self.last_state == 0 && self.sub_cycle_counter == 0 && self.current_byte_idx == 0 {
+             self.last_state = via2.orb & (STATE_MASK | 0x60);
         }
 
-        self.last_step_phase = current_phase;
-        
+        // Update the drive state and issue events if there are changes
+        let changed = self.update_state(via2, hardware);
 
-        // 2. Handle Motor and Rotation
-        // On a 1541-II, the motor bit (VIA2 ORB bit 2) is active-LOW.
-        let motor_on_target = (via2.orb & 0x04) == 0;
-
-        if motor_on_target {
-            if !self.motor_spun_up {
-                self.motor_delay_counter += 1;
-                if self.motor_delay_counter >= MOTOR_DELAY_CYCLES {
-                    self.motor_spun_up = true;
-                    self.motor_delay_counter = MOTOR_DELAY_CYCLES;
-                    log::info!("Motor SPUN UP");
-                }
-            }
-        } else {
-            if self.motor_spun_up {
-                self.motor_delay_counter = self.motor_delay_counter.saturating_sub(1);
-                if self.motor_delay_counter == 0 {
-                    self.motor_spun_up = false;
-                    log::info!("Motor SPUN DOWN");
-                }
-            } else {
-                self.motor_delay_counter = 0;
-            }
-        }*/
+        // Reset sub_cycle_counter if bitrate changes (PB5, PB6)
+        // We do this BEFORE incrementing it below.
+        if (changed & 0x60) != 0 {
+            self.sub_cycle_counter = 0;
+        }
 
         // Fetch shared metadata — drop the reference before calling any other hardware methods
         let bit_length = {
             let track = hardware.get_active_track();
             if !track.disk_inserted || !self.motor_spun_up {
+                self.sub_cycle_counter = 0;
+                self.current_byte_idx = 0;
                 return false;
             }
             track.bit_length
@@ -154,19 +107,24 @@ impl DriveMechanics {
                         let track = hardware.get_active_track();
                         track.gcr_data[self.current_byte_idx]
                     };
+                    
+                    // Port A is always updated with the byte from the head, 
+                    // even if it is SYNC (which is then ignored by the CPU 
+                    // because SYNC is asserted).
                     via2.in_a = gcr_byte;
-                    // Pulse CA1 to latch port A: on real hardware BYTE_READY fires
-                    // both the 6502 SO pin and VIA2 CA1.
-                    // Because Via6522::set_ca1 is public, we can use it to trigger
-                    // the latching logic correctly.
-                    via2.set_ca1(true);
-                    via2.set_ca1(false);
 
                     if gcr_byte == 0xFF {
                         via2.in_b |= 0x80;  // SYNC found (1)
-                        return false;       // No SO pulse for SYNC bytes
+                        // SYNC bytes do not trigger a BYTE READY (SO/CA1) pulse.
+                        return false;       
                     } else {
                         via2.in_b &= !0x80; // SYNC released (0)
+                        
+                        // Pulse CA1 to latch port A: on real hardware BYTE_READY fires
+                        // both the 6502 SO pin and VIA2 CA1.
+                        via2.set_ca1(true);
+                        via2.set_ca1(false);
+
                         if self.current_byte_idx % 1000 == 0 {
                             log::info!("GCR Byte: ${:02X} at idx {}", gcr_byte, self.current_byte_idx);
                         }
@@ -190,11 +148,12 @@ impl DriveMechanics {
     }
 
     /// Updates the drive mechanics state, and issues events accordingly.
-    /// Returns true if the head position changed (stepper motor), false otherwise.
+    /// Returns the bits that changed on the relevant Port B mask.
     #[inline(always)]
-    fn update_state(&mut self, via2: &mut Via6522, hardware: &mut impl HostInterface) -> bool {
-        // Catch state changes on the relevant bits of VIA2 Port B
-        let curent_state = via2.orb & STATE_MASK;
+    fn update_state(&mut self, via2: &mut Via6522, hardware: &mut impl HostInterface) -> u8 {
+        // Catch state changes on the relevant bits of VIA2 Port B (including bitrate)
+        let full_relevant_state = via2.orb & (STATE_MASK | 0x60);
+        let curent_state = full_relevant_state & STATE_MASK;
 
         // Handle motor spin un/down logic immediately, as this is needed 
         // for each cycle and only depends on the current motor bit state.
@@ -215,14 +174,14 @@ impl DriveMechanics {
         }
 
         // Has anything changed?
-        let changed = self.last_state ^ curent_state;
+        let changed = self.last_state ^ full_relevant_state;
         if changed == 0 {
-            return false; // No relevant state changes
+            return 0; // No relevant state changes
         }
 
         // Keep the phase bits of the last state, and update the last state
         let last_phase = self.last_state & STEP_BITS;
-        self.last_state = curent_state;
+        self.last_state = full_relevant_state;
 
         // Handle LED changes (VIA2 Port B bit 3)
         if (changed & LED_BIT) != 0 {
@@ -252,23 +211,20 @@ impl DriveMechanics {
             };
 
             // Ignore invalid transitions that don't correspond to a single step
-            if step == 0 {
+            if step != 0 {
+                // Update the current half track, ensuring it stays within valid bounds
+                self.current_half_track = (self.current_half_track as i8 + step)
+                        .clamp(0, MAX_HALF_TRACK as i8) as u8;
+
+                log::info!("HEAD Stepped: Phase {} -> {} ({}), Half-Track: {}", last_phase, new_phase, step, self.current_half_track);
+                hardware.send_event(DriveEvent::HeadStepped { new_half_track: self.current_half_track });
+            } else {
                 log::warn!("Invalid step detected: last_phase={}, new_phase={}", last_phase, new_phase);
-                return false;
             }
-
-            // Update the current half track, ensuring it stays within valid bounds
-            self.current_half_track = (self.current_half_track as i8 + step)
-                    .clamp(0, MAX_HALF_TRACK as i8) as u8;
-
-            log::info!("HEAD Stepped: Phase {} -> {} ({}), Half-Track: {}", last_phase, new_phase, step, self.current_half_track);
-            hardware.send_event(DriveEvent::HeadStepped { new_half_track: self.current_half_track });
-
-            return true;
         }
 
-        // No track change
-        false
+        // Return the full change mask
+        changed
     } 
         
 }
