@@ -2,20 +2,23 @@
 pub const MAX_TRACK_BYTES: usize = 10_000;
 
 pub struct ActiveTrack {
-    pub half_track: u8,
     pub bit_length: u32,
     pub is_dirty: bool,
     pub disk_inserted: bool,
+    /// True if the track contains real GCR data. False for unformatted/missing
+    /// half-tracks (e.g. D64 images have no half-track data): the head reads
+    /// back a continuous stream of 0x55 bytes with no SYNC.
+    pub is_formatted: bool,
     pub gcr_data: [u8; MAX_TRACK_BYTES],
 }
 
 impl ActiveTrack {
     pub fn new() -> Self {
         Self {
-            half_track: 0,
             bit_length: 0,
             is_dirty: false,
             disk_inserted: false,
+            is_formatted: true,
             gcr_data: [0; MAX_TRACK_BYTES],
         }
     }

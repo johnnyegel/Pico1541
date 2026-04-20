@@ -22,6 +22,7 @@ pub struct DriveMechanics {
     pub sub_cycle_counter: u32,
 
     last_state: u8,
+    initialized: bool,
 }
 
 impl DriveMechanics {
@@ -33,6 +34,7 @@ impl DriveMechanics {
             current_byte_idx: 0,
             sub_cycle_counter: 0,
             last_state: 0,
+            initialized: false,
         }
     }
 
@@ -43,14 +45,18 @@ impl DriveMechanics {
         self.current_byte_idx = 0;
         self.sub_cycle_counter = 0;
         self.last_state = 0;
+        self.initialized = false;
     }
 
     /// Progresses the drive mechanics by one CPU cycle.
     /// Returns true if a new byte is ready to be processed by the CPU.
     pub fn tick<H: HostInterface>(&mut self, hardware: &mut H, via2: &mut Via6522) -> bool {
-        // Handle first-tick initialization to avoid immediate bitrate change detection
-        if self.last_state == 0 && self.sub_cycle_counter == 0 && self.current_byte_idx == 0 {
-             self.last_state = via2.orb & (STATE_MASK | 0x60);
+        // On the very first tick, seed only the bitrate bits so that a zone change
+        // on tick-1 is not falsely reported. Motor/LED/step bits are left at 0 so
+        // the first ROM write that turns the motor on is detected as a real transition.
+        if !self.initialized {
+            self.last_state = via2.orb & 0x60;
+            self.initialized = true;
         }
 
         // Update the drive state and issue events if there are changes
@@ -63,14 +69,14 @@ impl DriveMechanics {
         }
 
         // Fetch shared metadata — drop the reference before calling any other hardware methods
-        let bit_length = {
+        let (bit_length, is_formatted) = {
             let track = hardware.get_active_track();
             if !track.disk_inserted || !self.motor_spun_up {
                 self.sub_cycle_counter = 0;
                 self.current_byte_idx = 0;
                 return false;
             }
-            track.bit_length
+            (track.bit_length, track.is_formatted)
         };
 
         // 3. Bitrate and Disk Rotation
@@ -103,23 +109,27 @@ impl DriveMechanics {
                     track.is_dirty = true;
                     return true;
                 } else {
-                    let gcr_byte = {
+                    let gcr_byte = if !is_formatted {
+                        // Unformatted/missing track — head reads back flux noise,
+                        // represented as 0x55. No SYNC is ever produced.
+                        0x55
+                    } else {
                         let track = hardware.get_active_track();
                         track.gcr_data[self.current_byte_idx]
                     };
-                    
-                    // Port A is always updated with the byte from the head, 
-                    // even if it is SYNC (which is then ignored by the CPU 
+
+                    // Port A is always updated with the byte from the head,
+                    // even if it is SYNC (which is then ignored by the CPU
                     // because SYNC is asserted).
                     via2.in_a = gcr_byte;
 
-                    if gcr_byte == 0xFF {
+                    if is_formatted && gcr_byte == 0xFF {
                         via2.in_b |= 0x80;  // SYNC found (1)
                         // SYNC bytes do not trigger a BYTE READY (SO/CA1) pulse.
-                        return false;       
+                        return false;
                     } else {
                         via2.in_b &= !0x80; // SYNC released (0)
-                        
+
                         // Pulse CA1 to latch port A: on real hardware BYTE_READY fires
                         // both the 6502 SO pin and VIA2 CA1.
                         via2.set_ca1(true);
