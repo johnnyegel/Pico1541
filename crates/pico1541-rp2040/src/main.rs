@@ -1,19 +1,26 @@
 #![no_std]
 #![no_main]
 
+mod driver;
+
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_rp::gpio::{Input, Level, Output, Pull};
+use embassy_rp::gpio::{Input, Level, Output, Pull, Pin};
 use embassy_rp::multicore::{spawn_core1, Stack};
-use embassy_time::{Duration, Timer};
 use panic_probe as _;
 use rp2040_boot2 as _;
 use static_cell::StaticCell;
 
 use pico1541_emulator::Emulator;
 use pico1541_emulator::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus};
-use pico1541_manager::{Manager, EVENT_CHANNEL, StorageDriver, DisplayDriver, InputDriver, Error};
+use pico1541_manager::{Manager, EVENT_CHANNEL};
+
+use crate::driver::storage::RpStorage;
+use crate::driver::display::RpDisplay;
+use crate::driver::input::RpInput;
+use crate::driver::leds::{StatusLeds, ActivityLed};
+use crate::driver::speaker::RpSpeaker;
 
 // --- Hardware Pins Definition ---
 
@@ -25,55 +32,22 @@ struct IecPins {
     clk_tx: Output<'static>,
 }
 
-// --- Driver Implementations ---
-
-struct RpStorage;
-impl StorageDriver for RpStorage {
-    async fn read_block(&mut self, _track: u8, _sector: u8, _buf: &mut [u8]) -> Result<(), Error> {
-        // TODO: Implement SD Card read using GPIO 11-15
-        Ok(())
-    }
-    async fn write_block(&mut self, _track: u8, _sector: u8, _buf: &[u8]) -> Result<(), Error> {
-        // TODO: Implement SD Card write using GPIO 11-15
-        Ok(())
-    }
-}
-
-struct RpDisplay {
-    // TODO: Add I2C handle for GPIO 4, 5
-}
-impl DisplayDriver for RpDisplay {
-    async fn clear(&mut self) {
-        // TODO: Implement OLED clear
-    }
-    async fn print(&mut self, _line: u8, _text: &str) {
-        // TODO: Implement OLED print
-    }
-}
-
-struct RpInput {
-    // TODO: Add GPIOs for Keyboard Matrix 6, 7, 8, 9
-}
-impl InputDriver for RpInput {
-    async fn wait_for_button(&mut self) -> u8 {
-        // TODO: Implement button wait using Matrix
-        Timer::after(Duration::from_secs(1)).await;
-        0
-    }
-}
-
 // --- Hardware Bridge (Core 0) ---
 
 struct HardwareBridge {
     track: ActiveTrack,
     pins: IecPins,
+    activity_led: ActivityLed,
+    speaker: RpSpeaker,
 }
 
 impl HardwareBridge {
-    fn new(pins: IecPins) -> Self {
+    fn new(pins: IecPins, activity_led: ActivityLed, speaker: RpSpeaker) -> Self {
         Self {
             track: ActiveTrack::new(),
             pins,
+            activity_led,
+            speaker,
         }
     }
 }
@@ -81,7 +55,6 @@ impl HardwareBridge {
 impl IecBus for HardwareBridge {
     #[inline(always)]
     fn read_data(&self) -> bool {
-        // Inverter: Bus Asserted (LOW) -> GPIO HIGH
         self.pins.data_rx.is_high()
     }
     #[inline(always)]
@@ -94,7 +67,6 @@ impl IecBus for HardwareBridge {
     }
     #[inline(always)]
     fn drive_data(&mut self, assert: bool) {
-        // Inverter: GPIO HIGH -> Bus Asserted (LOW)
         if assert {
             self.pins.data_tx.set_high();
         } else {
@@ -117,8 +89,17 @@ impl HostInterface for HardwareBridge {
     }
 
     fn send_event(&mut self, event: DriveEvent) {
+        match event {
+            DriveEvent::LedChanged(active) => {
+                self.activity_led.set_state(active);
+            }
+            DriveEvent::HeadStepped { .. } => {
+                self.speaker.beep();
+            }
+            _ => {}
+        }
         if let Err(_) = EVENT_CHANNEL.try_send(event) {
-            warn!("Event channel full, event dropped");
+            // Channel full, ignore for now
         }
     }
 }
@@ -132,9 +113,9 @@ static EXECUTOR_CORE1: StaticCell<embassy_executor::Executor> = StaticCell::new(
 async fn manager_task() {
     info!("Manager Task Started on Core 1");
     
-    let storage = RpStorage;
-    let display = RpDisplay {};
-    let input = RpInput {};
+    let storage = RpStorage::new();
+    let display = RpDisplay::new();
+    let input = RpInput::new();
     
     let mut manager = Manager::new(storage, display, input);
     manager.run().await;
@@ -154,6 +135,24 @@ async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     info!("Core 0: Starting Pico1541");
 
+    // Initialize Status RGB LED (Core 0/1 can use this for firmware status)
+    let mut status_leds = StatusLeds::new(
+        p.PIN_26.degrade(),
+        p.PIN_27.degrade(),
+        p.PIN_28.degrade(),
+    );
+    // Set to GREEN to indicate boot success
+    status_leds.set_color(false, true, false);
+
+    // Initialize Activity LED (Drive activity)
+    let activity_led = ActivityLed::new(
+        p.PIN_22.degrade(),
+        p.PIN_3.degrade(),
+    );
+
+    // Initialize Speaker
+    let speaker = RpSpeaker::new(p.PIN_2.degrade());
+
     // Initialize IEC Pins
     let iec_pins = IecPins {
         data_rx: Input::new(p.PIN_16, Pull::None),
@@ -163,15 +162,6 @@ async fn main(_spawner: Spawner) {
         clk_tx: Output::new(p.PIN_20, Level::Low),
     };
 
-    // Initialize UI Pins (Skeletons)
-    let _piezo = Output::new(p.PIN_2, Level::Low);
-    let _pwr_led_pos = Output::new(p.PIN_22, Level::Low);
-    let _pwr_led_neg = Output::new(p.PIN_3, Level::Low);
-    // RGB Status LED
-    let _red = Output::new(p.PIN_26, Level::High);
-    let _green = Output::new(p.PIN_27, Level::High);
-    let _blue = Output::new(p.PIN_28, Level::High);
-
     // Spawn Core 1 (Manager)
     let stack = CORE1_STACK.init(Stack::new());
     spawn_core1(p.CORE1, stack, move || {
@@ -180,22 +170,20 @@ async fn main(_spawner: Spawner) {
 
     info!("Core 0: Entering Emulator Loop (1 MHz)");
 
-    let mut bridge = HardwareBridge::new(iec_pins);
+    let mut bridge = HardwareBridge::new(iec_pins, activity_led, speaker);
     
     // TODO: Load real 1541 ROM
     let rom = [0u8; 16384]; 
     let mut drive = Emulator::new(rom);
     drive.reset();
 
-    // Use TIMER peripheral directly via PAC or via embassy-rp if available.
-    // embassy_rp::pac is available with unstable-pac feature.
+    // Use TIMER peripheral directly via PAC
     let timer = embassy_rp::pac::TIMER;
 
     let mut last_tick = timer.timelr().read();
 
     loop {
         // Wait for next microsecond (1 MHz)
-        // Note: RP2040 TIMER is 1 MHz by default.
         while timer.timelr().read() == last_tick {
             cortex_m::asm::nop();
         }
