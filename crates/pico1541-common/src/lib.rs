@@ -7,3 +7,4 @@ pub mod disk_info;
 
 pub use formats::{DiskImage, D64Image, G64Image, AnyDiskImage, Error};
 pub use storage::MemoryStorage;
+pub use pico1541_emulator::interface;

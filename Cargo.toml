@@ -4,10 +4,16 @@ members = [
     "crates/pico1541-common",
     "crates/pico1541-manager",
     "crates/pico1541-rp2040",
-    "crates/racc6502",
-    "crates/pico1541-debugger"
+    "crates/racc6502"
 ]
 resolver = "2"
+
+default-members = [
+    "crates/pico1541-emulator",
+    "crates/pico1541-common",
+    "crates/pico1541-manager",
+    "crates/racc6502"
+]
 
 [profile.release]
 opt-level = 3       # Crucial for 6502 emulation speed

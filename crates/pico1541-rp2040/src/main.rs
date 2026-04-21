@@ -1,54 +1,113 @@
 #![no_std]
 #![no_main]
 
-use cortex_m_rt::entry;
-use panic_halt as _;
-use rp2040_hal::{
-    clocks::init_clocks_and_plls,
-    multicore::{Multicore, Stack},
-    pac,
-    sio::Sio,
-    watchdog::Watchdog,
-};
-use pico1541_emulator::{
-    Emulator,
-    interface::{ActiveTrack, DriveEvent, HostInterface, IecBus},
-};
+use defmt::*;
+use defmt_rtt as _;
+use embassy_executor::Spawner;
+use embassy_rp::gpio::{Input, Level, Output, Pull};
+use embassy_rp::multicore::{spawn_core1, Stack};
+use embassy_time::{Duration, Timer};
+use panic_probe as _;
+use rp2040_boot2 as _;
+use static_cell::StaticCell;
 
-/// Local HostInterface implementation for the RP2040.
-/// Owns the active track buffer and handles events on Core 0.
-/// TODO: forward events to Core 1 via the SIO FIFO for manager processing.
+use pico1541_emulator::Emulator;
+use pico1541_emulator::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus};
+use pico1541_manager::{Manager, EVENT_CHANNEL, StorageDriver, DisplayDriver, InputDriver, Error};
+
+// --- Hardware Pins Definition ---
+
+struct IecPins {
+    data_rx: Input<'static>,
+    clk_rx: Input<'static>,
+    atn_rx: Input<'static>,
+    data_tx: Output<'static>,
+    clk_tx: Output<'static>,
+}
+
+// --- Driver Implementations ---
+
+struct RpStorage;
+impl StorageDriver for RpStorage {
+    async fn read_block(&mut self, _track: u8, _sector: u8, _buf: &mut [u8]) -> Result<(), Error> {
+        // TODO: Implement SD Card read using GPIO 11-15
+        Ok(())
+    }
+    async fn write_block(&mut self, _track: u8, _sector: u8, _buf: &[u8]) -> Result<(), Error> {
+        // TODO: Implement SD Card write using GPIO 11-15
+        Ok(())
+    }
+}
+
+struct RpDisplay {
+    // TODO: Add I2C handle for GPIO 4, 5
+}
+impl DisplayDriver for RpDisplay {
+    async fn clear(&mut self) {
+        // TODO: Implement OLED clear
+    }
+    async fn print(&mut self, _line: u8, _text: &str) {
+        // TODO: Implement OLED print
+    }
+}
+
+struct RpInput {
+    // TODO: Add GPIOs for Keyboard Matrix 6, 7, 8, 9
+}
+impl InputDriver for RpInput {
+    async fn wait_for_button(&mut self) -> u8 {
+        // TODO: Implement button wait using Matrix
+        Timer::after(Duration::from_secs(1)).await;
+        0
+    }
+}
+
+// --- Hardware Bridge (Core 0) ---
+
 struct HardwareBridge {
     track: ActiveTrack,
-    // TODO: hold references to the actual GPIO pins for IEC bus lines
+    pins: IecPins,
 }
 
 impl HardwareBridge {
-    fn new() -> Self {
+    fn new(pins: IecPins) -> Self {
         Self {
             track: ActiveTrack::new(),
+            pins,
         }
     }
 }
 
 impl IecBus for HardwareBridge {
+    #[inline(always)]
     fn read_data(&self) -> bool {
-        // TODO: read DATA GPIO pin level
-        false
+        // Inverter: Bus Asserted (LOW) -> GPIO HIGH
+        self.pins.data_rx.is_high()
     }
+    #[inline(always)]
     fn read_clk(&self) -> bool {
-        // TODO: read CLK GPIO pin level
-        false
+        self.pins.clk_rx.is_high()
     }
+    #[inline(always)]
     fn read_atn(&self) -> bool {
-        // TODO: read ATN GPIO pin level
-        false
+        self.pins.atn_rx.is_high()
     }
-    fn drive_data(&mut self, _assert: bool) {
-        // TODO: toggle DATA PINDIR (assert = output-LOW, release = input/Hi-Z)
+    #[inline(always)]
+    fn drive_data(&mut self, assert: bool) {
+        // Inverter: GPIO HIGH -> Bus Asserted (LOW)
+        if assert {
+            self.pins.data_tx.set_high();
+        } else {
+            self.pins.data_tx.set_low();
+        }
     }
-    fn drive_clk(&mut self, _assert: bool) {
-        // TODO: toggle CLK PINDIR (assert = output-LOW, release = input/Hi-Z)
+    #[inline(always)]
+    fn drive_clk(&mut self, assert: bool) {
+        if assert {
+            self.pins.clk_tx.set_high();
+        } else {
+            self.pins.clk_tx.set_low();
+        }
     }
 }
 
@@ -57,64 +116,92 @@ impl HostInterface for HardwareBridge {
         &mut self.track
     }
 
-    fn send_event(&mut self, _event: DriveEvent) {
-        // TODO: forward to Core 1 via SIO FIFO
+    fn send_event(&mut self, event: DriveEvent) {
+        if let Err(_) = EVENT_CHANNEL.try_send(event) {
+            warn!("Event channel full, event dropped");
+        }
     }
 }
 
-// Allocate a stack for Core 1 (4KB)
-static CORE1_STACK: Stack<4096> = Stack::new();
+// --- Multicore Setup ---
 
-/// This is the entry point for Core 1 (The Manager)
-fn core1_task() {
-    loop {
-        cortex_m::asm::wfi();
-    }
+static CORE1_STACK: StaticCell<Stack<8192>> = StaticCell::new();
+static EXECUTOR_CORE1: StaticCell<embassy_executor::Executor> = StaticCell::new();
+
+#[embassy_executor::task]
+async fn manager_task() {
+    info!("Manager Task Started on Core 1");
+    
+    let storage = RpStorage;
+    let display = RpDisplay {};
+    let input = RpInput {};
+    
+    let mut manager = Manager::new(storage, display, input);
+    manager.run().await;
 }
 
-/// This is the main entry point for Core 0 (The Emulator)
-#[entry]
-fn main() -> ! {
-    let mut pac = pac::Peripherals::take().unwrap();
-    let mut watchdog = Watchdog::new(pac.WATCHDOG);
-    let mut sio = Sio::new(pac.SIO);
+fn core1_run() -> ! {
+    let executor = EXECUTOR_CORE1.init(embassy_executor::Executor::new());
+    executor.run(|spawner| {
+        spawner.spawn(manager_task()).unwrap();
+    });
+}
 
-    // Set up clocks
-    let _clocks = init_clocks_and_plls(
-        12_000_000u32,
-        pac.XOSC,
-        pac.CLOCKS,
-        pac.PLL_SYS,
-        pac.PLL_USB,
-        &mut pac.RESETS,
-        &mut watchdog,
-    )
-    .ok()
-    .unwrap();
+// --- Core 0: Emulator ---
 
-    // Initialize Multicore capability
-    let mut mc = Multicore::new(&mut pac.PSM, &mut pac.PPB, &mut sio.fifo);
-    let cores = mc.cores();
-    let core1 = &mut cores[1];
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
+    let p = embassy_rp::init(Default::default());
+    info!("Core 0: Starting Pico1541");
 
-    // Spawn the manager task on Core 1
-    let _ = core1.spawn(CORE1_STACK.take().unwrap(), core1_task);
+    // Initialize IEC Pins
+    let iec_pins = IecPins {
+        data_rx: Input::new(p.PIN_16, Pull::None),
+        clk_rx: Input::new(p.PIN_17, Pull::None),
+        atn_rx: Input::new(p.PIN_18, Pull::None),
+        data_tx: Output::new(p.PIN_19, Level::Low),
+        clk_tx: Output::new(p.PIN_20, Level::Low),
+    };
 
-    // Create the hardware bridge
-    let bridge = HardwareBridge::new();
+    // Initialize UI Pins (Skeletons)
+    let _piezo = Output::new(p.PIN_2, Level::Low);
+    let _pwr_led_pos = Output::new(p.PIN_22, Level::Low);
+    let _pwr_led_neg = Output::new(p.PIN_3, Level::Low);
+    // RGB Status LED
+    let _red = Output::new(p.PIN_26, Level::High);
+    let _green = Output::new(p.PIN_27, Level::High);
+    let _blue = Output::new(p.PIN_28, Level::High);
 
-    // Initialize a dummy ROM byte array.
-    // In a production build, this would be the actual 1541 ROM.
-    let rom = [0u8; 16384];
+    // Spawn Core 1 (Manager)
+    let stack = CORE1_STACK.init(Stack::new());
+    spawn_core1(p.CORE1, stack, move || {
+        core1_run();
+    });
 
-    // Initialize the drive emulator
-    let mut drive = Emulator::new(rom, bridge);
+    info!("Core 0: Entering Emulator Loop (1 MHz)");
+
+    let mut bridge = HardwareBridge::new(iec_pins);
+    
+    // TODO: Load real 1541 ROM
+    let rom = [0u8; 16384]; 
+    let mut drive = Emulator::new(rom);
     drive.reset();
 
+    // Use TIMER peripheral directly via PAC or via embassy-rp if available.
+    // embassy_rp::pac is available with unstable-pac feature.
+    let timer = embassy_rp::pac::TIMER;
+
+    let mut last_tick = timer.timelr().read();
+
     loop {
-        // Step the emulation by one instruction.
-        // In the future, we will use a hardware timer here to ensure
-        // 1MHz execution speed.
-        drive.step();
+        // Wait for next microsecond (1 MHz)
+        // Note: RP2040 TIMER is 1 MHz by default.
+        while timer.timelr().read() == last_tick {
+            cortex_m::asm::nop();
+        }
+        last_tick = timer.timelr().read();
+
+        // One 6502 cycle = 1 microsecond
+        drive.tick(&mut bridge);
     }
 }

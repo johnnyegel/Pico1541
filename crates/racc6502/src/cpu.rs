@@ -195,11 +195,6 @@ impl CPU {
     }
 
     fn tick_fetch<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) {
-        #[cfg(feature = "debug")]
-        if let Some(hook) = self.debug_hook {
-            hook(self, self.debug_user_data);
-        }
-
         if bus.nmi_pending() {
             self.state = CycleState::Interrupt;
             self.pending_vector = VECTOR_NMI;
@@ -217,6 +212,12 @@ impl CPU {
 
         self.ir = bus.read(self.pc, ctx);
         self.pc = self.pc.wrapping_add(1);
+
+        #[cfg(feature = "debug")]
+        if let Some(hook) = self.debug_hook {
+            hook(self, self.debug_user_data);
+        }
+
         self.state = CycleState::AddrMode;
         self.step_index = 0;
     }

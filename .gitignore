@@ -1,3 +1,4 @@
 target/**
 GEMINI.md
 CLAUDE.md
+**/.cargo/*

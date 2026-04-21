@@ -2,15 +2,32 @@
 name = "pico1541-rp2040"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
 
 [dependencies]
-# Your internal crates
+# Internal crates
 pico1541-emulator = { path = "../pico1541-emulator" }
 pico1541-manager = { path = "../pico1541-manager" }
 
-# RP2040 Hardware Abstraction Layer
-rp2040-hal = "0.12.0"
-rp2040-boot2 = "0.3.0"
+# Embassy
+embassy-executor = { version = "0.7.0", features = ["task-arena-size-32768", "arch-cortex-m", "executor-thread", "executor-interrupt"] }
+embassy-rp = { version = "0.3.0", features = ["defmt", "time-driver", "critical-section-impl", "rp2040", "unstable-pac"] }
+embassy-time = { version = "0.4.0", features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-sync = { version = "0.6.2" } # Matching a compatible version
+embassy-futures = { version = "0.1.0" }
+
+# Hardware & Runtime
 cortex-m = "0.7.7"
 cortex-m-rt = "0.7.3"
-panic-halt = "1.0.0"
+panic-probe = { version = "0.3.1", features = ["print-defmt"] }
+defmt = "0.3.10"
+defmt-rtt = "0.4.1"
+static_cell = "2.1.0"
+critical-section = "1.2.0"
+rp-pac = "7.0.0"
+rp2040-boot2 = "0.3.0"
+
+[profile.release]
+debug = 2
+lto = true
+opt-level = "s"

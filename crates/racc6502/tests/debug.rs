@@ -1,6 +1,5 @@
 use racc6502::cpu::CPU;
 use racc6502::bus::Bus;
-use racc6502::instructions::nmos6502::INSTRUCTION_TABLE;
 
 struct DebugBus {
     memory: [u8; 65536],
@@ -14,7 +13,7 @@ impl Bus for DebugBus {
 
 #[test]
 #[cfg(feature = "debug")]
-fn test_debug_hook_and_mnemonics() {
+fn test_debug_hook_on_load() {
     let mut bus = DebugBus { memory: [0; 65536] };
 
     // Setup memory:
@@ -29,15 +28,14 @@ fn test_debug_hook_and_mnemonics() {
 
     let mut cpu = CPU::new();
 
-    // Buffer to capture debug output
-    type TraceRecord = (&'static str, u8, u8);
+    // Buffer to capture debug output (Opcode, A, X)
+    type TraceRecord = (u8, u8, u8);
     let mut trace = std::vec::Vec::<TraceRecord>::new();
 
     // Define a static-friendly hook function
     fn debug_trace_hook(cpu: &CPU, user_data: *mut core::ffi::c_void) {
-        let instr = &INSTRUCTION_TABLE[cpu.ir as usize];
         let trace = unsafe { &mut *(user_data as *mut std::vec::Vec<TraceRecord>) };
-        trace.push((instr.mnemonic, cpu.a, cpu.x));
+        trace.push((cpu.ir, cpu.a, cpu.x));
     }
 
     // Attach the debug hook and user data
@@ -45,19 +43,33 @@ fn test_debug_hook_and_mnemonics() {
     cpu.debug_user_data = &mut trace as *mut _ as *mut core::ffi::c_void;
 
     // 1. Execute Reset (8 cycles)
+    // Reset does not fire the hook (it goes from Reset state directly to FetchOpcode)
     for _ in 0..8 { cpu.tick(&mut bus, &mut ()); }
 
-    // 2. Execute LDA #$42 (2 cycles)
-    cpu.tick(&mut bus, &mut ()); // Fetch A9
-    cpu.tick(&mut bus, &mut ()); // Fetch 42 & Load A. Hook should fire here.
+    assert_eq!(trace.len(), 0);
 
+    // 2. Execute LDA #$42 (2 cycles)
+    // First cycle of LDA #$42 is the FetchOpcode cycle. Hook fires here.
+    cpu.tick(&mut bus, &mut ()); // Fetch A9. IR becomes 0xA9. Hook fires.
+    
     assert_eq!(trace.len(), 1);
-    assert_eq!(trace[0], ("LDA", 0x42, 0x00));
+    // At this point, A is still 0 because LDA hasn't executed its operation yet.
+    assert_eq!(trace[0], (0xA9, 0x00, 0x00));
+
+    cpu.tick(&mut bus, &mut ()); // Execute LDA operation (loads A with 42)
 
     // 3. Execute TAX (2 cycles)
-    cpu.tick(&mut bus, &mut ()); // Fetch AA
-    cpu.tick(&mut bus, &mut ()); // Dummy Read & Transfer A to X. Hook should fire here.
+    // First cycle of TAX is FetchOpcode. Hook fires here.
+    cpu.tick(&mut bus, &mut ()); // Fetch AA. IR becomes 0xAA. Hook fires.
 
     assert_eq!(trace.len(), 2);
-    assert_eq!(trace[1], ("TAX", 0x42, 0x42));
+    // Now A is 0x42 (from previous instruction), but X is still 0.
+    assert_eq!(trace[1], (0xAA, 0x42, 0x00));
+
+    cpu.tick(&mut bus, &mut ()); // Execute TAX operation (transfers A to X)
+
+    // 4. Next instruction fetch would fire hook again
+    cpu.tick(&mut bus, &mut ()); // Fetch next (0x00 / BRK)
+    assert_eq!(trace.len(), 3);
+    assert_eq!(trace[2], (0x00, 0x42, 0x42));
 }

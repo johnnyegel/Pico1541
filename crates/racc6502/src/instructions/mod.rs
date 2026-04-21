@@ -97,9 +97,6 @@ pub struct Instruction {
     pub addr: &'static [AddrMicroOp],
     /// The sequence of cycles used to execute the core instruction logic.
     pub exec: &'static [ExecMicroOp],
-    /// The human-readable name of the instruction (debug only).
-    #[cfg(debug_assertions)]
-    pub mnemonic: &'static str,
 }
 
 pub mod nmos6502;
