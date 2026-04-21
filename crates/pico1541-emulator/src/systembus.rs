@@ -70,9 +70,15 @@ impl<H: HostInterface> SystemBus<H> {
         let host_clk  = hardware.read_clk();
         let host_atn  = hardware.read_atn();
 
-        // VIA1 outputs: PB1=DATA_OUT, PB3=CLK_OUT (1=Asserted/LOW wire)
+        // VIA1 outputs: PB1=DATA_OUT, PB3=CLK_OUT, PB4=ATNA (1=Asserted/LOW wire)
         let drv_data = (self.via1.orb & self.via1.ddrb & 0x02) != 0;
         let drv_clk  = (self.via1.orb & self.via1.ddrb & 0x08) != 0;
+        // Hardware ATN acknowledge: the drive controller chip XORs ATN_IN with ATNA
+        // (PB4 output) and asserts DATA when they differ.  This lets the hardware
+        // pull DATA without waiting for the CPU — and releases it once the CPU
+        // sets ATNA to match ATN, or re-asserts briefly at end-of-ATN (EOI handshake).
+        let atna = (self.via1.orb & self.via1.ddrb & 0x10) != 0;
+        let hw_atn_ack = host_atn ^ atna;
 
         // VIA1 inputs: PB0=DATA_IN, PB2=CLK_IN, PB7=ATN_IN (1=Asserted/LOW wire)
         let mut in_b: u8 = 0;
@@ -85,7 +91,7 @@ impl<H: HostInterface> SystemBus<H> {
         // host_atn=true (Asserted/LOW wire) -> 7406 output HIGH.
         self.via1.set_ca1(host_atn);
 
-        hardware.drive_data(drv_data);
+        hardware.drive_data(drv_data || hw_atn_ack);
         hardware.drive_clk(drv_clk);
 
         self.via1.tick_cycle();

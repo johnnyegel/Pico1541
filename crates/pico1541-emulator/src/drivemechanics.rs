@@ -68,28 +68,42 @@ impl DriveMechanics {
             self.sub_cycle_counter = 0;
         }
 
-        // Fetch shared metadata — drop the reference before calling any other hardware methods
-        let (bit_length, is_formatted) = {
-            let track = hardware.get_active_track();
-            if !track.disk_inserted || !self.motor_spun_up {
-                self.sub_cycle_counter = 0;
-                self.current_byte_idx = 0;
-                // No magnetic signal when the motor isn't running or no disk is present:
-                // clear SYNC so the ROM's sync-wait loop doesn't hang on the init value.
-                via2.in_b &= !0x80;
-                return false;
-            }
-            (track.bit_length, track.is_formatted)
-        };
-
-        // 3. Bitrate and Disk Rotation
+        // Bitrate zone (VIA2 PB5/PB6) determines cycles-per-byte for all paths below.
         let bitrate_bits = (via2.orb >> 5) & 0x03;
-        let cycles_per_byte = match bitrate_bits {
+        let cycles_per_byte: u32 = match bitrate_bits {
             0 => 32, // Zone 0: Tracks 31-35
             1 => 30, // Zone 1: Tracks 25-30
             2 => 28, // Zone 2: Tracks 18-24
             3 => 26, // Zone 3: Tracks 1-17
             _ => 32,
+        };
+
+        // Fetch shared metadata — drop the reference before calling any other hardware methods
+        let (bit_length, is_formatted) = {
+            let track = hardware.get_active_track();
+            if !self.motor_spun_up {
+                self.sub_cycle_counter = 0;
+                self.current_byte_idx = 0;
+                via2.in_b &= !0x80;
+                return false;
+            }
+            if !track.disk_inserted {
+                // Motor running but no disk: deliver 0x55 noise bytes at the normal bitrate.
+                // Without this, the ROM sits in a tight `CLV / BVC` loop waiting for the SO
+                // pin (byte-ready), which is never asserted when no bytes arrive, hanging the
+                // CPU forever instead of reaching the ROM's own sync-search timeout.
+                via2.in_b &= !0x80; // SYNC never asserted — no disk
+                self.sub_cycle_counter += 1;
+                if self.sub_cycle_counter >= cycles_per_byte {
+                    self.sub_cycle_counter = 0;
+                    via2.in_a = 0x55;
+                    via2.set_ca1(true);
+                    via2.set_ca1(false);
+                    return true; // pulse SO
+                }
+                return false;
+            }
+            (track.bit_length, track.is_formatted)
         };
 
         self.sub_cycle_counter += 1;

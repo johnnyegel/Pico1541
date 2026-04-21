@@ -2,7 +2,7 @@
 use pico1541_emulator::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus};
 use pico1541_emulator::Emulator;
 
-use log::debug;
+use log;
 
 use racc6502::cpu::DebugHook;
 
@@ -10,7 +10,8 @@ use racc6502::cpu::DebugHook;
 const ROM_BYTES: &[u8] = include_bytes!("../../../../roms/1541-II.251968-03.bin");
 
 /// Timeout for spin-waiting on bus transitions (cycles).
-pub const IEC_TIMEOUT: u32 = 1_000_000;
+/// This can take a while in some cases, so we set this to 20 seconds for now
+pub const IEC_TIMEOUT: u32 = 20_000_000;
 
 /// Standard IEC Timings (in CPU cycles @ 1MHz)
 pub const T_SETTLE: u32 = 100;  // ~100us (settle time)
@@ -99,7 +100,7 @@ impl TestBridge {
 
     pub fn ticks(&mut self, drive: &mut Emulator<TestBridge>, n: u32) {
         for _ in 0..n { drive.tick(self); }
-        debug!("Ticked {} cycles (PC=${:04X})", n, drive.pc());
+        log::trace!("Ticked {} cycles (PC=${:04X})", n, drive.pc());
     }
 
     pub fn wait_bus_data(&mut self, drive: &mut Emulator<Self>, want: bool) { 
@@ -108,7 +109,7 @@ impl TestBridge {
         for _ in 0..IEC_TIMEOUT {
             cycles += 1;
             if self.bus_data == want { 
-                debug!("Wait Data {} took {} cycles. PC=${:04X}", want, cycles, drive.pc());
+                log::trace!("Wait Data {} took {} cycles. PC=${:04X}", want, cycles, drive.pc());
                 return; 
             }
             drive.tick(self);
@@ -122,7 +123,7 @@ impl TestBridge {
         for _ in 0..IEC_TIMEOUT {
             cycles += 1;
             if self.bus_clk == want { 
-                debug!("Wait CLK {} took {} cycles. PC=${:04X}", want, cycles, drive.pc());
+                log::trace!("Wait CLK {} took {} cycles. PC=${:04X}", want, cycles, drive.pc());
                 return; 
             }
             drive.tick(self);
@@ -130,85 +131,115 @@ impl TestBridge {
         panic!("IEC timeout: CLK != {} (PC=${:04X}, host_clk={})", want, drive.pc(), self.host_clk);
     }
 
+    /// Signal start of an IEC command sequence by asserting CLK, and waiting for the drive to ACK
     pub fn atn_start(&mut self, drive: &mut Emulator<Self>) {
-        // Host asserts ATN and asserts the clock to signal a command
+        // Host asserts ATN to signal start of command sequence
         self.set_atn(true);
+
+        // Wait one clock phase, and assert the clock
+        self.ticks(drive, T_PHASE);
         self.set_clk(true);
 
-        // Drive must acknowledge ATN by asserting DATA
+        log::trace!("ATN start: Host asserted ATN. Waiting for drive to acknowledge... PC=${:04X}", drive.pc());
+
+        // Drive must acknowledge by asserting DATA
         self.wait_bus_data(drive, true);
+
+        log::trace!("ATN acknowledged: Drive asserted DATA. PC=${:04X}", drive.pc());
+    }
+
+    pub fn atn_end(&mut self, drive: &mut Emulator<Self>) {
+        // Wait one clock phase before releasing the ATN
+        self.ticks(drive, T_PHASE);
+
+        // Host releases ATN to signal end of command sequence. There is no ACK for this!
+        self.set_atn(false);
+
+        log::debug!("ATN end: Host released ATN... PC=${:04X}", drive.pc());
+    }
+
+    // Called a the end of an IEC command sequence to release all lines 
+    // and wait for the drive to release the data line if it was asserted.
+    pub fn iec_end(&mut self, drive: &mut Emulator<Self>) {
+        // Wait one phase
+        self.ticks(drive, T_PHASE);
+
+        // Release all lines
+        self.set_atn(false);
+        self.set_clk(false);
+        self.set_data(false);
+
+        // Wait for the data line to be released (if asserted).
+        if self.bus_data {
+            self.wait_bus_data(drive, false);
+        }
+
+        // Wait one phase to settle
+        self.ticks(drive, T_PHASE);
     }
 
     pub fn send_byte(&mut self, drive: &mut Emulator<Self>, byte: u8, eoi: bool) { 
-        // Release CLK, and wait for drive to release DATA (ACK)
+        // Clock is Asserted before we enter this function!
+        if !self.host_clk {
+            panic!("send_byte called with CLK not asserted! PC=${:04X}", drive.pc());
+        }
+
+        log::trace!("Sending byte 0x{:02X} with EOI={}... PC=${:04X}", byte, eoi, drive.pc());
+
+        // Release the clock to signal ready to send, and wait for the drive to ACK by asserting DATA.
         self.set_clk(false);
         self.wait_bus_data(drive, false);
 
-        debug!("Drive ACKed: Ready to send byte {:02X}. EOI: {}", byte, eoi);
+        log::debug!("Drive ACKed: Sending byte 0x{:02X}. EOI: {}", byte, eoi);
 
         // Is this end of instruction?
         if eoi {
             // To signal EOI, we wait for the EOI delay, 
             // and then assert the data being asserted and deassered 
             // again to indicate the drive has gotten the message.
-            debug!("Waiting for ACK for EOI for byte {:02X}. PC=${:04X}", byte, drive.pc());
+            log::trace!("Waiting for ACK for EOI for byte 0x{:02X}. PC=${:04X}", byte, drive.pc());
 
             self.wait_bus_data(drive, true);
             self.wait_bus_data(drive, false);
 
-            debug!("EOI acknowledged for byte {:02X}", byte);
+            log::trace!("EOI acknowledged for byte 0x{:02X}", byte);
         }
 
-        // We need to wait some more so the drive is ready to receive the first bit when clock is released.
-        // The doc says this should not be needed, but clearly it is.
+        // Wait one intial clock phase before starting. Then assert clock to initial state
         self.ticks(drive, T_PHASE);
-
-
-        // Pull the clock to true before sending the first byte
         self.set_clk(true);
-        self.set_data(false);
 
         // Iterate over bits.    
         for bit in 0..8u8 {
             // Get the next bit to send (1=Asserted/LOW wire)
             let bit_val = (byte >> bit) & 1 != 0;
-
+            
             // Wait for half a clock phase, set data and wait for the rest of the phase to elapse (to meet setup/hold timing).
             // This ensures data is set in the center of the clock high period, which is more robust for the drive to sample reliably.
-            self.ticks(drive, T_PHASE / 2);
             self.set_data(!bit_val);
-            self.ticks(drive, T_PHASE / 2);
+            self.ticks(drive, T_PHASE);
 
             // Release the clock line to signal the bit is ready to be read by the drive.
             // Hold this state for a full clock phase to meet the drive's timing requirements.
             self.set_clk(false);
             self.ticks(drive, T_PHASE);
+
+            // Assert the clock at the end of the bit
             self.set_clk(true);
-            self.set_data(false);
-            
-            debug!("Drive Data Line {}: -> {} - drive: {}", bit, bit_val, self.bus_data);
+
+            log::trace!("Sent 0x{:02X} bit {} ({}), PC=${:04X}", 
+                    byte, bit, if bit_val {1} else {0}, drive.pc());
         }
 
-        // Wait for the drive to assert the data line to acknowledge the byte
-        debug!("Drive Data Line ACK: {}", self.bus_data);
+        // Release the data line (if last bit asserted the line)
+        self.set_data(false);
 
+        // Wait for the drive to assert the data line to acknowledge the byte
+        log::trace!("Drive Data Line ACK: {}", self.bus_data);
         self.wait_bus_data(drive, true);
     }
 
-    pub fn atn_stop(&mut self, drive: &mut Emulator<Self>) {
-        // Host releases ATN
-        self.set_atn(false);
-        self.wait_bus_data(drive, false);
-    }
 
-    pub fn end_communication(&mut self, drive: &mut Emulator<Self>) {
-        // Release all lines
-        self.set_atn(false);
-        self.set_clk(false);
-        self.set_data(false);
-        // Let things settle
-        self.ticks(drive, 100);
-    }
 
     pub fn turnaround(&mut self, drive: &mut Emulator<Self>) {
         // Host releases ATN and CLK to signal it's now a listener

@@ -10,17 +10,17 @@ fn read_status(drive: &mut Emulator<TestBridge>, bridge: &mut TestBridge) -> Str
     bridge.atn_start(drive);
 
     bridge.send_byte(drive, 0x48, false); // TALK 8
-    bridge.send_byte(drive, 0x6F, true);  // SEC 15
+    bridge.send_byte(drive, 0x6F, false); // SEC 15
     
     // Turnaround: Switch from Talker to Listener
-    bridge.atn_stop(drive);
+    bridge.atn_end(drive);
     bridge.turnaround(drive);
 
     // Receive all bytes until EOI
     let bytes = bridge.receive_all(drive);
 
     // End of communication: Host releases everything
-    bridge.end_communication(drive);
+    bridge.iec_end(drive);
 
     String::from_utf8_lossy(&bytes)
         .trim_end_matches('\r')
@@ -39,11 +39,10 @@ fn test_iec_atn_handshake() {
 
     assert!(bridge.bus_data, "Drive DATA should be asserted");
 
-    // Host release the clock
-    bridge.set_clk(false);
+    // Issue an ATN stop sequence
+    bridge.atn_end(&mut drive);
+    bridge.iec_end(&mut drive);
 
-    // Drive ack by releasing data
-    bridge.wait_bus_data(&mut drive, false);
     assert!(!bridge.bus_data, "Drive DATA should NOT be asserted");
 }
 

@@ -94,6 +94,7 @@ fn test_drive_boot_behavior() {
     assert_eq!(led_on_count, 0, "Expected zero LED ON events during boot (got {})", led_on_count);
 }
 
+
 #[test]
 fn test_dir_no_disk() {
     let (mut drive, mut bridge) = common::setup_drive(true, None);
@@ -106,27 +107,44 @@ fn test_dir_no_disk() {
     // With no disk the ROM will spin the motor, try to find track 18, 
     // fail, and eventually rattle the head against the stop (head banding).
     bridge.atn_start(&mut drive);
+
     bridge.send_byte(&mut drive, 0x28, false); // LISTEN 8
-    bridge.send_byte(&mut drive, 0x60, true);  // SEC 0 (Load/Open "$")
-    bridge.atn_stop(&mut drive);
+    bridge.send_byte(&mut drive, 0xF0, false); // OPEN 0 (Open channel 0 with filename)
+   
+    bridge.atn_end(&mut drive);
 
     bridge.send_byte(&mut drive, b'$', true);  // "$"
 
     bridge.atn_start(&mut drive);
-    bridge.send_byte(&mut drive, 0x3F, true); // UNLISTEN
+    bridge.send_byte(&mut drive, 0x3F, false); // UNLISTEN
+    bridge.atn_end(&mut drive);
+    bridge.iec_end(&mut drive);
     
     log::info!("Sent DIR command with no disk. Waiting for drive to process...");
+
+    // Send command to read the directory, which will fail
+    bridge.atn_start(&mut drive);
+    bridge.send_byte(&mut drive, 0x48, false); // TALK 8
+    bridge.send_byte(&mut drive, 0x60, false); // SEC 0
+    bridge.atn_end(&mut drive);
+
+    bridge.turnaround(&mut drive);
+    let _dirresult = bridge.receive_all(&mut drive);
+    bridge.iec_end(&mut drive);
+
+
+    bridge.ticks(&mut drive, 20_000_000);
 
     // Read the status response from channel 15.
     let status = {
         bridge.send_byte(&mut drive, 0x48, false); // TALK 8
-        bridge.send_byte(&mut drive, 0x6F, true);  // SEC 15
+        bridge.send_byte(&mut drive, 0x6F, false);  // SEC 15
         
-        bridge.atn_stop(&mut drive);
+        bridge.set_atn(false);
         bridge.turnaround(&mut drive);
-        
+
         let bytes = bridge.receive_all(&mut drive);
-        bridge.end_communication(&mut drive);
+        bridge.iec_end(&mut drive);
         String::from_utf8_lossy(&bytes).trim_end_matches('\r').to_string()
     };
 
