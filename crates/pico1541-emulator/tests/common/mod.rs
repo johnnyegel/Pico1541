@@ -241,18 +241,63 @@ impl TestBridge {
 
 
 
-    pub fn turnaround(&mut self, drive: &mut Emulator<Self>) {
-        // Host releases ATN and CLK to signal it's now a listener
+    /// Turnaround: switch bus from host-as-talker to drive-as-talker.
+    /// Returns `true` if the drive acknowledged by asserting CLK (i.e. it has data),
+    /// or `false` if the drive stayed silent (empty/error response).
+    pub fn try_turnaround(&mut self, drive: &mut Emulator<Self>) -> bool {
         self.set_clk(false);
-
-        // Host asserts DATA to indicate it is busy and not signaling EOI (TRUE=Asserted=Not EOI)
         self.set_data(true);
-
-        // Drive must release DATA (ACK for the last byte of command) before it can become a Talker
         self.wait_bus_data(drive, false);
 
-        // Drive must acknowledge ATN release by asserting CLK
-        self.wait_bus_clk(drive, true);
+        let mut cycles = 0u32;
+        while !self.bus_clk && cycles < IEC_TIMEOUT {
+            drive.tick(self);
+            cycles += 1;
+        }
+        if !self.bus_clk {
+            log::trace!("try_turnaround: drive did not assert CLK (PC=${:04X})", drive.pc());
+            return false;
+        }
+        log::trace!("try_turnaround: CLK asserted after {} cycles (PC=${:04X})", cycles, drive.pc());
+        true
+    }
+
+    pub fn turnaround(&mut self, drive: &mut Emulator<Self>) {
+        if !self.try_turnaround(drive) {
+            panic!("IEC turnaround timeout: drive did not assert CLK (PC=${:04X})", drive.pc());
+        }
+    }
+
+    /// Send UNTALK to terminate any active talk session on device 8.
+    pub fn untalk(&mut self, drive: &mut Emulator<Self>) {
+        self.atn_start(drive);
+        self.send_byte(drive, 0x5F, false); // UNTALK (broadcast)
+        self.atn_end(drive);
+        self.iec_end(drive);
+    }
+
+    /// Close a secondary channel on device 8.
+    pub fn close_channel(&mut self, drive: &mut Emulator<Self>, channel: u8) {
+        self.atn_start(drive);
+        self.send_byte(drive, 0x28, false);              // LISTEN 8
+        self.send_byte(drive, 0xE0 | (channel & 0x0F), false); // CLOSE channel
+        self.send_byte(drive, 0x3F, false);              // UNLISTEN
+        self.atn_end(drive);
+        self.iec_end(drive);
+    }
+
+    /// Read the drive error status from channel 15.
+    pub fn read_status(&mut self, drive: &mut Emulator<Self>) -> String {
+        self.atn_start(drive);
+        self.send_byte(drive, 0x48, false); // TALK 8
+        self.send_byte(drive, 0x6F, false); // SEC 15
+        self.atn_end(drive);
+        self.turnaround(drive);
+        let bytes = self.receive_all(drive);
+        self.iec_end(drive);
+        String::from_utf8_lossy(&bytes)
+            .trim_end_matches('\r')
+            .to_string()
     }
 
     pub fn receive_byte(&mut self, drive: &mut Emulator<Self>) -> (u8, bool) {
