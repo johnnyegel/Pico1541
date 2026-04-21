@@ -7,20 +7,30 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::gpio::{Input, Level, Output, Pull, Pin};
+use embassy_rp::i2c::{I2c, Config, InterruptHandler};
 use embassy_rp::multicore::{spawn_core1, Stack};
+use embassy_rp::peripherals::I2C0;
+use embassy_rp::bind_interrupts;
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use embassy_sync::mutex::Mutex;
+use embassy_time::{Duration, Timer};
 use panic_probe as _;
 use rp2040_boot2 as _;
 use static_cell::StaticCell;
 
 use pico1541_emulator::Emulator;
 use pico1541_emulator::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus};
-use pico1541_manager::{Manager, EVENT_CHANNEL};
+use pico1541_manager::{Manager, EVENT_CHANNEL, DisplayDriver};
 
 use crate::driver::storage::RpStorage;
 use crate::driver::display::RpDisplay;
 use crate::driver::input::RpInput;
 use crate::driver::leds::{StatusLeds, ActivityLed};
 use crate::driver::speaker::RpSpeaker;
+
+bind_interrupts!(struct Irqs {
+    I2C0_IRQ => InterruptHandler<I2C0>;
+});
 
 // --- Hardware Pins Definition ---
 
@@ -99,7 +109,7 @@ impl HostInterface for HardwareBridge {
             _ => {}
         }
         if let Err(_) = EVENT_CHANNEL.try_send(event) {
-            // Channel full, ignore for now
+            // Channel full
         }
     }
 }
@@ -108,23 +118,51 @@ impl HostInterface for HardwareBridge {
 
 static CORE1_STACK: StaticCell<Stack<8192>> = StaticCell::new();
 static EXECUTOR_CORE1: StaticCell<embassy_executor::Executor> = StaticCell::new();
+static DISPLAY: StaticCell<Mutex<NoopRawMutex, RpDisplay>> = StaticCell::new();
+
+pub struct DisplayWrapper(&'static Mutex<NoopRawMutex, RpDisplay>);
+
+impl DisplayDriver for DisplayWrapper {
+    async fn clear(&mut self) {
+        let mut d = self.0.lock().await;
+        d.clear_lines();
+    }
+    async fn print(&mut self, line: u8, text: &str) {
+        let mut d = self.0.lock().await;
+        d.set_line(line, text);
+    }
+}
 
 #[embassy_executor::task]
-async fn manager_task() {
+async fn display_task(display: &'static Mutex<NoopRawMutex, RpDisplay>) {
+    loop {
+        {
+            let mut d = display.lock().await;
+            d.update_scroll();
+            d.redraw();
+        }
+        Timer::after(Duration::from_millis(50)).await;
+    }
+}
+
+#[embassy_executor::task]
+async fn manager_task(spawner: Spawner, display: &'static Mutex<NoopRawMutex, RpDisplay>) {
     info!("Manager Task Started on Core 1");
     
     let storage = RpStorage::new();
-    let display = RpDisplay::new();
     let input = RpInput::new();
     
-    let mut manager = Manager::new(storage, display, input);
+    // Start the display refresh task
+    spawner.spawn(display_task(display)).unwrap();
+
+    let mut manager = Manager::new(storage, DisplayWrapper(display), input);
     manager.run().await;
 }
 
-fn core1_run() -> ! {
+fn core1_run(display: &'static Mutex<NoopRawMutex, RpDisplay>) -> ! {
     let executor = EXECUTOR_CORE1.init(embassy_executor::Executor::new());
     executor.run(|spawner| {
-        spawner.spawn(manager_task()).unwrap();
+        spawner.spawn(manager_task(spawner, display)).unwrap();
     });
 }
 
@@ -135,16 +173,15 @@ async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     info!("Core 0: Starting Pico1541");
 
-    // Initialize Status RGB LED (Core 0/1 can use this for firmware status)
+    // Initialize Status RGB LED
     let mut status_leds = StatusLeds::new(
         p.PIN_26.degrade(),
         p.PIN_27.degrade(),
         p.PIN_28.degrade(),
     );
-    // Set to GREEN to indicate boot success
     status_leds.set_color(false, true, false);
 
-    // Initialize Activity LED (Drive activity)
+    // Initialize Activity LED
     let activity_led = ActivityLed::new(
         p.PIN_22.degrade(),
         p.PIN_3.degrade(),
@@ -152,6 +189,18 @@ async fn main(_spawner: Spawner) {
 
     // Initialize Speaker
     let speaker = RpSpeaker::new(p.PIN_2.degrade());
+
+    // Initialize I2C for Display (GPIO 4, 5)
+    let i2c = I2c::new_async(p.I2C0, p.PIN_5, p.PIN_4, Irqs, Config::default());
+    let rp_display = RpDisplay::new(i2c);
+    
+    let display_ref = DISPLAY.init(Mutex::new(rp_display));
+    
+    // Initialize display hardware (async)
+    {
+        let mut d = display_ref.lock().await;
+        d.init().await;
+    }
 
     // Initialize IEC Pins
     let iec_pins = IecPins {
@@ -165,7 +214,7 @@ async fn main(_spawner: Spawner) {
     // Spawn Core 1 (Manager)
     let stack = CORE1_STACK.init(Stack::new());
     spawn_core1(p.CORE1, stack, move || {
-        core1_run();
+        core1_run(display_ref);
     });
 
     info!("Core 0: Entering Emulator Loop (1 MHz)");
