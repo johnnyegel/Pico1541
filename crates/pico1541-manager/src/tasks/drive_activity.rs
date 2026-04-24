@@ -1,11 +1,11 @@
 use crate::driver::IndicatorDriver;
 use crate::{EVENT_CHANNEL, DriveEvent};
 
-pub struct ActivityTask<I: IndicatorDriver> {
+pub struct DriveActivityTask<I: IndicatorDriver> {
     indicator: I,
 }
 
-impl<I: IndicatorDriver> ActivityTask<I> {
+impl<I: IndicatorDriver> DriveActivityTask<I> {
     pub fn new(indicator: I) -> Self {
         Self { indicator }
     }

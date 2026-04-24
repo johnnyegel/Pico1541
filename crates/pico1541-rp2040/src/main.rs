@@ -20,9 +20,8 @@ use static_cell::StaticCell;
 use pico1541_emulator::Emulator;
 use pico1541_emulator::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus};
 use pico1541_manager::EVENT_CHANNEL;
-use pico1541_manager::tasks::{DisplayTask, ActivityTask, KeyboardTask};
+use pico1541_manager::tasks::{DisplayTask, DriveActivityTask, KeyboardTask};
 
-use crate::driver::storage::RpStorage;
 use crate::driver::display::{RpDisplay, DisplayWrapper};
 use crate::driver::input::RpInput;
 use crate::driver::leds::{StatusLeds, ActivityLed};
@@ -111,7 +110,7 @@ async fn display_task(mut task: DisplayTask<DisplayWrapper<NoopRawMutex>>) {
 }
 
 #[embassy_executor::task]
-async fn activity_task(mut task: ActivityTask<RpIndicator>) {
+async fn drive_activity_task(mut task: DriveActivityTask<RpIndicator>) {
     task.run().await;
 }
 
@@ -134,12 +133,12 @@ fn core1_run(display: &'static Mutex<NoopRawMutex, RpDisplay>, indicator: RpIndi
         
         // Initialize Manager tasks
         let disp_task = DisplayTask::new(display_wrapper);
-        let act_task = ActivityTask::new(indicator);
+        let drive_act_task = DriveActivityTask::new(indicator);
         let key_task = KeyboardTask::new(input);
 
         // Spawn Embassy tasks
         spawner.spawn(display_task(disp_task)).unwrap();
-        spawner.spawn(activity_task(act_task)).unwrap();
+        spawner.spawn(drive_activity_task(drive_act_task)).unwrap();
         spawner.spawn(keyboard_task(key_task)).unwrap();
     });
 }
