@@ -1,6 +1,8 @@
 use pico1541_manager::DisplayDriver;
 use embassy_rp::i2c::{I2c, Async};
 use embassy_rp::peripherals::I2C0;
+use embassy_sync::blocking_mutex::raw::RawMutex;
+use embassy_sync::mutex::Mutex;
 use ssd1306::{prelude::*, Ssd1306, rotation::DisplayRotation, size::DisplaySize128x64, mode::BufferedGraphicsMode};
 use display_interface_i2c::I2CInterface;
 use embedded_graphics::{
@@ -113,5 +115,34 @@ impl RpDisplay {
         }
 
         let _ = self.display.flush();
+    }
+}
+
+pub struct DisplayWrapper<M: RawMutex + 'static>(pub &'static Mutex<M, RpDisplay>);
+
+impl<M: RawMutex + 'static> Clone for DisplayWrapper<M> {
+    fn clone(&self) -> Self {
+        Self(self.0)
+    }
+}
+
+impl<M: RawMutex + 'static> Copy for DisplayWrapper<M> {}
+
+impl<M: RawMutex + 'static> DisplayDriver for DisplayWrapper<M> {
+    async fn clear(&mut self) {
+        let mut d = self.0.lock().await;
+        d.clear_lines();
+    }
+    async fn print(&mut self, line: u8, text: &str) {
+        let mut d = self.0.lock().await;
+        d.set_line(line, text);
+    }
+    async fn update(&mut self) {
+        let mut d = self.0.lock().await;
+        d.update_scroll();
+    }
+    async fn redraw(&mut self) {
+        let mut d = self.0.lock().await;
+        d.redraw();
     }
 }
