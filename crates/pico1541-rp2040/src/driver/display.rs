@@ -13,7 +13,7 @@ use embedded_graphics::{
     primitives::{Rectangle, PrimitiveStyleBuilder},
 };
 
-pub struct RpDisplay {
+pub struct OledDisplay {
     display: Ssd1306<I2CInterface<I2c<'static, I2C0, Async>>, DisplaySize128x64, BufferedGraphicsMode<DisplaySize128x64>>,
     lines: [heapless::String<64>; 6],
     selected_line: u8,
@@ -21,7 +21,7 @@ pub struct RpDisplay {
     scroll_dir: i32,
 }
 
-impl RpDisplay {
+impl OledDisplay {
     pub fn new(i2c: I2c<'static, I2C0, Async>) -> Self {
         let interface = I2CInterface::new(i2c, 0x3C, 0x40);
         let display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
@@ -118,7 +118,7 @@ impl RpDisplay {
     }
 }
 
-pub struct DisplayWrapper<M: RawMutex + 'static>(pub &'static Mutex<M, RpDisplay>);
+pub struct DisplayWrapper<M: RawMutex + 'static>(pub &'static Mutex<M, OledDisplay>);
 
 impl<M: RawMutex + 'static> Clone for DisplayWrapper<M> {
     fn clone(&self) -> Self {

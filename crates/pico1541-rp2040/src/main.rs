@@ -22,11 +22,11 @@ use pico1541_emulator::interface::{ActiveTrack, DriveEvent, HostInterface, IecBu
 use pico1541_manager::EVENT_CHANNEL;
 use pico1541_manager::tasks::{DisplayTask, DriveActivityTask, KeyboardTask};
 
-use crate::driver::display::{RpDisplay, DisplayWrapper};
-use crate::driver::input::RpInput;
+use crate::driver::display::{OledDisplay, DisplayWrapper};
+use crate::driver::input::KeyboardInput;
 use crate::driver::leds::{StatusLeds, ActivityLed};
-use crate::driver::speaker::RpSpeaker;
-use crate::driver::indicator::RpIndicator;
+use crate::driver::speaker::PiezoSpeaker;
+use crate::driver::indicator::ActivityIndicator;
 
 bind_interrupts!(struct Irqs {
     I2C0_IRQ => InterruptHandler<I2C0>;
@@ -45,14 +45,14 @@ struct IecPins {
 // --- Hardware Bridge (Core 0) ---
 
 struct HardwareBridge {
-    track: ActiveTrack,
+    track: &'static mut ActiveTrack,
     pins: IecPins,
 }
 
 impl HardwareBridge {
-    fn new(pins: IecPins) -> Self {
+    fn new(pins: IecPins, track: &'static mut ActiveTrack) -> Self {
         Self {
-            track: ActiveTrack::new(),
+            track,
             pins,
         }
     }
@@ -91,7 +91,7 @@ impl IecBus for HardwareBridge {
 
 impl HostInterface for HardwareBridge {
     fn get_active_track(&mut self) -> &mut ActiveTrack {
-        &mut self.track
+        self.track
     }
 
     fn send_event(&mut self, event: DriveEvent) {
@@ -110,12 +110,12 @@ async fn display_task(mut task: DisplayTask<DisplayWrapper<NoopRawMutex>>) {
 }
 
 #[embassy_executor::task]
-async fn drive_activity_task(mut task: DriveActivityTask<RpIndicator>) {
+async fn drive_activity_task(mut task: DriveActivityTask<&'static mut ActivityIndicator>) {
     task.run().await;
 }
 
 #[embassy_executor::task]
-async fn keyboard_task(mut task: KeyboardTask<RpInput>) {
+async fn keyboard_task(mut task: KeyboardTask<KeyboardInput>) {
     task.run().await;
 }
 
@@ -123,12 +123,14 @@ async fn keyboard_task(mut task: KeyboardTask<RpInput>) {
 
 static CORE1_STACK: StaticCell<Stack<8192>> = StaticCell::new();
 static EXECUTOR_CORE1: StaticCell<embassy_executor::Executor> = StaticCell::new();
-static DISPLAY: StaticCell<Mutex<NoopRawMutex, RpDisplay>> = StaticCell::new();
+static DISPLAY: StaticCell<Mutex<NoopRawMutex, OledDisplay>> = StaticCell::new();
 
-fn core1_run(display: &'static Mutex<NoopRawMutex, RpDisplay>, indicator: RpIndicator) -> ! {
+static INDICATOR: StaticCell<ActivityIndicator> = StaticCell::new();
+
+fn core1_run(display: &'static Mutex<NoopRawMutex, OledDisplay>, indicator: &'static mut ActivityIndicator) -> ! {
     let executor = EXECUTOR_CORE1.init(embassy_executor::Executor::new());
     executor.run(|spawner| {
-        let input = RpInput::new();
+        let input = KeyboardInput::new();
         let display_wrapper = DisplayWrapper(display);
         
         // Initialize Manager tasks
@@ -142,6 +144,12 @@ fn core1_run(display: &'static Mutex<NoopRawMutex, RpDisplay>, indicator: RpIndi
         spawner.spawn(keyboard_task(key_task)).unwrap();
     });
 }
+
+// --- Static Resources for Core 0 ---
+
+static ACTIVE_TRACK: StaticCell<ActiveTrack> = StaticCell::new();
+static EMULATOR: StaticCell<Emulator<HardwareBridge>> = StaticCell::new();
+static ROM: StaticCell<[u8; 16384]> = StaticCell::new();
 
 // --- Core 0: Emulator ---
 
@@ -165,16 +173,16 @@ async fn main(_spawner: Spawner) {
     );
 
     // Initialize Speaker
-    let speaker = RpSpeaker::new(p.PIN_2.degrade());
+    let speaker = PiezoSpeaker::new(p.PIN_2.degrade());
     
-    // Combine into Indicator driver for Manager
-    let indicator = RpIndicator::new(activity_led, speaker);
+    // Combine into Activity Indicator for Manager
+    let indicator = INDICATOR.init(ActivityIndicator::new(activity_led, speaker));
 
     // Initialize I2C for Display (GPIO 4, 5)
     let i2c = I2c::new_async(p.I2C0, p.PIN_5, p.PIN_4, Irqs, Config::default());
-    let rp_display = RpDisplay::new(i2c);
+    let oled_display = OledDisplay::new(i2c);
     
-    let display_ref = DISPLAY.init(Mutex::new(rp_display));
+    let display_ref = DISPLAY.init(Mutex::new(oled_display));
     
     // Initialize display hardware (async)
     {
@@ -199,16 +207,29 @@ async fn main(_spawner: Spawner) {
 
     info!("Core 0: Entering Emulator Loop (1 MHz)");
 
-    let mut bridge = HardwareBridge::new(iec_pins);
+    let track = ACTIVE_TRACK.init(ActiveTrack::new());
+    let mut bridge = HardwareBridge::new(iec_pins, track);
     
     // TODO: Load real 1541 ROM
-    let rom = [0u8; 16384]; 
-    let mut drive = Emulator::new(rom);
+    let rom = ROM.init([0u8; 16384]); 
+    let drive = EMULATOR.init(Emulator::new(*rom));
     drive.reset();
 
     // Use TIMER peripheral directly via PAC
     let timer = embassy_rp::pac::TIMER;
 
+    // Run the emulator loop
+    run_emulator(drive, &mut bridge, timer);
+}
+
+/// The critical 1MHz emulator loop. 
+#[inline(never)]
+#[link_section = ".data"]
+fn run_emulator(
+    drive: &mut Emulator<HardwareBridge>, 
+    bridge: &mut HardwareBridge, 
+    timer: rp_pac::timer::Timer
+) -> ! {
     let mut last_tick = timer.timelr().read();
 
     loop {
@@ -219,6 +240,6 @@ async fn main(_spawner: Spawner) {
         last_tick = timer.timelr().read();
 
         // One 6502 cycle = 1 microsecond
-        drive.tick(&mut bridge);
+        drive.tick(bridge);
     }
 }

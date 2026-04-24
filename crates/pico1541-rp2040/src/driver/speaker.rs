@@ -1,10 +1,10 @@
 use embassy_rp::gpio::{Level, Output, AnyPin};
 
-pub struct RpSpeaker {
+pub struct PiezoSpeaker {
     pub piezo: Output<'static>,
 }
 
-impl RpSpeaker {
+impl PiezoSpeaker {
     pub fn new(pin: AnyPin) -> Self {
         Self {
             piezo: Output::new(pin, Level::Low),

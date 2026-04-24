@@ -24,3 +24,13 @@ pub trait IndicatorDriver {
     fn set_activity_led(&mut self, active: bool);
     fn beep(&mut self);
 }
+
+impl<T: IndicatorDriver + ?Sized> IndicatorDriver for &mut T {
+    fn set_activity_led(&mut self, active: bool) {
+        (**self).set_activity_led(active);
+    }
+
+    fn beep(&mut self) {
+        (**self).beep();
+    }
+}
