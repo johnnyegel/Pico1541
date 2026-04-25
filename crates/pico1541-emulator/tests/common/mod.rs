@@ -332,6 +332,10 @@ impl HostInterface for TestBridge {
         req
     }
 
+    fn update_iec_addresses(&mut self, listen: u8, talk: u8) {
+        self.snooper.set_iec_addresses(listen, talk);
+    }
+
     fn sync(&mut self) {
         let atn = self.host_atn;
         let clk = self.host_clk || self.bus_clk; 

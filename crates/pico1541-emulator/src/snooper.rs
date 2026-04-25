@@ -18,7 +18,8 @@ pub struct IecSnooper {
     atn_at_start: bool,
     
     // Layer 2: Protocol State
-    pub device_id: u8,
+    pub listen_addr: u8,
+    pub talk_addr: u8,
     device_addressed: bool,
     channel_15_active: bool,
     
@@ -44,7 +45,8 @@ impl IecSnooper {
             bit_count: 0,
             current_byte: 0,
             atn_at_start: false,
-            device_id,
+            listen_addr: 0x20 | device_id,
+            talk_addr: 0x40 | device_id,
             device_addressed: false,
             channel_15_active: false,
             buffer: [0; 64],
@@ -131,10 +133,10 @@ impl IecSnooper {
     fn process_byte(&mut self, byte: u8, atn: bool) {
         log::info!("[Snooper] Decoded: 0x{:02X} (ATN:{})", byte, atn);
         if atn {
-            if byte == (0x20 | self.device_id) { // LISTEN device
+            if byte == self.listen_addr { // LISTEN device
                 self.device_addressed = true;
                 self.buffer_len = 0;
-            } else if byte == (0x40 | self.device_id) { // TALK device
+            } else if byte == self.talk_addr { // TALK device
                 self.device_addressed = true;
                 self.buffer_len = 0;
             } else if byte == 0x3F { // UNLISTEN
@@ -183,6 +185,14 @@ impl IecSnooper {
             SnooperState::Ready => self.ready_delay == 0,
             SnooperState::Ack => true,
             _ => false,
+        }
+    }
+
+    pub fn set_iec_addresses(&mut self, listen: u8, talk: u8) {
+        // Only update if they look like valid IEC addresses (LISTEN=0x20-0x3E, TALK=0x40-0x5E)
+        if (listen & 0xE0) == 0x20 && (talk & 0xE0) == 0x40 {
+            self.listen_addr = listen;
+            self.talk_addr = talk;
         }
     }
 }

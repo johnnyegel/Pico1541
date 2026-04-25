@@ -158,7 +158,12 @@ impl<H: HostInterface> Bus for SystemBus<H> {
     fn write(&mut self, addr: u16, value: u8, ctx: &mut H) {
         self.tick_cycle(ctx);
         match addr {
-            0x0000..=0x17FF => self.ram[(addr as usize) % RAM_SIZE] = value,
+            0x0000..=0x17FF => {
+                self.ram[(addr as usize) % RAM_SIZE] = value;
+                if addr == 0x0077 || addr == 0x0078 {
+                    ctx.update_iec_addresses(self.ram[0x0077], self.ram[0x0078]);
+                }
+            }
             0x1800..=0x1BFF => self.via1.write(addr, value),
             0x1C00..=0x1FFF => self.via2.write(addr, value),
             0x8000..=0xFFFF => {}

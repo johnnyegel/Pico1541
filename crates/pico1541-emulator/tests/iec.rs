@@ -2,6 +2,7 @@ mod common;
 
 use log::info;
 use pico1541_emulator::interface::{DriveEvent, HostInterface};
+use racc6502::bus::Bus;
 
 #[test]
 fn test_iec_atn_handshake() {
@@ -140,4 +141,58 @@ fn test_manager_command_hijack() {
     let status = bridge.read_status(&mut drive);
     info!("Status after hijack: {:?}", status);
     assert!(status.starts_with("00,"), "Expected 00, OK, got: {:?}", status);
+}
+
+#[test]
+fn test_soft_id_change_hijack() {
+    let (mut drive, mut bridge) = common::setup_drive(true, 8, None);
+
+    // 1. Initially should be 0x28 / 0x48
+    assert_eq!(bridge.snooper.listen_addr, 0x28);
+    assert_eq!(bridge.snooper.talk_addr, 0x48);
+
+    // 2. Soft-change to device 9 in RAM
+    drive.bus_mut().write(0x0077, 0x29, &mut bridge); // LISTEN 9
+    drive.bus_mut().write(0x0078, 0x49, &mut bridge); // TALK 9
+    bridge.ticks(&mut drive, 10);
+    assert_eq!(bridge.snooper.listen_addr, 0x29);
+    assert_eq!(bridge.snooper.talk_addr, 0x49);
+
+    // 3. Soft-change to device 10 in RAM
+    drive.bus_mut().write(0x0077, 0x2A, &mut bridge); // LISTEN 10
+    drive.bus_mut().write(0x0078, 0x4A, &mut bridge); // TALK 10
+    bridge.ticks(&mut drive, 10);
+    assert_eq!(bridge.snooper.listen_addr, 0x2A);
+    assert_eq!(bridge.snooper.talk_addr, 0x4A);
+
+    // 4. Change back to 8 and verify we can still hijack
+    drive.bus_mut().write(0x0077, 0x28, &mut bridge);
+    drive.bus_mut().write(0x0078, 0x48, &mut bridge);
+    bridge.ticks(&mut drive, 10);
+
+    // Clear boot status
+    let _ = bridge.read_status(&mut drive);
+    bridge.snooper.discard_request = false;
+    bridge.events.clear();
+
+    bridge.atn_start(&mut drive);
+    bridge.send_byte(&mut drive, 0x28, false); // LISTEN 8
+    bridge.send_byte(&mut drive, 0xFF, false); // OPEN 15
+    bridge.atn_end(&mut drive);
+
+    bridge.send_byte(&mut drive, b'C', false);
+    bridge.send_byte(&mut drive, b'D', false);
+    bridge.send_byte(&mut drive, b':', false);
+    bridge.send_byte(&mut drive, b'O', false);
+    bridge.send_byte(&mut drive, b'K', true);
+
+    bridge.ticks(&mut drive, common::T_PHASE * 2);
+
+    bridge.atn_start(&mut drive);
+    bridge.send_byte(&mut drive, 0x3F, false); // UNLISTEN
+    bridge.atn_end(&mut drive);
+    bridge.iec_end(&mut drive);
+
+    let cmd_event = bridge.events.iter().find(|e| matches!(e, DriveEvent::IecCommand { .. }));
+    assert!(cmd_event.is_some(), "Should have hijacked CD: after changing address back and forth");
 }

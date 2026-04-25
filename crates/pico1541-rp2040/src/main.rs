@@ -163,6 +163,10 @@ impl HostInterface for HardwareBridge {
         req
     }
 
+    fn update_iec_addresses(&mut self, listen: u8, talk: u8) {
+        self.snooper.set_iec_addresses(listen, talk);
+    }
+
     fn sync(&mut self) {
         let atn = self.pins.atn_rx.is_high();
         let clk = self.pins.clk_rx.is_high();
