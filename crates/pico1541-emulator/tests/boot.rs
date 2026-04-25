@@ -78,6 +78,7 @@ fn test_drive_boot_behavior() {
                     stepper_count += 1;
                     log::info!("[Test] HeadStepped to half-track {} at step {}, cycle {}", new_half_track, i, total_cycles);
                 }
+                DriveEvent::IecCommand { .. } => {}
             }
         }
         
@@ -145,14 +146,16 @@ fn test_dir_no_disk() {
     log::info!("Half-track after failed DIR: {}", final_half_track);
     log::info!("Status: {}", status);
 
-    // Drive should have tried to read and failed — motor events and head movement
     let motor_events: usize = bridge.events.iter()
         .filter(|e| matches!(e, pico1541_emulator::interface::DriveEvent::MotorChanged(_)))
         .count();
     let step_events: usize = bridge.events.iter()
         .filter(|e| matches!(e, pico1541_emulator::interface::DriveEvent::HeadStepped { .. }))
         .count();
-    log::info!("Motor events: {}, Step events: {}", motor_events, step_events);
+    let iec_events: usize = bridge.events.iter()
+        .filter(|e| matches!(e, pico1541_emulator::interface::DriveEvent::IecCommand { .. }))
+        .count();
+    log::info!("Motor events: {}, Step events: {}, IEC events: {}", motor_events, step_events, iec_events);
 
     assert!(motor_events >= 1, "Expected motor ON event, got {}", motor_events);
     // Drive should have seeked attempting to find track 18.

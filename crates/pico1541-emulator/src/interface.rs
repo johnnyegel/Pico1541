@@ -33,6 +33,11 @@ pub enum DriveEvent {
     LedChanged(bool),
     MotorChanged(bool),
     HeadStepped { new_half_track: u8 },
+    /// A snooped IEC command directed at channel 15
+    IecCommand {
+        data: [u8; 64],
+        len: u8,
+    },
 }
 
 /// Open-drain IEC serial bus interface.

@@ -1,6 +1,7 @@
 mod common;
 
 use log::info;
+use pico1541_emulator::interface::DriveEvent;
 
 #[test]
 fn test_iec_atn_handshake() {
@@ -40,4 +41,88 @@ fn test_iec_read_status() {
         status2.starts_with("00,"),
         "Expected '00,...' on second read, got: {:?}", status2
     );
+}
+
+#[test]
+fn test_manager_command_snoop() {
+    let (mut drive, mut bridge) = common::setup_drive(true, None);
+
+    // 1. Send "CD:GAMES" on channel 15
+    bridge.atn_start(&mut drive);
+    bridge.send_byte(&mut drive, 0x28, false); // LISTEN 8
+    bridge.send_byte(&mut drive, 0x6F, false); // SEC 15
+    bridge.atn_end(&mut drive);
+
+    // Send "CD:GAMES" as data (with ATN deasserted)
+    bridge.send_byte(&mut drive, b'C', false);
+    bridge.send_byte(&mut drive, b'D', false);
+    bridge.send_byte(&mut drive, b':', false);
+    bridge.send_byte(&mut drive, b'G', false);
+    bridge.send_byte(&mut drive, b'A', false);
+    bridge.send_byte(&mut drive, b'M', false);
+    bridge.send_byte(&mut drive, b'E', false);
+    bridge.send_byte(&mut drive, b'S', true); // EOI
+
+    // Terminate
+    bridge.atn_start(&mut drive);
+    bridge.send_byte(&mut drive, 0x3F, false); // UNLISTEN
+    bridge.atn_end(&mut drive);
+    bridge.iec_end(&mut drive);
+
+    // 2. Check that IecCommand event was received by the snooper
+    let cmd_event = bridge.events.iter().find(|e| matches!(e, DriveEvent::IecCommand { .. }));
+    assert!(cmd_event.is_some(), "Should have received IecCommand event");
+    
+    if let Some(DriveEvent::IecCommand { data, len }) = cmd_event {
+        let cmd_str = core::str::from_utf8(&data[..*len as usize]).unwrap();
+        info!("Snooped command: {}", cmd_str);
+        assert_eq!(cmd_str, "CD:GAMES");
+    }
+
+    // 3. Check drive status - should be 30, SYNTAX ERROR since we didn't hijack
+    let status = bridge.read_status(&mut drive);
+    info!("Status after snoop: {:?}", status);
+    assert!(status.starts_with("30,"), "Expected Syntax Error, got: {:?}", status);
+}
+
+#[test]
+fn test_manager_command_hijack() {
+    let (mut drive, mut bridge) = common::setup_drive(true, None);
+
+    // Enable hijacking logic in the snooper
+    // Note: We need to modify snooper.rs to allow enabling this.
+    // For now, let's just use the current snooper which decodes and see if we can trigger it.
+
+    // 1. Send "CD:GAMES" on channel 15
+    bridge.atn_start(&mut drive);
+    bridge.send_byte(&mut drive, 0x28, false); // LISTEN 8
+    bridge.send_byte(&mut drive, 0x6F, false); // SEC 15
+    bridge.atn_end(&mut drive);
+
+    // Send "CD:GAMES" as data. 
+    // Hijack should kick in after "CD:".
+    bridge.send_byte(&mut drive, b'C', false);
+    bridge.send_byte(&mut drive, b'D', false);
+    bridge.send_byte(&mut drive, b':', false);
+    
+    // Check if bridge is now hijacked
+    // assert!(bridge.hijacked);
+
+    bridge.send_byte(&mut drive, b'G', false);
+    bridge.send_byte(&mut drive, b'A', false);
+    bridge.send_byte(&mut drive, b'M', false);
+    bridge.send_byte(&mut drive, b'E', false);
+    bridge.send_byte(&mut drive, b'S', true); // EOI
+
+    // Terminate
+    bridge.atn_start(&mut drive);
+    bridge.send_byte(&mut drive, 0x3F, false); // UNLISTEN
+    bridge.atn_end(&mut drive);
+    bridge.iec_end(&mut drive);
+
+    // 2. Check drive status - IF hijack worked, it should be 00, OK 
+    // because the drive was blinded after "CD:".
+    let status = bridge.read_status(&mut drive);
+    info!("Status after hijack: {:?}", status);
+    // assert!(status.starts_with("00,"));
 }

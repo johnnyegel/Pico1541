@@ -4,6 +4,7 @@ pub mod via6522;
 pub mod systembus;
 pub mod drivemechanics;
 pub mod interface;
+pub mod snooper;
 
 use racc6502::cpu::{CPU, CycleState};
 use systembus::SystemBus;

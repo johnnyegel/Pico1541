@@ -96,8 +96,6 @@ impl<H: HostInterface> SystemBus<H> {
 
         self.via1.tick_cycle();
         self.via2.tick_cycle();
-
-        hardware.sync();
     }
 }
 

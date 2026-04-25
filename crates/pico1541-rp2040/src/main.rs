@@ -8,31 +8,79 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::gpio::{Input, Level, Output, Pull, Pin};
 use embassy_rp::i2c::{I2c, Config, InterruptHandler};
-use embassy_rp::multicore::{spawn_core1, Stack};
-use embassy_rp::peripherals::I2C0;
+use embassy_rp::peripherals::{I2C0, PIO0, SPI0};
+use embassy_rp::spi;
+use embassy_rp::timer::Timer;
 use embassy_rp::bind_interrupts;
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-use embassy_sync::mutex::Mutex;
-use panic_probe as _;
-use rp2040_boot2 as _;
-use static_cell::StaticCell;
+use embassy_rp::pio::Pio;
+use embassy_rp::clocks::Rosc;
+use embassy_rp::Peripheral;
 
+use pico1541_common::interface::{ActiveTrack, DriveEvent};
 use pico1541_emulator::Emulator;
-use pico1541_emulator::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus};
-use pico1541_manager::EVENT_CHANNEL;
+use pico1541_emulator::interface::{IecBus, HostInterface};
 use pico1541_manager::tasks::{DisplayTask, DriveActivityTask, KeyboardTask};
 
-use crate::driver::display::{OledDisplay, DisplayWrapper};
-use crate::driver::input::KeyboardInput;
-use crate::driver::leds::{StatusLeds, ActivityLed};
-use crate::driver::speaker::PiezoSpeaker;
-use crate::driver::indicator::ActivityIndicator;
+use static_cell::StaticCell;
 
 bind_interrupts!(struct Irqs {
     I2C0_IRQ => InterruptHandler<I2C0>;
 });
 
-// --- Hardware Pins Definition ---
+#[embassy_executor::main]
+async fn main(spawner: Spawner) {
+    let p = embassy_rp::init(Default::default());
+    info!("Pico1541 Starting...");
+
+    // --- Hardware Drivers (Core 1 - Manager) ---
+    
+    // 1. OLED Display (I2C)
+    let sda = p.PIN_4;
+    let scl = p.PIN_5;
+    let i2c = I2c::new(p.I2C0, scl, sda, Irqs, Config::default());
+    let mut display_task = DisplayTask::new(i2c);
+
+    // 2. Indicators (Piezo + LEDs)
+    let piezo = Output::new(p.PIN_2, Level::Low);
+    let activity_led = Output::new(p.PIN_22, Level::Low);
+    let mut activity_task = DriveActivityTask::new(activity_led, piezo);
+
+    // 3. Storage (SD Card - SPI)
+    // TODO: Initialize SD card driver
+    
+    // 4. Keyboard (Matrix)
+    // TODO: Initialize keyboard driver
+    
+    // Spawn Manager Tasks
+    spawner.spawn(display_run(display_task)).unwrap();
+    spawner.spawn(activity_run(activity_task)).unwrap();
+
+    // --- Emulator Setup (Core 0 - 1541-II) ---
+
+    // Shared ActiveTrack buffer
+    static ACTIVE_TRACK: StaticCell<ActiveTrack> = StaticCell::new();
+    let track = ACTIVE_TRACK.init(ActiveTrack::new());
+
+    // IEC Pins
+    let pins = IecPins {
+        data_rx: Input::new(p.PIN_16, Pull::None),
+        clk_rx: Input::new(p.PIN_17, Pull::None),
+        atn_rx: Input::new(p.PIN_18, Pull::None),
+        data_tx: Output::new(p.PIN_19, Level::Low),
+        clk_tx: Output::new(p.PIN_20, Level::Low),
+    };
+
+    let bridge = HardwareBridge::new(pins, track);
+
+    // 1541-II ROM (Stock)
+    let rom = include_bytes!("../../../roms/1541-II.251968-03.bin");
+    let mut drive = Emulator::new(*rom);
+
+    // Run Emulator Loop (Cycle-Exact 1 MHz)
+    emulator_loop(drive, bridge).await;
+}
+
+// --- IEC Pin Wrapper ---
 
 struct IecPins {
     data_rx: Input<'static>,
@@ -42,11 +90,14 @@ struct IecPins {
     clk_tx: Output<'static>,
 }
 
+use pico1541_emulator::snooper::IecSnooper;
+
 // --- Hardware Bridge (Core 0) ---
 
 struct HardwareBridge {
     track: &'static mut ActiveTrack,
     pins: IecPins,
+    snooper: IecSnooper,
 }
 
 impl HardwareBridge {
@@ -54,6 +105,7 @@ impl HardwareBridge {
         Self {
             track,
             pins,
+            snooper: IecSnooper::new(),
         }
     }
 }
@@ -95,9 +147,23 @@ impl HostInterface for HardwareBridge {
     }
 
     fn send_event(&mut self, event: DriveEvent) {
-        // Forward all events to Manager core via Channel
-        if let Err(_) = EVENT_CHANNEL.try_send(event) {
+        if let Err(_) = pico1541_manager::EVENT_CHANNEL.try_send(event) {
             // Channel full
+        }
+    }
+
+    fn sync(&mut self) {
+        let atn = self.pins.atn_rx.is_high();
+        let clk = self.pins.clk_rx.is_high();
+        let data = self.pins.data_rx.is_high();
+
+        // Passive snooping only
+        if let Some(cmd_data) = self.snooper.tick(atn, clk, data) {
+            let len = self.snooper.buffer_len() as u8;
+            self.send_event(DriveEvent::IecCommand {
+                data: cmd_data,
+                len,
+            });
         }
     }
 }
@@ -105,141 +171,31 @@ impl HostInterface for HardwareBridge {
 // --- Embassy Task Wrappers ---
 
 #[embassy_executor::task]
-async fn display_task(mut task: DisplayTask<DisplayWrapper<NoopRawMutex>>) {
+async fn display_run(mut task: DisplayTask<I2c<'static, I2C0>>) {
     task.run().await;
 }
 
 #[embassy_executor::task]
-async fn drive_activity_task(mut task: DriveActivityTask<&'static mut ActivityIndicator>) {
+async fn activity_run(mut task: DriveActivityTask<Output<'static>, Output<'static>>) {
     task.run().await;
 }
 
-#[embassy_executor::task]
-async fn keyboard_task(mut task: KeyboardTask<KeyboardInput>) {
-    task.run().await;
-}
+// --- Emulator Loop ---
 
-// --- Multicore Setup ---
-
-static CORE1_STACK: StaticCell<Stack<8192>> = StaticCell::new();
-static EXECUTOR_CORE1: StaticCell<embassy_executor::Executor> = StaticCell::new();
-static DISPLAY: StaticCell<Mutex<NoopRawMutex, OledDisplay>> = StaticCell::new();
-
-static INDICATOR: StaticCell<ActivityIndicator> = StaticCell::new();
-
-fn core1_run(display: &'static Mutex<NoopRawMutex, OledDisplay>, indicator: &'static mut ActivityIndicator) -> ! {
-    let executor = EXECUTOR_CORE1.init(embassy_executor::Executor::new());
-    executor.run(|spawner| {
-        let input = KeyboardInput::new();
-        let display_wrapper = DisplayWrapper(display);
-        
-        // Initialize Manager tasks
-        let disp_task = DisplayTask::new(display_wrapper);
-        let drive_act_task = DriveActivityTask::new(indicator);
-        let key_task = KeyboardTask::new(input);
-
-        // Spawn Embassy tasks
-        spawner.spawn(display_task(disp_task)).unwrap();
-        spawner.spawn(drive_activity_task(drive_act_task)).unwrap();
-        spawner.spawn(keyboard_task(key_task)).unwrap();
-    });
-}
-
-// --- Static Resources for Core 0 ---
-
-static ACTIVE_TRACK: StaticCell<ActiveTrack> = StaticCell::new();
-static EMULATOR: StaticCell<Emulator<HardwareBridge>> = StaticCell::new();
-static ROM: StaticCell<[u8; 16384]> = StaticCell::new();
-
-// --- Core 0: Emulator ---
-
-#[embassy_executor::main]
-async fn main(_spawner: Spawner) {
-    let p = embassy_rp::init(Default::default());
-    info!("Core 0: Starting Pico1541");
-
-    // Initialize Status RGB LED
-    let mut status_leds = StatusLeds::new(
-        p.PIN_26.degrade(),
-        p.PIN_27.degrade(),
-        p.PIN_28.degrade(),
-    );
-    status_leds.set_color(false, true, false);
-
-    // Initialize Activity LED
-    let activity_led = ActivityLed::new(
-        p.PIN_22.degrade(),
-        p.PIN_3.degrade(),
-    );
-
-    // Initialize Speaker
-    let speaker = PiezoSpeaker::new(p.PIN_2.degrade());
-    
-    // Combine into Activity Indicator for Manager
-    let indicator = INDICATOR.init(ActivityIndicator::new(activity_led, speaker));
-
-    // Initialize I2C for Display (GPIO 4, 5)
-    let i2c = I2c::new_async(p.I2C0, p.PIN_5, p.PIN_4, Irqs, Config::default());
-    let oled_display = OledDisplay::new(i2c);
-    
-    let display_ref = DISPLAY.init(Mutex::new(oled_display));
-    
-    // Initialize display hardware (async)
-    {
-        let mut d = display_ref.lock().await;
-        d.init().await;
-    }
-
-    // Initialize IEC Pins
-    let iec_pins = IecPins {
-        data_rx: Input::new(p.PIN_16, Pull::None),
-        clk_rx: Input::new(p.PIN_17, Pull::None),
-        atn_rx: Input::new(p.PIN_18, Pull::None),
-        data_tx: Output::new(p.PIN_19, Level::Low),
-        clk_tx: Output::new(p.PIN_20, Level::Low),
-    };
-
-    // Spawn Core 1 (Manager)
-    let stack = CORE1_STACK.init(Stack::new());
-    spawn_core1(p.CORE1, stack, move || {
-        core1_run(display_ref, indicator);
-    });
-
-    info!("Core 0: Entering Emulator Loop (1 MHz)");
-
-    let track = ACTIVE_TRACK.init(ActiveTrack::new());
-    let mut bridge = HardwareBridge::new(iec_pins, track);
-    
-    // TODO: Load real 1541 ROM
-    let rom = ROM.init([0u8; 16384]); 
-    let drive = EMULATOR.init(Emulator::new(*rom));
-    drive.reset();
-
-    // Use TIMER peripheral directly via PAC
+async fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: HardwareBridge) -> ! {
     let timer = embassy_rp::pac::TIMER;
-
-    // Run the emulator loop
-    run_emulator(drive, &mut bridge, timer);
-}
-
-/// The critical 1MHz emulator loop. 
-#[inline(never)]
-#[link_section = ".data"]
-fn run_emulator(
-    drive: &mut Emulator<HardwareBridge>, 
-    bridge: &mut HardwareBridge, 
-    timer: rp_pac::timer::Timer
-) -> ! {
     let mut last_tick = timer.timelr().read();
 
     loop {
-        // Wait for next microsecond (1 MHz)
         while timer.timelr().read() == last_tick {
             cortex_m::asm::nop();
         }
         last_tick = timer.timelr().read();
 
         // One 6502 cycle = 1 microsecond
-        drive.tick(bridge);
+        drive.tick(&mut bridge);
+        
+        // Update snooper once per microsecond, outside the cycle core but in the main loop
+        bridge.sync();
     }
 }
