@@ -45,12 +45,13 @@ pub fn setup_drive(reset: bool, debug_hook: Option<DebugHook>) -> (Emulator<Test
 }
 
 pub fn reset_drive(drive: &mut Emulator<TestBridge>, bridge: &mut TestBridge) {
-    drive.reset();
     bridge.reset();
+    drive.reset();
 
     // Boot: Wait for idle loop
     for _ in 0..5_000_000 {
         drive.tick(bridge);
+        bridge.sync();
         if drive.pc() >= IDLE_LOW && drive.pc() <= IDLE_HIGH {
             return;
         }
@@ -105,7 +106,7 @@ impl TestBridge {
     pub fn ticks(&mut self, drive: &mut Emulator<TestBridge>, n: u32) {
         for _ in 0..n { 
             drive.tick(self); 
-            self.sync(); // Passive snooping only
+            self.sync();
         }
     }
 
@@ -128,6 +129,7 @@ impl TestBridge {
     }
 
     pub fn atn_start(&mut self, drive: &mut Emulator<Self>) {
+        log::info!("[Test] ATN PULL");
         self.set_atn(true);
         self.ticks(drive, T_PHASE);
         self.set_clk(true);
@@ -135,6 +137,7 @@ impl TestBridge {
     }
 
     pub fn atn_end(&mut self, drive: &mut Emulator<Self>) {
+        log::info!("[Test] ATN RELEASE");
         self.ticks(drive, T_PHASE);
         self.set_atn(false);
     }
@@ -151,6 +154,7 @@ impl TestBridge {
     }
 
     pub fn send_byte(&mut self, drive: &mut Emulator<Self>, byte: u8, eoi: bool) { 
+        log::info!("[Test] Sending Byte: 0x{:02X}", byte);
         if !self.host_clk {
             panic!("send_byte called with CLK not asserted! PC=${:04X}", drive.pc());
         }
@@ -277,8 +281,8 @@ impl TestBridge {
 }
 
 impl IecBus for TestBridge {
-    fn read_data(&self) -> bool { self.host_data }
-    fn read_clk(&self)  -> bool { self.host_clk }
+    fn read_data(&self) -> bool { self.host_data || self.bus_data }
+    fn read_clk(&self)  -> bool { self.host_clk || self.bus_clk }
     fn read_atn(&self)  -> bool { self.host_atn }
     fn drive_data(&mut self, v: bool) { self.bus_data = v; }
     fn drive_clk(&mut self, v: bool)  { self.bus_clk = v; }
@@ -290,8 +294,8 @@ impl HostInterface for TestBridge {
 
     fn sync(&mut self) {
         let atn = self.host_atn;
-        let clk = self.host_clk; 
-        let data = self.host_data;
+        let clk = self.host_clk || self.bus_clk; 
+        let data = self.host_data || self.bus_data;
 
         if let Some(cmd_data) = self.snooper.tick(atn, clk, data) {
             let len = self.snooper.buffer_len() as u8;

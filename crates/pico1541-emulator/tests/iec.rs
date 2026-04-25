@@ -47,10 +47,10 @@ fn test_iec_read_status() {
 fn test_manager_command_snoop() {
     let (mut drive, mut bridge) = common::setup_drive(true, None);
 
-    // 1. Send "CD:GAMES" on channel 15
+    // 1. Send "CD:GAMES" exactly like a DIR command
     bridge.atn_start(&mut drive);
     bridge.send_byte(&mut drive, 0x28, false); // LISTEN 8
-    bridge.send_byte(&mut drive, 0x6F, false); // SEC 15
+    bridge.send_byte(&mut drive, 0xFF, false); // OPEN 15
     bridge.atn_end(&mut drive);
 
     // Send "CD:GAMES" as data (with ATN deasserted)
@@ -62,6 +62,9 @@ fn test_manager_command_snoop() {
     bridge.send_byte(&mut drive, b'M', false);
     bridge.send_byte(&mut drive, b'E', false);
     bridge.send_byte(&mut drive, b'S', true); // EOI
+
+    // Wait for the last byte ACK to finish completely
+    bridge.ticks(&mut drive, common::T_PHASE * 2);
 
     // Terminate
     bridge.atn_start(&mut drive);
@@ -96,7 +99,7 @@ fn test_manager_command_hijack() {
     // 1. Send "CD:GAMES" on channel 15
     bridge.atn_start(&mut drive);
     bridge.send_byte(&mut drive, 0x28, false); // LISTEN 8
-    bridge.send_byte(&mut drive, 0x6F, false); // SEC 15
+    bridge.send_byte(&mut drive, 0xFF, false); // OPEN 15
     bridge.atn_end(&mut drive);
 
     // Send "CD:GAMES" as data. 

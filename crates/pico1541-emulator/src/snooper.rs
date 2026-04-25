@@ -47,59 +47,56 @@ impl IecSnooper {
     }
 
     pub fn tick(&mut self, atn: bool, clk: bool, data: bool) -> Option<[u8; 64]> {
-        let _atn_edge_pos = atn && !self.last_atn;
-        let _atn_edge_neg = !atn && self.last_atn;
+        let atn_edge_pos = atn && !self.last_atn;
         let clk_edge_pos = clk && !self.last_clk;
         let clk_edge_neg = !clk && self.last_clk;
         let data_edge_pos = data && !self.last_data;
         let data_edge_neg = !data && self.last_data;
 
+        // If ATN is pulled while we are waiting for a byte, mark it as an ATN byte.
+        if atn_edge_pos && self.state == SnooperState::Ready {
+            self.atn_at_start = true;
+        }
+
         // --- Layer 1: Byte Decoder ---
-        match self.state {
-            SnooperState::Idle => {
-                // "Idle: data true -> false => Ready"
-                if data_edge_neg {
-                    self.atn_at_start = atn; // Record ATN state at start
-                    self.state = SnooperState::Ready;
+        for _ in 0..2 {
+            let prev_state = self.state;
+            match self.state {
+                SnooperState::Idle => {
+                    if data_edge_neg {
+                        self.atn_at_start = atn;
+                        self.state = SnooperState::Ready;
+                    }
                 }
-            }
-            SnooperState::Ready => {
-                // "Ready: clk false -> true => Receive"
-                if clk_edge_pos {
-                    self.state = SnooperState::Receiving;
-                    self.bit_count = 0;
-                    self.current_byte = 0;
-                } else if data_edge_pos && !clk {
-                    // Drive pulled DATA back LOW before CLK pull?
-                    // This could be EOI handshake or abort.
-                    self.state = SnooperState::Idle;
+                SnooperState::Ready => {
+                    if clk_edge_pos {
+                        self.state = SnooperState::Receiving;
+                        self.bit_count = 0;
+                        self.current_byte = 0;
+                    } else if data_edge_pos && !clk {
+                        self.state = SnooperState::Idle;
+                    }
                 }
-            }
-            SnooperState::Receiving => {
-                // "Receive: Clock in 8 bits on clk true -> false"
-                if clk_edge_neg {
-                    // "data is inversed!"
-                    // Logic 1 = Line LOW (true) = data is true.
-                    // Logic 0 = Line HIGH (false) = data is false.
-                    // Wait, if C64 inverts it, then Line LOW means C64 sent a '1'.
-                    // Our `data` signal is true when wire is LOW.
-                    let bit = if data { 1 } else { 0 };
-                    self.current_byte |= bit << self.bit_count;
-                    self.bit_count += 1;
-                    
-                    if self.bit_count == 8 {
-                        self.state = SnooperState::Ack;
+                SnooperState::Receiving => {
+                    if clk_edge_neg {
+                        let bit = if !data { 1 } else { 0 };
+                        self.current_byte |= bit << self.bit_count;
+                        self.bit_count += 1;
+                        
+                        if self.bit_count == 8 {
+                            self.state = SnooperState::Ack;
+                        }
+                    }
+                }
+                SnooperState::Ack => {
+                    if data_edge_neg {
+                        log::info!("[Snooper] Decoded: 0x{:02X} (ATN:{})", self.current_byte, self.atn_at_start);
+                        self.process_byte(self.current_byte, self.atn_at_start);
+                        self.state = SnooperState::Idle;
                     }
                 }
             }
-            SnooperState::Ack => {
-                // "Ack: data true -> false => Idle"
-                if data_edge_neg {
-                    log::info!("[Snooper] Decoded: 0x{:02X} (ATN:{})", self.current_byte, self.atn_at_start);
-                    self.process_byte(self.current_byte, self.atn_at_start);
-                    self.state = SnooperState::Idle;
-                }
-            }
+            if self.state == prev_state { break; }
         }
 
         self.last_atn = atn;
@@ -116,10 +113,8 @@ impl IecSnooper {
         None
     }
 
-    // --- Layer 2: Protocol Logic ---
     fn process_byte(&mut self, byte: u8, atn: bool) {
         if atn {
-            // Command Phase
             if byte == 0x28 { // LISTEN 8
                 self.device_addressed = true;
                 self.buffer_len = 0;
@@ -131,13 +126,12 @@ impl IecSnooper {
                 self.channel_15_active = false;
             } else if (byte & 0xF0) == 0x60 && self.device_addressed { // SEC
                 let channel = byte & 0x0F;
-                self.channel_15_active = (channel == 15);
+                self.channel_15_active = channel == 15;
             } else if (byte & 0xF0) == 0xF0 && self.device_addressed { // OPEN
                 let channel = byte & 0x0F;
-                self.channel_15_active = (channel == 15);
+                self.channel_15_active = channel == 15;
             }
         } else if self.device_addressed && self.channel_15_active {
-            // Data Phase (Command String)
             if self.buffer_len < 64 {
                 self.buffer[self.buffer_len] = byte;
                 self.buffer_len += 1;
