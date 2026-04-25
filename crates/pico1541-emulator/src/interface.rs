@@ -62,9 +62,9 @@ pub trait IecBus {
     /// Returns true if the host is asserting ATN.
     fn read_atn(&self) -> bool;
 
-    /// Called each cycle with the combined DATA bus state (true = asserted).
+    /// Called each cycle with the drive output DATA bus state (true = asserted).
     fn drive_data(&mut self, assert: bool);
-    /// Called each cycle with the combined CLK bus state (true = asserted).
+    /// Called each cycle with the drive output CLK bus state (true = asserted).
     fn drive_clk(&mut self, assert: bool);
 }
 
@@ -85,4 +85,4 @@ pub trait HostInterface: IecBus {
 
     /// Synchronization point called every cycle.
     fn sync(&mut self) {}
-    }
+}

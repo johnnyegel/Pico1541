@@ -6,7 +6,7 @@ use racc6502::cpu::CycleState;
 
 #[test]
 fn test_drive_boot() {
-    let (mut drive, mut bridge) = common::setup_drive(false, None);
+    let (mut drive, mut bridge) = common::setup_drive(false, 8, None);
     drive.reset();
 
     let initial_pc = drive.pc();
@@ -29,7 +29,7 @@ fn test_drive_boot_behavior() {
         }
     }
 
-    let (mut drive, mut bridge) = common::setup_drive(true, Some(boot_debug_hook));
+    let (mut drive, mut bridge) = common::setup_drive(true, 8, Some(boot_debug_hook));
 
     let mut led_on_count = 0;
     let mut motor_on_count = 0;
@@ -98,7 +98,7 @@ fn test_drive_boot_behavior() {
 
 #[test]
 fn test_dir_no_disk() {
-    let (mut drive, mut bridge) = common::setup_drive(true, None);
+    let (mut drive, mut bridge) = common::setup_drive(true, 8, None);
 
     // Ensure NO DISK is present
     bridge.track.disk_inserted = false;
@@ -109,7 +109,7 @@ fn test_dir_no_disk() {
     // fail, and eventually rattle the head against the stop (head banding).
     bridge.atn_start(&mut drive);
 
-    bridge.send_byte(&mut drive, 0x28, false); // LISTEN 8
+    bridge.send_byte(&mut drive, 0x20 | bridge.device_id, false); // LISTEN device
     bridge.send_byte(&mut drive, 0xF0, false); // OPEN 0 (Open channel 0 with filename)
    
     bridge.atn_end(&mut drive);
@@ -125,7 +125,7 @@ fn test_dir_no_disk() {
 
     // Send command to read the directory, which will fail
     bridge.atn_start(&mut drive);
-    bridge.send_byte(&mut drive, 0x48, false); // TALK 8
+    bridge.send_byte(&mut drive, 0x40 | bridge.device_id, false); // TALK device
     bridge.send_byte(&mut drive, 0x60, false); // SEC 0
     bridge.atn_end(&mut drive);
 

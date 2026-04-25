@@ -22,11 +22,11 @@ pub struct Emulator<H: HostInterface> {
 }
 
 impl<H: HostInterface> Emulator<H> {
-    /// Constructs a new 1541 Emulator with the provided ROM.
-    pub fn new(rom: [u8; 16384]) -> Self {
+    /// Constructs a new 1541 Emulator with the provided ROM and device ID (8-11).
+    pub fn new(rom: [u8; 16384], device_id: u8) -> Self {
         Self {
             cpu: CPU::new(),
-            bus: SystemBus::new(rom),
+            bus: SystemBus::new(rom, device_id),
         }
     }
 

@@ -21,7 +21,7 @@ pub const T_EOI:    u32 = 200;  // >200us
 pub const IDLE_LOW:  u16 = 0xEBFF;
 pub const IDLE_HIGH: u16 = 0xEC9B;
 
-pub fn setup_drive(reset: bool, debug_hook: Option<DebugHook>) -> (Emulator<TestBridge>, TestBridge) {
+pub fn setup_drive(reset: bool, device_id: u8, debug_hook: Option<DebugHook>) -> (Emulator<TestBridge>, TestBridge) {
     let _ = env_logger::builder()
         .is_test(true)
         .parse_default_env()
@@ -30,8 +30,8 @@ pub fn setup_drive(reset: bool, debug_hook: Option<DebugHook>) -> (Emulator<Test
     let mut rom = [0u8; 16384];
     rom.copy_from_slice(ROM_BYTES);
 
-    let mut drive = Emulator::<TestBridge>::new(rom);
-    let mut bridge = TestBridge::new();
+    let mut drive = Emulator::<TestBridge>::new(rom, device_id);
+    let mut bridge = TestBridge::new(device_id);
 
     if let Some(hook) = debug_hook {
         drive.cpu.debug_hook = Some(hook);
@@ -73,12 +73,13 @@ pub struct TestBridge {
     pub bus_data: bool,
     pub bus_clk: bool,
     pub snooper: IecSnooper,
+    pub device_id: u8,
     last_drv_data: bool,
     last_drv_clk: bool,
 }
 
 impl TestBridge {
-    pub fn new() -> Self {
+    pub fn new(device_id: u8) -> Self {
         Self {
             track: ActiveTrack::new(),
             events: Vec::new(),
@@ -87,7 +88,8 @@ impl TestBridge {
             host_atn: false,
             bus_data: false,
             bus_clk: false,
-            snooper: IecSnooper::new(),
+            snooper: IecSnooper::new(device_id),
+            device_id,
             last_drv_data: false,
             last_drv_clk: false,
         }
@@ -100,7 +102,7 @@ impl TestBridge {
         self.host_atn = false;
         self.bus_data = false;
         self.bus_clk = false;
-        self.snooper = IecSnooper::new();
+        self.snooper = IecSnooper::new(self.device_id);
         self.last_drv_data = false;
         self.last_drv_clk = false;
     }
@@ -239,7 +241,7 @@ impl TestBridge {
 
     pub fn close_channel(&mut self, drive: &mut Emulator<Self>, channel: u8) {
         self.atn_start(drive);
-        self.send_byte(drive, 0x28, false);              // LISTEN 8
+        self.send_byte(drive, 0x20 | self.device_id, false);   // LISTEN device
         self.send_byte(drive, 0xE0 | (channel & 0x0F), false); // CLOSE channel
         self.send_byte(drive, 0x3F, false);              // UNLISTEN
         self.atn_end(drive);
@@ -248,7 +250,7 @@ impl TestBridge {
 
     pub fn read_status(&mut self, drive: &mut Emulator<Self>) -> String {
         self.atn_start(drive);
-        self.send_byte(drive, 0x48, false); // TALK 8
+        self.send_byte(drive, 0x40 | self.device_id, false); // TALK device
         self.send_byte(drive, 0x6F, false); // SEC 15
         self.atn_end(drive);
         self.turnaround(drive);

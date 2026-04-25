@@ -6,7 +6,7 @@ use pico1541_emulator::drivemechanics::DriveMechanics;
 
 #[test]
 fn test_disk_streaming_data() {
-    let mut hardware = TestBridge::new();
+    let mut hardware = TestBridge::new(8);
     hardware.track.disk_inserted = true;
     hardware.track.bit_length = 8000 * 8;
     
@@ -59,7 +59,7 @@ fn test_disk_streaming_data() {
 
 #[test]
 fn test_disk_streaming_sync() {
-    let mut hardware = TestBridge::new();
+    let mut hardware = TestBridge::new(8);
     hardware.track.disk_inserted = true;
     hardware.track.bit_length = 8000 * 8;
     
@@ -99,7 +99,7 @@ fn test_disk_streaming_sync() {
 
 #[test]
 fn test_disk_bitrate_zones() {
-    let mut hardware = TestBridge::new();
+    let mut hardware = TestBridge::new(8);
     hardware.track.disk_inserted = true;
     hardware.track.bit_length = 8000 * 8;
     hardware.track.gcr_data[0] = 0xAA;
@@ -147,7 +147,7 @@ fn test_disk_bitrate_zones() {
 
 #[test]
 fn test_disk_write_streaming() {
-    let mut hardware = TestBridge::new();
+    let mut hardware = TestBridge::new(8);
     hardware.track.disk_inserted = true;
     hardware.track.bit_length = 8000 * 8;
     

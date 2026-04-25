@@ -5,7 +5,7 @@ use pico1541_emulator::interface::{DriveEvent, HostInterface};
 
 #[test]
 fn test_iec_atn_handshake() {
-    let (mut drive, mut bridge) = common::setup_drive(true, None);
+    let (mut drive, mut bridge) = common::setup_drive(true, 8, None);
     
     assert!(!bridge.bus_data, "Drive DATA should be released initially");
     
@@ -19,7 +19,7 @@ fn test_iec_atn_handshake() {
 
 #[test]
 fn test_iec_read_status() {
-    let (mut drive, mut bridge) = common::setup_drive(true, None);
+    let (mut drive, mut bridge) = common::setup_drive(true, 9, None);
     
     let status1 = bridge.read_status(&mut drive);
     info!("Status 1: {:?}", status1);
@@ -38,15 +38,15 @@ fn test_iec_read_status() {
 
 #[test]
 fn test_manager_command_snoop() {
-    let (mut drive, mut bridge) = common::setup_drive(true, None);
+    let (mut drive, mut bridge) = common::setup_drive(true, 8, None);
     
     // Clear boot status
     let _ = bridge.read_status(&mut drive);
-    bridge.snooper = pico1541_emulator::snooper::IecSnooper::new();
+    bridge.snooper = pico1541_emulator::snooper::IecSnooper::new(bridge.device_id);
 
     // 1. Send "CD:GAMES" exactly like a DIR command
     bridge.atn_start(&mut drive);
-    bridge.send_byte(&mut drive, 0x28, false); // LISTEN 8
+    bridge.send_byte(&mut drive, 0x20 | bridge.device_id, false); // LISTEN device
     bridge.send_byte(&mut drive, 0xFF, false); // OPEN 15
     bridge.atn_end(&mut drive);
 
@@ -87,15 +87,15 @@ fn test_manager_command_snoop() {
 
 #[test]
 fn test_manager_command_hijack() {
-    let (mut drive, mut bridge) = common::setup_drive(true, None);
+    let (mut drive, mut bridge) = common::setup_drive(true, 8, None);
 
     // Clear boot status
     let _ = bridge.read_status(&mut drive);
-    bridge.snooper = pico1541_emulator::snooper::IecSnooper::new();
+    bridge.snooper = pico1541_emulator::snooper::IecSnooper::new(bridge.device_id);
 
     // 1. Send "CD:GAMES" on channel 15
     bridge.atn_start(&mut drive);
-    bridge.send_byte(&mut drive, 0x28, false); // LISTEN 8
+    bridge.send_byte(&mut drive, 0x20 | bridge.device_id, false); // LISTEN device
     bridge.send_byte(&mut drive, 0xFF, false); // OPEN 15
     bridge.atn_end(&mut drive);
 

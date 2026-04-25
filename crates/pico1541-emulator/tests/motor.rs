@@ -7,7 +7,7 @@ use pico1541_emulator::drivemechanics::DriveMechanics;
 
 #[test]
 fn test_motor_delay() {
-    let mut hardware = TestBridge::new();
+    let mut hardware = TestBridge::new(8);
     hardware.track.disk_inserted = true;
     hardware.track.bit_length = 8000 * 8;
     hardware.track.gcr_data[0] = 0xAA;

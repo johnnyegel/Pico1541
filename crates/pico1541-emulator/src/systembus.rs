@@ -23,15 +23,16 @@ pub struct SystemBus<H: HostInterface> {
     pub via2: Via6522,
     pub mechanics: DriveMechanics,
     pub so_active: bool,
+    pub device_id: u8,
     _phantom: PhantomData<H>,
 }
 
 impl<H: HostInterface> SystemBus<H> {
-    pub fn new(rom: [u8; ROM_SIZE]) -> Self {
+    pub fn new(rom: [u8; ROM_SIZE], device_id: u8) -> Self {
         let mut via1 = Via6522::new();
         // Track 0 Sensor is tied to Ground, The rest of the port is unused
         via1.in_a = 0x0;
-        // Default device address to 8 (PB5=0, PB6=0). Also all lines released.
+        // Lines released by default. PB5/PB6 set in tick_cycle.
         via1.in_b = 0x0;
 
         Self {
@@ -41,6 +42,7 @@ impl<H: HostInterface> SystemBus<H> {
             via2: Via6522::new(),
             mechanics: DriveMechanics::new(),
             so_active: false,
+            device_id,
             _phantom: PhantomData,
         }
     }
@@ -99,10 +101,17 @@ impl<H: HostInterface> SystemBus<H> {
         }
 
         // VIA1 inputs: PB0=DATA_IN, PB2=CLK_IN, PB7=ATN_IN (1=Asserted/LOW wire)
+        // PB5, PB6: Device ID (00=8, 10=9, 01=10, 11=11)
         let mut in_b: u8 = 0;
         if host_data { in_b |= 0x01; }
         if host_clk  { in_b |= 0x04; }
         if host_atn  { in_b |= 0x80; }
+        
+        // Map device_id 8..11 to PB5,PB6
+        let id_offset = self.device_id.saturating_sub(8) & 0x03;
+        if (id_offset & 0x01) != 0 { in_b |= 0x20; } // PB5
+        if (id_offset & 0x02) != 0 { in_b |= 0x40; } // PB6
+        
         self.via1.in_b = in_b;
 
         // CA1: fires on positive edge of ATN assertion.
@@ -205,7 +214,7 @@ mod tests {
     }
     #[test]
     fn test_ram_read_write() {
-        let mut bus = SystemBus::<MockHardware>::new([0; ROM_SIZE]);
+        let mut bus = SystemBus::<MockHardware>::new([0; ROM_SIZE], 8);
         let mut hw = MockHardware { track: ActiveTrack::new() };
         bus.write(0x0100, 0xAB, &mut hw);
         assert_eq!(bus.read(0x0100, &mut hw), 0xAB);

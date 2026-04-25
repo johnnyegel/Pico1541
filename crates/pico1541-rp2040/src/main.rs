@@ -70,11 +70,11 @@ async fn main(spawner: Spawner) {
         clk_tx: Output::new(p.PIN_20, Level::Low),
     };
 
-    let bridge = HardwareBridge::new(pins, track);
+    let bridge = HardwareBridge::new(pins, track, 8);
 
     // 1541-II ROM (Stock)
     let rom = include_bytes!("../../../roms/1541-II.251968-03.bin");
-    let mut drive = Emulator::new(*rom);
+    let mut drive = Emulator::new(*rom, 8);
 
     // Run Emulator Loop (Cycle-Exact 1 MHz)
     emulator_loop(drive, bridge).await;
@@ -101,11 +101,11 @@ struct HardwareBridge {
 }
 
 impl HardwareBridge {
-    fn new(pins: IecPins, track: &'static mut ActiveTrack) -> Self {
+    fn new(pins: IecPins, track: &'static mut ActiveTrack, device_id: u8) -> Self {
         Self {
             track,
             pins,
-            snooper: IecSnooper::new(),
+            snooper: IecSnooper::new(device_id),
         }
     }
 }
