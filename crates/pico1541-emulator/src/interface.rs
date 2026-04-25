@@ -76,6 +76,13 @@ pub trait HostInterface: IecBus {
     /// Send an event (LED, Motor, Step) to the Host
     fn send_event(&mut self, event: DriveEvent);
 
+    /// Returns true if the bus is currently hijacked by the manager.
+    fn is_hijacked(&self) -> bool { false }
+
+    /// Returns true if the manager wants to discard the ROM command buffer.
+    /// This should clear the request after returning true.
+    fn pop_discard_request(&mut self) -> bool { false }
+
     /// Synchronization point called every cycle.
     fn sync(&mut self) {}
-}
+    }

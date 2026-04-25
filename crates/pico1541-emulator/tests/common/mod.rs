@@ -73,6 +73,8 @@ pub struct TestBridge {
     pub bus_data: bool,
     pub bus_clk: bool,
     pub snooper: IecSnooper,
+    last_drv_data: bool,
+    last_drv_clk: bool,
 }
 
 impl TestBridge {
@@ -86,6 +88,8 @@ impl TestBridge {
             bus_data: false,
             bus_clk: false,
             snooper: IecSnooper::new(),
+            last_drv_data: false,
+            last_drv_clk: false,
         }
     }
 
@@ -97,11 +101,21 @@ impl TestBridge {
         self.bus_data = false;
         self.bus_clk = false;
         self.snooper = IecSnooper::new();
+        self.last_drv_data = false;
+        self.last_drv_clk = false;
     }
 
     pub fn set_atn(&mut self, v: bool)  { self.host_atn = v; }
     pub fn set_clk(&mut self, v: bool)  { self.host_clk = v; }
     pub fn set_data(&mut self, v: bool) { self.host_data = v; }
+
+    pub fn update_bus(&mut self) {
+        let drive_data_val = if self.is_hijacked() { false } else { self.last_drv_data };
+        let drive_clk_val = if self.is_hijacked() { false } else { self.last_drv_clk };
+
+        self.bus_data = drive_data_val || self.snooper.should_drive_data();
+        self.bus_clk = drive_clk_val;
+    }
 
     pub fn ticks(&mut self, drive: &mut Emulator<TestBridge>, n: u32) {
         for _ in 0..n { 
@@ -112,18 +126,18 @@ impl TestBridge {
 
     pub fn wait_bus_data(&mut self, drive: &mut Emulator<Self>, want: bool) { 
         for _ in 0..IEC_TIMEOUT {
-            if self.bus_data == want { return; }
             drive.tick(self);
             self.sync();
+            if self.bus_data == want { return; }
         }
         panic!("IEC timeout: DATA != {} (PC=${:04X}, host_data={})", want, drive.pc(), self.host_data);
     }
 
     pub fn wait_bus_clk(&mut self, drive: &mut Emulator<Self>, want: bool) {
         for _ in 0..IEC_TIMEOUT {
-            if self.bus_clk == want { return; }
             drive.tick(self);
             self.sync();
+            if self.bus_clk == want { return; }
         }
         panic!("IEC timeout: CLK != {} (PC=${:04X}, host_clk={})", want, drive.pc(), self.host_clk);
     }
@@ -154,16 +168,24 @@ impl TestBridge {
     }
 
     pub fn send_byte(&mut self, drive: &mut Emulator<Self>, byte: u8, eoi: bool) { 
-        log::info!("[Test] Sending Byte: 0x{:02X}", byte);
+        log::info!("[Test] Sending Byte: 0x{:02X} (EOI={})", byte, eoi);
         if !self.host_clk {
             panic!("send_byte called with CLK not asserted! PC=${:04X}", drive.pc());
         }
 
         self.set_clk(false); 
-        self.wait_bus_data(drive, false);
-
+        
         if eoi {
+            // EOI Handshake: wait > 200us
+            self.ticks(drive, T_EOI + 50);
+            // Drive should NOT have pulled DATA yet if it follows standard EOI.
+            // But if we are hijacked, the snooper might have pulled it.
+            // Standard: Host pulls CLK to signal EOI
+            self.set_clk(true);
             self.wait_bus_data(drive, true);
+            self.set_clk(false);
+            self.wait_bus_data(drive, false);
+        } else {
             self.wait_bus_data(drive, false);
         }
 
@@ -279,18 +301,34 @@ impl TestBridge {
     }
 
 }
-
 impl IecBus for TestBridge {
     fn read_data(&self) -> bool { self.host_data || self.bus_data }
     fn read_clk(&self)  -> bool { self.host_clk || self.bus_clk }
     fn read_atn(&self)  -> bool { self.host_atn }
-    fn drive_data(&mut self, v: bool) { self.bus_data = v; }
-    fn drive_clk(&mut self, v: bool)  { self.bus_clk = v; }
+    fn drive_data(&mut self, v: bool) { 
+        self.last_drv_data = v;
+        self.update_bus();
+    }
+    fn drive_clk(&mut self, v: bool)  { 
+        self.last_drv_clk = v;
+        self.update_bus();
+    }
 }
+
 
 impl HostInterface for TestBridge {
     fn get_active_track(&mut self) -> &mut ActiveTrack { &mut self.track }
     fn send_event(&mut self, event: DriveEvent) { self.events.push(event); }
+
+    fn is_hijacked(&self) -> bool {
+        self.snooper.hijack_active
+    }
+
+    fn pop_discard_request(&mut self) -> bool {
+        let req = self.snooper.discard_request;
+        self.snooper.discard_request = false;
+        req
+    }
 
     fn sync(&mut self) {
         let atn = self.host_atn;
@@ -304,5 +342,7 @@ impl HostInterface for TestBridge {
                 len,
             });
         }
+        
+        self.update_bus();
     }
 }

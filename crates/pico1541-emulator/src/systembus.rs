@@ -17,7 +17,7 @@ const ROM_SIZE: usize = 0x4000; // 16KB
 /// `read` / `write` call via the `Bus::Ctx` mechanism and forwarded to
 /// `tick_cycle`.
 pub struct SystemBus<H: HostInterface> {
-    ram: [u8; RAM_SIZE],
+    pub ram: [u8; RAM_SIZE],
     rom: [u8; ROM_SIZE],
     pub via1: Via6522,
     pub via2: Via6522,
@@ -60,25 +60,43 @@ impl<H: HostInterface> SystemBus<H> {
     }
 
     pub fn tick_cycle(&mut self, hardware: &mut H) {
+        if hardware.pop_discard_request() {
+            self.discard_command_buffer();
+        }
+
         if self.mechanics.tick(hardware, &mut self.via2) {
             self.so_active = true;
         } else {
             self.so_active = false;
         }
 
-        let host_data = hardware.read_data();
-        let host_clk  = hardware.read_clk();
-        let host_atn  = hardware.read_atn();
+        let mut host_data = hardware.read_data();
+        let mut host_clk  = hardware.read_clk();
+        let mut host_atn  = hardware.read_atn();
+
+        // If the bus is hijacked by the manager, blind the ROM/VIA from all IEC lines.
+        // This prevents the DOS parser from seeing the command and prevents bus contention.
+        if hardware.is_hijacked() {
+            host_data = false;
+            host_clk = false;
+            host_atn = false;
+        }
 
         // VIA1 outputs: PB1=DATA_OUT, PB3=CLK_OUT, PB4=ATNA (1=Asserted/LOW wire)
-        let drv_data = (self.via1.orb & self.via1.ddrb & 0x02) != 0;
+        let mut drv_data = (self.via1.orb & self.via1.ddrb & 0x02) != 0;
         let drv_clk  = (self.via1.orb & self.via1.ddrb & 0x08) != 0;
+        
         // Hardware ATN acknowledge: the drive controller chip XORs ATN_IN with ATNA
         // (PB4 output) and asserts DATA when they differ.  This lets the hardware
         // pull DATA without waiting for the CPU — and releases it once the CPU
         // sets ATNA to match ATN, or re-asserts briefly at end-of-ATN (EOI handshake).
         let atna = (self.via1.orb & self.via1.ddrb & 0x10) != 0;
-        let hw_atn_ack = host_atn ^ atna;
+        let mut hw_atn_ack = host_atn ^ atna;
+        
+        if hardware.is_hijacked() {
+            drv_data = false;
+            hw_atn_ack = false;
+        }
 
         // VIA1 inputs: PB0=DATA_IN, PB2=CLK_IN, PB7=ATN_IN (1=Asserted/LOW wire)
         let mut in_b: u8 = 0;
@@ -96,6 +114,17 @@ impl<H: HostInterface> SystemBus<H> {
 
         self.via1.tick_cycle();
         self.via2.tick_cycle();
+    }
+
+    /// Silently discards a command so the 1541 DOS parser ignores it.
+    pub fn discard_command_buffer(&mut self) {
+        // 1. Set command length to 0. 
+        // The DOS parser will see an empty string and skip execution.
+        self.ram[0x02A7] = 0;
+        
+        // 2. Force the internal error state to "00, OK" just to be safe.
+        // This ensures the green LED stays solid and no error is returned.
+        self.ram[0x026C] = 0; 
     }
 }
 

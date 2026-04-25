@@ -125,7 +125,8 @@ impl IecBus for HardwareBridge {
     }
     #[inline(always)]
     fn drive_data(&mut self, assert: bool) {
-        if assert {
+        // Combinatorial: Drive's output OR Snooper's hijack output
+        if assert || self.snooper.should_drive_data() {
             self.pins.data_tx.set_high();
         } else {
             self.pins.data_tx.set_low();
@@ -150,6 +151,16 @@ impl HostInterface for HardwareBridge {
         if let Err(_) = pico1541_manager::EVENT_CHANNEL.try_send(event) {
             // Channel full
         }
+    }
+
+    fn is_hijacked(&self) -> bool {
+        self.snooper.hijack_active
+    }
+
+    fn pop_discard_request(&mut self) -> bool {
+        let req = self.snooper.discard_request;
+        self.snooper.discard_request = false;
+        req
     }
 
     fn sync(&mut self) {

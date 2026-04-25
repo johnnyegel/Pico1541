@@ -26,6 +26,11 @@ pub struct IecSnooper {
     buffer_len: usize,
     
     pub command_ready: bool,
+    pub hijack_active: bool,
+    pub discard_request: bool,
+    ack_seen: bool,
+    ready_delay: u8,
+    was_hijacked: bool,
 }
 
 impl IecSnooper {
@@ -43,6 +48,11 @@ impl IecSnooper {
             buffer: [0; 64],
             buffer_len: 0,
             command_ready: false,
+            hijack_active: false,
+            discard_request: false,
+            ack_seen: false,
+            ready_delay: 0,
+            was_hijacked: false,
         }
     }
 
@@ -59,46 +69,49 @@ impl IecSnooper {
         }
 
         // --- Layer 1: Byte Decoder ---
-        for _ in 0..2 {
-            let prev_state = self.state;
-            match self.state {
-                SnooperState::Idle => {
-                    if data_edge_neg {
-                        self.atn_at_start = atn;
-                        self.state = SnooperState::Ready;
-                    }
+        match self.state {
+            SnooperState::Idle => {
+                if data_edge_neg || atn_edge_pos {
+                    self.atn_at_start = atn;
+                    self.state = SnooperState::Ready;
+                    self.ready_delay = 20;
                 }
-                SnooperState::Ready => {
+            }
+            SnooperState::Ready => {
+                if self.ready_delay > 0 {
+                    self.ready_delay -= 1;
+                } else {
                     if clk_edge_pos {
                         self.state = SnooperState::Receiving;
                         self.bit_count = 0;
                         self.current_byte = 0;
-                    } else if data_edge_pos && !clk {
-                        self.state = SnooperState::Idle;
-                    }
-                }
-                SnooperState::Receiving => {
-                    if clk_edge_neg {
-                        let bit = if !data { 1 } else { 0 };
-                        self.current_byte |= bit << self.bit_count;
-                        self.bit_count += 1;
-                        
-                        if self.bit_count == 8 {
-                            self.state = SnooperState::Ack;
-                        }
-                    }
-                }
-                SnooperState::Ack => {
-                    if data_edge_neg {
-                        log::info!("[Snooper] Decoded: 0x{:02X} (ATN:{})", self.current_byte, self.atn_at_start);
-                        self.process_byte(self.current_byte, self.atn_at_start);
+                    } else if data_edge_pos && !clk && !self.should_drive_data() {
                         self.state = SnooperState::Idle;
                     }
                 }
             }
-            if self.state == prev_state { break; }
+            SnooperState::Receiving => {
+                if clk_edge_neg {
+                    let bit = if !data { 1 } else { 0 };
+                    self.current_byte |= bit << self.bit_count;
+                    self.bit_count += 1;
+                    
+                    if self.bit_count == 8 {
+                        self.process_byte(self.current_byte, self.atn_at_start);
+                        self.state = SnooperState::Ack;
+                    }
+                }
+            }
+            SnooperState::Ack => {
+                if clk {
+                    self.ack_seen = true;
+                }
+                if self.ack_seen && !clk {
+                    self.state = SnooperState::Idle;
+                    self.ack_seen = false;
+                }
+            }
         }
-
         self.last_atn = atn;
         self.last_clk = clk;
         self.last_data = data;
@@ -114,6 +127,7 @@ impl IecSnooper {
     }
 
     fn process_byte(&mut self, byte: u8, atn: bool) {
+        log::info!("[Snooper] Decoded: 0x{:02X} (ATN:{})", byte, atn);
         if atn {
             if byte == 0x28 { // LISTEN 8
                 self.device_addressed = true;
@@ -121,9 +135,14 @@ impl IecSnooper {
             } else if byte == 0x3F { // UNLISTEN
                 if self.device_addressed && self.channel_15_active && self.buffer_len > 0 {
                     self.command_ready = true;
+                    if self.was_hijacked {
+                        self.discard_request = true;
+                    }
                 }
                 self.device_addressed = false;
                 self.channel_15_active = false;
+                self.hijack_active = false;
+                self.was_hijacked = false;
             } else if (byte & 0xF0) == 0x60 && self.device_addressed { // SEC
                 let channel = byte & 0x0F;
                 self.channel_15_active = channel == 15;
@@ -135,11 +154,30 @@ impl IecSnooper {
             if self.buffer_len < 64 {
                 self.buffer[self.buffer_len] = byte;
                 self.buffer_len += 1;
+                
+                // Detect hijack prefixes
+                if self.buffer_len == 3 {
+                    let prefix = &self.buffer[0..3];
+                    if prefix == b"CD:" || prefix == b"MD:" || prefix == b"RD:" {
+                        log::info!("[Snooper] HIJACK ACTIVATED for command: {:?}", core::str::from_utf8(prefix).unwrap_or("???"));
+                        self.hijack_active = true;
+                        self.was_hijacked = true;
+                    }
+                }
             }
         }
     }
     
     pub fn buffer_len(&self) -> usize {
         self.buffer_len
+    }
+
+    pub fn should_drive_data(&self) -> bool {
+        if !self.hijack_active { return false; }
+        match self.state {
+            SnooperState::Ready => self.ready_delay == 0,
+            SnooperState::Ack => true,
+            _ => false,
+        }
     }
 }
