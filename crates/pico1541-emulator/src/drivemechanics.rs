@@ -120,8 +120,10 @@ impl DriveMechanics {
                 // it HIGH (=1) for normal read operation.
                 let write_mode = (via2.orb & 0x10) == 0;
 
+                let track = hardware.get_active_track();
+                track.current_byte_idx = self.current_byte_idx as u32;
+
                 if write_mode {
-                    let track = hardware.get_active_track();
                     track.gcr_data[self.current_byte_idx] = via2.ora;
                     track.is_dirty = true;
                     return true;
@@ -131,7 +133,6 @@ impl DriveMechanics {
                         // represented as 0x55. No SYNC is ever produced.
                         0x55
                     } else {
-                        let track = hardware.get_active_track();
                         track.gcr_data[self.current_byte_idx]
                     };
 

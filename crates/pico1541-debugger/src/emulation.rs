@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use crossbeam_channel::{Receiver, Sender};
 use disasm6502;
 use pico1541_common::{AnyDiskImage, D64Image, DiskImage, G64Image, MemoryStorage};
+use pico1541_common::storage::DummySource;
 use pico1541_common::disk_info::{inspect_d64, petscii_to_ascii, G64_MAGIC};
 use pico1541_emulator::{interface::{DriveEvent, HostInterface, MAX_TRACK_BYTES}, Emulator};
 use racc6502::bus::MemoryMonitor;
@@ -32,7 +33,7 @@ trait DebuggerDiskImage {
 }
 
 #[async_trait(?Send)]
-impl<S: embedded_io_async::Read + embedded_io_async::Seek> DebuggerDiskImage for AnyDiskImage<S> {
+impl<S: embedded_io_async::Read + embedded_io_async::Seek> DebuggerDiskImage for AnyDiskImage<S, DummySource> {
     async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<u32, pico1541_common::Error> {
         DiskImage::read_track(self, half_track, dest).await
     }
@@ -304,7 +305,7 @@ async fn handle_mount(
         let storage = MemoryStorage::new(Box::leak(file_data.into_boxed_slice()));
         let mut d64 = D64Image::new(storage);
         d64.set_id(disk_id);
-        AnyDiskImage::D64(d64)
+        AnyDiskImage::<_, DummySource>::D64(d64)
 
     } else if path_lower.ends_with(".g64") {
         let valid = file_data.len() >= 8 && file_data[..8] == *G64_MAGIC;
@@ -314,7 +315,7 @@ async fn handle_mount(
             if valid { "OK - valid header" } else { "WARN - header mismatch" },
         )))?;
         let storage = MemoryStorage::new(Box::leak(file_data.into_boxed_slice()));
-        AnyDiskImage::G64(G64Image::new(storage))
+        AnyDiskImage::<_, DummySource>::G64(G64Image::new(storage))
 
     } else {
         return Err(anyhow!("Unsupported disk format"));

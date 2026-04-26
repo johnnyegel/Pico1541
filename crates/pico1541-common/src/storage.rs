@@ -6,6 +6,43 @@ pub struct MemoryStorage<'a> {
     pos: usize,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct DirectoryEntry {
+    pub file_type: u8,
+    pub filename: [u8; 16],
+    pub first_track: u8,
+    pub first_sector: u8,
+    pub block_size: u16,
+}
+
+impl DirectoryEntry {
+    pub fn new(filename: &[u8], first_track: u8, first_sector: u8, block_size: u16) -> Self {
+        let mut entry = Self {
+            file_type: 0x82, // PRG
+            filename: [0xA0; 16],
+            first_track,
+            first_sector,
+            block_size,
+        };
+        let len = filename.len().min(16);
+        entry.filename[..len].copy_from_slice(&filename[..len]);
+        entry
+    }
+}
+
+pub trait DirectorySource {
+    fn name(&self) -> &[u8; 16];
+    fn next_entry(&mut self) -> Option<DirectoryEntry>;
+    fn rewind(&mut self);
+}
+
+pub struct DummySource;
+impl DirectorySource for DummySource {
+    fn name(&self) -> &[u8; 16] { &[0xA0; 16] }
+    fn next_entry(&mut self) -> Option<DirectoryEntry> { None }
+    fn rewind(&mut self) {}
+}
+
 impl<'a> MemoryStorage<'a> {
     pub fn new(data: &'a [u8]) -> Self {
         Self { data, pos: 0 }

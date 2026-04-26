@@ -3,6 +3,7 @@ pub const MAX_TRACK_BYTES: usize = 10_000;
 
 pub struct ActiveTrack {
     pub bit_length: u32,
+    pub current_byte_idx: u32,
     pub is_dirty: bool,
     pub disk_inserted: bool,
     /// True if the track contains real GCR data. False for unformatted/missing
@@ -16,6 +17,7 @@ impl ActiveTrack {
     pub fn new() -> Self {
         Self {
             bit_length: 0,
+            current_byte_idx: 0,
             is_dirty: false,
             disk_inserted: false,
             is_formatted: true,
