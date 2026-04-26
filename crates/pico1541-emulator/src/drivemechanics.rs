@@ -128,13 +128,32 @@ impl DriveMechanics {
                     track.is_dirty = true;
                     return true;
                 } else {
-                    let gcr_byte = if !is_formatted {
+                    let mut gcr_byte = if !is_formatted {
                         // Unformatted/missing track — head reads back flux noise,
                         // represented as 0x55. No SYNC is ever produced.
                         0x55
                     } else {
                         track.gcr_data[self.current_byte_idx]
                     };
+
+                    // Warp logic: if not accurate (e.g. virtual dir), skip gaps immediately
+                    if !track.is_accurate && gcr_byte == 0x55 {
+                        let start_idx = self.current_byte_idx;
+                        let mut found = false;
+                        for _ in 0..track_bytes {
+                            self.current_byte_idx = (self.current_byte_idx + 1) % track_bytes;
+                            if track.gcr_data[self.current_byte_idx] == 0xFF {
+                                found = true;
+                                break;
+                            }
+                        }
+                        if found {
+                            gcr_byte = 0xFF;
+                            track.current_byte_idx = self.current_byte_idx as u32;
+                        } else {
+                            self.current_byte_idx = start_idx; // Restore if no SYNC found
+                        }
+                    }
 
                     // Port A is always updated with the byte from the head,
                     // even if it is SYNC (which is then ignored by the CPU

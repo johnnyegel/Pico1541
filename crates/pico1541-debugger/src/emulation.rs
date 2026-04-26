@@ -29,12 +29,12 @@ pub const ROM_BYTES: &[u8] = include_bytes!("../../../roms/1541-II.251968-03.bin
 /// Dyn-compatible disk image trait for the debugger (no Send required — LocalSet).
 #[async_trait(?Send)]
 trait DebuggerDiskImage {
-    async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<u32, pico1541_common::Error>;
+    async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<(u32, bool), pico1541_common::Error>;
 }
 
 #[async_trait(?Send)]
 impl<S: embedded_io_async::Read + embedded_io_async::Seek> DebuggerDiskImage for AnyDiskImage<S, DummySource> {
-    async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<u32, pico1541_common::Error> {
+    async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<(u32, bool), pico1541_common::Error> {
         DiskImage::read_track(self, half_track, dest).await
     }
 }
@@ -233,15 +233,16 @@ pub async fn emulation_loop(
                     DriveEvent::HeadStepped { new_half_track } => {
                         let maybe_track = if let Some(img) = &mut disk_image {
                             let mut temp_buf = vec![0u8; MAX_TRACK_BYTES];
-                            let bit_len = img.read_track(new_half_track, &mut temp_buf).await.unwrap_or(0);
-                            Some((bit_len, temp_buf))
+                            let (bit_len, accurate) = img.read_track(new_half_track, &mut temp_buf).await.unwrap_or((0, true));
+                            Some((bit_len, accurate, temp_buf))
                         } else {
                             None
                         };
-                        if let Some((bit_len, temp_buf)) = maybe_track {
+                        if let Some((bit_len, accurate, temp_buf)) = maybe_track {
                             let track = bridge.get_active_track();
                             track.gcr_data.copy_from_slice(&temp_buf);
                             track.bit_length = bit_len;
+                            track.is_accurate = accurate;
                         }
                         resp_tx.send(DebugResponse::DriveEvent(
                             format!("Head: HT={}", new_half_track)
@@ -322,15 +323,16 @@ async fn handle_mount(
     };
 
     // Load track 18 (half-track 36) as the initial active track
-    let (bit_len, temp_buf) = {
+    let (bit_len, accurate, temp_buf) = {
         let mut buf = vec![0u8; MAX_TRACK_BYTES];
-        let bits = DiskImage::read_track(&mut img, 36, &mut buf).await.unwrap_or(0);
-        (bits, buf)
+        let (bits, acc) = DiskImage::read_track(&mut img, 36, &mut buf).await.unwrap_or((0, true));
+        (bits, acc, buf)
     };
     {
         let track = bridge.get_active_track();
         track.gcr_data.copy_from_slice(&temp_buf);
         track.bit_length = bit_len;
+        track.is_accurate = accurate;
         track.disk_inserted = true;
     }
     let _ = drive; // drive is not needed here after the refactor

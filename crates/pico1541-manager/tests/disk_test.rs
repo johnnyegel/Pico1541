@@ -13,7 +13,7 @@ fn test_d64_load_track() {
     let mut image = D64Image::new(storage);
     
     let mut buffer = [0u8; 10000];
-    let bit_len = block_on(image.read_track(2, &mut buffer)).unwrap(); // Track 1.0 = Half-track 2
+    let (bit_len, _) = block_on(image.read_track(2, &mut buffer)).unwrap(); // Track 1.0 = Half-track 2
     
     assert!(bit_len > 0);
     

@@ -10,6 +10,9 @@ pub struct ActiveTrack {
     /// half-tracks (e.g. D64 images have no half-track data): the head reads
     /// back a continuous stream of 0x55 bytes with no SYNC.
     pub is_formatted: bool,
+    /// If true, the drive emulates real physical rotation. 
+    /// If false, the drive can "warp" to the next sector immediately.
+    pub is_accurate: bool,
     pub gcr_data: [u8; MAX_TRACK_BYTES],
 }
 
@@ -21,6 +24,7 @@ impl ActiveTrack {
             is_dirty: false,
             disk_inserted: false,
             is_formatted: true,
+            is_accurate: true,
             gcr_data: [0; MAX_TRACK_BYTES],
         }
     }

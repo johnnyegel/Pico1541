@@ -204,13 +204,13 @@ fn test_dir_after_mount() {
 
     // Build GCR for track 1 (half-track 2) — used during the BUMP phase.
     let mut gcr_t1 = vec![0u8; MAX_TRACK_BYTES];
-    let bit_len_t1 = futures::executor::block_on(
+    let (bit_len_t1, _) = futures::executor::block_on(
         DiskImage::read_track(&mut img, 2, &mut gcr_t1)
     ).expect("read_track t1 failed");
 
     // Build GCR for track 18 (half-track 36) — contains the BAM/directory.
     let mut gcr_t18 = vec![0u8; MAX_TRACK_BYTES];
-    let bit_len_t18 = futures::executor::block_on(
+    let (bit_len_t18, _) = futures::executor::block_on(
         DiskImage::read_track(&mut img, 36, &mut gcr_t18)
     ).expect("read_track t18 failed");
 
