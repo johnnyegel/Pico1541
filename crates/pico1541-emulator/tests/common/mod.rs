@@ -178,17 +178,27 @@ impl TestBridge {
         self.set_clk(false); 
         
         if eoi {
-            // EOI Handshake: wait > 200us
-            self.ticks(drive, T_EOI + 50);
-            // Drive should NOT have pulled DATA yet if it follows standard EOI.
-            // But if we are hijacked, the snooper might have pulled it.
-            // Standard: Host pulls CLK to signal EOI
-            self.set_clk(true);
-            self.wait_bus_data(drive, true);
-            self.set_clk(false);
-            self.wait_bus_data(drive, false);
+            if self.is_hijacked() {
+                self.ticks(drive, T_EOI + 50);
+                self.set_clk(true);
+                self.set_clk(false);
+                self.ticks(drive, 20);
+            } else {
+                // Normal EOI handshake with 1541 ROM
+                self.wait_bus_data(drive, false); // Wait for Ready
+                self.wait_bus_data(drive, true);  // Wait for EOI acknowledge pull
+                
+                self.set_clk(true);
+                self.wait_bus_data(drive, true);
+                self.set_clk(false);
+                self.wait_bus_data(drive, false); // Wait for EOI acknowledge release
+            }
         } else {
-            self.wait_bus_data(drive, false);
+            if self.is_hijacked() {
+                self.ticks(drive, 30);
+            } else {
+                self.wait_bus_data(drive, false);
+            }
         }
 
         self.ticks(drive, T_PHASE);

@@ -33,6 +33,7 @@ pub struct IecSnooper {
     ack_seen: bool,
     ready_delay: u8,
     was_hijacked: bool,
+    clk_released: bool,
 }
 
 impl IecSnooper {
@@ -57,6 +58,7 @@ impl IecSnooper {
             ack_seen: false,
             ready_delay: 0,
             was_hijacked: false,
+            clk_released: false,
         }
     }
 
@@ -68,24 +70,30 @@ impl IecSnooper {
         let data_edge_neg = !data && self.last_data;
 
         // If ATN is pulled while we are waiting for a byte, mark it as an ATN byte.
-        if atn_edge_pos && self.state == SnooperState::Ready {
+        if atn_edge_pos {
             self.atn_at_start = true;
         }
 
         // --- Layer 1: Byte Decoder ---
         match self.state {
             SnooperState::Idle => {
-                if data_edge_neg || atn_edge_pos {
+                // Enter Ready on DATA pull (standard) or CLK/ATN transitions if hijacked (ROM blinded)
+                if data_edge_neg || (self.hijack_active && (clk_edge_neg || atn_edge_pos)) {
                     self.atn_at_start = atn;
                     self.state = SnooperState::Ready;
                     self.ready_delay = 20;
+                    self.clk_released = false;
                 }
             }
             SnooperState::Ready => {
+                if !clk {
+                    self.clk_released = true;
+                }
+
                 if self.ready_delay > 0 {
                     self.ready_delay -= 1;
                 } else {
-                    if clk_edge_pos {
+                    if clk_edge_pos && self.clk_released {
                         self.state = SnooperState::Receiving;
                         self.bit_count = 0;
                         self.current_byte = 0;
@@ -182,7 +190,7 @@ impl IecSnooper {
     pub fn should_drive_data(&self) -> bool {
         if !self.hijack_active { return false; }
         match self.state {
-            SnooperState::Ready => self.ready_delay == 0,
+            SnooperState::Ready => self.ready_delay == 0 && !self.clk_released,
             SnooperState::Ack => true,
             _ => false,
         }
@@ -191,6 +199,7 @@ impl IecSnooper {
     pub fn set_iec_addresses(&mut self, listen: u8, talk: u8) {
         // Only update if they look like valid IEC addresses (LISTEN=0x20-0x3E, TALK=0x40-0x5E)
         if (listen & 0xE0) == 0x20 && (talk & 0xE0) == 0x40 {
+            log::trace!("[Snooper] Updated IEC addresses: LISTEN=0x{:02X}, TALK=0x{:02X}", listen, talk);
             self.listen_addr = listen;
             self.talk_addr = talk;
         }

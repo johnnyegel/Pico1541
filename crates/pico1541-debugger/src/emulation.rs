@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use crossbeam_channel::{Receiver, Sender};
 use disasm6502;
-use pico1541_common::{AnyDiskImage, D64Image, DiskImage, G64Image, MemoryStorage};
+use pico1541_common::{AnyDiskImage, D64Image, DiskImage, G64Image, MemoryStorage, TrackLayout};
 use pico1541_common::storage::DummySource;
 use pico1541_common::disk_info::{inspect_d64, petscii_to_ascii, G64_MAGIC};
 use pico1541_emulator::{interface::{DriveEvent, HostInterface, MAX_TRACK_BYTES}, Emulator};
@@ -29,12 +29,12 @@ pub const ROM_BYTES: &[u8] = include_bytes!("../../../roms/1541-II.251968-03.bin
 /// Dyn-compatible disk image trait for the debugger (no Send required — LocalSet).
 #[async_trait(?Send)]
 trait DebuggerDiskImage {
-    async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<(u32, bool), pico1541_common::Error>;
+    async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<TrackLayout, pico1541_common::Error>;
 }
 
 #[async_trait(?Send)]
 impl<S: embedded_io_async::Read + embedded_io_async::Seek> DebuggerDiskImage for AnyDiskImage<S, DummySource> {
-    async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<(u32, bool), pico1541_common::Error> {
+    async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<TrackLayout, pico1541_common::Error> {
         DiskImage::read_track(self, half_track, dest).await
     }
 }
@@ -231,18 +231,29 @@ pub async fn emulation_loop(
             while let Ok(event) = event_rx.try_recv() {
                 match event {
                     DriveEvent::HeadStepped { new_half_track } => {
-                        let maybe_track = if let Some(img) = &mut disk_image {
+                        if let Some(img) = &mut disk_image {
                             let mut temp_buf = vec![0u8; MAX_TRACK_BYTES];
-                            let (bit_len, accurate) = img.read_track(new_half_track, &mut temp_buf).await.unwrap_or((0, true));
-                            Some((bit_len, accurate, temp_buf))
-                        } else {
-                            None
-                        };
-                        if let Some((bit_len, accurate, temp_buf)) = maybe_track {
+                            let layout = img.read_track(new_half_track, &mut temp_buf).await.unwrap_or(TrackLayout::Empty);
                             let track = bridge.get_active_track();
-                            track.gcr_data.copy_from_slice(&temp_buf);
-                            track.bit_length = bit_len;
-                            track.is_accurate = accurate;
+                            match layout {
+                                TrackLayout::Accurate(bits) => {
+                                    track.gcr_data.copy_from_slice(&temp_buf);
+                                    track.bit_length = bits;
+                                    track.is_accurate = true;
+                                    track.is_formatted = true;
+                                }
+                                TrackLayout::Warp(bits) => {
+                                    track.gcr_data.copy_from_slice(&temp_buf);
+                                    track.bit_length = bits;
+                                    track.is_accurate = false;
+                                    track.is_formatted = true;
+                                }
+                                TrackLayout::Empty => {
+                                    track.bit_length = 35000;
+                                    track.is_accurate = true;
+                                    track.is_formatted = false;
+                                }
+                            }
                         }
                         resp_tx.send(DebugResponse::DriveEvent(
                             format!("Head: HT={}", new_half_track)
@@ -323,16 +334,33 @@ async fn handle_mount(
     };
 
     // Load track 18 (half-track 36) as the initial active track
-    let (bit_len, accurate, temp_buf) = {
-        let mut buf = vec![0u8; MAX_TRACK_BYTES];
-        let (bits, acc) = DiskImage::read_track(&mut img, 36, &mut buf).await.unwrap_or((0, true));
-        (bits, acc, buf)
-    };
+    let mut temp_buf = vec![0u8; MAX_TRACK_BYTES];
+    let layout = DiskImage::read_track(&mut img, 36, &mut temp_buf).await.unwrap_or(TrackLayout::Empty);
+    let mut bit_len = 0;
     {
         let track = bridge.get_active_track();
-        track.gcr_data.copy_from_slice(&temp_buf);
-        track.bit_length = bit_len;
-        track.is_accurate = accurate;
+        match layout {
+            TrackLayout::Accurate(bits) => {
+                track.gcr_data.copy_from_slice(&temp_buf);
+                track.bit_length = bits;
+                track.is_accurate = true;
+                track.is_formatted = true;
+                bit_len = bits;
+            }
+            TrackLayout::Warp(bits) => {
+                track.gcr_data.copy_from_slice(&temp_buf);
+                track.bit_length = bits;
+                track.is_accurate = false;
+                track.is_formatted = true;
+                bit_len = bits;
+            }
+            TrackLayout::Empty => {
+                track.bit_length = 35000;
+                track.is_accurate = true;
+                track.is_formatted = false;
+                bit_len = 35000;
+            }
+        }
         track.disk_inserted = true;
     }
     let _ = drive; // drive is not needed here after the refactor
