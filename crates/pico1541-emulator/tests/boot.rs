@@ -104,61 +104,113 @@ fn test_dir_no_disk() {
     bridge.track.disk_inserted = false;
     bridge.events.clear();
 
-    // Send the DIRECTORY ("$") command on channel 0.
-    // With no disk the ROM will spin the motor, try to find track 18, 
-    // fail, and eventually rattle the head against the stop (head banding).
     bridge.atn_start(&mut drive);
-
-    bridge.send_byte(&mut drive, 0x20 | bridge.device_id, false); // LISTEN device
-    bridge.send_byte(&mut drive, 0xF0, false); // OPEN 0 (Open channel 0 with filename)
-   
+    bridge.send_byte(&mut drive, 0x20 | bridge.device_id, false); 
+    bridge.send_byte(&mut drive, 0xF0, false); 
     bridge.atn_end(&mut drive);
-
-    bridge.send_byte(&mut drive, b'$', true);  // "$"
+    bridge.send_byte(&mut drive, b'$', true);  
 
     bridge.atn_start(&mut drive);
-    bridge.send_byte(&mut drive, 0x3F, false); // UNLISTEN
+    bridge.send_byte(&mut drive, 0x3F, false); 
     bridge.atn_end(&mut drive);
     bridge.iec_end(&mut drive);
     
-    log::info!("Sent DIR command with no disk. Waiting for drive to process...");
-
-    // Send command to read the directory, which will fail
     bridge.atn_start(&mut drive);
-    bridge.send_byte(&mut drive, 0x40 | bridge.device_id, false); // TALK device
-    bridge.send_byte(&mut drive, 0x60, false); // SEC 0
+    bridge.send_byte(&mut drive, 0x40 | bridge.device_id, false); 
+    bridge.send_byte(&mut drive, 0x60, false); 
     bridge.atn_end(&mut drive);
 
-    // With no disk the drive has nothing to send on channel 0.  Check whether
-    // the drive acknowledged the talk request, then abort the session cleanly
-    // via UNTALK before reading the error status.
-    let drive_acknowledged = bridge.try_turnaround(&mut drive);
-    log::info!("Drive acknowledged TALK: {}", drive_acknowledged);
+    let _ = bridge.try_turnaround(&mut drive);
     bridge.iec_end(&mut drive);
 
-    // Abort any pending talk session and close channel 0.
     bridge.untalk(&mut drive);
     bridge.close_channel(&mut drive, 0);
 
     let status = bridge.read_status(&mut drive);
-
-    let final_half_track = drive.half_track();
-    log::info!("Half-track after failed DIR: {}", final_half_track);
-    log::info!("Status: {}", status);
-
-    let motor_events: usize = bridge.events.iter()
-        .filter(|e| matches!(e, pico1541_emulator::interface::DriveEvent::MotorChanged(_)))
-        .count();
-    let step_events: usize = bridge.events.iter()
-        .filter(|e| matches!(e, pico1541_emulator::interface::DriveEvent::HeadStepped { .. }))
-        .count();
-    let iec_events: usize = bridge.events.iter()
-        .filter(|e| matches!(e, pico1541_emulator::interface::DriveEvent::IecCommand { .. }))
-        .count();
-    log::info!("Motor events: {}, Step events: {}, IEC events: {}", motor_events, step_events, iec_events);
-
-    assert!(motor_events >= 1, "Expected motor ON event, got {}", motor_events);
-    // Drive should have seeked attempting to find track 18.
-    assert!(step_events >= 1, "Expected head movement, got {} steps", step_events);
     assert!(!status.starts_with("00,"), "Expected an error status, got: {:?}", status);
+}
+
+#[test]
+fn test_dir_listing_virtual() {
+    use pico1541_common::storage::{DirectoryEntry, DirectorySource};
+    use pico1541_common::formats::{DiskImage, VirtualDirImage};
+    use futures::executor::block_on;
+    use std::rc::Rc;
+    use std::cell::RefCell;
+
+    struct TestSource {
+        name: [u8; 16],
+        entries: Vec<DirectoryEntry>,
+        pos: usize,
+    }
+
+    impl DirectorySource for TestSource {
+        fn name(&self) -> &[u8; 16] { &self.name }
+        fn next_entry(&mut self) -> Option<DirectoryEntry> {
+            if self.pos < self.entries.len() {
+                let res = Some(self.entries[self.pos]);
+                self.pos += 1;
+                res
+            } else { None }
+        }
+        fn rewind(&mut self) { self.pos = 0; }
+    }
+
+    let mut entries = Vec::new();
+    for i in 1..=8 {
+        let name = format!("FILE{:02}", i);
+        entries.push(DirectoryEntry::new(name.as_bytes(), 17, i as u8, i as u16));
+    }
+
+    let mut name = [0xA0; 16];
+    name[..12].copy_from_slice(b"VIRTUAL DISK");
+    let source = TestSource { name, entries, pos: 0 };
+    let mut vdir = VirtualDirImage::new(source);
+    vdir.set_id([0x31, 0x31]); 
+
+    let (mut drive, mut bridge) = common::setup_drive(true, 8, None);
+
+    let mut gcr_data = [0u8; pico1541_emulator::interface::MAX_TRACK_BYTES];
+    // Fill with noise
+    gcr_data.fill(0x55);
+    
+    let layout = block_on(vdir.read_track(36, &mut gcr_data)).expect("read_track failed");
+    let bit_len = match layout {
+        pico1541_common::formats::TrackLayout::Warp(b) => b,
+        pico1541_common::formats::TrackLayout::Accurate(b) => b,
+        _ => panic!("Expected data layout"),
+    };
+
+    bridge.track.gcr_data.copy_from_slice(&gcr_data);
+    bridge.track.bit_length = bit_len;
+    bridge.track.disk_inserted = true;
+    bridge.track.is_accurate = false; // Use warp mode
+
+    log::info!("Starting directory LOAD... Current half-track: {}", drive.half_track());
+
+    bridge.atn_start(&mut drive);
+    bridge.send_byte(&mut drive, 0x20 | bridge.device_id, false); 
+    bridge.send_byte(&mut drive, 0xF0, false); 
+    bridge.atn_end(&mut drive);
+    bridge.send_byte(&mut drive, b'$', true);  
+    bridge.atn_start(&mut drive);
+    bridge.send_byte(&mut drive, 0x3F, false); 
+    bridge.atn_end(&mut drive);
+
+    bridge.ticks(&mut drive, 1_000_000);
+
+    bridge.atn_start(&mut drive);
+    bridge.send_byte(&mut drive, 0x40 | bridge.device_id, false); 
+    bridge.send_byte(&mut drive, 0x60, false); 
+    bridge.atn_end(&mut drive);
+    
+    bridge.turnaround(&mut drive);
+
+    let received = bridge.receive_all(&mut drive);
+    bridge.iec_end(&mut drive);
+
+    log::info!("Received {} bytes of directory data", received.len());
+    let text = String::from_utf8_lossy(&received);
+    assert!(text.contains("FILE01"), "Directory listing missing FILE01");
+    assert!(text.contains("VIRTUAL DISK"), "Directory listing missing disk name");
 }

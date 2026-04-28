@@ -74,6 +74,7 @@ pub struct TestBridge {
     pub bus_clk: bool,
     pub snooper: IecSnooper,
     pub device_id: u8,
+    pub sync_hook: Option<Box<dyn FnMut(&mut ActiveTrack)>>,
     last_drv_data: bool,
     last_drv_clk: bool,
 }
@@ -90,6 +91,7 @@ impl TestBridge {
             bus_clk: false,
             snooper: IecSnooper::new(device_id),
             device_id,
+            sync_hook: None,
             last_drv_data: false,
             last_drv_clk: false,
         }
@@ -103,6 +105,7 @@ impl TestBridge {
         self.bus_data = false;
         self.bus_clk = false;
         self.snooper = IecSnooper::new(self.device_id);
+        self.sync_hook = None;
         self.last_drv_data = false;
         self.last_drv_clk = false;
     }
@@ -360,5 +363,10 @@ impl HostInterface for TestBridge {
         }
         
         self.update_bus();
+
+        if let Some(mut hook) = self.sync_hook.take() {
+            hook(&mut self.track);
+            self.sync_hook = Some(hook);
+        }
     }
 }

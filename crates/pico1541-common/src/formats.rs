@@ -32,6 +32,7 @@ pub struct VirtualDirImage<D: DirectorySource> {
     id: [u8; 2],
     pub sector1_idx: usize,
     pub sector2_idx: usize,
+    pub next_sector_to_update: u8,
 }
 
 impl<D: DirectorySource> VirtualDirImage<D> {
@@ -41,7 +42,12 @@ impl<D: DirectorySource> VirtualDirImage<D> {
             id: [0x56, 0x44], // "VD"
             sector1_idx: 0,
             sector2_idx: 0,
+            next_sector_to_update: 2, 
         }
+    }
+
+    pub fn set_id(&mut self, id: [u8; 2]) {
+        self.id = id;
     }
 
     pub fn encode_directory_sector(&self, entries: &[crate::storage::DirectoryEntry], next_track: u8, next_sector: u8, dest: &mut [u8]) {
@@ -65,6 +71,64 @@ impl<D: DirectorySource> VirtualDirImage<D> {
             raw[offset+29] = (entry.block_size >> 8) as u8;
         }
         dest.copy_from_slice(&raw);
+    }
+
+    pub fn encode_directory_sector_gcr(&self, entries: &[crate::storage::DirectoryEntry], next_track: u8, next_sector: u8, dest_gcr: &mut [u8]) {
+        let mut raw = [0u8; 256];
+        self.encode_directory_sector(entries, next_track, next_sector, &mut raw);
+        
+        let mut data_checksum = 0u8;
+        for b in raw.iter() { data_checksum ^= b; }
+        let mut data_raw = [0u8; 260];
+        data_raw[0] = 0x07;
+        data_raw[1..257].copy_from_slice(&raw);
+        data_raw[257] = data_checksum;
+
+        for i in 0..65 {
+            let mut src = [0u8; 4];
+            src.copy_from_slice(&data_raw[i*4..(i+1)*4]);
+            crate::gcr::encode_gcr_block(&src, (&mut dest_gcr[i*5..(i+1)*5]).try_into().unwrap());
+        }
+    }
+
+    pub fn update_dynamic_buffer(&mut self, current_byte_idx: usize, gcr_data: &mut [u8]) -> bool {
+        let sector = if current_byte_idx < 40 { 0xFF } else { ((current_byte_idx - 40) / 372) as u8 };
+        
+        let (target_sector, next_after) = if sector == 1 && self.next_sector_to_update == 2 {
+            (2, 1)
+        } else if sector == 2 && self.next_sector_to_update == 1 {
+            (1, 2)
+        } else {
+            return false;
+        };
+
+        let idx = if target_sector == 1 { self.sector1_idx } else { self.sector2_idx };
+        if idx == 0 { return false; }
+
+        let mut entries = [crate::storage::DirectoryEntry::new(b"", 0, 0, 0); 8];
+        let mut count = 0;
+        for i in 0..8 {
+            if let Some(entry) = self.source.next_entry() {
+                entries[i] = entry;
+                count += 1;
+            } else { break; }
+        }
+
+        let (next_t, next_s) = if count == 0 {
+            (0, 0xFF)
+        } else {
+            (18, if target_sector == 1 { 2 } else { 1 })
+        };
+
+        let mut dest_gcr = [0u8; 325];
+        self.encode_directory_sector_gcr(&entries[..count], next_t, next_s, &mut dest_gcr);
+        
+        if idx + 325 <= gcr_data.len() {
+            gcr_data[idx..idx+325].copy_from_slice(&dest_gcr);
+            self.next_sector_to_update = next_after;
+            return true;
+        }
+        false
     }
 }
 
@@ -109,8 +173,12 @@ impl<D: DirectorySource> DiskImage for VirtualDirImage<D> {
                         count += 1;
                     } else { break; }
                 }
-                let next_s = if sector == 1 { 2 } else { 1 };
-                self.encode_directory_sector(&entries[..count], 18, next_s, &mut sector_data);
+                let (next_t, next_s) = if count == 0 {
+                    (0, 0xFF)
+                } else {
+                    (18, if sector == 1 { 2 } else { 1 })
+                };
+                self.encode_directory_sector(&entries[..count], next_t, next_s, &mut sector_data);
             }
 
             for _ in 0..10 { if write_ptr < dest.len() { dest[write_ptr] = 0xFF; write_ptr += 1; } }
