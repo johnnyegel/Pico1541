@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 racc6502 = { path = "../racc6502" }
 log = "0.4.20"
+embedded-io-async = "0.7.0"
 
 [features]
 debug = ["racc6502/debug"]

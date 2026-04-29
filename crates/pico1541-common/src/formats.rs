@@ -134,20 +134,17 @@ impl<D: DirectorySource> VirtualDirImage<D> {
 
 impl<D: DirectorySource> DiskImage for VirtualDirImage<D> {
     async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<TrackLayout, Error> {
-        if half_track % 2 != 0 {
+        if half_track != 34 && half_track != 35 {
             return Ok(TrackLayout::Empty);
         }
 
-        let track = half_track / 2;
-        if track != 18 {
-            return Ok(TrackLayout::Empty);
-        }
+        let track = 18;
 
         // Track 18: Generate BAM and initial directory sectors
         let sectors = 19; 
         let mut write_ptr = 0;
 
-        for _ in 0..40 { if write_ptr < dest.len() { dest[write_ptr] = 0x55; write_ptr += 1; } }
+        for _ in 0..40 { if write_ptr < dest.len() { dest[write_ptr] = 0xAA; write_ptr += 1; } }
 
         self.source.rewind();
 
@@ -189,7 +186,7 @@ impl<D: DirectorySource> DiskImage for VirtualDirImage<D> {
                 let mut dst = [0u8; 5]; gcr::encode_gcr_block(&src, &mut dst);
                 if write_ptr + 5 <= dest.len() { dest[write_ptr..write_ptr+5].copy_from_slice(&dst); write_ptr += 5; }
             }
-            for _ in 0..9 { if write_ptr < dest.len() { dest[write_ptr] = 0x55; write_ptr += 1; } }
+            for _ in 0..9 { if write_ptr < dest.len() { dest[write_ptr] = 0xAA; write_ptr += 1; } }
             for _ in 0..10 { if write_ptr < dest.len() { dest[write_ptr] = 0xFF; write_ptr += 1; } }
             let mut data_checksum = 0u8;
             for b in sector_data.iter() { data_checksum ^= b; }
@@ -200,7 +197,7 @@ impl<D: DirectorySource> DiskImage for VirtualDirImage<D> {
                 let mut dst = [0u8; 5]; gcr::encode_gcr_block(&src, &mut dst);
                 if write_ptr + 5 <= dest.len() { dest[write_ptr..write_ptr+5].copy_from_slice(&dst); write_ptr += 5; }
             }
-            for _ in 0..8 { if write_ptr < dest.len() { dest[write_ptr] = 0x55; write_ptr += 1; } }
+            for _ in 0..8 { if write_ptr < dest.len() { dest[write_ptr] = 0xAA; write_ptr += 1; } }
         }
 
         Ok(TrackLayout::Warp(57136))
@@ -240,7 +237,7 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
         let track_offset = Self::get_track_offset(track);
         self.storage.seek(SeekFrom::Start(track_offset as u64)).await.map_err(|_| Error::Io)?;
         let mut write_ptr = 0;
-        for _ in 0..40 { if write_ptr < dest.len() { dest[write_ptr] = 0x55; write_ptr += 1; } }
+        for _ in 0..40 { if write_ptr < dest.len() { dest[write_ptr] = 0xAA; write_ptr += 1; } }
         for sector in 0..sectors {
             let mut sector_data = [0u8; 256];
             self.storage.read_exact(&mut sector_data).await.map_err(|_| Error::Io)?;
@@ -252,7 +249,7 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
                 let mut dst = [0u8; 5]; gcr::encode_gcr_block(&src, &mut dst);
                 if write_ptr + 5 <= dest.len() { dest[write_ptr..write_ptr+5].copy_from_slice(&dst); write_ptr += 5; }
             }
-            for _ in 0..9 { if write_ptr < dest.len() { dest[write_ptr] = 0x55; write_ptr += 1; } }
+            for _ in 0..9 { if write_ptr < dest.len() { dest[write_ptr] = 0xAA; write_ptr += 1; } }
             for _ in 0..10 { if write_ptr < dest.len() { dest[write_ptr] = 0xFF; write_ptr += 1; } }
             let mut data_checksum = 0u8;
             for b in sector_data.iter() { data_checksum ^= b; }
@@ -263,7 +260,7 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
                 let mut dst = [0u8; 5]; gcr::encode_gcr_block(&src, &mut dst);
                 if write_ptr + 5 <= dest.len() { dest[write_ptr..write_ptr+5].copy_from_slice(&dst); write_ptr += 5; }
             }
-            for _ in 0..8 { if write_ptr < dest.len() { dest[write_ptr] = 0x55; write_ptr += 1; } }
+            for _ in 0..8 { if write_ptr < dest.len() { dest[write_ptr] = 0xAA; write_ptr += 1; } }
         }
         let (_, nominal_bits) = match track {
             1..=17 => (7692, 61536), 18..=24 => (7142, 57136), 25..=30 => (6666, 53328), _ => (6250, 50000),
@@ -276,8 +273,11 @@ pub struct G64Image<S: Read + Seek> { storage: S }
 impl<S: Read + Seek> G64Image<S> { pub fn new(storage: S) -> Self { Self { storage } } }
 impl<S: Read + Seek> DiskImage for G64Image<S> {
     async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<TrackLayout, Error> {
-        if half_track < 1 || half_track > 84 { return Err(Error::InvalidTrack); }
-        let track_ptr_offset = 12 + (half_track as u64 - 1) * 4;
+        // G64 images typically only have full tracks (even half_track indices).
+        // Track 1.0 = HT 0, Track 18.0 = HT 34.
+        if half_track % 2 != 0 || half_track > 83 { return Ok(TrackLayout::Empty); }
+        let g64_idx = half_track / 2; // (0..42)
+        let track_ptr_offset = 12 + (g64_idx as u64) * 4;
         self.storage.seek(SeekFrom::Start(track_ptr_offset)).await.map_err(|_| Error::Io)?;
         let mut ptr_bytes = [0u8; 4]; self.storage.read_exact(&mut ptr_bytes).await.map_err(|_| Error::Io)?;
         let track_offset = u32::from_le_bytes(ptr_bytes);

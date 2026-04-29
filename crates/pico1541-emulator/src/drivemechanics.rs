@@ -28,7 +28,8 @@ pub struct DriveMechanics {
 impl DriveMechanics {
     pub fn new() -> Self {
         Self {
-            current_half_track: 36, // Start at track 18
+            current_half_track: 34, // Start at track 18
+
             motor_spun_up: false,
             motor_delay_counter: 0,
             current_byte_idx: 0,
@@ -39,8 +40,10 @@ impl DriveMechanics {
     }
 
     pub fn reset(&mut self) {
-        self.current_half_track = 36; // Start at track 18
+        self.current_half_track = 34; // Start at track 18
+
         self.motor_spun_up = false;
+
         self.motor_delay_counter = 0;
         self.current_byte_idx = 0;
         self.sub_cycle_counter = 0;
@@ -81,6 +84,8 @@ impl DriveMechanics {
         // Fetch shared metadata — drop the reference before calling any other hardware methods
         let (bit_length, is_formatted) = {
             let track = hardware.get_active_track();
+            track.half_track = self.current_half_track;
+
             if !self.motor_spun_up {
                 self.sub_cycle_counter = 0;
                 self.current_byte_idx = 0;

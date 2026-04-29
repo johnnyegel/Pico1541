@@ -174,7 +174,7 @@ fn test_dir_listing_virtual() {
     // Fill with noise
     gcr_data.fill(0x55);
     
-    let layout = block_on(vdir.read_track(36, &mut gcr_data)).expect("read_track failed");
+    let layout = block_on(vdir.read_track(34, &mut gcr_data)).expect("read_track failed");
     let bit_len = match layout {
         pico1541_common::formats::TrackLayout::Warp(b) => b,
         pico1541_common::formats::TrackLayout::Accurate(b) => b,
@@ -213,4 +213,42 @@ fn test_dir_listing_virtual() {
     let text = String::from_utf8_lossy(&received);
     assert!(text.contains("FILE01"), "Directory listing missing FILE01");
     assert!(text.contains("VIRTUAL DISK"), "Directory listing missing disk name");
+}
+
+#[test]
+fn test_dir_listing_g64() {
+    let (mut drive, mut bridge) = common::setup_drive(true, 8, None);
+
+    bridge.mount_g64("tests/data/test2.g64");
+
+    log::info!("Starting G64 directory LOAD... Current half-track: {}", drive.half_track());
+
+    bridge.atn_start(&mut drive);
+    bridge.send_byte(&mut drive, 0x20 | bridge.device_id, false); 
+    bridge.send_byte(&mut drive, 0xF0, false); 
+    bridge.atn_end(&mut drive);
+    bridge.send_byte(&mut drive, b'$', true);  
+    bridge.atn_start(&mut drive);
+    bridge.send_byte(&mut drive, 0x3F, false); 
+    bridge.atn_end(&mut drive);
+    bridge.iec_end(&mut drive);
+
+    bridge.ticks(&mut drive, 5_000_000);
+
+    let status = bridge.read_status(&mut drive);
+    log::info!("Drive Status: {:?}", status);
+
+    bridge.atn_start(&mut drive);
+    bridge.send_byte(&mut drive, 0x40 | bridge.device_id, false); 
+    bridge.send_byte(&mut drive, 0x60, false); 
+    bridge.atn_end(&mut drive);
+    
+    bridge.turnaround(&mut drive);
+
+    let received = bridge.receive_all(&mut drive);
+    bridge.iec_end(&mut drive);
+
+    log::info!("Received {} bytes of G64 directory data", received.len());
+    let text = String::from_utf8_lossy(&received);
+    assert!(text.contains("GAME"), "Directory listing missing GAME");
 }

@@ -2,6 +2,7 @@
 pub const MAX_TRACK_BYTES: usize = 10_000;
 
 pub struct ActiveTrack {
+    pub half_track: u8,
     pub bit_length: u32,
     pub current_byte_idx: u32,
     pub is_dirty: bool,
@@ -19,6 +20,7 @@ pub struct ActiveTrack {
 impl ActiveTrack {
     pub fn new() -> Self {
         Self {
+            half_track: 0,
             bit_length: 0,
             current_byte_idx: 0,
             is_dirty: false,
