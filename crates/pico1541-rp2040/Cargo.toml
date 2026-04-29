@@ -8,6 +8,7 @@ build = "build.rs"
 # Internal crates
 pico1541-emulator = { path = "../pico1541-emulator" }
 pico1541-manager = { path = "../pico1541-manager" }
+pico1541-common = { path = "../pico1541-common" }
 
 # Embassy
 embassy-executor = { version = "0.7.0", features = ["task-arena-size-32768", "arch-cortex-m", "executor-thread", "executor-interrupt"] }
