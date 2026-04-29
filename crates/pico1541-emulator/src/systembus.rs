@@ -107,10 +107,12 @@ impl<H: HostInterface> SystemBus<H> {
         if host_clk  { in_b |= 0x04; }
         if host_atn  { in_b |= 0x80; }
         
-        // Map device_id 8..11 to PB5,PB6
+        // Map device_id 8..11 to PB5,PB6 such that (PB >> 5) ^ 3 == id_offset
         let id_offset = self.device_id.saturating_sub(8) & 0x03;
-        if (id_offset & 0x01) != 0 { in_b |= 0x20; } // PB5
-        if (id_offset & 0x02) != 0 { in_b |= 0x40; } // PB6
+        let pb_val = id_offset ^ 0x03;
+        if (pb_val & 0x01) != 0 { in_b |= 0x20; } // PB5
+        if (pb_val & 0x02) != 0 { in_b |= 0x40; } // PB6
+
         
         self.via1.in_b = in_b;
 

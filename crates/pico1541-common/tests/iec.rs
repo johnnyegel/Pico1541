@@ -28,7 +28,7 @@ impl IecBus for &MockBus {
     fn set_data(&mut self, assert: bool) { *self.data.borrow_mut() = assert; }
     fn get_clk(&self) -> bool { *self.clk.borrow() || *self.drive_clk.borrow() }
     fn get_data(&self) -> bool { *self.data.borrow() || *self.drive_data.borrow() }
-    async fn delay_us(&self, _us: u32) {}
+    async fn delay_us(&mut self, _us: u32) {}
 }
 
 #[test]
@@ -72,7 +72,7 @@ fn test_iec_send_byte() {
                 false
             }
         }
-        async fn delay_us(&self, _us: u32) {}
+        async fn delay_us(&mut self, _us: u32) {}
     }
 
     let mock = SendMock(&bus, RefCell::new(0));
@@ -111,7 +111,7 @@ fn test_iec_recv_byte() {
                 false
             }
         }
-        async fn delay_us(&self, _us: u32) {
+        async fn delay_us(&mut self, _us: u32) {
              *self.1.borrow_mut() += 1;
         }
     }

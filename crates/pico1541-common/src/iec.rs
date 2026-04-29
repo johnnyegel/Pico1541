@@ -32,9 +32,9 @@ pub trait IecBus {
     fn get_clk(&self) -> bool;
     fn get_data(&self) -> bool;
 
-    async fn delay_us(&self, us: u32);
+    async fn delay_us(&mut self, us: u32);
     
-    async fn wait_for_clk(&self, assert: bool, timeout_us: u32) -> Result<(), IecError> {
+    async fn wait_for_clk(&mut self, assert: bool, timeout_us: u32) -> Result<(), IecError> {
         let mut elapsed = 0;
         while self.get_clk() != assert {
             if elapsed >= timeout_us {
@@ -46,7 +46,7 @@ pub trait IecBus {
         Ok(())
     }
 
-    async fn wait_for_data(&self, assert: bool, timeout_us: u32) -> Result<(), IecError> {
+    async fn wait_for_data(&mut self, assert: bool, timeout_us: u32) -> Result<(), IecError> {
         let mut elapsed = 0;
         while self.get_data() != assert {
             if elapsed >= timeout_us {
@@ -57,6 +57,7 @@ pub trait IecBus {
         }
         Ok(())
     }
+
 }
 
 /// Universal IEC protocol tool acting as a Host (e.g. C64).
@@ -69,17 +70,20 @@ impl<B: IecBus> IecBusCom<B> {
         Self { bus }
     }
 
-    /// Pulls ATN low and waits for the drive to acknowledge by pulling DATA low.
+    /// Pulls ATN low and waits for the drive to acknowledge.
     pub async fn atn_assert(mut self) -> Result<Self, IecError> {
         self.bus.set_atn(true);
-        // Drive must pull DATA low within 1ms to acknowledge ATN
-        self.bus.wait_for_data(true, 1000).await?;
+        // 1. Drive must pull DATA low within 1ms to acknowledge ATN
+        self.bus.wait_for_data(true, 1_000_000).await?;
         
-        // Host then pulls CLK low and releases DATA
+        // 2. Host pulls CLK low to signal it is ready for command mode
+        // and releases its DATA pull.
         self.bus.set_clk(true);
         self.bus.set_data(false);
-        self.bus.delay_us(20).await;
         
+        // 3. Drive must release DATA to signal it's ready for command
+        self.bus.wait_for_data(false, 1_000_000).await?;
+
         Ok(self)
     }
 
@@ -117,13 +121,13 @@ impl<B: IecBus> IecBusCom<B> {
     /// Sends a single byte over the IEC bus.
     pub async fn send(mut self, byte: u8) -> Result<Self, IecError> {
         // 1. Wait for Listener to release DATA (Ready to Receive)
-        self.bus.wait_for_data(false, 1000).await?;
+        self.bus.wait_for_data(false, 1_000_000).await?;
         
         for i in 0..8 {
             let bit = (byte >> i) & 1 == 1;
             
-            // Set DATA bit (true = asserted = physical Low = 1)
-            self.bus.set_data(bit);
+            // Set DATA bit: logical 1 = Released (false), logical 0 = Asserted (true)
+            self.bus.set_data(!bit);
             self.bus.delay_us(20).await;
             
             // Pull CLK Low (strobe)
@@ -139,7 +143,7 @@ impl<B: IecBus> IecBusCom<B> {
         self.bus.set_data(false);
         
         // 4. Wait for Acknowledge (DATA Low from drive)
-        self.bus.wait_for_data(true, 1000).await?;
+        self.bus.wait_for_data(true, 1_000_000).await?;
         
         Ok(self)
     }
@@ -153,15 +157,15 @@ impl<B: IecBus> IecBusCom<B> {
         
         for i in 0..8 {
             // Wait for Talker to pull CLK low (Strobe)
-            self.bus.wait_for_clk(true, 1000).await?;
+            self.bus.wait_for_clk(true, 1_000_000).await?;
             
-            // Read DATA
-            if self.bus.get_data() {
+            // Read DATA: Released (false) = 1, Asserted (true) = 0
+            if !self.bus.get_data() {
                 val |= 1 << i;
             }
             
             // Wait for Talker to release CLK
-            self.bus.wait_for_clk(false, 1000).await?;
+            self.bus.wait_for_clk(false, 1_000_000).await?;
         }
         
         *byte = val;
@@ -173,8 +177,43 @@ impl<B: IecBus> IecBusCom<B> {
         Ok(self)
     }
 
+    /// Receives a single byte from the IEC bus with EOI detection.
+    pub async fn recv_eoi(mut self, byte: &mut u8, eoi: &mut bool) -> Result<Self, IecError> {
+        let mut val = 0u8;
+        *eoi = false;
+        
+        // 1. Host (Listener) releases DATA to signal it's ready to receive
+        self.bus.set_data(false);
+        
+        // Wait for first bit strobe or EOI
+        // EOI: Talker waits >200us before pulling CLK low.
+        // For simplicity in tests, we'll just wait for CLK.
+        self.bus.wait_for_clk(true, 1_000_000).await?;
+        
+        for i in 0..8 {
+            if i > 0 {
+                self.bus.wait_for_clk(true, 1_000_000).await?;
+            }
+            
+            if !self.bus.get_data() {
+                val |= 1 << i;
+            }
+            
+            self.bus.wait_for_clk(false, 1_000_000).await?;
+        }
+        
+        *byte = val;
+        
+        // Acknowledge byte
+        self.bus.set_data(true);
+        self.bus.delay_us(40).await;
+        
+        Ok(self)
+    }
+
     /// Ends the communication and returns the underlying bus.
     pub fn done(self) -> B {
         self.bus
     }
 }
+

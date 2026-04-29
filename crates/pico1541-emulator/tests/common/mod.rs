@@ -4,7 +4,8 @@ use pico1541_emulator::Emulator;
 use pico1541_emulator::snooper::IecSnooper;
 use pico1541_common::formats::{AnyDiskImage, DiskImage, TrackLayout, G64Image};
 use pico1541_common::storage::DummySource;
-use futures::executor::block_on;
+use pico1541_common::iec::{IecBus as IecHostBus, IecBusCom, IEC_TALK};
+use pollster::block_on;
 use log;
 use racc6502::cpu::DebugHook;
 
@@ -149,179 +150,6 @@ impl TestBridge {
         }
     }
 
-    pub fn wait_bus_data(&mut self, drive: &mut Emulator<Self>, want_asserted: bool) {
-        for _ in 0..IEC_TIMEOUT {
-            drive.tick(self);
-            self.sync();
-            let bus_data = self.host_data || self.last_drv_data || self.snooper.should_drive_data();
-            if bus_data == want_asserted { return; }
-        }
-        panic!("IEC timeout: DATA != {} (PC=${:04X}, host_data={}, drv_data={})", 
-               want_asserted, drive.pc(), self.host_data, self.last_drv_data);
-    }
-
-    pub fn wait_bus_clk(&mut self, drive: &mut Emulator<Self>, want_asserted: bool) {
-        for _ in 0..IEC_TIMEOUT {
-            drive.tick(self);
-            self.sync();
-            let bus_clk = self.host_clk || self.last_drv_clk;
-            if bus_clk == want_asserted { return; }
-        }
-        panic!("IEC timeout: CLK != {} (PC=${:04X}, host_clk={}, drv_clk={})", 
-               want_asserted, drive.pc(), self.host_clk, self.last_drv_clk);
-    }
-
-    pub fn atn_start(&mut self, drive: &mut Emulator<Self>) {
-        log::info!("[Test] ATN PULL");
-        self.set_data(false); // Host releases DATA
-        self.set_clk(false);  // Host releases CLK
-        self.set_atn(true);   // Host pulls ATN LOW (asserted)
-
-        // 1. Wait for drive to ACK by pulling DATA LOW (asserted)
-        self.wait_bus_data(drive, true);
-
-        // 2. Wait for drive to release DATA (Ready to accept command)
-        self.wait_bus_data(drive, false);
-
-        self.ticks(drive, T_PHASE);
-        self.set_clk(true); // Host pulls CLK LOW (asserted)
-    }
-
-
-    pub fn atn_end(&mut self, drive: &mut Emulator<Self>) {
-        log::info!("[Test] ATN RELEASE");
-        self.ticks(drive, T_PHASE);
-        self.set_atn(false);
-    }
-
-    pub fn iec_end(&mut self, drive: &mut Emulator<Self>) {
-        self.ticks(drive, T_PHASE);
-        self.set_atn(false);
-        self.set_clk(false);
-        self.set_data(false);
-        if self.last_drv_data || self.host_data {
-            self.wait_bus_data(drive, false);
-        }
-        self.ticks(drive, T_PHASE);
-    }
-
-    pub fn send_byte(&mut self, drive: &mut Emulator<Self>, byte: u8, eoi: bool) { 
-        log::info!("[Test] Sending Byte: 0x{:02X} (EOI={})", byte, eoi);
-        // Wait for ready-to-accept is already done in atn_start or previous byte loop
-        self.set_clk(false); // Host releases CLK
-        
-        if eoi {
-            self.wait_bus_data(drive, true); // Drive ACK EOI pull
-            self.ticks(drive, T_EOI);
-            self.set_clk(true);
-            self.wait_bus_data(drive, false); // Drive ACK EOI release
-            self.set_clk(false);
-        } else {
-            self.ticks(drive, 20);
-        }
-
-        self.ticks(drive, T_PHASE);
-        self.set_clk(true); // Start bits
-
-        for bit in 0..8u8 {
-            let bit_val = (byte >> bit) & 1 != 0;
-            self.set_data(!bit_val); // Logical 1 = Released (false)
-            self.ticks(drive, T_PHASE);
-            self.set_clk(false);
-            self.ticks(drive, T_PHASE);
-            self.set_clk(true);
-        }
-        self.set_data(false);
-        self.ticks(drive, T_PHASE);
-    }
-
-    pub fn try_turnaround(&mut self, drive: &mut Emulator<Self>) -> bool {
-        // 1. Release our pull on both lines.
-        self.set_clk(false);
-        self.set_data(false);
-
-        // 2. Drive pulls CLK LOW (true) to acknowledge end of command phase.
-        self.wait_bus_clk(drive, true);
-
-        // 3. Drive then releases CLK (false) and pulls DATA LOW (true) to start talk.
-        self.wait_bus_clk(drive, false);
-        self.wait_bus_data(drive, true);
-        true
-    }
-    pub fn turnaround(&mut self, drive: &mut Emulator<Self>) {
-        if !self.try_turnaround(drive) {
-            panic!("IEC turnaround timeout (PC=${:04X})", drive.pc());
-        }
-    }
-
-    pub fn untalk(&mut self, drive: &mut Emulator<Self>) {
-        self.atn_start(drive);
-        self.send_byte(drive, 0x5F, false); // UNTALK
-        self.atn_end(drive);
-        self.iec_end(drive);
-    }
-
-    pub fn close_channel(&mut self, drive: &mut Emulator<Self>, channel: u8) {
-        self.atn_start(drive);
-        self.send_byte(drive, 0x20 | self.device_id, false);   // LISTEN device
-        self.send_byte(drive, 0xE0 | (channel & 0x0F), false); // CLOSE channel
-        self.send_byte(drive, 0x3F, false);              // UNLISTEN
-        self.atn_end(drive);
-        self.iec_end(drive);
-    }
-
-    pub fn receive_byte(&mut self, drive: &mut Emulator<Self>) -> (u8, bool) {
-        self.wait_bus_clk(drive, true); // Wait for talker pull
-        self.set_data(false); // Host ready
-        let mut ack_ticks = 0;
-        while (self.host_clk || self.last_drv_clk) && ack_ticks < 500 {
-            drive.tick(self);
-            self.sync();
-            ack_ticks += 1;
-        }
-        let is_eoi = if !(self.host_clk || self.last_drv_clk) {
-            false
-        } else {
-            self.set_data(true); // EOI ACK
-            self.wait_bus_clk(drive, false);
-            self.set_data(false);
-            true
-        };
-        self.ticks(drive, T_PHASE);
-        let mut byte_val = 0u8;
-        for bit in 0..8u8 {
-            self.wait_bus_clk(drive, true);
-            if !(self.host_data || self.last_drv_data || self.snooper.should_drive_data()) {
-                byte_val |= 1 << bit; // Phys HIGH = logical 1
-            }
-            self.wait_bus_clk(drive, false);
-        }
-        self.set_data(true);
-        self.ticks(drive, T_SETTLE);
-        (byte_val, is_eoi)
-    }
-
-    pub fn receive_all(&mut self, drive: &mut Emulator<Self>) -> Vec<u8> {
-        let mut data = Vec::new();
-        loop {
-            let (byte, is_eoi) = self.receive_byte(drive);
-            data.push(byte);
-            if is_eoi { break; }
-        }
-        data
-    }
-
-    pub fn read_status(&mut self, drive: &mut Emulator<Self>) -> String {
-        self.atn_start(drive);
-        self.send_byte(drive, 0x40 | self.device_id, false); 
-        self.send_byte(drive, 0x6F, false); 
-        self.atn_end(drive);
-        self.turnaround(drive);
-        let bytes = self.receive_all(drive);
-        self.iec_end(drive);
-        String::from_utf8_lossy(&bytes).trim_end_matches('\r').to_string()
-    }
-
     pub fn mount_g64(&mut self, path: &str) {
         use pico1541_common::storage::MemoryStorage;
         use std::fs;
@@ -355,9 +183,12 @@ impl HostInterface for TestBridge {
     }
     fn sync(&mut self) {
         let h_atn = self.host_atn;
-        let b_clk = self.host_clk || self.last_drv_clk;
-        let b_data = self.host_data || self.last_drv_data || self.snooper.should_drive_data();
-        if let Some(cmd_data) = self.snooper.tick(h_atn, b_clk, b_data) {
+        // The snooper only needs to observe incoming host lines to intercept
+        // commands directed from the host to the drive.
+        let h_clk = self.host_clk;
+        let h_data = self.host_data;
+        
+        if let Some(cmd_data) = self.snooper.tick(h_atn, h_clk, h_data) {
             let len = self.snooper.buffer_len() as u8;
             self.send_event(DriveEvent::IecCommand { data: cmd_data, len });
         }
@@ -367,4 +198,60 @@ impl HostInterface for TestBridge {
             self.sync_hook = Some(hook);
         }
     }
+}
+
+pub struct IecTestBridge<'a> {
+    pub drive: &'a mut Emulator<TestBridge>,
+    pub bridge: &'a mut TestBridge,
+}
+
+impl<'a> IecHostBus for IecTestBridge<'a> {
+    fn set_atn(&mut self, assert: bool) { self.bridge.set_atn(assert); }
+    fn set_clk(&mut self, assert: bool) { self.bridge.set_clk(assert); }
+    fn set_data(&mut self, assert: bool) { self.bridge.set_data(assert); }
+    
+    // Checking for drive assertions simply involves observing the drive lines.
+    fn get_clk(&self) -> bool { self.bridge.last_drv_clk }
+    fn get_data(&self) -> bool { self.bridge.last_drv_data }
+
+    async fn delay_us(&mut self, us: u32) {
+        for _ in 0..us {
+            self.drive.tick(self.bridge);
+            self.bridge.sync();
+        }
+    }
+}
+
+
+pub fn iec_com<'a>(drive: &'a mut Emulator<TestBridge>, bridge: &'a mut TestBridge) -> IecBusCom<IecTestBridge<'a>> {
+    IecBusCom::new(IecTestBridge { drive, bridge })
+}
+
+pub fn read_status(drive: &mut Emulator<TestBridge>, bridge: &mut TestBridge) -> String {
+    let device_id = bridge.device_id;
+    block_on(async {
+        let com = iec_com(drive, bridge);
+        let com = com.atn_assert().await.unwrap()
+            .send(IEC_TALK | device_id).await.unwrap()
+            .send(0x6F).await.unwrap()
+            .atn_release().await.unwrap();
+        
+        let mut received = Vec::new();
+        let mut com = com;
+        loop {
+            let mut byte = 0u8;
+            let mut eoi = false;
+            com = com.recv_eoi(&mut byte, &mut eoi).await.unwrap();
+            received.push(byte);
+            if eoi { break; }
+        }
+        
+        let bus = com.done();
+        bus.bridge.set_atn(false);
+        bus.bridge.set_clk(false);
+        bus.bridge.set_data(false);
+        bus.bridge.ticks(bus.drive, T_PHASE);
+        
+        String::from_utf8_lossy(&received).trim_end_matches('\r').to_string()
+    })
 }

@@ -2,7 +2,8 @@ mod common;
 
 use pico1541_emulator::interface::DriveEvent;
 use racc6502::cpu::CycleState;
-
+use pico1541_common::iec::{IEC_LISTEN, IEC_UNLISTEN, IEC_TALK};
+use pollster::block_on;
 
 #[test]
 fn test_drive_boot() {
@@ -104,39 +105,29 @@ fn test_dir_no_disk() {
     bridge.track.disk_inserted = false;
     bridge.events.clear();
 
-    bridge.atn_start(&mut drive);
-    bridge.send_byte(&mut drive, 0x20 | bridge.device_id, false); 
-    bridge.send_byte(&mut drive, 0xF0, false); 
-    bridge.atn_end(&mut drive);
-    bridge.send_byte(&mut drive, b'$', true);  
+    block_on(async {
+        let com = common::iec_com(&mut drive, &mut bridge);
+        let com = com.atn_assert().await.unwrap()
+            .send(IEC_LISTEN | 8).await.unwrap()
+            .send(0xF0).await.unwrap()
+            .atn_release().await.unwrap()
+            .send(b'$').await.unwrap();
 
-    bridge.atn_start(&mut drive);
-    bridge.send_byte(&mut drive, 0x3F, false); 
-    bridge.atn_end(&mut drive);
-    bridge.iec_end(&mut drive);
-    
-    bridge.atn_start(&mut drive);
-    bridge.send_byte(&mut drive, 0x40 | bridge.device_id, false); 
-    bridge.send_byte(&mut drive, 0x60, false); 
-    bridge.atn_end(&mut drive);
+        let com = com.atn_assert().await.unwrap()
+            .send(IEC_UNLISTEN).await.unwrap()
+            .atn_release().await.unwrap();
 
-    let _ = bridge.try_turnaround(&mut drive);
-    bridge.iec_end(&mut drive);
-
-    bridge.untalk(&mut drive);
-    bridge.close_channel(&mut drive, 0);
-
-    let status = bridge.read_status(&mut drive);
-    assert!(!status.starts_with("00,"), "Expected an error status, got: {:?}", status);
+        let bus = com.done();
+        
+        let status = common::read_status(bus.drive, bus.bridge);
+        assert!(!status.starts_with("00,"), "Expected an error status, got: {:?}", status);
+    });
 }
 
 #[test]
 fn test_dir_listing_virtual() {
     use pico1541_common::storage::{DirectoryEntry, DirectorySource};
     use pico1541_common::formats::{DiskImage, VirtualDirImage};
-    use futures::executor::block_on;
-    use std::rc::Rc;
-    use std::cell::RefCell;
 
     struct TestSource {
         name: [u8; 16],
@@ -188,31 +179,47 @@ fn test_dir_listing_virtual() {
 
     log::info!("Starting directory LOAD... Current half-track: {}", drive.half_track());
 
-    bridge.atn_start(&mut drive);
-    bridge.send_byte(&mut drive, 0x20 | bridge.device_id, false); 
-    bridge.send_byte(&mut drive, 0xF0, false); 
-    bridge.atn_end(&mut drive);
-    bridge.send_byte(&mut drive, b'$', true);  
-    bridge.atn_start(&mut drive);
-    bridge.send_byte(&mut drive, 0x3F, false); 
-    bridge.atn_end(&mut drive);
+    block_on(async {
+        let com = common::iec_com(&mut drive, &mut bridge);
+        let com = com.atn_assert().await.unwrap()
+            .send(IEC_LISTEN | 8).await.unwrap()
+            .send(0xF0).await.unwrap()
+            .atn_release().await.unwrap()
+            .send(b'$').await.unwrap();
 
-    bridge.ticks(&mut drive, 1_000_000);
+        let com = com.atn_assert().await.unwrap()
+            .send(IEC_UNLISTEN).await.unwrap()
+            .atn_release().await.unwrap();
 
-    bridge.atn_start(&mut drive);
-    bridge.send_byte(&mut drive, 0x40 | bridge.device_id, false); 
-    bridge.send_byte(&mut drive, 0x60, false); 
-    bridge.atn_end(&mut drive);
-    
-    bridge.turnaround(&mut drive);
+        let bus = com.done();
+        bus.bridge.ticks(bus.drive, 1_000_000);
 
-    let received = bridge.receive_all(&mut drive);
-    bridge.iec_end(&mut drive);
+        let com = common::iec_com(bus.drive, bus.bridge);
+        let com = com.atn_assert().await.unwrap()
+            .send(IEC_TALK | 8).await.unwrap()
+            .send(0x60).await.unwrap()
+            .atn_release().await.unwrap();
+        
+        let mut received = Vec::new();
+        let mut com = com;
+        loop {
+            let mut byte = 0u8;
+            let mut eoi = false;
+            com = com.recv_eoi(&mut byte, &mut eoi).await.unwrap();
+            received.push(byte);
+            if eoi { break; }
+        }
+        
+        let bus = com.done();
+        bus.bridge.set_atn(false);
+        bus.bridge.set_clk(false);
+        bus.bridge.set_data(false);
 
-    log::info!("Received {} bytes of directory data", received.len());
-    let text = String::from_utf8_lossy(&received);
-    assert!(text.contains("FILE01"), "Directory listing missing FILE01");
-    assert!(text.contains("VIRTUAL DISK"), "Directory listing missing disk name");
+        log::info!("Received {} bytes of directory data", received.len());
+        let text = String::from_utf8_lossy(&received);
+        assert!(text.contains("FILE01"), "Directory listing missing FILE01");
+        assert!(text.contains("VIRTUAL DISK"), "Directory listing missing disk name");
+    });
 }
 
 #[test]
@@ -223,32 +230,46 @@ fn test_dir_listing_g64() {
 
     log::info!("Starting G64 directory LOAD... Current half-track: {}", drive.half_track());
 
-    bridge.atn_start(&mut drive);
-    bridge.send_byte(&mut drive, 0x20 | bridge.device_id, false); 
-    bridge.send_byte(&mut drive, 0xF0, false); 
-    bridge.atn_end(&mut drive);
-    bridge.send_byte(&mut drive, b'$', true);  
-    bridge.atn_start(&mut drive);
-    bridge.send_byte(&mut drive, 0x3F, false); 
-    bridge.atn_end(&mut drive);
-    bridge.iec_end(&mut drive);
+    block_on(async {
+        let com = common::iec_com(&mut drive, &mut bridge);
+        let com = com.atn_assert().await.unwrap()
+            .send(IEC_LISTEN | 8).await.unwrap()
+            .send(0xF0).await.unwrap()
+            .atn_release().await.unwrap()
+            .send(b'$').await.unwrap();
 
-    bridge.ticks(&mut drive, 5_000_000);
+        let com = com.atn_assert().await.unwrap()
+            .atn_release().await.unwrap();
 
-    let status = bridge.read_status(&mut drive);
-    log::info!("Drive Status: {:?}", status);
+        let bus = com.done();
+        bus.bridge.ticks(bus.drive, 5_000_000);
 
-    bridge.atn_start(&mut drive);
-    bridge.send_byte(&mut drive, 0x40 | bridge.device_id, false); 
-    bridge.send_byte(&mut drive, 0x60, false); 
-    bridge.atn_end(&mut drive);
-    
-    bridge.turnaround(&mut drive);
+        let status = common::read_status(bus.drive, bus.bridge);
+        log::info!("Drive Status: {:?}", status);
 
-    let received = bridge.receive_all(&mut drive);
-    bridge.iec_end(&mut drive);
+        let com = common::iec_com(bus.drive, bus.bridge);
+        let com = com.atn_assert().await.unwrap()
+            .send(IEC_TALK | 8).await.unwrap()
+            .send(0x60).await.unwrap()
+            .atn_release().await.unwrap();
+        
+        let mut received = Vec::new();
+        let mut com = com;
+        loop {
+            let mut byte = 0u8;
+            let mut eoi = false;
+            com = com.recv_eoi(&mut byte, &mut eoi).await.unwrap();
+            received.push(byte);
+            if eoi { break; }
+        }
+        
+        let bus = com.done();
+        bus.bridge.set_atn(false);
+        bus.bridge.set_clk(false);
+        bus.bridge.set_data(false);
 
-    log::info!("Received {} bytes of G64 directory data", received.len());
-    let text = String::from_utf8_lossy(&received);
-    assert!(text.contains("GAME"), "Directory listing missing GAME");
+        log::info!("Received {} bytes of G64 directory data", received.len());
+        let text = String::from_utf8_lossy(&received);
+        assert!(text.contains("GAME"), "Directory listing missing GAME");
+    });
 }

@@ -1249,6 +1249,7 @@ dependencies = [
  "log",
  "pico1541-common",
  "pico1541-emulator",
+ "pollster",
  "racc6502",
 ]
 
