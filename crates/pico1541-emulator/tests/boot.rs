@@ -2,7 +2,7 @@ mod common;
 
 use pico1541_emulator::interface::DriveEvent;
 use racc6502::cpu::CycleState;
-use pico1541_common::iec::{IEC_LISTEN, IEC_UNLISTEN, IEC_TALK};
+use pico1541_common::iec_com::{IEC_LISTEN, IEC_UNLISTEN, IEC_TALK};
 use pollster::block_on;
 
 #[test]
@@ -106,22 +106,26 @@ fn test_dir_no_disk() {
     bridge.events.clear();
 
     block_on(async {
-        let com = common::iec_com(&mut drive, &mut bridge);
-        let com = com.atn_assert().await.unwrap()
-            .send(IEC_LISTEN | 8).await.unwrap()
-            .send(0xF0).await.unwrap()
-            .atn_release().await.unwrap()
-            .send(b'$').await.unwrap();
+        {
+            let mut bus = common::IecTestBridge { drive: &mut drive, bridge: &mut bridge };
+            let com = common::iec_com(&mut bus);
+            let com = com.atn_assert().await?
+                .send(IEC_LISTEN | 8).await?
+                .send(0xF0).await?
+                .atn_release().await?
+                .send(b'$').await?;
 
-        let com = com.atn_assert().await.unwrap()
-            .send(IEC_UNLISTEN).await.unwrap()
-            .atn_release().await.unwrap();
+            let com = com.atn_assert().await?
+                .send(IEC_UNLISTEN).await?
+                .atn_release().await?;
 
-        let bus = com.done();
+            com.done().await?;
+        }
         
-        let status = common::read_status(bus.drive, bus.bridge);
+        let status = common::read_status(&mut drive, &mut bridge);
         assert!(!status.starts_with("00,"), "Expected an error status, got: {:?}", status);
-    });
+        Ok::<(), pico1541_common::iec_com::IecError>(())
+    }).unwrap();
 }
 
 #[test]
@@ -180,46 +184,48 @@ fn test_dir_listing_virtual() {
     log::info!("Starting directory LOAD... Current half-track: {}", drive.half_track());
 
     block_on(async {
-        let com = common::iec_com(&mut drive, &mut bridge);
-        let com = com.atn_assert().await.unwrap()
-            .send(IEC_LISTEN | 8).await.unwrap()
-            .send(0xF0).await.unwrap()
-            .atn_release().await.unwrap()
-            .send(b'$').await.unwrap();
+        let mut bus = common::IecTestBridge { drive: &mut drive, bridge: &mut bridge };
+        {
+            let com = common::iec_com(&mut bus);
+            let com = com.atn_assert().await?
+                .send(IEC_LISTEN | 8).await?
+                .send(0xF0).await?
+                .atn_release().await?
+                .send(b'$').await?;
 
-        let com = com.atn_assert().await.unwrap()
-            .send(IEC_UNLISTEN).await.unwrap()
-            .atn_release().await.unwrap();
+            let com = com.atn_assert().await?
+                .send(IEC_UNLISTEN).await?
+                .atn_release().await?;
 
-        let bus = com.done();
+            com.done().await?;
+        }
         bus.bridge.ticks(bus.drive, 1_000_000);
 
-        let com = common::iec_com(bus.drive, bus.bridge);
-        let com = com.atn_assert().await.unwrap()
-            .send(IEC_TALK | 8).await.unwrap()
-            .send(0x60).await.unwrap()
-            .atn_release().await.unwrap();
+        let com = common::iec_com(&mut bus);
+        let com = com.atn_assert().await?
+            .send(IEC_TALK | 8).await?
+            .send(0x60).await?
+            .atn_release().await?;
         
         let mut received = Vec::new();
         let mut com = com;
         loop {
             let mut byte = 0u8;
             let mut eoi = false;
-            com = com.recv_eoi(&mut byte, &mut eoi).await.unwrap();
+            com = com.recv(&mut byte, &mut eoi).await?;
             received.push(byte);
             if eoi { break; }
         }
         
-        let bus = com.done();
-        bus.bridge.set_atn(false);
-        bus.bridge.set_clk(false);
-        bus.bridge.set_data(false);
+        com.done().await?;
 
-        log::info!("Received {} bytes of directory data", received.len());
+        log::info!(
+"Received {} bytes of directory data", received.len());
         let text = String::from_utf8_lossy(&received);
         assert!(text.contains("FILE01"), "Directory listing missing FILE01");
         assert!(text.contains("VIRTUAL DISK"), "Directory listing missing disk name");
-    });
+        Ok::<(), pico1541_common::iec_com::IecError>(())
+    }).unwrap();
 }
 
 #[test]
@@ -231,45 +237,49 @@ fn test_dir_listing_g64() {
     log::info!("Starting G64 directory LOAD... Current half-track: {}", drive.half_track());
 
     block_on(async {
-        let com = common::iec_com(&mut drive, &mut bridge);
-        let com = com.atn_assert().await.unwrap()
-            .send(IEC_LISTEN | 8).await.unwrap()
-            .send(0xF0).await.unwrap()
-            .atn_release().await.unwrap()
-            .send(b'$').await.unwrap();
+        {
+            let mut bus = common::IecTestBridge { drive: &mut drive, bridge: &mut bridge };
+            let com = common::iec_com(&mut bus);
+            let com = com.atn_assert().await?
+                .send(IEC_LISTEN | 8).await?
+                .send(0xF0).await?
+                .atn_release().await?
+                .send(b'$').await?;
 
-        let com = com.atn_assert().await.unwrap()
-            .atn_release().await.unwrap();
+            let com = com.atn_assert().await?
+                .atn_release().await?;
 
-        let bus = com.done();
-        bus.bridge.ticks(bus.drive, 5_000_000);
+            com.done().await?;
+            bus.bridge.ticks(bus.drive, 5_000_000);
+        }
 
-        let status = common::read_status(bus.drive, bus.bridge);
+        let status = common::read_status(&mut drive, &mut bridge);
         log::info!("Drive Status: {:?}", status);
 
-        let com = common::iec_com(bus.drive, bus.bridge);
-        let com = com.atn_assert().await.unwrap()
-            .send(IEC_TALK | 8).await.unwrap()
-            .send(0x60).await.unwrap()
-            .atn_release().await.unwrap();
+        let mut bus = common::IecTestBridge { drive: &mut drive, bridge: &mut bridge };
+        let com = common::iec_com(&mut bus);
+        let com = com.atn_assert().await?
+            .send(IEC_TALK | 8).await?
+            .send(0x60).await?
+            .atn_release().await?;
         
         let mut received = Vec::new();
         let mut com = com;
         loop {
             let mut byte = 0u8;
             let mut eoi = false;
-            com = com.recv_eoi(&mut byte, &mut eoi).await.unwrap();
+            com = com.recv(&mut byte, &mut eoi).await?;
             received.push(byte);
             if eoi { break; }
         }
         
-        let bus = com.done();
-        bus.bridge.set_atn(false);
-        bus.bridge.set_clk(false);
-        bus.bridge.set_data(false);
+        com.done().await?;
 
-        log::info!("Received {} bytes of G64 directory data", received.len());
+        log::info!(
+"Received {} bytes of G64 directory data", received.len());
         let text = String::from_utf8_lossy(&received);
         assert!(text.contains("GAME"), "Directory listing missing GAME");
-    });
+        Ok::<(), pico1541_common::iec_com::IecError>(())
+    }).unwrap();
 }
+

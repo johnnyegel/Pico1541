@@ -29,13 +29,12 @@ pub struct SystemBus<H: HostInterface> {
 
 impl<H: HostInterface> SystemBus<H> {
     pub fn new(rom: [u8; ROM_SIZE], device_id: u8) -> Self {
+        // :: Intialize VIA1 
         let mut via1 = Via6522::new();
-        // Track 0 Sensor is tied to Ground, The rest of the port is unused
         via1.in_a = 0x0;
-        // Lines released by default. PB5/PB6 set in tick_cycle.
-        via1.in_b = 0x0;
+        via1.in_b = Self::device_id_to_pb(0x0, device_id);
 
-        Self {
+        let systembus = Self {
             ram: [0; RAM_SIZE],
             rom,
             via1,
@@ -44,7 +43,10 @@ impl<H: HostInterface> SystemBus<H> {
             so_active: false,
             device_id,
             _phantom: PhantomData,
-        }
+        };
+
+
+        systembus
     }
 
     #[cfg(feature = "debug")]
@@ -108,11 +110,7 @@ impl<H: HostInterface> SystemBus<H> {
         if host_atn  { in_b |= 0x80; }
         
         // Map device_id 8..11 to PB5,PB6 such that (PB >> 5) ^ 3 == id_offset
-        let id_offset = self.device_id.saturating_sub(8) & 0x03;
-        let pb_val = id_offset ^ 0x03;
-        if (pb_val & 0x01) != 0 { in_b |= 0x20; } // PB5
-        if (pb_val & 0x02) != 0 { in_b |= 0x40; } // PB6
-
+        in_b = Self::device_id_to_pb(in_b, self.device_id);
         
         self.via1.in_b = in_b;
 
@@ -136,6 +134,13 @@ impl<H: HostInterface> SystemBus<H> {
         // 2. Force the internal error state to "00, OK" just to be safe.
         // This ensures the green LED stays solid and no error is returned.
         self.ram[0x026C] = 0; 
+    }
+
+    // Maps the device ID to the appropriate PB5/PB6 bits for VIA1.
+    #[inline]
+    fn device_id_to_pb(in_b: u8, device_id: u8) -> u8 {
+        // PB5/PB6: Device ID (00=8, 10=9, 01=10, 11=11)
+        (in_b & 0x9F) | ((device_id & 0x03) << 5)
     }
 }
 

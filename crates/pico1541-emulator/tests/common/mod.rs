@@ -4,20 +4,13 @@ use pico1541_emulator::Emulator;
 use pico1541_emulator::snooper::IecSnooper;
 use pico1541_common::formats::{AnyDiskImage, DiskImage, TrackLayout, G64Image};
 use pico1541_common::storage::DummySource;
-use pico1541_common::iec::{IecBus as IecHostBus, IecBusCom, IEC_TALK};
+use pico1541_common::iec_com::{IecBus as IecHostBus, IecTransaction, IEC_TALK, IEC_UNTALK};
 use pollster::block_on;
 use log;
 use racc6502::cpu::DebugHook;
 
 const ROM_BYTES: &[u8] = include_bytes!("../../../../roms/1541-II.251968-03.bin");
 
-/// Timeout for spin-waiting on bus transitions (cycles).
-pub const IEC_TIMEOUT: u32 = 20_000_000;
-
-/// Standard IEC Timings (in CPU cycles @ 1MHz)
-pub const T_SETTLE: u32 = 100;  // ~100us (settle time)
-pub const T_PHASE:  u32 = 60;   // ~60us (C64 minimum rate)
-pub const T_EOI:    u32 = 200;  // >200us
 
 /// 1541-II ROM idle loop address range.
 pub const IDLE_LOW:  u16 = 0xEBFF;
@@ -38,6 +31,8 @@ pub fn setup_drive(reset: bool, device_id: u8, debug_hook: Option<DebugHook>) ->
     if let Some(hook) = debug_hook {
         drive.cpu.debug_hook = Some(hook);
     }
+
+    log::info!("Drive setup complete (device ID {}, reset={})", device_id, reset);
 
     if reset {
         reset_drive(&mut drive, &mut bridge);
@@ -108,8 +103,8 @@ pub struct TestBridge {
     pub snooper: IecSnooper,
     pub device_id: u8,
     pub sync_hook: Option<Box<dyn FnMut(&mut ActiveTrack)>>,
-    pub last_drv_data: bool, 
-    pub last_drv_clk: bool,
+    pub drive_data: bool, 
+    pub drive_clk: bool,
 }
 
 impl TestBridge {
@@ -123,8 +118,8 @@ impl TestBridge {
             snooper: IecSnooper::new(device_id),
             device_id,
             sync_hook: None,
-            last_drv_data: false,
-            last_drv_clk: false,
+            drive_data: false,
+            drive_clk: false,
         }
     }
 
@@ -135,8 +130,8 @@ impl TestBridge {
         self.host_atn = false;
         self.snooper = IecSnooper::new(self.device_id);
         self.sync_hook = None;
-        self.last_drv_data = false;
-        self.last_drv_clk = false;
+        self.drive_data = false;
+        self.drive_clk = false;
     }
 
     pub fn set_atn(&mut self, v: bool)  { self.host_atn = v; }
@@ -165,8 +160,8 @@ impl IecBus for TestBridge {
     fn read_data(&self) -> bool { self.host_data }
     fn read_clk(&self)  -> bool { self.host_clk }
     fn read_atn(&self)  -> bool { self.host_atn }
-    fn drive_data(&mut self, v: bool) { self.last_drv_data = v; }
-    fn drive_clk(&mut self, v: bool)  { self.last_drv_clk = v; }
+    fn drive_data(&mut self, v: bool) { self.drive_data = v; }
+    fn drive_clk(&mut self, v: bool)  { self.drive_clk = v; }
 }
 
 impl HostInterface for TestBridge {
@@ -211,8 +206,13 @@ impl<'a> IecHostBus for IecTestBridge<'a> {
     fn set_data(&mut self, assert: bool) { self.bridge.set_data(assert); }
     
     // Checking for drive assertions simply involves observing the drive lines.
-    fn get_clk(&self) -> bool { self.bridge.last_drv_clk }
-    fn get_data(&self) -> bool { self.bridge.last_drv_data }
+    fn get_clk(&self) -> bool { self.bridge.drive_clk }
+    fn get_data(&self) -> bool { self.bridge.drive_data }
+
+    fn trace_state(&self, tag: &str) -> () {
+        log::trace!("[{}]: PC=${:04X}, DATA={}, CLK={}", 
+            tag, self.drive.pc(), self.bridge.drive_data, self.bridge.drive_clk);
+    }
 
     async fn delay_us(&mut self, us: u32) {
         for _ in 0..us {
@@ -223,35 +223,38 @@ impl<'a> IecHostBus for IecTestBridge<'a> {
 }
 
 
-pub fn iec_com<'a>(drive: &'a mut Emulator<TestBridge>, bridge: &'a mut TestBridge) -> IecBusCom<IecTestBridge<'a>> {
-    IecBusCom::new(IecTestBridge { drive, bridge })
+pub fn iec_com<'a, 'b>(bus: &'a mut IecTestBridge<'b>) -> IecTransaction<'a, IecTestBridge<'b>> {
+    IecTransaction::new(bus)
 }
 
 pub fn read_status(drive: &mut Emulator<TestBridge>, bridge: &mut TestBridge) -> String {
     let device_id = bridge.device_id;
-    block_on(async {
-        let com = iec_com(drive, bridge);
-        let com = com.atn_assert().await.unwrap()
-            .send(IEC_TALK | device_id).await.unwrap()
-            .send(0x6F).await.unwrap()
-            .atn_release().await.unwrap();
+    let received = block_on(async {
+        let mut bus = IecTestBridge { drive, bridge };
+        let com = iec_com(&mut bus);
+        let mut com = com.atn_assert().await?
+            .send(IEC_TALK | device_id).await?
+            .send(0x6F).await?
+            .atn_release().await?;
         
-        let mut received = Vec::new();
-        let mut com = com;
+        let mut bytes = Vec::new();
         loop {
             let mut byte = 0u8;
             let mut eoi = false;
-            com = com.recv_eoi(&mut byte, &mut eoi).await.unwrap();
-            received.push(byte);
+
+            com = com.recv(&mut byte, &mut eoi).await?;
+            bytes.push(byte);
             if eoi { break; }
         }
         
-        let bus = com.done();
-        bus.bridge.set_atn(false);
-        bus.bridge.set_clk(false);
-        bus.bridge.set_data(false);
-        bus.bridge.ticks(bus.drive, T_PHASE);
-        
-        String::from_utf8_lossy(&received).trim_end_matches('\r').to_string()
-    })
+        // Finalize the communication and return the bus to a known state before ticking the drive further.
+        com.atn_assert().await?
+            .send(IEC_UNTALK).await?
+            .atn_release().await?
+            .done().await?;
+
+        Ok::<Vec<u8>, pico1541_common::iec_com::IecError>(bytes)
+    }).unwrap();
+    
+    String::from_utf8_lossy(&received).trim_end_matches('\r').to_string()
 }

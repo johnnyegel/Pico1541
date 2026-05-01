@@ -74,6 +74,9 @@ impl IecSnooper {
             self.atn_at_start = true;
         }
 
+        // FIXME! Disable snooper for now
+        if true { return None; };
+
         // --- Layer 1: Byte Decoder ---
         match self.state {
             SnooperState::Idle => {
@@ -83,6 +86,7 @@ impl IecSnooper {
                     self.state = SnooperState::Ready;
                     self.ready_delay = 20;
                     self.clk_released = false;
+                    log::trace!("Idle state: Detected start of byte (DATA edge or hijack trigger), entering Ready state...");
                 }
             }
             SnooperState::Ready => {
@@ -97,6 +101,7 @@ impl IecSnooper {
                         self.state = SnooperState::Receiving;
                         self.bit_count = 0;
                         self.current_byte = 0;
+                        log::trace!("Ready state: CLK posedge detected, starting to receive byte...");
                     } else if data_edge_pos && !clk && !self.should_drive_data() {
                         self.state = SnooperState::Idle;
                     }
@@ -105,12 +110,14 @@ impl IecSnooper {
             SnooperState::Receiving => {
                 if clk_edge_neg {
                     let bit = if !data { 1 } else { 0 };
+                    log::trace!("Receiving state: CLK negedge detected, reading bit {}: {}", self.bit_count, bit);
                     self.current_byte |= bit << self.bit_count;
                     self.bit_count += 1;
                     
                     if self.bit_count == 8 {
                         self.process_byte(self.current_byte, self.atn_at_start);
                         self.state = SnooperState::Ack;
+                        log::trace!("Receiving state: Finished receiving byte, entering Ack state...");
                     }
                 }
             }
