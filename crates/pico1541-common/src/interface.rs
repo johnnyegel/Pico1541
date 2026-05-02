@@ -50,6 +50,8 @@ pub enum DriveEvent {
         data: [u8; 64],
         len: u8,
     },
+    /// Low-level IEC bus state change (State Byte, Delta Cycles)
+    IecBusTransition(crate::snooper::IecBusByte, u32),
 }
 
 /// Open-drain IEC serial bus interface (Emulator side).
@@ -99,8 +101,11 @@ pub trait HostInterface: IecBus {
         false
     }
 
-    /// Synchronization point called every cycle.
+    /// synchronization point called every cycle.
     fn sync(&mut self) {}
+
+    /// Called each cycle with the raw VIA1 Port B byte.
+    fn on_bus_cycle(&mut self, _pb: u8) {}
 
     /// Update the IEC addresses (LISTEN and TALK) snooped by the manager.
     /// Usually called by the emulator when it detects a change in drive RAM.

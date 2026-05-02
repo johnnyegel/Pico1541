@@ -14,9 +14,11 @@ use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
 
 use pico1541_common::interface::{ActiveTrack, DriveEvent};
+use pico1541_common::snooper::{IecBusByte, SnooperConfig};
+use pico1541_emulator::interceptor::BusInterceptor;
 use pico1541_emulator::interface::{HostInterface, IecBus};
 use pico1541_emulator::Emulator;
-use pico1541_manager::tasks::{DisplayTask, DriveActivityTask};
+use pico1541_manager::tasks::{DisplayTask, DriveActivityTask, SnooperTask};
 
 use crate::driver::display::{DisplayWrapper, OledDisplay};
 use crate::driver::indicator::ActivityIndicator;
@@ -28,6 +30,8 @@ use static_cell::StaticCell;
 bind_interrupts!(struct Irqs {
     I2C0_IRQ => InterruptHandler<I2C0>;
 });
+
+static SNOOPER_CONFIG: SnooperConfig = SnooperConfig::new(8);
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -53,15 +57,19 @@ async fn main(spawner: Spawner) {
     let indicator = ActivityIndicator::new(activity_led, piezo);
     let activity_task = DriveActivityTask::new(indicator);
 
-    // 3. Storage (SD Card - SPI)
+    // 3. Snooper Task
+    let snooper_task = SnooperTask::new(8, &SNOOPER_CONFIG);
+
+    // 4. Storage (SD Card - SPI)
     // TODO: Initialize SD card driver
 
-    // 4. Keyboard (Matrix)
+    // 5. Keyboard (Matrix)
     // TODO: Initialize keyboard driver
 
     // Spawn Manager Tasks
     spawner.spawn(display_run(display_task)).unwrap();
     spawner.spawn(activity_run(activity_task)).unwrap();
+    spawner.spawn(snooper_run(snooper_task)).unwrap();
 
     // --- Emulator Setup (Core 0 - 1541-II) ---
 
@@ -78,7 +86,7 @@ async fn main(spawner: Spawner) {
         clk_tx: Output::new(p.PIN_20, Level::Low),
     };
 
-    let bridge = HardwareBridge::new(pins, track, 8);
+    let bridge = HardwareBridge::new(pins, track, &SNOOPER_CONFIG);
 
     // 1541-II ROM (Stock)
     let rom = include_bytes!("../../../roms/1541-II.251968-03.bin");
@@ -98,22 +106,22 @@ struct IecPins {
     clk_tx: Output<'static>,
 }
 
-use pico1541_emulator::snooper::IecSnooper;
-
 // --- Hardware Bridge (Core 0) ---
 
 struct HardwareBridge {
     track: &'static mut ActiveTrack,
     pins: IecPins,
-    snooper: IecSnooper,
+    interceptor: BusInterceptor,
+    config: &'static SnooperConfig,
 }
 
 impl HardwareBridge {
-    fn new(pins: IecPins, track: &'static mut ActiveTrack, device_id: u8) -> Self {
+    fn new(pins: IecPins, track: &'static mut ActiveTrack, config: &'static SnooperConfig) -> Self {
         Self {
             track,
             pins,
-            snooper: IecSnooper::new(device_id),
+            interceptor: BusInterceptor::new(),
+            config,
         }
     }
 }
@@ -134,7 +142,8 @@ impl IecBus for HardwareBridge {
     #[inline(always)]
     fn drive_data(&mut self, assert: bool) {
         // Combinatorial: Drive's output OR Snooper's hijack output
-        if assert || self.snooper.should_drive_data() {
+        let should_drive = self.config.should_drive_data.load(core::sync::atomic::Ordering::Relaxed);
+        if assert || should_drive {
             self.pins.data_tx.set_high();
         } else {
             self.pins.data_tx.set_low();
@@ -162,33 +171,27 @@ impl HostInterface for HardwareBridge {
     }
 
     fn is_hijacked(&self) -> bool {
-        self.snooper.hijack_active
+        self.config.hijack_active.load(core::sync::atomic::Ordering::Relaxed)
     }
 
     fn pop_discard_request(&mut self) -> bool {
-        let req = self.snooper.discard_request;
-        self.snooper.discard_request = false;
+        let req = self.config.discard_request.swap(false, core::sync::atomic::Ordering::Relaxed);
         req
     }
 
     fn update_iec_addresses(&mut self, listen: u8, talk: u8) {
-        self.snooper.set_iec_addresses(listen, talk);
+        self.config.listen_addr.store(listen, core::sync::atomic::Ordering::Relaxed);
+        self.config.talk_addr.store(talk, core::sync::atomic::Ordering::Relaxed);
     }
 
-    fn sync(&mut self) {
-        let atn = self.pins.atn_rx.is_high();
-        let clk = self.pins.clk_rx.is_high();
-        let data = self.pins.data_rx.is_high();
-
-        // Passive snooping only
-        if let Some(cmd_data) = self.snooper.tick(atn, clk, data) {
-            let len = self.snooper.buffer_len() as u8;
-            self.send_event(DriveEvent::IecCommand {
-                data: cmd_data,
-                len,
-            });
+    fn on_bus_cycle(&mut self, pb: u8) {
+        let state = IecBusByte::from_pb(pb);
+        if let Some((state, delta)) = self.interceptor.tick(state) {
+            self.send_event(DriveEvent::IecBusTransition(state, delta));
         }
     }
+
+    fn sync(&mut self) {}
 }
 
 // --- Embassy Task Wrappers ---
@@ -200,6 +203,11 @@ async fn display_run(mut task: DisplayTask<DisplayWrapper<NoopRawMutex>>) {
 
 #[embassy_executor::task]
 async fn activity_run(mut task: DriveActivityTask<ActivityIndicator>) {
+    task.run().await;
+}
+
+#[embassy_executor::task]
+async fn snooper_run(mut task: SnooperTask) {
     task.run().await;
 }
 

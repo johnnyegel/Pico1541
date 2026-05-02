@@ -104,6 +104,7 @@ fn test_drive_boot_behavior() {
                     );
                 }
                 DriveEvent::IecCommand { .. } => {}
+                DriveEvent::IecBusTransition(_, _) => {}
             }
         }
 

@@ -3,8 +3,9 @@ use log;
 use pico1541_common::formats::{AnyDiskImage, DiskImage, G64Image, TrackLayout};
 use pico1541_common::iec_com::IecBus as IecHostBus;
 use pico1541_common::storage::DummySource;
+use pico1541_common::snooper::{IecBusByte, IecSnooper, SnooperConfig};
+use pico1541_emulator::interceptor::BusInterceptor;
 use pico1541_emulator::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus};
-use pico1541_emulator::snooper::IecSnooper;
 use pico1541_emulator::Emulator;
 use pollster::block_on;
 use racc6502::cpu::DebugHook;
@@ -114,7 +115,9 @@ pub struct TestBridge {
     pub host_data: bool, // true = ASSERTED (LOW)
     pub host_clk: bool,  // true = ASSERTED (LOW)
     pub host_atn: bool,  // true = ASSERTED (LOW)
+    pub interceptor: BusInterceptor,
     pub snooper: IecSnooper,
+    pub config: &'static SnooperConfig,
     pub device_id: u8,
     pub sync_hook: Option<Box<dyn FnMut(&mut ActiveTrack)>>,
     pub drive_data: bool,
@@ -123,13 +126,16 @@ pub struct TestBridge {
 
 impl TestBridge {
     pub fn new(device_id: u8) -> Self {
+        let config = Box::leak(Box::new(SnooperConfig::new(device_id)));
         Self {
             track: ActiveTrack::new(),
             events: Vec::new(),
             host_data: false,
             host_clk: false,
             host_atn: false,
-            snooper: IecSnooper::new(device_id),
+            interceptor: BusInterceptor::new(),
+            snooper: IecSnooper::new(device_id, config),
+            config,
             device_id,
             sync_hook: None,
             drive_data: false,
@@ -142,7 +148,9 @@ impl TestBridge {
         self.host_data = false;
         self.host_clk = false;
         self.host_atn = false;
-        self.snooper = IecSnooper::new(self.device_id);
+        self.config.reset(self.device_id);
+        self.interceptor = BusInterceptor::new();
+        self.snooper = IecSnooper::new(self.device_id, self.config);
         self.sync_hook = None;
         self.drive_data = false;
         self.drive_clk = false;
@@ -183,19 +191,20 @@ impl TestBridge {
 
 impl IecBus for TestBridge {
     fn read_data(&self) -> bool {
-        self.host_data
+        self.host_data || self.drive_data
     }
     fn read_clk(&self) -> bool {
-        self.host_clk
+        self.host_clk || self.drive_clk
     }
     fn read_atn(&self) -> bool {
         self.host_atn
     }
-    fn drive_data(&mut self, v: bool) {
-        self.drive_data = v;
+    fn drive_data(&mut self, assert: bool) {
+        let should_drive = self.config.should_drive_data.load(std::sync::atomic::Ordering::Relaxed);
+        self.drive_data = assert || should_drive;
     }
-    fn drive_clk(&mut self, v: bool) {
-        self.drive_clk = v;
+    fn drive_clk(&mut self, assert: bool) {
+        self.drive_clk = assert;
     }
 }
 
@@ -207,30 +216,28 @@ impl HostInterface for TestBridge {
         self.events.push(event);
     }
     fn is_hijacked(&self) -> bool {
-        self.snooper.hijack_active
+        self.config.hijack_active.load(std::sync::atomic::Ordering::Relaxed)
     }
     fn pop_discard_request(&mut self) -> bool {
-        let req = self.snooper.discard_request;
-        self.snooper.discard_request = false;
-        req
+        self.config.discard_request.swap(false, std::sync::atomic::Ordering::Relaxed)
     }
     fn update_iec_addresses(&mut self, listen: u8, talk: u8) {
-        self.snooper.set_iec_addresses(listen, talk);
+        self.config.listen_addr.store(listen, std::sync::atomic::Ordering::Relaxed);
+        self.config.talk_addr.store(talk, std::sync::atomic::Ordering::Relaxed);
+    }
+    fn on_bus_cycle(&mut self, pb: u8) {
+        let state = IecBusByte::from_pb(pb);
+        if let Some((state, delta)) = self.interceptor.tick(state) {
+            if let Some(cmd_data) = self.snooper.tick(state, delta) {
+                let len = self.snooper.buffer_len() as u8;
+                self.send_event(DriveEvent::IecCommand {
+                    data: cmd_data,
+                    len,
+                });
+            }
+        }
     }
     fn sync(&mut self) {
-        let h_atn = self.host_atn;
-        // The snooper only needs to observe incoming host lines to intercept
-        // commands directed from the host to the drive.
-        let h_clk = self.host_clk;
-        let h_data = self.host_data;
-
-        if let Some(cmd_data) = self.snooper.tick(h_atn, h_clk, h_data) {
-            let len = self.snooper.buffer_len() as u8;
-            self.send_event(DriveEvent::IecCommand {
-                data: cmd_data,
-                len,
-            });
-        }
         if let Some(mut hook) = self.sync_hook.take() {
             let track = self.get_active_track();
             hook(track);

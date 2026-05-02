@@ -97,7 +97,7 @@ fn test_manager_command_snoop() {
             .await
     })
     .unwrap();
-    bridge.snooper = pico1541_emulator::snooper::IecSnooper::new(bridge.device_id);
+    bridge.snooper = pico1541_common::snooper::IecSnooper::new(bridge.device_id, bridge.config);
 
     // 1. Send "CD:GAMES" exactly like a DIR command
     block_on(async {

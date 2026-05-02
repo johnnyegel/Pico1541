@@ -1,5 +1,5 @@
 use crate::driver::IndicatorDriver;
-use crate::{DriveEvent, EVENT_CHANNEL};
+use crate::{DriveEvent, ACTIVITY_CHANNEL};
 use log::*;
 
 pub struct DriveActivityTask<I: IndicatorDriver> {
@@ -13,7 +13,7 @@ impl<I: IndicatorDriver> DriveActivityTask<I> {
 
     pub async fn run(&mut self) -> ! {
         loop {
-            let event = EVENT_CHANNEL.receive().await;
+            let event = ACTIVITY_CHANNEL.receive().await;
             match event {
                 DriveEvent::LedChanged(active) => {
                     self.indicator.set_activity_led(active);

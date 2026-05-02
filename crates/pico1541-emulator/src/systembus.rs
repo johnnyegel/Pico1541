@@ -123,6 +123,9 @@ impl<H: HostInterface> SystemBus<H> {
 
         self.via1.in_b = in_b;
 
+        // Report bus state to host interface (for snooping)
+        hardware.on_bus_cycle(in_b);
+
         // CA1: fires on positive edge of ATN assertion.
         // host_atn=true (Asserted/LOW wire) -> 7406 output HIGH.
         self.via1.set_ca1(host_atn);

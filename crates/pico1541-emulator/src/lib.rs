@@ -1,8 +1,8 @@
 #![no_std]
 
 pub mod drivemechanics;
+pub mod interceptor;
 pub mod interface;
-pub mod snooper;
 pub mod systembus;
 pub mod via6522;
 

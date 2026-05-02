@@ -16,3 +16,6 @@ pub use pico1541_common::{AnyDiskImage, D64Image, DiskImage, Error, G64Image, Me
 
 /// Inter-core communication channel for events from Emulator to Manager.
 pub static EVENT_CHANNEL: Channel<CriticalSectionRawMutex, DriveEvent, 64> = Channel::new();
+
+/// Channel for high-level events (LEDs, Motor, Decoded Commands) handled by the Manager.
+pub static ACTIVITY_CHANNEL: Channel<CriticalSectionRawMutex, DriveEvent, 16> = Channel::new();
