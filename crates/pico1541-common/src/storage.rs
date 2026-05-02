@@ -1,5 +1,5 @@
-use embedded_io_async::{Read, Seek, SeekFrom};
 use core::cmp;
+use embedded_io_async::{Read, Seek, SeekFrom};
 
 pub struct MemoryStorage<'a> {
     data: &'a [u8],
@@ -38,8 +38,12 @@ pub trait DirectorySource {
 
 pub struct DummySource;
 impl DirectorySource for DummySource {
-    fn name(&self) -> &[u8; 16] { &[0xA0; 16] }
-    fn next_entry(&mut self) -> Option<DirectoryEntry> { None }
+    fn name(&self) -> &[u8; 16] {
+        &[0xA0; 16]
+    }
+    fn next_entry(&mut self) -> Option<DirectoryEntry> {
+        None
+    }
     fn rewind(&mut self) {}
 }
 

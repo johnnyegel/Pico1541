@@ -1,5 +1,5 @@
-use pico1541_manager::{D64Image, MemoryStorage, DiskImage};
 use futures_executor::block_on;
+use pico1541_manager::{D64Image, DiskImage, MemoryStorage};
 
 #[test]
 fn test_d64_load_track() {
@@ -8,22 +8,22 @@ fn test_d64_load_track() {
     // Track 1 Sector 0 (offset 0)
     d64_data[0] = 0xA2; // LDX #imm
     d64_data[1] = 0x10;
-    
+
     let storage = MemoryStorage::new(&d64_data);
     let mut image = D64Image::new(storage);
-    
-    use pico1541_manager::TrackLayout;
+
+    use pico1541_common::formats::TrackLayout;
     let mut buffer = [0u8; 10000];
     let layout = block_on(image.read_track(2, &mut buffer)).unwrap(); // Track 1.0 = Half-track 2
-    
+
     let bit_len = match layout {
         TrackLayout::Accurate(bits) => bits,
         TrackLayout::Warp(bits) => bits,
         _ => panic!("Expected Accurate or Warp track"),
     };
-    
+
     assert!(bit_len > 0);
-    
+
     // Check if we can find the sync mark ($FF x 8)
     let mut found_sync = false;
     for window in buffer.windows(8) {
@@ -41,9 +41,9 @@ fn test_gcr_encoding() {
     let data = [0x01, 0x02, 0x03, 0x04];
     let mut gcr_buf = [0u8; 5];
     gcr::encode_gcr_block(&data, &mut gcr_buf);
-    
+
     let mut decoded = [0u8; 4];
     gcr::decode_gcr_block(&gcr_buf, &mut decoded);
-    
+
     assert_eq!(data, decoded);
 }

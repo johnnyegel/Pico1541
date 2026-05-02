@@ -11,22 +11,22 @@ pub struct IecSnooper {
     last_clk: bool,
     last_atn: bool,
     last_data: bool,
-    
+
     // Layer 1: Byte Decoder State
     bit_count: u8,
     current_byte: u8,
     atn_at_start: bool,
-    
+
     // Layer 2: Protocol State
     pub listen_addr: u8,
     pub talk_addr: u8,
     device_addressed: bool,
     channel_15_active: bool,
-    
+
     // Layer 3: Command Buffer
     buffer: [u8; 64],
     buffer_len: usize,
-    
+
     pub command_ready: bool,
     pub hijack_active: bool,
     pub discard_request: bool,
@@ -62,6 +62,7 @@ impl IecSnooper {
         }
     }
 
+    #[allow(unreachable_code, unused_variables)]
     pub fn tick(&mut self, atn: bool, clk: bool, data: bool) -> Option<[u8; 64]> {
         let atn_edge_pos = atn && !self.last_atn;
         let clk_edge_pos = clk && !self.last_clk;
@@ -74,8 +75,8 @@ impl IecSnooper {
             self.atn_at_start = true;
         }
 
-        // FIXME! Disable snooper for now
-        if true { return None; };
+        // Snooper is currently disabled during protocol refactor
+        return None;
 
         // --- Layer 1: Byte Decoder ---
         match self.state {
@@ -101,7 +102,9 @@ impl IecSnooper {
                         self.state = SnooperState::Receiving;
                         self.bit_count = 0;
                         self.current_byte = 0;
-                        log::trace!("Ready state: CLK posedge detected, starting to receive byte...");
+                        log::trace!(
+                            "Ready state: CLK posedge detected, starting to receive byte..."
+                        );
                     } else if data_edge_pos && !clk && !self.should_drive_data() {
                         self.state = SnooperState::Idle;
                     }
@@ -110,14 +113,20 @@ impl IecSnooper {
             SnooperState::Receiving => {
                 if clk_edge_neg {
                     let bit = if !data { 1 } else { 0 };
-                    log::trace!("Receiving state: CLK negedge detected, reading bit {}: {}", self.bit_count, bit);
+                    log::trace!(
+                        "Receiving state: CLK negedge detected, reading bit {}: {}",
+                        self.bit_count,
+                        bit
+                    );
                     self.current_byte |= bit << self.bit_count;
                     self.bit_count += 1;
-                    
+
                     if self.bit_count == 8 {
                         self.process_byte(self.current_byte, self.atn_at_start);
                         self.state = SnooperState::Ack;
-                        log::trace!("Receiving state: Finished receiving byte, entering Ack state...");
+                        log::trace!(
+                            "Receiving state: Finished receiving byte, entering Ack state..."
+                        );
                     }
                 }
             }
@@ -134,7 +143,7 @@ impl IecSnooper {
         self.last_atn = atn;
         self.last_clk = clk;
         self.last_data = data;
-        
+
         if self.command_ready {
             self.command_ready = false;
             let mut final_cmd = [0u8; 64];
@@ -148,13 +157,16 @@ impl IecSnooper {
     fn process_byte(&mut self, byte: u8, atn: bool) {
         log::info!("[Snooper] Decoded: 0x{:02X} (ATN:{})", byte, atn);
         if atn {
-            if byte == self.listen_addr { // LISTEN device
+            if byte == self.listen_addr {
+                // LISTEN device
                 self.device_addressed = true;
                 self.buffer_len = 0;
-            } else if byte == self.talk_addr { // TALK device
+            } else if byte == self.talk_addr {
+                // TALK device
                 self.device_addressed = true;
                 self.buffer_len = 0;
-            } else if byte == 0x3F { // UNLISTEN
+            } else if byte == 0x3F {
+                // UNLISTEN
                 if self.device_addressed && self.channel_15_active && self.buffer_len > 0 {
                     self.command_ready = true;
                     if self.was_hijacked {
@@ -165,10 +177,12 @@ impl IecSnooper {
                 self.channel_15_active = false;
                 self.hijack_active = false;
                 self.was_hijacked = false;
-            } else if (byte & 0xF0) == 0x60 && self.device_addressed { // SEC
+            } else if (byte & 0xF0) == 0x60 && self.device_addressed {
+                // SEC
                 let channel = byte & 0x0F;
                 self.channel_15_active = channel == 15;
-            } else if (byte & 0xF0) == 0xF0 && self.device_addressed { // OPEN
+            } else if (byte & 0xF0) == 0xF0 && self.device_addressed {
+                // OPEN
                 let channel = byte & 0x0F;
                 self.channel_15_active = channel == 15;
             }
@@ -176,12 +190,15 @@ impl IecSnooper {
             if self.buffer_len < 64 {
                 self.buffer[self.buffer_len] = byte;
                 self.buffer_len += 1;
-                
+
                 // Detect hijack prefixes
                 if self.buffer_len == 3 {
                     let prefix = &self.buffer[0..3];
                     if prefix == b"CD:" || prefix == b"MD:" || prefix == b"RD:" {
-                        log::info!("[Snooper] HIJACK ACTIVATED for command: {:?}", core::str::from_utf8(prefix).unwrap_or("???"));
+                        log::info!(
+                            "[Snooper] HIJACK ACTIVATED for command: {:?}",
+                            core::str::from_utf8(prefix).unwrap_or("???")
+                        );
                         self.hijack_active = true;
                         self.was_hijacked = true;
                     }
@@ -189,13 +206,15 @@ impl IecSnooper {
             }
         }
     }
-    
+
     pub fn buffer_len(&self) -> usize {
         self.buffer_len
     }
 
     pub fn should_drive_data(&self) -> bool {
-        if !self.hijack_active { return false; }
+        if !self.hijack_active {
+            return false;
+        }
         match self.state {
             SnooperState::Ready => self.ready_delay == 0 && !self.clk_released,
             SnooperState::Ack => true,
@@ -206,7 +225,11 @@ impl IecSnooper {
     pub fn set_iec_addresses(&mut self, listen: u8, talk: u8) {
         // Only update if they look like valid IEC addresses (LISTEN=0x20-0x3E, TALK=0x40-0x5E)
         if (listen & 0xE0) == 0x20 && (talk & 0xE0) == 0x40 {
-            log::trace!("[Snooper] Updated IEC addresses: LISTEN=0x{:02X}, TALK=0x{:02X}", listen, talk);
+            log::trace!(
+                "[Snooper] Updated IEC addresses: LISTEN=0x{:02X}, TALK=0x{:02X}",
+                listen,
+                talk
+            );
             self.listen_addr = listen;
             self.talk_addr = talk;
         }

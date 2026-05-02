@@ -1,5 +1,6 @@
-use embassy_rp::gpio::{Level, Output, AnyPin};
+use embassy_rp::gpio::{AnyPin, Level, Output};
 
+#[allow(dead_code)]
 /// Driver for the RGB Status/Power LED (GPIO 26, 27, 28).
 pub struct StatusLeds {
     pub red: Output<'static>,
@@ -7,10 +8,11 @@ pub struct StatusLeds {
     pub blue: Output<'static>,
 }
 
+#[allow(dead_code)]
 impl StatusLeds {
     pub fn new(red: AnyPin, green: AnyPin, blue: AnyPin) -> Self {
         Self {
-            red: Output::new(red, Level::High),   // Active Low assumed
+            red: Output::new(red, Level::High), // Active Low assumed
             green: Output::new(green, Level::High),
             blue: Output::new(blue, Level::High),
         }
@@ -18,8 +20,10 @@ impl StatusLeds {
 
     pub fn set_color(&mut self, r: bool, g: bool, b: bool) {
         self.red.set_level(if r { Level::Low } else { Level::High });
-        self.green.set_level(if g { Level::Low } else { Level::High });
-        self.blue.set_level(if b { Level::Low } else { Level::High });
+        self.green
+            .set_level(if g { Level::Low } else { Level::High });
+        self.blue
+            .set_level(if b { Level::Low } else { Level::High });
     }
 }
 

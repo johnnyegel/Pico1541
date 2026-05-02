@@ -1,5 +1,5 @@
-use racc6502::cpu::CPU;
 use racc6502::bus::Bus;
+use racc6502::cpu::CPU;
 
 struct DebugBus {
     memory: [u8; 65536],
@@ -7,8 +7,12 @@ struct DebugBus {
 
 impl Bus for DebugBus {
     type Ctx = ();
-    fn read(&mut self, addr: u16, _ctx: &mut ()) -> u8 { self.memory[addr as usize] }
-    fn write(&mut self, addr: u16, val: u8, _ctx: &mut ()) { self.memory[addr as usize] = val; }
+    fn read(&mut self, addr: u16, _ctx: &mut ()) -> u8 {
+        self.memory[addr as usize]
+    }
+    fn write(&mut self, addr: u16, val: u8, _ctx: &mut ()) {
+        self.memory[addr as usize] = val;
+    }
 }
 
 #[test]
@@ -44,14 +48,16 @@ fn test_debug_hook_on_load() {
 
     // 1. Execute Reset (8 cycles)
     // Reset does not fire the hook (it goes from Reset state directly to FetchOpcode)
-    for _ in 0..8 { cpu.tick(&mut bus, &mut ()); }
+    for _ in 0..8 {
+        cpu.tick(&mut bus, &mut ());
+    }
 
     assert_eq!(trace.len(), 0);
 
     // 2. Execute LDA #$42 (2 cycles)
     // First cycle of LDA #$42 is the FetchOpcode cycle. Hook fires here.
     cpu.tick(&mut bus, &mut ()); // Fetch A9. IR becomes 0xA9. Hook fires.
-    
+
     assert_eq!(trace.len(), 1);
     // At this point, A is still 0 because LDA hasn't executed its operation yet.
     assert_eq!(trace[0], (0xA9, 0x00, 0x00));

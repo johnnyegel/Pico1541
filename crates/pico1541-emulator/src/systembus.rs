@@ -1,11 +1,11 @@
+use crate::drivemechanics::DriveMechanics;
+use crate::interface::HostInterface;
+use crate::via6522::Via6522;
 use core::marker::PhantomData;
+use log;
 use racc6502::bus::Bus;
 #[cfg(feature = "debug")]
 use racc6502::bus::MemoryMonitor;
-use crate::via6522::Via6522;
-use crate::interface::HostInterface;
-use crate::drivemechanics::DriveMechanics;
-use log;
 
 const RAM_SIZE: usize = 0x0800; // 2KB
 const ROM_SIZE: usize = 0x4000; // 16KB
@@ -29,7 +29,7 @@ pub struct SystemBus<H: HostInterface> {
 
 impl<H: HostInterface> SystemBus<H> {
     pub fn new(rom: [u8; ROM_SIZE], device_id: u8) -> Self {
-        // :: Intialize VIA1 
+        // :: Intialize VIA1
         let mut via1 = Via6522::new();
         via1.in_a = 0x0;
         via1.in_b = Self::device_id_to_pb(0x0, device_id);
@@ -45,15 +45,18 @@ impl<H: HostInterface> SystemBus<H> {
             _phantom: PhantomData,
         };
 
-
         systembus
     }
 
     #[cfg(feature = "debug")]
-    pub fn led_on(&self) -> bool { self.mechanics.led_on(&self.via2) }
+    pub fn led_on(&self) -> bool {
+        self.mechanics.led_on(&self.via2)
+    }
 
     #[cfg(feature = "debug")]
-    pub fn motor_on(&self) -> bool { self.mechanics.motor_on(&self.via2) }
+    pub fn motor_on(&self) -> bool {
+        self.mechanics.motor_on(&self.via2)
+    }
 
     pub fn reset(&mut self) {
         self.ram = [0; RAM_SIZE];
@@ -75,8 +78,8 @@ impl<H: HostInterface> SystemBus<H> {
         }
 
         let mut host_data = hardware.read_data();
-        let mut host_clk  = hardware.read_clk();
-        let mut host_atn  = hardware.read_atn();
+        let mut host_clk = hardware.read_clk();
+        let mut host_atn = hardware.read_atn();
 
         // If the bus is hijacked by the manager, blind the ROM/VIA from all IEC lines.
         // This prevents the DOS parser from seeing the command and prevents bus contention.
@@ -88,15 +91,15 @@ impl<H: HostInterface> SystemBus<H> {
 
         // VIA1 outputs: PB1=DATA_OUT, PB3=CLK_OUT, PB4=ATNA (1=Asserted/LOW wire)
         let mut drv_data = (self.via1.orb & self.via1.ddrb & 0x02) != 0;
-        let drv_clk  = (self.via1.orb & self.via1.ddrb & 0x08) != 0;
-        
+        let drv_clk = (self.via1.orb & self.via1.ddrb & 0x08) != 0;
+
         // Hardware ATN acknowledge: the drive controller chip XORs ATN_IN with ATNA
         // (PB4 output) and asserts DATA when they differ.  This lets the hardware
         // pull DATA without waiting for the CPU — and releases it once the CPU
         // sets ATNA to match ATN, or re-asserts briefly at end-of-ATN (EOI handshake).
         let atna = (self.via1.orb & self.via1.ddrb & 0x10) != 0;
         let mut hw_atn_ack = host_atn ^ atna;
-        
+
         if hardware.is_hijacked() {
             drv_data = false;
             hw_atn_ack = false;
@@ -105,13 +108,19 @@ impl<H: HostInterface> SystemBus<H> {
         // VIA1 inputs: PB0=DATA_IN, PB2=CLK_IN, PB7=ATN_IN (1=Asserted/LOW wire)
         // PB5, PB6: Device ID (00=8, 10=9, 01=10, 11=11)
         let mut in_b: u8 = 0;
-        if host_data { in_b |= 0x01; }
-        if host_clk  { in_b |= 0x04; }
-        if host_atn  { in_b |= 0x80; }
-        
+        if host_data {
+            in_b |= 0x01;
+        }
+        if host_clk {
+            in_b |= 0x04;
+        }
+        if host_atn {
+            in_b |= 0x80;
+        }
+
         // Map device_id 8..11 to PB5,PB6 such that (PB >> 5) ^ 3 == id_offset
         in_b = Self::device_id_to_pb(in_b, self.device_id);
-        
+
         self.via1.in_b = in_b;
 
         // CA1: fires on positive edge of ATN assertion.
@@ -127,13 +136,13 @@ impl<H: HostInterface> SystemBus<H> {
 
     /// Silently discards a command so the 1541 DOS parser ignores it.
     pub fn discard_command_buffer(&mut self) {
-        // 1. Set command length to 0. 
+        // 1. Set command length to 0.
         // The DOS parser will see an empty string and skip execution.
         self.ram[0x02A7] = 0;
-        
+
         // 2. Force the internal error state to "00, OK" just to be safe.
         // This ensures the green LED stays solid and no error is returned.
-        self.ram[0x026C] = 0; 
+        self.ram[0x026C] = 0;
     }
 
     // Maps the device ID to the appropriate PB5/PB6 bits for VIA1.
@@ -212,22 +221,34 @@ impl<H: HostInterface> MemoryMonitor for SystemBus<H> {
 mod tests {
     use super::*;
     use crate::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus};
-    struct MockHardware { track: ActiveTrack }
+    struct MockHardware {
+        track: ActiveTrack,
+    }
     impl IecBus for MockHardware {
-        fn read_data(&self) -> bool { false }
-        fn read_clk(&self) -> bool { false }
-        fn read_atn(&self) -> bool { false }
+        fn read_data(&self) -> bool {
+            false
+        }
+        fn read_clk(&self) -> bool {
+            false
+        }
+        fn read_atn(&self) -> bool {
+            false
+        }
         fn drive_data(&mut self, _: bool) {}
         fn drive_clk(&mut self, _: bool) {}
     }
     impl HostInterface for MockHardware {
-        fn get_active_track(&mut self) -> &mut ActiveTrack { &mut self.track }
+        fn get_active_track(&mut self) -> &mut ActiveTrack {
+            &mut self.track
+        }
         fn send_event(&mut self, _: DriveEvent) {}
     }
     #[test]
     fn test_ram_read_write() {
         let mut bus = SystemBus::<MockHardware>::new([0; ROM_SIZE], 8);
-        let mut hw = MockHardware { track: ActiveTrack::new() };
+        let mut hw = MockHardware {
+            track: ActiveTrack::new(),
+        };
         bus.write(0x0100, 0xAB, &mut hw);
         assert_eq!(bus.read(0x0100, &mut hw), 0xAB);
         assert_eq!(bus.read(0x0900, &mut hw), 0xAB);

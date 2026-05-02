@@ -1,6 +1,6 @@
 use crate::bus::Bus;
-use crate::instructions::{AddrMicroOp, ExecMicroOp, VECTOR_RESET, VECTOR_NMI, VECTOR_IRQ};
 use crate::instructions::nmos6502::INSTRUCTION_TABLE;
+use crate::instructions::{AddrMicroOp, ExecMicroOp, VECTOR_IRQ, VECTOR_NMI, VECTOR_RESET};
 
 /// Represents the current stage of the CPU's execution cycle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -118,10 +118,10 @@ impl CPU {
         }
 
         match self.state {
-            CycleState::Reset     => self.tick_reset(bus, ctx),
+            CycleState::Reset => self.tick_reset(bus, ctx),
             CycleState::Interrupt => self.tick_interrupt(bus, ctx),
             CycleState::FetchOpcode => self.tick_fetch(bus, ctx),
-            CycleState::AddrMode  => self.tick_addr(bus, ctx),
+            CycleState::AddrMode => self.tick_addr(bus, ctx),
             CycleState::Operation => self.tick_operation(bus, ctx),
         }
     }
@@ -235,7 +235,11 @@ impl CPU {
 
         if self.step_index < current_slice.len() {
             let uop = current_slice[self.step_index];
-            if (uop == AddrMicroOp::OptionalFixupX || uop == AddrMicroOp::OptionalFixupY || uop == AddrMicroOp::OptionalFixupIndY) && !self.page_crossed {
+            if (uop == AddrMicroOp::OptionalFixupX
+                || uop == AddrMicroOp::OptionalFixupY
+                || uop == AddrMicroOp::OptionalFixupIndY)
+                && !self.page_crossed
+            {
                 self.step_index += 1;
                 if self.step_index >= current_slice.len() {
                     self.state = CycleState::Operation;
@@ -328,7 +332,8 @@ impl CPU {
             }
             AddrMicroOp::FetchIndXLo => {
                 self.data_bus = bus.read(self.effective_addr, ctx);
-                self.effective_addr = (self.effective_addr & 0xFF00) | ((self.effective_addr + 1) & 0x00FF);
+                self.effective_addr =
+                    (self.effective_addr & 0xFF00) | ((self.effective_addr + 1) & 0x00FF);
             }
             AddrMicroOp::FetchIndXHi => {
                 let hi = bus.read(self.effective_addr, ctx) as u16;
@@ -336,7 +341,8 @@ impl CPU {
             }
             AddrMicroOp::FetchIndYLo => {
                 self.data_bus = bus.read(self.effective_addr, ctx);
-                self.effective_addr = (self.effective_addr & 0xFF00) | ((self.effective_addr + 1) & 0x00FF);
+                self.effective_addr =
+                    (self.effective_addr & 0xFF00) | ((self.effective_addr + 1) & 0x00FF);
             }
             AddrMicroOp::FetchIndYHi => {
                 let hi = bus.read(self.effective_addr, ctx) as u16;
@@ -345,71 +351,171 @@ impl CPU {
                 self.effective_addr = (hi << 8) | (new_al as u16);
                 self.page_crossed = carry;
             }
-            AddrMicroOp::OptionalFixupX | AddrMicroOp::OptionalFixupY | AddrMicroOp::OptionalFixupIndY |
-            AddrMicroOp::MandatoryFixupX | AddrMicroOp::MandatoryFixupY | AddrMicroOp::MandatoryFixupIndY => {
+            AddrMicroOp::OptionalFixupX
+            | AddrMicroOp::OptionalFixupY
+            | AddrMicroOp::OptionalFixupIndY
+            | AddrMicroOp::MandatoryFixupX
+            | AddrMicroOp::MandatoryFixupY
+            | AddrMicroOp::MandatoryFixupIndY => {
                 bus.read(self.effective_addr, ctx);
                 if self.page_crossed {
                     self.effective_addr = self.effective_addr.wrapping_add(0x100);
                 }
             }
-            AddrMicroOp::DummyReadPC  => { bus.read(self.pc, ctx); }
-            AddrMicroOp::DummyReadEff => { bus.read(self.effective_addr, ctx); }
+            AddrMicroOp::DummyReadPC => {
+                bus.read(self.pc, ctx);
+            }
+            AddrMicroOp::DummyReadEff => {
+                bus.read(self.effective_addr, ctx);
+            }
         }
     }
 
     fn execute_exec_uop<B: Bus>(&mut self, uop: ExecMicroOp, bus: &mut B, ctx: &mut B::Ctx) {
         match uop {
-            ExecMicroOp::ReadEffAndLDA => { self.a = bus.read(self.effective_addr, ctx); self.update_zn(self.a); }
-            ExecMicroOp::ReadEffAndLDX => { self.x = bus.read(self.effective_addr, ctx); self.update_zn(self.x); }
-            ExecMicroOp::ReadEffAndLDY => { self.y = bus.read(self.effective_addr, ctx); self.update_zn(self.y); }
-            ExecMicroOp::ReadEffAndADC => { let val = bus.read(self.effective_addr, ctx); self.do_adc(val); }
-            ExecMicroOp::ReadEffAndSBC => { let val = bus.read(self.effective_addr, ctx); self.do_sbc(val); }
-            ExecMicroOp::ReadEffAndAND => { let val = bus.read(self.effective_addr, ctx); self.a &= val; self.update_zn(self.a); }
-            ExecMicroOp::ReadEffAndORA => { let val = bus.read(self.effective_addr, ctx); self.a |= val; self.update_zn(self.a); }
-            ExecMicroOp::ReadEffAndEOR => { let val = bus.read(self.effective_addr, ctx); self.a ^= val; self.update_zn(self.a); }
-            ExecMicroOp::ReadEffAndBIT => { let val = bus.read(self.effective_addr, ctx); self.do_bit(val); }
-            ExecMicroOp::ReadEffAndCMP => { let val = bus.read(self.effective_addr, ctx); self.do_compare(self.a, val); }
-            ExecMicroOp::ReadEffAndCPX => { let val = bus.read(self.effective_addr, ctx); self.do_compare(self.x, val); }
-            ExecMicroOp::ReadEffAndCPY => { let val = bus.read(self.effective_addr, ctx); self.do_compare(self.y, val); }
-            ExecMicroOp::FetchImmAndLDA => { let val = self.fetch_imm(bus, ctx); self.a = val; self.update_zn(self.a); }
-            ExecMicroOp::FetchImmAndLDX => { let val = self.fetch_imm(bus, ctx); self.x = val; self.update_zn(self.x); }
-            ExecMicroOp::FetchImmAndLDY => { let val = self.fetch_imm(bus, ctx); self.y = val; self.update_zn(self.y); }
-            ExecMicroOp::FetchImmAndADC => { let val = self.fetch_imm(bus, ctx); self.do_adc(val); }
-            ExecMicroOp::FetchImmAndSBC => { let val = self.fetch_imm(bus, ctx); self.do_sbc(val); }
-            ExecMicroOp::FetchImmAndAND => { let val = self.fetch_imm(bus, ctx); self.a &= val; self.update_zn(self.a); }
-            ExecMicroOp::FetchImmAndORA => { let val = self.fetch_imm(bus, ctx); self.a |= val; self.update_zn(self.a); }
-            ExecMicroOp::FetchImmAndEOR => { let val = self.fetch_imm(bus, ctx); self.a ^= val; self.update_zn(self.a); }
-            ExecMicroOp::FetchImmAndCMP => { let val = self.fetch_imm(bus, ctx); self.do_compare(self.a, val); }
-            ExecMicroOp::FetchImmAndCPX => { let val = self.fetch_imm(bus, ctx); self.do_compare(self.x, val); }
-            ExecMicroOp::FetchImmAndCPY => { let val = self.fetch_imm(bus, ctx); self.do_compare(self.y, val); }
-            ExecMicroOp::WriteEffA => { bus.write(self.effective_addr, self.a, ctx); }
-            ExecMicroOp::WriteEffX => { bus.write(self.effective_addr, self.x, ctx); }
-            ExecMicroOp::WriteEffY => { bus.write(self.effective_addr, self.y, ctx); }
+            ExecMicroOp::ReadEffAndLDA => {
+                self.a = bus.read(self.effective_addr, ctx);
+                self.update_zn(self.a);
+            }
+            ExecMicroOp::ReadEffAndLDX => {
+                self.x = bus.read(self.effective_addr, ctx);
+                self.update_zn(self.x);
+            }
+            ExecMicroOp::ReadEffAndLDY => {
+                self.y = bus.read(self.effective_addr, ctx);
+                self.update_zn(self.y);
+            }
+            ExecMicroOp::ReadEffAndADC => {
+                let val = bus.read(self.effective_addr, ctx);
+                self.do_adc(val);
+            }
+            ExecMicroOp::ReadEffAndSBC => {
+                let val = bus.read(self.effective_addr, ctx);
+                self.do_sbc(val);
+            }
+            ExecMicroOp::ReadEffAndAND => {
+                let val = bus.read(self.effective_addr, ctx);
+                self.a &= val;
+                self.update_zn(self.a);
+            }
+            ExecMicroOp::ReadEffAndORA => {
+                let val = bus.read(self.effective_addr, ctx);
+                self.a |= val;
+                self.update_zn(self.a);
+            }
+            ExecMicroOp::ReadEffAndEOR => {
+                let val = bus.read(self.effective_addr, ctx);
+                self.a ^= val;
+                self.update_zn(self.a);
+            }
+            ExecMicroOp::ReadEffAndBIT => {
+                let val = bus.read(self.effective_addr, ctx);
+                self.do_bit(val);
+            }
+            ExecMicroOp::ReadEffAndCMP => {
+                let val = bus.read(self.effective_addr, ctx);
+                self.do_compare(self.a, val);
+            }
+            ExecMicroOp::ReadEffAndCPX => {
+                let val = bus.read(self.effective_addr, ctx);
+                self.do_compare(self.x, val);
+            }
+            ExecMicroOp::ReadEffAndCPY => {
+                let val = bus.read(self.effective_addr, ctx);
+                self.do_compare(self.y, val);
+            }
+            ExecMicroOp::FetchImmAndLDA => {
+                let val = self.fetch_imm(bus, ctx);
+                self.a = val;
+                self.update_zn(self.a);
+            }
+            ExecMicroOp::FetchImmAndLDX => {
+                let val = self.fetch_imm(bus, ctx);
+                self.x = val;
+                self.update_zn(self.x);
+            }
+            ExecMicroOp::FetchImmAndLDY => {
+                let val = self.fetch_imm(bus, ctx);
+                self.y = val;
+                self.update_zn(self.y);
+            }
+            ExecMicroOp::FetchImmAndADC => {
+                let val = self.fetch_imm(bus, ctx);
+                self.do_adc(val);
+            }
+            ExecMicroOp::FetchImmAndSBC => {
+                let val = self.fetch_imm(bus, ctx);
+                self.do_sbc(val);
+            }
+            ExecMicroOp::FetchImmAndAND => {
+                let val = self.fetch_imm(bus, ctx);
+                self.a &= val;
+                self.update_zn(self.a);
+            }
+            ExecMicroOp::FetchImmAndORA => {
+                let val = self.fetch_imm(bus, ctx);
+                self.a |= val;
+                self.update_zn(self.a);
+            }
+            ExecMicroOp::FetchImmAndEOR => {
+                let val = self.fetch_imm(bus, ctx);
+                self.a ^= val;
+                self.update_zn(self.a);
+            }
+            ExecMicroOp::FetchImmAndCMP => {
+                let val = self.fetch_imm(bus, ctx);
+                self.do_compare(self.a, val);
+            }
+            ExecMicroOp::FetchImmAndCPX => {
+                let val = self.fetch_imm(bus, ctx);
+                self.do_compare(self.x, val);
+            }
+            ExecMicroOp::FetchImmAndCPY => {
+                let val = self.fetch_imm(bus, ctx);
+                self.do_compare(self.y, val);
+            }
+            ExecMicroOp::WriteEffA => {
+                bus.write(self.effective_addr, self.a, ctx);
+            }
+            ExecMicroOp::WriteEffX => {
+                bus.write(self.effective_addr, self.x, ctx);
+            }
+            ExecMicroOp::WriteEffY => {
+                bus.write(self.effective_addr, self.y, ctx);
+            }
 
-            ExecMicroOp::ReadEffToData  => { self.temp_data = bus.read(self.effective_addr, ctx); }
-            ExecMicroOp::WriteDataBack  => { bus.write(self.effective_addr, self.temp_data, ctx); }
+            ExecMicroOp::ReadEffToData => {
+                self.temp_data = bus.read(self.effective_addr, ctx);
+            }
+            ExecMicroOp::WriteDataBack => {
+                bus.write(self.effective_addr, self.temp_data, ctx);
+            }
             ExecMicroOp::ASLWrite => {
                 let carry = (self.temp_data & 0x80) != 0;
                 let res = self.temp_data << 1;
-                self.set_flag(0, carry); self.update_zn(res);
+                self.set_flag(0, carry);
+                self.update_zn(res);
                 bus.write(self.effective_addr, res, ctx);
             }
             ExecMicroOp::LSRWrite => {
                 let carry = (self.temp_data & 0x01) != 0;
                 let res = self.temp_data >> 1;
-                self.set_flag(0, carry); self.update_zn(res);
+                self.set_flag(0, carry);
+                self.update_zn(res);
                 bus.write(self.effective_addr, res, ctx);
             }
             ExecMicroOp::ROLWrite => {
                 let carry = (self.temp_data & 0x80) != 0;
                 let res = (self.temp_data << 1) | (if self.get_flag(0) { 1 } else { 0 });
-                self.set_flag(0, carry); self.update_zn(res);
+                self.set_flag(0, carry);
+                self.update_zn(res);
                 bus.write(self.effective_addr, res, ctx);
             }
             ExecMicroOp::RORWrite => {
                 let carry = (self.temp_data & 0x01) != 0;
                 let res = (self.temp_data >> 1) | (if self.get_flag(0) { 0x80 } else { 0 });
-                self.set_flag(0, carry); self.update_zn(res);
+                self.set_flag(0, carry);
+                self.update_zn(res);
                 bus.write(self.effective_addr, res, ctx);
             }
             ExecMicroOp::INCWrite => {
@@ -426,50 +532,117 @@ impl CPU {
             ExecMicroOp::AccASL => {
                 let carry = (self.a & 0x80) != 0;
                 self.a <<= 1;
-                self.set_flag(0, carry); self.update_zn(self.a);
+                self.set_flag(0, carry);
+                self.update_zn(self.a);
                 bus.read(self.pc, ctx);
             }
             ExecMicroOp::AccLSR => {
                 let carry = (self.a & 0x01) != 0;
                 self.a >>= 1;
-                self.set_flag(0, carry); self.update_zn(self.a);
+                self.set_flag(0, carry);
+                self.update_zn(self.a);
                 bus.read(self.pc, ctx);
             }
             ExecMicroOp::AccROL => {
                 let carry = (self.a & 0x80) != 0;
                 self.a = (self.a << 1) | (if self.get_flag(0) { 1 } else { 0 });
-                self.set_flag(0, carry); self.update_zn(self.a);
+                self.set_flag(0, carry);
+                self.update_zn(self.a);
                 bus.read(self.pc, ctx);
             }
             ExecMicroOp::AccROR => {
                 let carry = (self.a & 0x01) != 0;
                 self.a = (self.a >> 1) | (if self.get_flag(0) { 0x80 } else { 0 });
-                self.set_flag(0, carry); self.update_zn(self.a);
+                self.set_flag(0, carry);
+                self.update_zn(self.a);
                 bus.read(self.pc, ctx);
             }
 
-            ExecMicroOp::TAX => { bus.read(self.pc, ctx); self.x = self.a; self.update_zn(self.x); }
-            ExecMicroOp::TXA => { bus.read(self.pc, ctx); self.a = self.x; self.update_zn(self.a); }
-            ExecMicroOp::TAY => { bus.read(self.pc, ctx); self.y = self.a; self.update_zn(self.y); }
-            ExecMicroOp::TYA => { bus.read(self.pc, ctx); self.a = self.y; self.update_zn(self.a); }
-            ExecMicroOp::TSX => { bus.read(self.pc, ctx); self.x = self.s; self.update_zn(self.x); }
-            ExecMicroOp::TXS => { bus.read(self.pc, ctx); self.s = self.x; }
-            ExecMicroOp::INX => { bus.read(self.pc, ctx); self.x = self.x.wrapping_add(1); self.update_zn(self.x); }
-            ExecMicroOp::DEX => { bus.read(self.pc, ctx); self.x = self.x.wrapping_sub(1); self.update_zn(self.x); }
-            ExecMicroOp::INY => { bus.read(self.pc, ctx); self.y = self.y.wrapping_add(1); self.update_zn(self.y); }
-            ExecMicroOp::DEY => { bus.read(self.pc, ctx); self.y = self.y.wrapping_sub(1); self.update_zn(self.y); }
-            ExecMicroOp::CLC => { bus.read(self.pc, ctx); self.set_flag(0, false); }
-            ExecMicroOp::SEC => { bus.read(self.pc, ctx); self.set_flag(0, true); }
-            ExecMicroOp::CLI => { bus.read(self.pc, ctx); self.set_flag(2, false); }
-            ExecMicroOp::SEI => { bus.read(self.pc, ctx); self.set_flag(2, true); }
-            ExecMicroOp::CLV => { bus.read(self.pc, ctx); self.set_flag(6, false); }
-            ExecMicroOp::CLD => { bus.read(self.pc, ctx); self.set_flag(3, false); }
-            ExecMicroOp::SED => { bus.read(self.pc, ctx); self.set_flag(3, true); }
+            ExecMicroOp::TAX => {
+                bus.read(self.pc, ctx);
+                self.x = self.a;
+                self.update_zn(self.x);
+            }
+            ExecMicroOp::TXA => {
+                bus.read(self.pc, ctx);
+                self.a = self.x;
+                self.update_zn(self.a);
+            }
+            ExecMicroOp::TAY => {
+                bus.read(self.pc, ctx);
+                self.y = self.a;
+                self.update_zn(self.y);
+            }
+            ExecMicroOp::TYA => {
+                bus.read(self.pc, ctx);
+                self.a = self.y;
+                self.update_zn(self.a);
+            }
+            ExecMicroOp::TSX => {
+                bus.read(self.pc, ctx);
+                self.x = self.s;
+                self.update_zn(self.x);
+            }
+            ExecMicroOp::TXS => {
+                bus.read(self.pc, ctx);
+                self.s = self.x;
+            }
+            ExecMicroOp::INX => {
+                bus.read(self.pc, ctx);
+                self.x = self.x.wrapping_add(1);
+                self.update_zn(self.x);
+            }
+            ExecMicroOp::DEX => {
+                bus.read(self.pc, ctx);
+                self.x = self.x.wrapping_sub(1);
+                self.update_zn(self.x);
+            }
+            ExecMicroOp::INY => {
+                bus.read(self.pc, ctx);
+                self.y = self.y.wrapping_add(1);
+                self.update_zn(self.y);
+            }
+            ExecMicroOp::DEY => {
+                bus.read(self.pc, ctx);
+                self.y = self.y.wrapping_sub(1);
+                self.update_zn(self.y);
+            }
+            ExecMicroOp::CLC => {
+                bus.read(self.pc, ctx);
+                self.set_flag(0, false);
+            }
+            ExecMicroOp::SEC => {
+                bus.read(self.pc, ctx);
+                self.set_flag(0, true);
+            }
+            ExecMicroOp::CLI => {
+                bus.read(self.pc, ctx);
+                self.set_flag(2, false);
+            }
+            ExecMicroOp::SEI => {
+                bus.read(self.pc, ctx);
+                self.set_flag(2, true);
+            }
+            ExecMicroOp::CLV => {
+                bus.read(self.pc, ctx);
+                self.set_flag(6, false);
+            }
+            ExecMicroOp::CLD => {
+                bus.read(self.pc, ctx);
+                self.set_flag(3, false);
+            }
+            ExecMicroOp::SED => {
+                bus.read(self.pc, ctx);
+                self.set_flag(3, true);
+            }
 
-            ExecMicroOp::JumpIndCycle4 => { self.data_bus = bus.read(self.effective_addr, ctx); }
+            ExecMicroOp::JumpIndCycle4 => {
+                self.data_bus = bus.read(self.effective_addr, ctx);
+            }
             ExecMicroOp::JumpIndCycle5 => {
                 let lo = self.data_bus;
-                let hi_addr = (self.effective_addr & 0xFF00) | (self.effective_addr.wrapping_add(1) & 0x00FF);
+                let hi_addr =
+                    (self.effective_addr & 0xFF00) | (self.effective_addr.wrapping_add(1) & 0x00FF);
                 let hi = bus.read(hi_addr, ctx);
                 self.pc = (hi as u16) << 8 | (lo as u16);
             }
@@ -478,10 +651,14 @@ impl CPU {
                 let offset = offset_u8 as i8;
                 self.pc = self.pc.wrapping_add(1);
                 let condition = match self.ir {
-                    0x10 => !self.get_flag(7), 0x30 => self.get_flag(7),
-                    0x50 => !self.get_flag(6), 0x70 => self.get_flag(6),
-                    0x90 => !self.get_flag(0), 0xB0 => self.get_flag(0),
-                    0xD0 => !self.get_flag(1), 0xF0 => self.get_flag(1),
+                    0x10 => !self.get_flag(7),
+                    0x30 => self.get_flag(7),
+                    0x50 => !self.get_flag(6),
+                    0x70 => self.get_flag(6),
+                    0x90 => !self.get_flag(0),
+                    0xB0 => self.get_flag(0),
+                    0xD0 => !self.get_flag(1),
+                    0xF0 => self.get_flag(1),
                     _ => unreachable!(),
                 };
                 if condition {
@@ -501,34 +678,89 @@ impl CPU {
                 bus.read(self.effective_addr, ctx);
                 self.pc = self.effective_addr;
             }
-            ExecMicroOp::JsrCycle2 => { self.data_bus = bus.read(self.pc, ctx); self.pc = self.pc.wrapping_add(1); }
-            ExecMicroOp::JsrCycle3 => { bus.read(0x0100 | (self.s as u16), ctx); }
-            ExecMicroOp::JsrCycle4 => { bus.write(0x0100 | (self.s as u16), (self.pc >> 8) as u8, ctx); self.s = self.s.wrapping_sub(1); }
-            ExecMicroOp::JsrCycle5 => { bus.write(0x0100 | (self.s as u16), (self.pc & 0xFF) as u8, ctx); self.s = self.s.wrapping_sub(1); }
-            ExecMicroOp::JsrCycle6 => { let hi = bus.read(self.pc, ctx) as u16; self.pc = (hi << 8) | (self.data_bus as u16); }
-            ExecMicroOp::RtsCycle2 => { bus.read(self.pc, ctx); }
-            ExecMicroOp::RtsCycle3 => { bus.read(0x0100 | (self.s as u16), ctx); }
-            ExecMicroOp::RtsCycle4 => { self.s = self.s.wrapping_add(1); self.pc = (self.pc & 0xFF00) | (bus.read(0x0100 | (self.s as u16), ctx) as u16); }
-            ExecMicroOp::RtsCycle5 => { self.s = self.s.wrapping_add(1); self.pc = ((bus.read(0x0100 | (self.s as u16), ctx) as u16) << 8) | (self.pc & 0x00FF); }
-            ExecMicroOp::RtsCycle6 => { bus.read(self.pc, ctx); self.pc = self.pc.wrapping_add(1); }
-            ExecMicroOp::RtiCycle2 => { bus.read(self.pc, ctx); }
-            ExecMicroOp::RtiCycle3 => { bus.read(0x0100 | (self.s as u16), ctx); }
-            ExecMicroOp::RtiCycle4 => { self.s = self.s.wrapping_add(1); let p = bus.read(0x0100 | (self.s as u16), ctx); self.p = (p & 0xCF) | 0x20; }
-            ExecMicroOp::RtiCycle5 => { self.s = self.s.wrapping_add(1); self.pc = (self.pc & 0xFF00) | (bus.read(0x0100 | (self.s as u16), ctx) as u16); }
+            ExecMicroOp::JsrCycle2 => {
+                self.data_bus = bus.read(self.pc, ctx);
+                self.pc = self.pc.wrapping_add(1);
+            }
+            ExecMicroOp::JsrCycle3 => {
+                bus.read(0x0100 | (self.s as u16), ctx);
+            }
+            ExecMicroOp::JsrCycle4 => {
+                bus.write(0x0100 | (self.s as u16), (self.pc >> 8) as u8, ctx);
+                self.s = self.s.wrapping_sub(1);
+            }
+            ExecMicroOp::JsrCycle5 => {
+                bus.write(0x0100 | (self.s as u16), (self.pc & 0xFF) as u8, ctx);
+                self.s = self.s.wrapping_sub(1);
+            }
+            ExecMicroOp::JsrCycle6 => {
+                let hi = bus.read(self.pc, ctx) as u16;
+                self.pc = (hi << 8) | (self.data_bus as u16);
+            }
+            ExecMicroOp::RtsCycle2 => {
+                bus.read(self.pc, ctx);
+            }
+            ExecMicroOp::RtsCycle3 => {
+                bus.read(0x0100 | (self.s as u16), ctx);
+            }
+            ExecMicroOp::RtsCycle4 => {
+                self.s = self.s.wrapping_add(1);
+                self.pc = (self.pc & 0xFF00) | (bus.read(0x0100 | (self.s as u16), ctx) as u16);
+            }
+            ExecMicroOp::RtsCycle5 => {
+                self.s = self.s.wrapping_add(1);
+                self.pc =
+                    ((bus.read(0x0100 | (self.s as u16), ctx) as u16) << 8) | (self.pc & 0x00FF);
+            }
+            ExecMicroOp::RtsCycle6 => {
+                bus.read(self.pc, ctx);
+                self.pc = self.pc.wrapping_add(1);
+            }
+            ExecMicroOp::RtiCycle2 => {
+                bus.read(self.pc, ctx);
+            }
+            ExecMicroOp::RtiCycle3 => {
+                bus.read(0x0100 | (self.s as u16), ctx);
+            }
+            ExecMicroOp::RtiCycle4 => {
+                self.s = self.s.wrapping_add(1);
+                let p = bus.read(0x0100 | (self.s as u16), ctx);
+                self.p = (p & 0xCF) | 0x20;
+            }
+            ExecMicroOp::RtiCycle5 => {
+                self.s = self.s.wrapping_add(1);
+                self.pc = (self.pc & 0xFF00) | (bus.read(0x0100 | (self.s as u16), ctx) as u16);
+            }
             ExecMicroOp::RtiCycle6 => {
                 self.s = self.s.wrapping_add(1);
-                self.pc = ((bus.read(0x0100 | (self.s as u16), ctx) as u16) << 8) | (self.pc & 0x00FF);
+                self.pc =
+                    ((bus.read(0x0100 | (self.s as u16), ctx) as u16) << 8) | (self.pc & 0x00FF);
                 #[cfg(feature = "debug")]
                 {
                     self.debug_interrupt_level = self.debug_interrupt_level.saturating_sub(1);
                 }
             }
 
-            ExecMicroOp::BrkCycle2 => { bus.read(self.pc, ctx); self.pc = self.pc.wrapping_add(1); }
-            ExecMicroOp::BrkCycle3 => { bus.write(0x0100 | (self.s as u16), (self.pc >> 8) as u8, ctx); self.s = self.s.wrapping_sub(1); }
-            ExecMicroOp::BrkCycle4 => { bus.write(0x0100 | (self.s as u16), (self.pc & 0xFF) as u8, ctx); self.s = self.s.wrapping_sub(1); }
-            ExecMicroOp::BrkCycle5 => { bus.write(0x0100 | (self.s as u16), self.p | 0x30, ctx); self.s = self.s.wrapping_sub(1); }
-            ExecMicroOp::BrkCycle6 => { self.pc = bus.read(VECTOR_IRQ, ctx) as u16; self.set_flag(2, true); }
+            ExecMicroOp::BrkCycle2 => {
+                bus.read(self.pc, ctx);
+                self.pc = self.pc.wrapping_add(1);
+            }
+            ExecMicroOp::BrkCycle3 => {
+                bus.write(0x0100 | (self.s as u16), (self.pc >> 8) as u8, ctx);
+                self.s = self.s.wrapping_sub(1);
+            }
+            ExecMicroOp::BrkCycle4 => {
+                bus.write(0x0100 | (self.s as u16), (self.pc & 0xFF) as u8, ctx);
+                self.s = self.s.wrapping_sub(1);
+            }
+            ExecMicroOp::BrkCycle5 => {
+                bus.write(0x0100 | (self.s as u16), self.p | 0x30, ctx);
+                self.s = self.s.wrapping_sub(1);
+            }
+            ExecMicroOp::BrkCycle6 => {
+                self.pc = bus.read(VECTOR_IRQ, ctx) as u16;
+                self.set_flag(2, true);
+            }
             ExecMicroOp::BrkCycle7 => {
                 let hi = bus.read(VECTOR_IRQ + 1, ctx) as u16;
                 self.pc |= hi << 8;
@@ -538,19 +770,55 @@ impl CPU {
                 }
             }
 
-            ExecMicroOp::PushA   => { bus.write(0x0100 | (self.s as u16), self.a,        ctx); self.s = self.s.wrapping_sub(1); }
-            ExecMicroOp::PushP   => { bus.write(0x0100 | (self.s as u16), self.p | 0x30, ctx); self.s = self.s.wrapping_sub(1); }
-            ExecMicroOp::PushPCH => { bus.write(0x0100 | (self.s as u16), (self.pc >> 8) as u8,   ctx); self.s = self.s.wrapping_sub(1); }
-            ExecMicroOp::PushPCL => { bus.write(0x0100 | (self.s as u16), (self.pc & 0xFF) as u8, ctx); self.s = self.s.wrapping_sub(1); }
-            ExecMicroOp::PullA   => { self.s = self.s.wrapping_add(1); self.a = bus.read(0x0100 | (self.s as u16), ctx); self.update_zn(self.a); }
-            ExecMicroOp::PullP   => { self.s = self.s.wrapping_add(1); let p = bus.read(0x0100 | (self.s as u16), ctx); self.p = (p & 0xCF) | 0x20; }
-            ExecMicroOp::PullPCH => { self.s = self.s.wrapping_add(1); let hi = bus.read(0x0100 | (self.s as u16), ctx) as u16; self.pc = (hi << 8) | (self.pc & 0x00FF); }
-            ExecMicroOp::PullPCL => { self.s = self.s.wrapping_add(1); let lo = bus.read(0x0100 | (self.s as u16), ctx) as u16; self.pc = (self.pc & 0xFF00) | lo; }
+            ExecMicroOp::PushA => {
+                bus.write(0x0100 | (self.s as u16), self.a, ctx);
+                self.s = self.s.wrapping_sub(1);
+            }
+            ExecMicroOp::PushP => {
+                bus.write(0x0100 | (self.s as u16), self.p | 0x30, ctx);
+                self.s = self.s.wrapping_sub(1);
+            }
+            ExecMicroOp::PushPCH => {
+                bus.write(0x0100 | (self.s as u16), (self.pc >> 8) as u8, ctx);
+                self.s = self.s.wrapping_sub(1);
+            }
+            ExecMicroOp::PushPCL => {
+                bus.write(0x0100 | (self.s as u16), (self.pc & 0xFF) as u8, ctx);
+                self.s = self.s.wrapping_sub(1);
+            }
+            ExecMicroOp::PullA => {
+                self.s = self.s.wrapping_add(1);
+                self.a = bus.read(0x0100 | (self.s as u16), ctx);
+                self.update_zn(self.a);
+            }
+            ExecMicroOp::PullP => {
+                self.s = self.s.wrapping_add(1);
+                let p = bus.read(0x0100 | (self.s as u16), ctx);
+                self.p = (p & 0xCF) | 0x20;
+            }
+            ExecMicroOp::PullPCH => {
+                self.s = self.s.wrapping_add(1);
+                let hi = bus.read(0x0100 | (self.s as u16), ctx) as u16;
+                self.pc = (hi << 8) | (self.pc & 0x00FF);
+            }
+            ExecMicroOp::PullPCL => {
+                self.s = self.s.wrapping_add(1);
+                let lo = bus.read(0x0100 | (self.s as u16), ctx) as u16;
+                self.pc = (self.pc & 0xFF00) | lo;
+            }
 
-            ExecMicroOp::DummyReadStack => { bus.read(0x0100 | (self.s as u16), ctx); }
-            ExecMicroOp::DummyReadPC    => { bus.read(self.pc, ctx); }
-            ExecMicroOp::DummyReadEff   => { bus.read(self.effective_addr, ctx); }
-            ExecMicroOp::Unimplemented  => { bus.read(self.pc, ctx); }
+            ExecMicroOp::DummyReadStack => {
+                bus.read(0x0100 | (self.s as u16), ctx);
+            }
+            ExecMicroOp::DummyReadPC => {
+                bus.read(self.pc, ctx);
+            }
+            ExecMicroOp::DummyReadEff => {
+                bus.read(self.effective_addr, ctx);
+            }
+            ExecMicroOp::Unimplemented => {
+                bus.read(self.pc, ctx);
+            }
         }
     }
 
@@ -567,11 +835,19 @@ impl CPU {
     }
 
     fn set_flag(&mut self, bit: u8, val: bool) {
-        if bit == 4 || bit == 5 { return; }
-        if val { self.p |= 1 << bit; } else { self.p &= !(1 << bit); }
+        if bit == 4 || bit == 5 {
+            return;
+        }
+        if val {
+            self.p |= 1 << bit;
+        } else {
+            self.p &= !(1 << bit);
+        }
     }
 
-    fn get_flag(&self, bit: u8) -> bool { (self.p & (1 << bit)) != 0 }
+    fn get_flag(&self, bit: u8) -> bool {
+        (self.p & (1 << bit)) != 0
+    }
 
     fn do_compare(&mut self, reg: u8, val: u8) {
         let (res, borrow) = reg.overflowing_sub(val);
@@ -587,12 +863,16 @@ impl CPU {
 
         if self.get_flag(3) {
             let mut low = (a & 0x0F) + (b & 0x0F) + c;
-            if low > 9 { low += 6; }
+            if low > 9 {
+                low += 6;
+            }
             let mut high = (a >> 4) + (b >> 4) + (if low > 15 { 1 } else { 0 });
             self.set_flag(0, sum > 0xFF);
             self.update_zn((sum & 0xFF) as u8);
             self.set_flag(6, (!(a ^ b) & (a ^ sum) & 0x80) != 0);
-            if high > 9 { high += 6; }
+            if high > 9 {
+                high += 6;
+            }
             self.set_flag(0, high > 15);
             self.a = ((high << 4) | (low & 0x0F)) as u8;
         } else {
@@ -612,9 +892,13 @@ impl CPU {
 
         if self.get_flag(3) {
             let mut low = (a & 0x0F) - (b & 0x0F) - (1 - c);
-            if low < 0 { low -= 6; }
+            if low < 0 {
+                low -= 6;
+            }
             let mut high = (a >> 4) - (b >> 4) - (if low < 0 { 1 } else { 0 });
-            if high < 0 { high -= 6; }
+            if high < 0 {
+                high -= 6;
+            }
             self.set_flag(0, diff >= 0);
             self.update_zn((diff & 0xFF) as u8);
             self.set_flag(6, ((a ^ diff) & (a ^ b) & 0x80) != 0);

@@ -1,4 +1,4 @@
-use embassy_rp::gpio::{Level, Output, AnyPin};
+use embassy_rp::gpio::{AnyPin, Level, Output};
 
 pub struct PiezoSpeaker {
     pub piezo: Output<'static>,

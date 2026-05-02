@@ -1,9 +1,8 @@
 mod common;
 
 use common::TestBridge;
-use pico1541_emulator::via6522::Via6522;
 use pico1541_emulator::drivemechanics::DriveMechanics;
-
+use pico1541_emulator::via6522::Via6522;
 
 #[test]
 fn test_motor_delay() {

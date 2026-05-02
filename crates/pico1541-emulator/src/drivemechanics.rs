@@ -1,8 +1,8 @@
-use crate::via6522::Via6522;
 use crate::interface::{DriveEvent, HostInterface};
+use crate::via6522::Via6522;
 
 // 35 tracks + 7 tracks more that can be physically reached (MAX 42)
-const MAX_HALF_TRACK: u8 = (35 + 7) * 2; 
+const MAX_HALF_TRACK: u8 = (35 + 7) * 2;
 
 // Numer of CPU cycles until data is streamed to the VIA
 const MOTOR_SPIN_UP_CYCLES: u32 = 250_000;
@@ -166,8 +166,8 @@ impl DriveMechanics {
                     via2.in_a = gcr_byte;
 
                     if is_formatted && gcr_byte == 0xFF {
-                        via2.in_b |= 0x80;  // SYNC found (1)
-                        // SYNC bytes do not trigger a BYTE READY (SO/CA1) pulse.
+                        via2.in_b |= 0x80; // SYNC found (1)
+                                           // SYNC bytes do not trigger a BYTE READY (SO/CA1) pulse.
                         return false;
                     } else {
                         via2.in_b &= !0x80; // SYNC released (0)
@@ -178,9 +178,13 @@ impl DriveMechanics {
                         via2.set_ca1(false);
 
                         if self.current_byte_idx % 1000 == 0 {
-                            log::info!("GCR Byte: ${:02X} at idx {}", gcr_byte, self.current_byte_idx);
+                            log::info!(
+                                "GCR Byte: ${:02X} at idx {}",
+                                gcr_byte,
+                                self.current_byte_idx
+                            );
                         }
-                        return true;        // SO pulse for data bytes
+                        return true; // SO pulse for data bytes
                     }
                 }
             }
@@ -207,7 +211,7 @@ impl DriveMechanics {
         let full_relevant_state = via2.orb & (STATE_MASK | 0x60);
         let curent_state = full_relevant_state & STATE_MASK;
 
-        // Handle motor spin un/down logic immediately, as this is needed 
+        // Handle motor spin un/down logic immediately, as this is needed
         // for each cycle and only depends on the current motor bit state.
         let motor_state = (curent_state & MOTOR_BIT) != 0;
         if motor_state && self.motor_delay_counter < MOTOR_SPIN_UP_CYCLES {
@@ -215,11 +219,12 @@ impl DriveMechanics {
             if self.motor_delay_counter == MOTOR_SPIN_UP_CYCLES {
                 log::info!("Motor SPUN UP");
                 self.motor_spun_up = true;
-            }             
-        }
-        else if !motor_state && self.motor_delay_counter > 0 {
+            }
+        } else if !motor_state && self.motor_delay_counter > 0 {
             self.motor_delay_counter -= 1;
-            if self.motor_spun_up && self.motor_delay_counter == MOTOR_SPIN_UP_CYCLES - MOTOR_SPIN_DOWN_THRESHOLD {
+            if self.motor_spun_up
+                && self.motor_delay_counter == MOTOR_SPIN_UP_CYCLES - MOTOR_SPIN_DOWN_THRESHOLD
+            {
                 log::info!("Motor SPUN DOWN");
                 self.motor_spun_up = false;
             }
@@ -265,18 +270,29 @@ impl DriveMechanics {
             // Ignore invalid transitions that don't correspond to a single step
             if step != 0 {
                 // Update the current half track, ensuring it stays within valid bounds
-                self.current_half_track = (self.current_half_track as i8 + step)
-                        .clamp(0, MAX_HALF_TRACK as i8) as u8;
+                self.current_half_track =
+                    (self.current_half_track as i8 + step).clamp(0, MAX_HALF_TRACK as i8) as u8;
 
-                log::info!("HEAD Stepped: Phase {} -> {} ({}), Half-Track: {}", last_phase, new_phase, step, self.current_half_track);
-                hardware.send_event(DriveEvent::HeadStepped { new_half_track: self.current_half_track });
+                log::info!(
+                    "HEAD Stepped: Phase {} -> {} ({}), Half-Track: {}",
+                    last_phase,
+                    new_phase,
+                    step,
+                    self.current_half_track
+                );
+                hardware.send_event(DriveEvent::HeadStepped {
+                    new_half_track: self.current_half_track,
+                });
             } else {
-                log::warn!("Invalid step detected: last_phase={}, new_phase={}", last_phase, new_phase);
+                log::warn!(
+                    "Invalid step detected: last_phase={}, new_phase={}",
+                    last_phase,
+                    new_phase
+                );
             }
         }
 
         // Return the full change mask
         changed
-    } 
-        
+    }
 }

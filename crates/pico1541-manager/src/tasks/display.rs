@@ -1,5 +1,5 @@
-use embassy_time::{Duration, Timer};
 use crate::driver::DisplayDriver;
+use embassy_time::{Duration, Timer};
 
 pub struct DisplayTask<D: DisplayDriver> {
     display: D,

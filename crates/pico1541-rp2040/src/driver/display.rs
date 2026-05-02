@@ -1,20 +1,27 @@
-use pico1541_manager::DisplayDriver;
-use embassy_rp::i2c::{I2c, Async};
+use display_interface_i2c::I2CInterface;
+use embassy_rp::i2c::{Async, I2c};
 use embassy_rp::peripherals::I2C0;
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::mutex::Mutex;
-use ssd1306::{prelude::*, Ssd1306, rotation::DisplayRotation, size::DisplaySize128x64, mode::BufferedGraphicsMode};
-use display_interface_i2c::I2CInterface;
 use embedded_graphics::{
     mono_font::{ascii::FONT_6X10, MonoTextStyleBuilder},
     pixelcolor::BinaryColor,
     prelude::*,
+    primitives::{PrimitiveStyleBuilder, Rectangle},
     text::Text,
-    primitives::{Rectangle, PrimitiveStyleBuilder},
+};
+use pico1541_manager::DisplayDriver;
+use ssd1306::{
+    mode::BufferedGraphicsMode, prelude::*, rotation::DisplayRotation, size::DisplaySize128x64,
+    Ssd1306,
 };
 
 pub struct OledDisplay {
-    display: Ssd1306<I2CInterface<I2c<'static, I2C0, Async>>, DisplaySize128x64, BufferedGraphicsMode<DisplaySize128x64>>,
+    display: Ssd1306<
+        I2CInterface<I2c<'static, I2C0, Async>>,
+        DisplaySize128x64,
+        BufferedGraphicsMode<DisplaySize128x64>,
+    >,
     lines: [heapless::String<64>; 6],
     selected_line: u8,
     scroll_offset: i32,
@@ -26,11 +33,14 @@ impl OledDisplay {
         let interface = I2CInterface::new(i2c, 0x3C, 0x40);
         let display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
             .into_buffered_graphics_mode();
-        
+
         let lines = [
-            heapless::String::new(), heapless::String::new(),
-            heapless::String::new(), heapless::String::new(),
-            heapless::String::new(), heapless::String::new(),
+            heapless::String::new(),
+            heapless::String::new(),
+            heapless::String::new(),
+            heapless::String::new(),
+            heapless::String::new(),
+            heapless::String::new(),
         ];
 
         Self {
@@ -51,11 +61,11 @@ impl OledDisplay {
     pub fn update_scroll(&mut self) {
         let line = &self.lines[self.selected_line as usize];
         let text_width = line.len() as i32 * 6;
-        
+
         if text_width > 128 {
             let max_scroll = text_width - 128;
             self.scroll_offset += self.scroll_dir;
-            
+
             if self.scroll_offset >= max_scroll || self.scroll_offset <= 0 {
                 self.scroll_dir = -self.scroll_dir;
             }
@@ -64,6 +74,7 @@ impl OledDisplay {
         }
     }
 
+    #[allow(dead_code)]
     pub fn set_selection(&mut self, index: u8) {
         if index < 6 {
             if self.selected_line != index {
@@ -94,8 +105,16 @@ impl OledDisplay {
             let is_selected = i == self.selected_line as usize;
             let y = (i as i32) * 10 + 2;
 
-            let bg_color = if is_selected { BinaryColor::On } else { BinaryColor::Off };
-            let fg_color = if is_selected { BinaryColor::Off } else { BinaryColor::On };
+            let bg_color = if is_selected {
+                BinaryColor::On
+            } else {
+                BinaryColor::Off
+            };
+            let fg_color = if is_selected {
+                BinaryColor::Off
+            } else {
+                BinaryColor::On
+            };
 
             if is_selected {
                 let _ = Rectangle::new(Point::new(0, y - 2), Size::new(128, 11))

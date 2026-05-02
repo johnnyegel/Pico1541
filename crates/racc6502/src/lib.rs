@@ -1,29 +1,29 @@
 //! # racc6502
-//! 
+//!
 //! A cycle-accurate, `#![no_std]` MOS 6502 CPU emulator core.
-//! 
+//!
 //! This crate provides a high-fidelity emulation of the NMOS 6502 processor,
 //! designed specifically for systems where exact timing and synchronization with
 //! external hardware are critical.
-//! 
+//!
 //! ## Key Concepts
-//! 
+//!
 //! ### Cycle-Accuracy via Micro-Ops
 //! Unlike traditional emulators, `racc6502` does not execute instructions in monolithic
 //! blocks. Instead, it decomposes every instruction into a sequence of **Micro-Operations (uOps)**.
 //! Each call to [`CPU::tick`](cpu/struct.CPU.html#method.tick) executes exactly one uOp and
 //! performs exactly one bus access (either a read or a write).
-//! 
+//!
 //! ### Bus-Driven Timing
-//! The [`Bus`](bus/trait.Bus.html) trait is the heart of the system's timing. Because every 
-//! CPU cycle results in a bus access, the `Bus` implementation effectively acts as the 
-//! system clock. This allows for perfect interleaving of CPU cycles with other 
+//! The [`Bus`](bus/trait.Bus.html) trait is the heart of the system's timing. Because every
+//! CPU cycle results in a bus access, the `Bus` implementation effectively acts as the
+//! system clock. This allows for perfect interleaving of CPU cycles with other
 //! hardware components (like VIAs or custom logic).
-//! 
+//!
 //! ## Usage
-//! 
+//!
 //! Implement the `Bus` trait to define your memory map and then pass it to a new `CPU` instance.
-//! 
+//!
 //! ```rust
 //! use racc6502::bus::Bus;
 //! use racc6502::cpu::CPU;

@@ -1,5 +1,5 @@
-use pico1541_common::formats::{D64Image, G64Image, VirtualDirImage, DiskImage, TrackLayout};
-use pico1541_common::storage::{MemoryStorage, DirectoryEntry, DirectorySource};
+use pico1541_common::formats::{D64Image, DiskImage, G64Image, TrackLayout, VirtualDirImage};
+use pico1541_common::storage::{DirectoryEntry, DirectorySource, MemoryStorage};
 use pollster::block_on;
 
 #[test]
@@ -7,7 +7,9 @@ fn test_d64_image_read_track() {
     let mut data = vec![0u8; 174848];
     // Fill track 1 sector 0 with some recognizable data
     let t1s0_offset = 0;
-    for i in 0..256 { data[t1s0_offset + i] = i as u8; }
+    for i in 0..256 {
+        data[t1s0_offset + i] = i as u8;
+    }
 
     let storage = MemoryStorage::new(&data);
     let mut img = D64Image::new(storage);
@@ -36,7 +38,9 @@ fn test_g64_image_read_track() {
     // Track data at offset 100
     let track_len = 50u16;
     data[100..102].copy_from_slice(&track_len.to_le_bytes());
-    for i in 0..track_len as usize { data[102 + i] = 0x55; }
+    for i in 0..track_len as usize {
+        data[102 + i] = 0x55;
+    }
 
     let storage = MemoryStorage::new(&data);
     let mut img = G64Image::new(storage);
@@ -54,15 +58,21 @@ fn test_virtual_dir_image() {
         pos: usize,
     }
     impl DirectorySource for MockSource {
-        fn name(&self) -> &[u8; 16] { b"MOCK DISK       " }
+        fn name(&self) -> &[u8; 16] {
+            b"MOCK DISK       "
+        }
         fn next_entry(&mut self) -> Option<DirectoryEntry> {
             if self.pos < self.entries.len() {
                 let entry = self.entries[self.pos];
                 self.pos += 1;
                 Some(entry)
-            } else { None }
+            } else {
+                None
+            }
         }
-        fn rewind(&mut self) { self.pos = 0; }
+        fn rewind(&mut self) {
+            self.pos = 0;
+        }
     }
 
     let source = MockSource {

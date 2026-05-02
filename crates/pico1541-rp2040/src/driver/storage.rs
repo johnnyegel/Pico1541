@@ -1,7 +1,9 @@
-use pico1541_manager::{StorageDriver, Error};
+use pico1541_manager::{Error, StorageDriver};
 
+#[allow(dead_code)]
 pub struct SdStorage;
 
+#[allow(dead_code)]
 impl SdStorage {
     pub fn new() -> Self {
         Self

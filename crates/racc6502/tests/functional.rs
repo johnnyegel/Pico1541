@@ -1,5 +1,5 @@
-use racc6502::cpu::{CPU, CycleState};
 use racc6502::bus::Bus;
+use racc6502::cpu::{CycleState, CPU};
 use std::fs;
 
 struct FunctionalBus {
@@ -52,15 +52,24 @@ fn test_6502_functional() {
             if cpu.pc == last_pc {
                 // Potential trap
                 if cpu.pc == 0x3469 {
-                    println!("SUCCESS: Reached success trap at $3469 in {} cycles", cycles);
+                    println!(
+                        "SUCCESS: Reached success trap at $3469 in {} cycles",
+                        cycles
+                    );
                     return;
                 } else {
-                    panic!("FAILURE: Trapped at ${:04X} after {} cycles", cpu.pc, cycles);
+                    panic!(
+                        "FAILURE: Trapped at ${:04X} after {} cycles",
+                        cpu.pc, cycles
+                    );
                 }
             }
             last_pc = cpu.pc;
         }
     }
 
-    panic!("FAILURE: Timeout after {} cycles. Last PC was ${:04X}", cycles, cpu.pc);
+    panic!(
+        "FAILURE: Timeout after {} cycles. Last PC was ${:04X}",
+        cycles, cpu.pc
+    );
 }

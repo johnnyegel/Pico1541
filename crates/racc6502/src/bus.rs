@@ -25,28 +25,32 @@ pub trait Bus {
 
     /// Sampled by the CPU at the start of every opcode fetch to determine if an IRQ
     /// sequence should be triggered. Returns `true` if an IRQ is active.
-    fn irq_pending(&self) -> bool { false }
+    fn irq_pending(&self) -> bool {
+        false
+    }
 
     /// Sampled by the CPU at the start of every opcode fetch to determine if an NMI
     /// sequence should be triggered. Returns `true` if an NMI is active.
-    fn nmi_pending(&self) -> bool { false }
+    fn nmi_pending(&self) -> bool {
+        false
+    }
 
     /// Simulates the hardware `SO` (Set Overflow) pin.
     ///
     /// This pin is sampled by the CPU at the start of **every** clock cycle.
     /// If it returns `true`, the Overflow (V) flag in the status register is set.
-    fn so_pending(&self) -> bool { false }
+    fn so_pending(&self) -> bool {
+        false
+    }
 }
-
 
 /// Optional trait which can be implemented by a bus for monitoring memory content.
 /// This is required for features like breakpoints and watchpoints, but is not necessary for basic CPU operation.
 pub trait MemoryMonitor {
-    
     /// Reads a byte from the given address.
     /// This does NOT affect the bus timing!
     fn peek(&self, addr: u16) -> u8;
-    
+
     /// Writes a byte to the given address.
     /// This does NOT affect the bus timing!
     fn poke(&mut self, addr: u16, value: u8);

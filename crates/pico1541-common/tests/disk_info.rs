@@ -17,7 +17,7 @@ fn test_petscii_to_ascii() {
 fn test_inspect_d64() {
     let mut data = vec![0u8; 174848];
     let bam_offset = D64_TRACK18_OFFSET;
-    
+
     // Disk Name: "TEST DISK" (padded with 0xA0)
     let name = b"TEST DISK";
     data[bam_offset + 144..bam_offset + 144 + name.len()].copy_from_slice(name);

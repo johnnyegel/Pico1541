@@ -48,7 +48,7 @@ pub struct Via6522 {
     pub in_a: u8,
     /// Input Port B
     pub in_b: u8,
-    
+
     /// IRQ output state
     pub irq: bool,
 
@@ -61,7 +61,7 @@ pub struct Via6522 {
     last_cb1: bool,
     last_ca2: bool,
     last_cb2: bool,
-    
+
     // Shift register state
     sr_count: u8,
     sr_active: bool,
@@ -85,7 +85,8 @@ impl Via6522 {
     pub fn read(&mut self, addr: u16) -> u8 {
         let register = (addr & 0x0F) as usize;
         match register {
-            0x00 => { // IRB
+            0x00 => {
+                // IRB
                 self.ifr &= !0x18; // Clear CB1 and CB2 interrupt flags
                 self.update_irq();
                 if (self.acr & 0x02) != 0 {
@@ -94,7 +95,8 @@ impl Via6522 {
                     (self.orb & self.ddrb) | (self.in_b & !self.ddrb)
                 }
             }
-            0x01 => { // IRA
+            0x01 => {
+                // IRA
                 self.ifr &= !0x03; // Clear CA1 and CA2 interrupt flags
                 self.update_irq();
                 if (self.acr & 0x01) != 0 {
@@ -105,21 +107,24 @@ impl Via6522 {
             }
             0x02 => self.ddrb,
             0x03 => self.ddra,
-            0x04 => { // T1C-L
+            0x04 => {
+                // T1C-L
                 self.ifr &= !0x40; // Clear T1 interrupt flag
                 self.update_irq();
                 (self.t1c & 0xFF) as u8
             }
-            0x05 => (self.t1c >> 8) as u8, // T1C-H
+            0x05 => (self.t1c >> 8) as u8,   // T1C-H
             0x06 => (self.t1l & 0xFF) as u8, // T1L-L
-            0x07 => (self.t1l >> 8) as u8, // T1L-H
-            0x08 => { // T2C-L
+            0x07 => (self.t1l >> 8) as u8,   // T1L-H
+            0x08 => {
+                // T2C-L
                 self.ifr &= !0x20; // Clear T2 interrupt flag
                 self.update_irq();
                 (self.t2c & 0xFF) as u8
             }
             0x09 => (self.t2c >> 8) as u8, // T2C-H
-            0x0A => { // SR
+            0x0A => {
+                // SR
                 self.ifr &= !0x04; // Clear SR interrupt flag
                 self.update_irq();
                 self.sr
@@ -128,7 +133,8 @@ impl Via6522 {
             0x0C => self.pcr,
             0x0D => self.ifr,
             0x0E => self.ier | 0x80, // Bit 7 is always 1 on read
-            0x0F => { // IRA (no handshake)
+            0x0F => {
+                // IRA (no handshake)
                 if (self.acr & 0x01) != 0 {
                     self.latch_a
                 } else {
@@ -143,12 +149,14 @@ impl Via6522 {
     pub fn write(&mut self, addr: u16, value: u8) {
         let register = (addr & 0x0F) as usize;
         match register {
-            0x00 => { // ORB
+            0x00 => {
+                // ORB
                 self.orb = value;
                 self.ifr &= !0x18; // Clear CB1 and CB2 interrupt flags
                 self.update_irq();
             }
-            0x01 => { // ORA
+            0x01 => {
+                // ORA
                 self.ora = value;
                 self.ifr &= !0x03; // Clear CA1 and CA2 interrupt flags
                 self.update_irq();
@@ -156,7 +164,8 @@ impl Via6522 {
             0x02 => self.ddrb = value,
             0x03 => self.ddra = value,
             0x04 => self.t1l = (self.t1l & 0xFF00) | (value as u16), // T1L-L
-            0x05 => { // T1C-H (starts T1)
+            0x05 => {
+                // T1C-H (starts T1)
                 self.t1l = (self.t1l & 0x00FF) | ((value as u16) << 8);
                 self.t1c = self.t1l;
                 self.t1_active = true;
@@ -164,19 +173,22 @@ impl Via6522 {
                 self.update_irq();
             }
             0x06 => self.t1l = (self.t1l & 0xFF00) | (value as u16), // T1L-L (latch only)
-            0x07 => { // T1L-H (latch only)
+            0x07 => {
+                // T1L-H (latch only)
                 self.t1l = (self.t1l & 0x00FF) | ((value as u16) << 8);
                 self.ifr &= !0x40; // Clear T1 interrupt flag
                 self.update_irq();
             }
             0x08 => self.t2l = value, // T2C-L
-            0x09 => { // T2C-H (starts T2)
+            0x09 => {
+                // T2C-H (starts T2)
                 self.t2c = ((value as u16) << 8) | (self.t2l as u16);
                 self.t2_active = true;
                 self.ifr &= !0x20; // Clear T2 interrupt flag
                 self.update_irq();
             }
-            0x0A => { // SR
+            0x0A => {
+                // SR
                 self.sr = value;
                 self.ifr &= !0x04; // Clear SR interrupt flag
                 self.update_irq();
@@ -187,11 +199,13 @@ impl Via6522 {
             }
             0x0B => self.acr = value,
             0x0C => self.pcr = value,
-            0x0D => { // IFR
+            0x0D => {
+                // IFR
                 self.ifr &= !value;
                 self.update_irq();
             }
-            0x0E => { // IER
+            0x0E => {
+                // IER
                 if (value & 0x80) != 0 {
                     self.ier |= value & 0x7F;
                 } else {
@@ -251,7 +265,7 @@ impl Via6522 {
                 self.t2c = next_t2c;
             }
         }
-        
+
         // --- Shift Register (Simplified) ---
         if self.sr_active {
             if self.sr_count > 0 {
@@ -263,7 +277,7 @@ impl Via6522 {
             }
         }
     }
-    
+
     pub fn set_ca1(&mut self, val: bool) {
         let positive_edge = (self.pcr & 0x01) != 0;
         if (val && !self.last_ca1 && positive_edge) || (!val && self.last_ca1 && !positive_edge) {
@@ -279,7 +293,8 @@ impl Via6522 {
     pub fn set_ca2(&mut self, val: bool) {
         if (self.pcr & 0x08) == 0 {
             let positive_edge = (self.pcr & 0x04) != 0;
-            if (val && !self.last_ca2 && positive_edge) || (!val && self.last_ca2 && !positive_edge) {
+            if (val && !self.last_ca2 && positive_edge) || (!val && self.last_ca2 && !positive_edge)
+            {
                 self.ifr |= 0x01;
                 self.update_irq();
             }
@@ -302,7 +317,8 @@ impl Via6522 {
     pub fn set_cb2(&mut self, val: bool) {
         if (self.pcr & 0x80) == 0 {
             let positive_edge = (self.pcr & 0x40) != 0;
-            if (val && !self.last_cb2 && positive_edge) || (!val && self.last_cb2 && !positive_edge) {
+            if (val && !self.last_cb2 && positive_edge) || (!val && self.last_cb2 && !positive_edge)
+            {
                 self.ifr |= 0x08;
                 self.update_irq();
             }
@@ -313,7 +329,11 @@ impl Via6522 {
     pub fn get_port_b(&self) -> u8 {
         let mut out = (self.orb & self.ddrb) | (self.in_b & !self.ddrb);
         if (self.acr & 0x80) != 0 {
-            if self.t1_pb7 { out |= 0x80; } else { out &= 0x7F; }
+            if self.t1_pb7 {
+                out |= 0x80;
+            } else {
+                out &= 0x7F;
+            }
         }
         out
     }
@@ -325,19 +345,20 @@ impl Via6522 {
 
 #[cfg(feature = "debug")]
 impl MemoryMonitor for Via6522 {
-    
     /// Peek at a VIA register without side effects.ge
     fn peek(&self, addr: u16) -> u8 {
         let register = (addr & 0x0F) as usize;
         match register {
-            0x00 => { // IRB
+            0x00 => {
+                // IRB
                 if (self.acr & 0x02) != 0 {
                     self.latch_b
                 } else {
                     (self.orb & self.ddrb) | (self.in_b & !self.ddrb)
                 }
             }
-            0x01 => { // IRA
+            0x01 => {
+                // IRA
                 if (self.acr & 0x01) != 0 {
                     self.latch_a
                 } else {
@@ -357,7 +378,8 @@ impl MemoryMonitor for Via6522 {
             0x0C => self.pcr,
             0x0D => self.ifr,
             0x0E => self.ier | 0x80,
-            0x0F => { // IRA (no handshake)
+            0x0F => {
+                // IRA (no handshake)
                 if (self.acr & 0x01) != 0 {
                     self.latch_a
                 } else {
@@ -367,7 +389,7 @@ impl MemoryMonitor for Via6522 {
             _ => 0,
         }
     }
-    
+
     fn poke(&mut self, _addr: u16, _value: u8) {
         // NOT implemented yet!
     }
@@ -384,7 +406,9 @@ mod tests {
         via.write(0x04, 0x0A);
         via.write(0x05, 0x00);
         assert!(via.t1_active);
-        for _ in 0..11 { via.tick_cycle(); }
+        for _ in 0..11 {
+            via.tick_cycle();
+        }
         assert!(via.ifr & 0x40 != 0);
         assert!(via.irq);
         assert!(!via.t1_active);

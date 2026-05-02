@@ -27,9 +27,8 @@ pub const DELAY_EOI_TIMEOUT_US: u32 = 200;
 pub const DELAY_ACK_TIMEOUT_US: u32 = 1_000;
 pub const DELAY_HOLD_TIMEOUT_US: u32 = 5_000_000;
 
-
 /// Hardware abstraction for the IEC bus.
-/// 
+///
 /// All signals use the logical convention: **true = asserted**.
 /// On the physical IEC bus an asserted line is pulled LOW.
 #[allow(async_fn_in_trait)]
@@ -44,13 +43,18 @@ pub trait IecBus {
     fn trace_state(&self, tag: &str) -> ();
 
     async fn delay_us(&mut self, us: u32);
-    
+
     async fn wait_for_clk(&mut self, assert: bool, timeout_us: u32) -> Result<(), IecError> {
         let mut elapsed = 0;
         while self.get_clk() != assert {
             if elapsed >= timeout_us {
                 self.trace_state("wait_clk:timeout");
-                log::trace!("wait_for_clk [{}] timeout ({}): got {}", assert, timeout_us, self.get_clk());
+                log::trace!(
+                    "wait_for_clk [{}] timeout ({}): got {}",
+                    assert,
+                    timeout_us,
+                    self.get_clk()
+                );
                 return Err(IecError::Timeout);
             }
             self.delay_us(DELAY_POLL_US).await;
@@ -65,7 +69,12 @@ pub trait IecBus {
         while self.get_data() != assert {
             if elapsed >= timeout_us {
                 self.trace_state("wait_data:timeout");
-                log::trace!("wait_for_data [{}] timeout ({}): got {}", assert, timeout_us, self.get_data());
+                log::trace!(
+                    "wait_for_data [{}] timeout ({}): got {}",
+                    assert,
+                    timeout_us,
+                    self.get_data()
+                );
                 return Err(IecError::Timeout);
             }
             self.delay_us(DELAY_POLL_US).await;
@@ -74,7 +83,6 @@ pub trait IecBus {
         log::trace!("wait_for_data [{}] success after {}us", assert, elapsed);
         Ok(())
     }
-
 }
 
 /// Universal IEC protocol tool acting as a Host (e.g. C64).
@@ -95,7 +103,7 @@ impl<'a, B: IecBus> IecTransaction<'a, B> {
         self.bus.set_atn(true);
 
         // Short delay after asserting ATN
-        self.bus.delay_us(DELAY_POLL_US).await; 
+        self.bus.delay_us(DELAY_POLL_US).await;
 
         // Assert the CLK line to get into the send start state
         self.bus.set_clk(true);
@@ -128,7 +136,7 @@ impl<'a, B: IecBus> IecTransaction<'a, B> {
 
         // Then simply wait for drive to ACK EOI
         self.bus.wait_for_data(true, DELAY_ACK_TIMEOUT_US).await?;
-        
+
         // Then send the byte as normal
         self.send(byte).await
     }
@@ -138,7 +146,10 @@ impl<'a, B: IecBus> IecTransaction<'a, B> {
         // Release the clock line to indicate we are ready to send
         self.bus.set_clk(false);
 
-        log::debug!("Ready to send byte 0x{:02X} over IEC, waiting for ACK.", byte);
+        log::debug!(
+            "Ready to send byte 0x{:02X} over IEC, waiting for ACK.",
+            byte
+        );
 
         // Wait for Listener to release DATA (Ready to Receive).
         // NOTE! Hold delay is infinite, but we wait max 5 seconds as the drive should never take more.
@@ -151,13 +162,13 @@ impl<'a, B: IecBus> IecTransaction<'a, B> {
         // 2. Send each bit of the byte
         for i in 0..8 {
             let bit = (byte >> i) & 1 == 1;
-            
+
             log::trace!("Sending bit {}: {}", i, bit);
 
             // Set DATA bit: logical 1 = Released (false), logical 0 = Asserted (true)
             self.bus.set_data(!bit);
             self.bus.delay_us(DELAY_DATA_US).await;
-            
+
             // Release CLK to signal bit is ready hold data for at least 60us
             self.bus.set_clk(false);
             self.bus.delay_us(DELAY_DATA_US).await;
@@ -165,13 +176,13 @@ impl<'a, B: IecBus> IecTransaction<'a, B> {
             // Re-assert CLK to prepare for next bit
             self.bus.set_clk(true);
         }
-        
+
         // Release DATA
         self.bus.set_data(false);
-        
+
         // 4. Wait for Acknowledge (DATA Low from drive)
         self.bus.wait_for_data(true, DELAY_ACK_TIMEOUT_US).await?;
-        
+
         // Wait 100 us after ACK to ensure drive has time to process the byte
         log::debug!("Byte 0x{:02X} sent, received ACK from drive", byte);
 
@@ -186,7 +197,7 @@ impl<'a, B: IecBus> IecTransaction<'a, B> {
         self.bus.trace_state("recv:turnaround");
 
         // Turnaround: If we were the talker, we must release the clock line, and wait CLK asserted.
-        // NOTE! If the turnaround was already done, the host clock is already released and drive 
+        // NOTE! If the turnaround was already done, the host clock is already released and drive
         //       CLK is already asserted, so this will just pass through.
         self.bus.set_clk(false);
         self.bus.set_data(true);
@@ -204,7 +215,10 @@ impl<'a, B: IecBus> IecTransaction<'a, B> {
         // Wait for clock for 200 us. If we timeout we have an EOI condition.
         let eoi_result = self.bus.wait_for_clk(true, DELAY_EOI_TIMEOUT_US).await;
         let is_eoi = if eoi_result.is_err() {
-            log::trace!("EOI detected: no clock from drive after {}us", DELAY_EOI_TIMEOUT_US);
+            log::trace!(
+                "EOI detected: no clock from drive after {}us",
+                DELAY_EOI_TIMEOUT_US
+            );
             // Assert data to ACK the EOI, wait for once phase, and release the data line again.
             self.bus.set_data(true);
             self.bus.delay_us(DELAY_DATA_US).await;
@@ -214,8 +228,7 @@ impl<'a, B: IecBus> IecTransaction<'a, B> {
             self.bus.wait_for_clk(true, DELAY_ACK_TIMEOUT_US).await?;
             log::trace!("EOI handshake complete");
             true
-        }
-        else {
+        } else {
             false
         };
 
@@ -223,7 +236,7 @@ impl<'a, B: IecBus> IecTransaction<'a, B> {
         for i in 0..8 {
             // Wait for Talker to release clock, which means a bit is ready
             self.bus.wait_for_clk(false, DELAY_ACK_TIMEOUT_US).await?;
-            
+
             // Read DATA: Released (false) = 1, Asserted (true) = 0
             let bit = !self.bus.get_data();
             log::trace!("Received bit {}: {}", i, bit);
@@ -246,10 +259,9 @@ impl<'a, B: IecBus> IecTransaction<'a, B> {
             self.bus.wait_for_clk(false, DELAY_ACK_TIMEOUT_US).await?;
             self.bus.set_data(false);
         }
-        
+
         Ok(self)
     }
-
 
     /// Called to complete the communication. Releases all lines, and waits a short delay to ensure the drive has time to settle.
     pub async fn done(self) -> Result<(), IecError> {
@@ -309,25 +321,39 @@ impl<'a, B: IecBus> IecCommander<'a, B> {
 
         // 1. If we have data to send, perform a LISTEN transaction first
         if let Some(data) = self.send_data {
-            com = com.atn_assert().await?
-                .send(IEC_LISTEN | self.device).await?
-                .send(0x60 | self.secondary).await?
-                .atn_release().await?;
+            com = com
+                .atn_assert()
+                .await?
+                .send(IEC_LISTEN | self.device)
+                .await?
+                .send(0x60 | self.secondary)
+                .await?
+                .atn_release()
+                .await?;
 
             for &b in data {
                 com = com.send(b).await?;
             }
 
-            com = com.atn_assert().await?
-                .send(IEC_UNLISTEN).await?
-                .atn_release().await?;
+            com = com
+                .atn_assert()
+                .await?
+                .send(IEC_UNLISTEN)
+                .await?
+                .atn_release()
+                .await?;
         }
 
         // 2. Perform a TALK transaction to receive data
-        com = com.atn_assert().await?
-            .send(IEC_TALK | self.device).await?
-            .send(0x60 | self.secondary).await?
-            .atn_release().await?;
+        com = com
+            .atn_assert()
+            .await?
+            .send(IEC_TALK | self.device)
+            .await?
+            .send(0x60 | self.secondary)
+            .await?
+            .atn_release()
+            .await?;
 
         loop {
             let mut byte = 0;
@@ -340,9 +366,13 @@ impl<'a, B: IecBus> IecCommander<'a, B> {
         }
 
         // Finalize TALK with UNTALK
-        com = com.atn_assert().await?
-            .send(IEC_UNTALK).await?
-            .atn_release().await?;
+        com = com
+            .atn_assert()
+            .await?
+            .send(IEC_UNTALK)
+            .await?
+            .atn_release()
+            .await?;
 
         com.done().await
     }
@@ -352,21 +382,29 @@ impl<'a, B: IecBus> IecCommander<'a, B> {
         let mut com = IecTransaction::new(self.bus);
 
         if let Some(data) = self.send_data {
-            com = com.atn_assert().await?
-                .send(IEC_LISTEN | self.device).await?
-                .send(0x60 | self.secondary).await?
-                .atn_release().await?;
+            com = com
+                .atn_assert()
+                .await?
+                .send(IEC_LISTEN | self.device)
+                .await?
+                .send(0x60 | self.secondary)
+                .await?
+                .atn_release()
+                .await?;
 
             for &b in data {
                 com = com.send(b).await?;
             }
 
-            com = com.atn_assert().await?
-                .send(IEC_UNLISTEN).await?
-                .atn_release().await?;
+            com = com
+                .atn_assert()
+                .await?
+                .send(IEC_UNLISTEN)
+                .await?
+                .atn_release()
+                .await?;
         }
 
         com.done().await
     }
 }
-

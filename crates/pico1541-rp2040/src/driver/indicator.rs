@@ -1,6 +1,6 @@
-use pico1541_manager::IndicatorDriver;
 use crate::driver::leds::ActivityLed;
 use crate::driver::speaker::PiezoSpeaker;
+use pico1541_manager::IndicatorDriver;
 
 pub struct ActivityIndicator {
     pub activity_led: ActivityLed,

@@ -1,5 +1,5 @@
-use pico1541_common::storage::{MemoryStorage, DirectoryEntry};
 use embedded_io_async::{Read, Seek, SeekFrom};
+use pico1541_common::storage::{DirectoryEntry, MemoryStorage};
 use pollster::block_on;
 
 #[test]
@@ -7,7 +7,7 @@ fn test_memory_storage_read() {
     let data = b"Hello, World!";
     let mut storage = MemoryStorage::new(data);
     let mut buf = [0u8; 5];
-    
+
     let n = block_on(storage.read(&mut buf)).unwrap();
     assert_eq!(n, 5);
     assert_eq!(&buf, b"Hello");
@@ -26,7 +26,7 @@ fn test_memory_storage_read() {
 fn test_memory_storage_seek() {
     let data = b"0123456789";
     let mut storage = MemoryStorage::new(data);
-    
+
     block_on(storage.seek(SeekFrom::Start(5))).unwrap();
     let mut buf = [0u8; 1];
     block_on(storage.read(&mut buf)).unwrap();

@@ -41,7 +41,11 @@ pub fn inspect_d64(data: &[u8]) -> Option<D64Info> {
 pub fn petscii_to_ascii(src: &[u8], dst: &mut [u8]) -> usize {
     let len = src.len().min(dst.len());
     for i in 0..len {
-        dst[i] = if src[i] == 0xA0 { b' ' } else { src[i].clamp(0x20, 0x7E) };
+        dst[i] = if src[i] == 0xA0 {
+            b' '
+        } else {
+            src[i].clamp(0x20, 0x7E)
+        };
     }
     let mut end = len;
     while end > 0 && dst[end - 1] == b' ' {

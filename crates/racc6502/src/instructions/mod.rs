@@ -1,5 +1,5 @@
 /// Addressing micro-operations that occur during the address-calculation phase of an instruction.
-/// 
+///
 /// Each variant represents exactly one clock cycle of bus activity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AddrMicroOp {
@@ -44,50 +44,118 @@ pub enum AddrMicroOp {
 }
 
 /// Execution micro-operations that occur during the operation phase of an instruction.
-/// 
+///
 /// Each variant represents exactly one clock cycle of bus activity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecMicroOp {
     // --- Memory Read Ops ---
-    ReadEffAndLDA, ReadEffAndLDX, ReadEffAndLDY,
-    ReadEffAndADC, ReadEffAndSBC, ReadEffAndAND,
-    ReadEffAndORA, ReadEffAndEOR, ReadEffAndBIT,
-    ReadEffAndCMP, ReadEffAndCPX, ReadEffAndCPY,
+    ReadEffAndLDA,
+    ReadEffAndLDX,
+    ReadEffAndLDY,
+    ReadEffAndADC,
+    ReadEffAndSBC,
+    ReadEffAndAND,
+    ReadEffAndORA,
+    ReadEffAndEOR,
+    ReadEffAndBIT,
+    ReadEffAndCMP,
+    ReadEffAndCPX,
+    ReadEffAndCPY,
 
     // --- Immediate Read Ops ---
-    FetchImmAndLDA, FetchImmAndLDX, FetchImmAndLDY,
-    FetchImmAndADC, FetchImmAndSBC, FetchImmAndAND,
-    FetchImmAndORA, FetchImmAndEOR,
-    FetchImmAndCMP, FetchImmAndCPX, FetchImmAndCPY,
+    FetchImmAndLDA,
+    FetchImmAndLDX,
+    FetchImmAndLDY,
+    FetchImmAndADC,
+    FetchImmAndSBC,
+    FetchImmAndAND,
+    FetchImmAndORA,
+    FetchImmAndEOR,
+    FetchImmAndCMP,
+    FetchImmAndCPX,
+    FetchImmAndCPY,
 
     // --- Write Ops ---
-    WriteEffA, WriteEffX, WriteEffY,
+    WriteEffA,
+    WriteEffX,
+    WriteEffY,
 
     // --- Read-Modify-Write Ops ---
-    ReadEffToData, WriteDataBack,
-    ASLWrite, LSRWrite, ROLWrite, RORWrite, INCWrite, DECWrite,
-    AccASL, AccLSR, AccROL, AccROR,
+    ReadEffToData,
+    WriteDataBack,
+    ASLWrite,
+    LSRWrite,
+    ROLWrite,
+    RORWrite,
+    INCWrite,
+    DECWrite,
+    AccASL,
+    AccLSR,
+    AccROL,
+    AccROR,
 
     // --- Stack Ops ---
-    PushA, PushP, PushPCH, PushPCL,
-    PullA, PullP, PullPCH, PullPCL,
+    PushA,
+    PushP,
+    PushPCH,
+    PushPCL,
+    PullA,
+    PullP,
+    PullPCH,
+    PullPCL,
     DummyReadStack,
 
     // --- Register & Flag Ops ---
-    TAX, TXA, TAY, TYA, TSX, TXS,
-    CLC, SEC, CLI, SEI, CLV, CLD, SED,
-    INX, DEX, INY, DEY,
+    TAX,
+    TXA,
+    TAY,
+    TYA,
+    TSX,
+    TXS,
+    CLC,
+    SEC,
+    CLI,
+    SEI,
+    CLV,
+    CLD,
+    SED,
+    INX,
+    DEX,
+    INY,
+    DEY,
 
     // --- Flow Control Ops ---
-    JumpIndCycle4, JumpIndCycle5,
-    BranchCycle2, BranchCycle3, BranchCycle4,
-    JsrCycle2, JsrCycle3, JsrCycle4, JsrCycle5, JsrCycle6,
-    RtsCycle2, RtsCycle3, RtsCycle4, RtsCycle5, RtsCycle6,
-    RtiCycle2, RtiCycle3, RtiCycle4, RtiCycle5, RtiCycle6,
-    BrkCycle2, BrkCycle3, BrkCycle4, BrkCycle5, BrkCycle6, BrkCycle7,
+    JumpIndCycle4,
+    JumpIndCycle5,
+    BranchCycle2,
+    BranchCycle3,
+    BranchCycle4,
+    JsrCycle2,
+    JsrCycle3,
+    JsrCycle4,
+    JsrCycle5,
+    JsrCycle6,
+    RtsCycle2,
+    RtsCycle3,
+    RtsCycle4,
+    RtsCycle5,
+    RtsCycle6,
+    RtiCycle2,
+    RtiCycle3,
+    RtiCycle4,
+    RtiCycle5,
+    RtiCycle6,
+    BrkCycle2,
+    BrkCycle3,
+    BrkCycle4,
+    BrkCycle5,
+    BrkCycle6,
+    BrkCycle7,
 
     // --- Misc ---
-    DummyReadPC, DummyReadEff, Unimplemented,
+    DummyReadPC,
+    DummyReadEff,
+    Unimplemented,
 }
 
 /// Represents a single 6502 instruction as a sequence of micro-operations.

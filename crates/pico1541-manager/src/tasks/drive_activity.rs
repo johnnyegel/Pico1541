@@ -1,5 +1,5 @@
 use crate::driver::IndicatorDriver;
-use crate::{EVENT_CHANNEL, DriveEvent};
+use crate::{DriveEvent, EVENT_CHANNEL};
 use log::*;
 
 pub struct DriveActivityTask<I: IndicatorDriver> {
@@ -22,7 +22,8 @@ impl<I: IndicatorDriver> DriveActivityTask<I> {
                     self.indicator.beep();
                 }
                 DriveEvent::IecCommand { data, len } => {
-                    let cmd_str = core::str::from_utf8(&data[..len as usize]).unwrap_or("INVALID UTF8");
+                    let cmd_str =
+                        core::str::from_utf8(&data[..len as usize]).unwrap_or("INVALID UTF8");
                     info!("Manager received IEC command: {}", cmd_str);
                     self.handle_command(cmd_str).await;
                 }

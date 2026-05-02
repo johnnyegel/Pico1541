@@ -1,4 +1,3 @@
-
 pub const MAX_TRACK_BYTES: usize = 10_000;
 
 #[derive(Debug, Clone, Copy)]
@@ -12,7 +11,7 @@ pub struct ActiveTrack {
     /// half-tracks (e.g. D64 images have no half-track data): the head reads
     /// back a continuous stream of 0x55 bytes with no SYNC.
     pub is_formatted: bool,
-    /// If true, the drive emulates real physical rotation. 
+    /// If true, the drive emulates real physical rotation.
     /// If false, the drive can "warp" to the next sector immediately.
     pub is_accurate: bool,
     pub gcr_data: [u8; MAX_TRACK_BYTES],
@@ -34,14 +33,18 @@ impl ActiveTrack {
 }
 
 impl Default for ActiveTrack {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DriveEvent {
     LedChanged(bool),
     MotorChanged(bool),
-    HeadStepped { new_half_track: u8 },
+    HeadStepped {
+        new_half_track: u8,
+    },
     /// A snooped IEC command directed at channel 15
     IecCommand {
         data: [u8; 64],
@@ -86,11 +89,15 @@ pub trait HostInterface: IecBus {
     fn send_event(&mut self, event: DriveEvent);
 
     /// Returns true if the bus is currently hijacked by the manager.
-    fn is_hijacked(&self) -> bool { false }
+    fn is_hijacked(&self) -> bool {
+        false
+    }
 
     /// Returns true if the manager wants to discard the ROM command buffer.
     /// This should clear the request after returning true.
-    fn pop_discard_request(&mut self) -> bool { false }
+    fn pop_discard_request(&mut self) -> bool {
+        false
+    }
 
     /// Synchronization point called every cycle.
     fn sync(&mut self) {}

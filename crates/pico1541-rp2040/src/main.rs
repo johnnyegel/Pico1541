@@ -6,20 +6,22 @@ mod driver;
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_rp::gpio::{Input, Level, Output, Pull, Pin};
-use embassy_rp::i2c::{I2c, Config, InterruptHandler};
-use embassy_rp::peripherals::{I2C0, PIO0, SPI0};
-use embassy_rp::spi;
-use embassy_rp::timer::Timer;
 use embassy_rp::bind_interrupts;
-use embassy_rp::pio::Pio;
-use embassy_rp::clocks::Rosc;
-use embassy_rp::Peripheral;
+use embassy_rp::gpio::{Input, Level, Output, Pull};
+use embassy_rp::i2c::{Config, I2c, InterruptHandler};
+use embassy_rp::peripherals::I2C0;
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use embassy_sync::mutex::Mutex;
 
 use pico1541_common::interface::{ActiveTrack, DriveEvent};
+use pico1541_emulator::interface::{HostInterface, IecBus};
 use pico1541_emulator::Emulator;
-use pico1541_emulator::interface::{IecBus, HostInterface};
-use pico1541_manager::tasks::{DisplayTask, DriveActivityTask, KeyboardTask};
+use pico1541_manager::tasks::{DisplayTask, DriveActivityTask};
+
+use crate::driver::display::{DisplayWrapper, OledDisplay};
+use crate::driver::indicator::ActivityIndicator;
+use crate::driver::leds::ActivityLed;
+use crate::driver::speaker::PiezoSpeaker;
 
 use static_cell::StaticCell;
 
@@ -33,24 +35,30 @@ async fn main(spawner: Spawner) {
     info!("Pico1541 Starting...");
 
     // --- Hardware Drivers (Core 1 - Manager) ---
-    
+
     // 1. OLED Display (I2C)
     let sda = p.PIN_4;
     let scl = p.PIN_5;
-    let i2c = I2c::new(p.I2C0, scl, sda, Irqs, Config::default());
-    let mut display_task = DisplayTask::new(i2c);
+    let i2c = I2c::new_async(p.I2C0, scl, sda, Irqs, Config::default());
+
+    static OLED: StaticCell<Mutex<NoopRawMutex, OledDisplay>> = StaticCell::new();
+    let mut oled_obj = OledDisplay::new(i2c);
+    oled_obj.init().await;
+    let oled_mutex = OLED.init(Mutex::new(oled_obj));
+    let display_task = DisplayTask::new(DisplayWrapper(oled_mutex));
 
     // 2. Indicators (Piezo + LEDs)
-    let piezo = Output::new(p.PIN_2, Level::Low);
-    let activity_led = Output::new(p.PIN_22, Level::Low);
-    let mut activity_task = DriveActivityTask::new(activity_led, piezo);
+    let activity_led = ActivityLed::new(p.PIN_22.into(), p.PIN_3.into());
+    let piezo = PiezoSpeaker::new(p.PIN_2.into());
+    let indicator = ActivityIndicator::new(activity_led, piezo);
+    let activity_task = DriveActivityTask::new(indicator);
 
     // 3. Storage (SD Card - SPI)
     // TODO: Initialize SD card driver
-    
+
     // 4. Keyboard (Matrix)
     // TODO: Initialize keyboard driver
-    
+
     // Spawn Manager Tasks
     spawner.spawn(display_run(display_task)).unwrap();
     spawner.spawn(activity_run(activity_task)).unwrap();
@@ -74,7 +82,7 @@ async fn main(spawner: Spawner) {
 
     // 1541-II ROM (Stock)
     let rom = include_bytes!("../../../roms/1541-II.251968-03.bin");
-    let mut drive = Emulator::new(*rom, 8);
+    let drive = Emulator::new(*rom, 8);
 
     // Run Emulator Loop (Cycle-Exact 1 MHz)
     emulator_loop(drive, bridge).await;
@@ -186,12 +194,12 @@ impl HostInterface for HardwareBridge {
 // --- Embassy Task Wrappers ---
 
 #[embassy_executor::task]
-async fn display_run(mut task: DisplayTask<I2c<'static, I2C0>>) {
+async fn display_run(mut task: DisplayTask<DisplayWrapper<NoopRawMutex>>) {
     task.run().await;
 }
 
 #[embassy_executor::task]
-async fn activity_run(mut task: DriveActivityTask<Output<'static>, Output<'static>>) {
+async fn activity_run(mut task: DriveActivityTask<ActivityIndicator>) {
     task.run().await;
 }
 
@@ -209,7 +217,7 @@ async fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: Hardware
 
         // One 6502 cycle = 1 microsecond
         drive.tick(&mut bridge);
-        
+
         // Update snooper once per microsecond, outside the cycle core but in the main loop
         bridge.sync();
     }

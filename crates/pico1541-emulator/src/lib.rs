@@ -1,15 +1,15 @@
 #![no_std]
 
-pub mod via6522;
-pub mod systembus;
 pub mod drivemechanics;
 pub mod interface;
 pub mod snooper;
+pub mod systembus;
+pub mod via6522;
 
-use racc6502::cpu::{CPU, CycleState};
-use systembus::SystemBus;
 use interface::HostInterface;
 use log::debug;
+use racc6502::cpu::{CycleState, CPU};
+use systembus::SystemBus;
 
 /// The MOS 1541 Drive Emulator.
 ///
