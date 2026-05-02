@@ -4,7 +4,7 @@ use pico1541_emulator::Emulator;
 use pico1541_emulator::snooper::IecSnooper;
 use pico1541_common::formats::{AnyDiskImage, DiskImage, TrackLayout, G64Image};
 use pico1541_common::storage::DummySource;
-use pico1541_common::iec_com::{IecBus as IecHostBus, IecTransaction, IEC_TALK, IEC_UNTALK};
+use pico1541_common::iec_com::{IecBus as IecHostBus, IecTransaction, IecCommander};
 use pollster::block_on;
 use log;
 use racc6502::cpu::DebugHook;
@@ -229,31 +229,13 @@ pub fn iec_com<'a, 'b>(bus: &'a mut IecTestBridge<'b>) -> IecTransaction<'a, Iec
 
 pub fn read_status(drive: &mut Emulator<TestBridge>, bridge: &mut TestBridge) -> String {
     let device_id = bridge.device_id;
-    let received = block_on(async {
+    let mut received = Vec::new();
+    block_on(async {
         let mut bus = IecTestBridge { drive, bridge };
-        let com = iec_com(&mut bus);
-        let mut com = com.atn_assert().await?
-            .send(IEC_TALK | device_id).await?
-            .send(0x6F).await?
-            .atn_release().await?;
-        
-        let mut bytes = Vec::new();
-        loop {
-            let mut byte = 0u8;
-            let mut eoi = false;
-
-            com = com.recv(&mut byte, &mut eoi).await?;
-            bytes.push(byte);
-            if eoi { break; }
-        }
-        
-        // Finalize the communication and return the bus to a known state before ticking the drive further.
-        com.atn_assert().await?
-            .send(IEC_UNTALK).await?
-            .atn_release().await?
-            .done().await?;
-
-        Ok::<Vec<u8>, pico1541_common::iec_com::IecError>(bytes)
+        IecCommander::new(&mut bus)
+            .open(device_id, 15)
+            .receive(|b| received.push(b))
+            .await
     }).unwrap();
     
     String::from_utf8_lossy(&received).trim_end_matches('\r').to_string()

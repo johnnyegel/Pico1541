@@ -269,3 +269,104 @@ impl<'a, B: IecBus> IecTransaction<'a, B> {
     }
 }
 
+/// High-level IEC bus commander providing a more ergonomic API.
+pub struct IecCommander<'a, B: IecBus> {
+    bus: &'a mut B,
+    device: u8,
+    secondary: u8,
+    send_data: Option<&'a [u8]>,
+}
+
+impl<'a, B: IecBus> IecCommander<'a, B> {
+    pub fn new(bus: &'a mut B) -> Self {
+        Self {
+            bus,
+            device: 8,
+            secondary: 15,
+            send_data: None,
+        }
+    }
+
+    /// Sets the target device ID and secondary address.
+    pub fn open(mut self, device: u8, secondary: u8) -> Self {
+        self.device = device;
+        self.secondary = secondary;
+        self
+    }
+
+    /// Stages data to be sent to the drive.
+    pub fn send(mut self, data: &'a [u8]) -> Self {
+        self.send_data = Some(data);
+        self
+    }
+
+    /// Executes the communication, receiving data into the provided callback until EOI.
+    pub async fn receive<F>(self, mut f: F) -> Result<(), IecError>
+    where
+        F: FnMut(u8),
+    {
+        let mut com = IecTransaction::new(self.bus);
+
+        // 1. If we have data to send, perform a LISTEN transaction first
+        if let Some(data) = self.send_data {
+            com = com.atn_assert().await?
+                .send(IEC_LISTEN | self.device).await?
+                .send(0x60 | self.secondary).await?
+                .atn_release().await?;
+
+            for &b in data {
+                com = com.send(b).await?;
+            }
+
+            com = com.atn_assert().await?
+                .send(IEC_UNLISTEN).await?
+                .atn_release().await?;
+        }
+
+        // 2. Perform a TALK transaction to receive data
+        com = com.atn_assert().await?
+            .send(IEC_TALK | self.device).await?
+            .send(0x60 | self.secondary).await?
+            .atn_release().await?;
+
+        loop {
+            let mut byte = 0;
+            let mut eoi = false;
+            com = com.recv(&mut byte, &mut eoi).await?;
+            f(byte);
+            if eoi {
+                break;
+            }
+        }
+
+        // Finalize TALK with UNTALK
+        com = com.atn_assert().await?
+            .send(IEC_UNTALK).await?
+            .atn_release().await?;
+
+        com.done().await
+    }
+
+    /// Executes the communication, performing only the LISTEN transaction if send data is staged.
+    pub async fn execute(self) -> Result<(), IecError> {
+        let mut com = IecTransaction::new(self.bus);
+
+        if let Some(data) = self.send_data {
+            com = com.atn_assert().await?
+                .send(IEC_LISTEN | self.device).await?
+                .send(0x60 | self.secondary).await?
+                .atn_release().await?;
+
+            for &b in data {
+                com = com.send(b).await?;
+            }
+
+            com = com.atn_assert().await?
+                .send(IEC_UNLISTEN).await?
+                .atn_release().await?;
+        }
+
+        com.done().await
+    }
+}
+

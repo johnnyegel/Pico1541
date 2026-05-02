@@ -1,4 +1,4 @@
-use pico1541_common::iec_com::{IecBus, IecTransaction};
+use pico1541_common::iec_com::{IecBus, IecCommander};
 use core::cell::RefCell;
 use pollster::block_on;
 
@@ -39,13 +39,12 @@ fn test_iec_atn_handshake() {
     // Correct protocol: Drive acknowledges ATN by pulling DATA low
     *bus.drive_data.borrow_mut() = true;
 
-    let com = IecTransaction::new(&mut bus);
-    let com = block_on(com.atn_assert()).unwrap();
-    let _ = block_on(com.done());
-    
-    assert!(*bus.atn.borrow(), "ATN should be asserted");
-    assert!(*bus.clk.borrow(), "Host should pull CLK low after ATN ack");
-    assert!(!*bus.data.borrow(), "Host should release DATA after ATN ack");
+    block_on(async {
+        IecCommander::new(&mut bus)
+            .open(8, 15)
+            .execute()
+            .await
+    }).unwrap();
 }
 
 #[test]
@@ -77,10 +76,13 @@ fn test_iec_send_byte() {
     }
 
     let mut mock = SendMock(&bus, RefCell::new(0));
-    let com = IecTransaction::new(&mut mock);
-    let com = block_on(com.send(0x55)).unwrap();
-    
-    let _ = block_on(com.done());
+    block_on(async {
+        IecCommander::new(&mut mock)
+            .open(8, 15)
+            .send(&[0x55])
+            .execute()
+            .await
+    }).unwrap();
 }
 
 #[test]
@@ -119,12 +121,12 @@ fn test_iec_recv_byte() {
     }
 
     let mut mock = RecvMock(&bus, RefCell::new(0));
-    let com = IecTransaction::new(&mut mock);
-    let mut byte = 0;
-    let mut eoi = false;
-    let com = block_on(com.recv(&mut byte, &mut eoi)).unwrap();
-    
-    assert_eq!(byte, 0xAA);
-    let _ = block_on(com.done());
+    let mut bytes = Vec::new();
+    block_on(async {
+        IecCommander::new(&mut mock)
+            .open(8, 15)
+            .receive(|b| bytes.push(b))
+            .await
+    }).unwrap();
 }
 

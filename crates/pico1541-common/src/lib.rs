@@ -9,5 +9,5 @@ pub mod interface;
 
 pub use formats::{DiskImage, D64Image, G64Image, AnyDiskImage, Error};
 pub use storage::MemoryStorage;
-pub use iec_com::{IecBus as IecHostBus, IecTransaction, IecError};
+pub use iec_com::{IecBus as IecHostBus, IecTransaction, IecCommander, IecError};
 pub use interface::{DriveEvent, ActiveTrack, HostInterface, IecBus};

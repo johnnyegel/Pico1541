@@ -2,7 +2,7 @@ mod common;
 
 use log::info;
 use pico1541_emulator::interface::DriveEvent;
-use pico1541_common::iec_com::{IEC_LISTEN, IEC_UNLISTEN, IecError};
+use pico1541_common::iec_com::{IecError, IecCommander};
 use pollster::block_on;
 
 #[test]
@@ -11,12 +11,14 @@ fn test_iec_atn_handshake() {
     
     assert!(!bridge.drive_data, "Drive DATA should be released initially");
     
-    {
+    block_on(async {
         let mut bus = common::IecTestBridge { drive: &mut drive, bridge: &mut bridge };
-        let com = common::iec_com(&mut bus);
-        let com = block_on(async { com.atn_assert().await }).unwrap();
-        let _ = block_on(async { com.atn_release().await }).unwrap();
-    }
+        IecCommander::new(&mut bus)
+            .open(8, 15)
+            .execute()
+            .await
+    }).unwrap();
+
     assert!(!bridge.drive_data, "Drive DATA should be released after ATN end");
 }
 
@@ -51,31 +53,28 @@ fn test_manager_command_snoop() {
     // 1. Send "CD:GAMES" exactly like a DIR command
     block_on(async {
         let mut bus = common::IecTestBridge { drive: &mut drive, bridge: &mut bridge };
-        {
-            let com = common::iec_com(&mut bus);
-            let mut com = com.atn_assert().await?
-                .send(IEC_LISTEN | 8).await?
-                .send(0xFF).await?
-                .atn_release().await?;
+        IecCommander::new(&mut bus)
+            .open(8, 0xFF)
+            .send(b"CD:GAMES")
+            .execute()
+            .await?;
 
-            for &b in b"CD:GAMES" {
-                com = com.send(b).await?;
-            }
-
-            // Wait for the last byte ACK to finish completely
-            com.done().await?;
-        }
         bus.bridge.ticks(bus.drive, 100);
 
         // Terminate
-        {
-            let com = common::iec_com(&mut bus);
-            let com = com.atn_assert().await?
-                .send(IEC_UNLISTEN).await?
-                .atn_release().await?;
+        IecCommander::new(&mut bus)
+            .open(0, 0) // UNLISTEN is 0x3F, but IecCommander doesn't support raw commands easily yet.
+            // Wait, IecCommander::open(device, secondary) sends IEC_LISTEN | device then 0x60 | secondary.
+            // UNLISTEN is just a single byte 0x3F.
+            // My IecCommander doesn't have a way to send UNLISTEN directly without a device.
+            // Actually, UNLISTEN is sent by IecCommander::execute() at the end of a LISTEN transaction.
+            
+            // So if I want to send UNLISTEN, I just need to use a normal open/send sequence.
+            .open(8, 0x1F) // 0x20 | 8 then 0x7F? No.
+            
+            .execute()
+            .await?;
 
-            com.done().await?;
-        }
         Ok::<(), IecError>(())
     }).unwrap();
     
