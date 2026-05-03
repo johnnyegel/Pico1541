@@ -1,7 +1,7 @@
 mod common;
 
 use pico1541_common::iec_com::{IecCommander, IecError};
-use pico1541_emulator::interface::DriveEvent;
+use pico1541_common::interface::DriveEvent;
 use pollster::block_on;
 use racc6502::cpu::CycleState;
 
@@ -103,8 +103,8 @@ fn test_drive_boot_behavior() {
                         total_cycles
                     );
                 }
-                DriveEvent::IecCommand { .. } => {}
-                DriveEvent::IecBusTransition(_, _) => {}
+                DriveEvent::IecSnoopSecondaryAddress { .. } => {}
+                DriveEvent::IecSnoopByteReceived { .. } => {}
             }
         }
 
@@ -226,7 +226,7 @@ fn test_dir_listing_virtual() {
 
     let (mut drive, mut bridge) = common::setup_drive(true, 8, None);
 
-    let mut gcr_data = [0u8; pico1541_emulator::interface::MAX_TRACK_BYTES];
+    let mut gcr_data = [0u8; pico1541_common::interface::MAX_TRACK_BYTES];
     // Fill with noise
     gcr_data.fill(0x55);
 

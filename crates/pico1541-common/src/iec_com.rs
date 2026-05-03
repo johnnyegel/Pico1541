@@ -32,7 +32,7 @@ pub const DELAY_HOLD_TIMEOUT_US: u32 = 5_000_000;
 /// All signals use the logical convention: **true = asserted**.
 /// On the physical IEC bus an asserted line is pulled LOW.
 #[allow(async_fn_in_trait)]
-pub trait IecBus {
+pub trait IecComHostBus {
     fn set_atn(&mut self, assert: bool);
     fn set_clk(&mut self, assert: bool);
     fn set_data(&mut self, assert: bool);
@@ -86,11 +86,11 @@ pub trait IecBus {
 }
 
 /// Universal IEC protocol tool acting as a Host (e.g. C64).
-pub struct IecTransaction<'a, B: IecBus> {
+pub struct IecTransaction<'a, B: IecComHostBus> {
     bus: &'a mut B,
 }
 
-impl<'a, B: IecBus> IecTransaction<'a, B> {
+impl<'a, B: IecComHostBus> IecTransaction<'a, B> {
     pub fn new(bus: &'a mut B) -> Self {
         Self { bus }
     }
@@ -130,6 +130,8 @@ impl<'a, B: IecBus> IecTransaction<'a, B> {
 
     // Sends a byte with EOI by waiting for the drive to ACK EOI before sending
     pub async fn send_eoi(self, byte: u8) -> Result<Self, IecError> {
+        log::trace!("Preparing to send byte 0x{:02X} with EOI", byte);
+
         // Release the clock line to indicate we are ready to send and wait for ACK
         self.bus.set_clk(false);
         self.bus.wait_for_data(false, DELAY_ACK_TIMEOUT_US).await?;
@@ -146,10 +148,7 @@ impl<'a, B: IecBus> IecTransaction<'a, B> {
         // Release the clock line to indicate we are ready to send
         self.bus.set_clk(false);
 
-        log::debug!(
-            "Ready to send byte 0x{:02X} over IEC, waiting for ACK.",
-            byte
-        );
+        log::debug!("Ready to send byte 0x{:02X} over IEC, waiting for ACK.", byte);
 
         // Wait for Listener to release DATA (Ready to Receive).
         // NOTE! Hold delay is infinite, but we wait max 5 seconds as the drive should never take more.
@@ -282,14 +281,14 @@ impl<'a, B: IecBus> IecTransaction<'a, B> {
 }
 
 /// High-level IEC bus commander providing a more ergonomic API.
-pub struct IecCommander<'a, B: IecBus> {
+pub struct IecCommander<'a, B: IecComHostBus> {
     bus: &'a mut B,
     device: u8,
     secondary: u8,
     send_data: Option<&'a [u8]>,
 }
 
-impl<'a, B: IecBus> IecCommander<'a, B> {
+impl<'a, B: IecComHostBus> IecCommander<'a, B> {
     pub fn new(bus: &'a mut B) -> Self {
         Self {
             bus,
@@ -331,9 +330,12 @@ impl<'a, B: IecBus> IecCommander<'a, B> {
                 .atn_release()
                 .await?;
 
-            for &b in data {
-                com = com.send(b).await?;
+            // Send data bytes, and use send_eoi for the last byte to properly signal EOI to the drive.
+            for i in 0..data.len() - 1 {
+                com = com.send(data[i]).await?;
             }
+            com = com.send_eoi(data[data.len() - 1]).await?;
+
 
             com = com
                 .atn_assert()
@@ -392,9 +394,11 @@ impl<'a, B: IecBus> IecCommander<'a, B> {
                 .atn_release()
                 .await?;
 
-            for &b in data {
-                com = com.send(b).await?;
+            // Send data bytes, and use send_eoi for the last byte to properly signal EOI to the drive.
+            for i in 0..data.len() - 1 {
+                com = com.send(data[i]).await?;
             }
+            com = com.send_eoi(data[data.len() - 1]).await?;
 
             com = com
                 .atn_assert()

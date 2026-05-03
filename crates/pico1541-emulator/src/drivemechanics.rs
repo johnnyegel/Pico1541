@@ -1,5 +1,5 @@
-use crate::interface::{DriveEvent, HostInterface};
 use crate::via6522::Via6522;
+use pico1541_common::interface::{DriveEvent, HostInterface};
 
 // 35 tracks + 7 tracks more that can be physically reached (MAX 42)
 const MAX_HALF_TRACK: u8 = (35 + 7) * 2;

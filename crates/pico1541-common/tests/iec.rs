@@ -1,5 +1,5 @@
 use core::cell::RefCell;
-use pico1541_common::iec_com::{IecBus, IecCommander};
+use pico1541_common::iec_com::{IecComHostBus, IecCommander};
 use pollster::block_on;
 
 struct MockBus {
@@ -22,7 +22,7 @@ impl MockBus {
     }
 }
 
-impl IecBus for MockBus {
+impl IecComHostBus for MockBus {
     fn set_atn(&mut self, assert: bool) {
         *self.atn.borrow_mut() = assert;
     }
@@ -58,7 +58,7 @@ fn test_iec_send_byte() {
 
     // Reactive mock to handle listener side of send
     struct SendMock<'a>(&'a MockBus, RefCell<usize>);
-    impl IecBus for SendMock<'_> {
+    impl IecComHostBus for SendMock<'_> {
         fn set_atn(&mut self, a: bool) {
             *self.0.atn.borrow_mut() = a;
         }
@@ -105,7 +105,7 @@ fn test_iec_recv_byte() {
 
     // Reactive mock to handle talker side of recv
     struct RecvMock<'a>(&'a MockBus, RefCell<usize>);
-    impl IecBus for RecvMock<'_> {
+    impl IecComHostBus for RecvMock<'_> {
         fn set_atn(&mut self, a: bool) {
             *self.0.atn.borrow_mut() = a;
         }

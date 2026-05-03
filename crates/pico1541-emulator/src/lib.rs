@@ -1,12 +1,10 @@
 #![no_std]
 
 pub mod drivemechanics;
-pub mod interceptor;
-pub mod interface;
 pub mod systembus;
 pub mod via6522;
 
-use interface::HostInterface;
+use pico1541_common::interface::HostInterface;
 use log::debug;
 use racc6502::cpu::{CycleState, CPU};
 use systembus::SystemBus;

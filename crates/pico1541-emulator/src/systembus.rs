@@ -1,6 +1,6 @@
 use crate::drivemechanics::DriveMechanics;
-use crate::interface::{HostInterface, IecBusState};
 use crate::via6522::Via6522;
+use pico1541_common::interface::{HostInterface, IecBusState};
 use core::marker::PhantomData;
 use log;
 use racc6502::bus::Bus;
@@ -216,7 +216,7 @@ impl<H: HostInterface> MemoryMonitor for SystemBus<H> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus};
+    use pico1541_common::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus};
     struct MockHardware {
         track: ActiveTrack,
     }

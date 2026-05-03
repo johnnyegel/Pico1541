@@ -91,10 +91,18 @@ impl IecBusState {
         }
     }
 
-    /// Returns the difference between this state and the last state
+    /// ORs together the current state with another IecBusState, 
+    /// used for combining host and drive assertions.
+    /// NOTE! This is only needed in Unit tests, as the hardware in the emulator 
+    /// will already provide the combined state to the Pico input pins.
+    pub fn combine(&self, other: &IecBusState) -> IecBusState {
+        IecBusState(self.0 | other.0)
+    }
+
+    /// Returns the difference between this state and the last state resuling in any edge changes being asserted.
     /// Returns a bitmask indicating which lines have changed (aka edge detection)
-    pub fn delta(&self, last_state: &IecBusState) -> u8 {
-        self.0 ^ last_state.0
+    pub fn delta(&self, last_state: &IecBusState) -> IecBusState {
+        IecBusState(self.0 ^ last_state.0)
     }
 }
 
@@ -122,13 +130,9 @@ pub enum DriveEvent {
     HeadStepped {
         new_half_track: u8,
     },
-    /// A snooped IEC command directed at channel 15
-    IecCommand {
-        data: [u8; 64],
-        len: u8,
-    },
-    /// Low-level IEC bus state change (State Byte, Delta Cycles)
-    IecBusTransition(crate::snooper::IecBusByte, u32),
+    /// A byte received from the host on the IEC bus, with the secondary address at which it was received.
+    IecSnoopSecondaryAddress(u8), // secondary address byte
+    IecSnoopByteReceived(u8), // byte
 }
 
 /// Open-drain IEC serial bus interface (Emulator side).
@@ -178,5 +182,5 @@ pub trait HostInterface: IecBus {
 
     /// Update the IEC addresses (LISTEN and TALK) snooped by the manager.
     /// Usually called by the emulator when it detects a change in drive RAM.
-    fn update_iec_addresses(&mut self, _listen: u8, _talk: u8) {}
+    fn update_iec_addresses(&mut self, _listen: u8, _talk: u8) { }
 }
