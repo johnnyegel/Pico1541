@@ -10,7 +10,7 @@ fn test_iec_atn_handshake() {
     let (mut drive, mut bridge) = common::setup_drive(true, 8, None);
 
     assert!(
-        !bridge.drive_data,
+        !bridge.drive_iec.get_data(),
         "Drive DATA should be released initially"
     );
 
@@ -24,7 +24,7 @@ fn test_iec_atn_handshake() {
     .unwrap();
 
     assert!(
-        !bridge.drive_data,
+        !bridge.drive_iec.get_data()    ,
         "Drive DATA should be released after ATN end"
     );
 }

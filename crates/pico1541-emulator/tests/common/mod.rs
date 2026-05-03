@@ -2,6 +2,7 @@
 use log;
 use pico1541_common::formats::{AnyDiskImage, DiskImage, G64Image, TrackLayout};
 use pico1541_common::iec_com::IecBus as IecHostBus;
+use pico1541_common::interface::IecBusState;
 use pico1541_common::storage::DummySource;
 use pico1541_common::snooper::{IecBusByte, IecSnooper, SnooperConfig};
 use pico1541_emulator::interceptor::BusInterceptor;
@@ -112,16 +113,13 @@ impl<S: embedded_io_async::Read + embedded_io_async::Seek + Send + 'static> Disk
 pub struct TestBridge {
     pub track: ActiveTrack,
     pub events: Vec<DriveEvent>,
-    pub host_data: bool, // true = ASSERTED (LOW)
-    pub host_clk: bool,  // true = ASSERTED (LOW)
-    pub host_atn: bool,  // true = ASSERTED (LOW)
+    pub host_iec: IecBusState,
+    pub drive_iec: IecBusState,
     pub interceptor: BusInterceptor,
     pub snooper: IecSnooper,
     pub config: &'static SnooperConfig,
     pub device_id: u8,
     pub sync_hook: Option<Box<dyn FnMut(&mut ActiveTrack)>>,
-    pub drive_data: bool,
-    pub drive_clk: bool,
 }
 
 impl TestBridge {
@@ -130,40 +128,34 @@ impl TestBridge {
         Self {
             track: ActiveTrack::new(),
             events: Vec::new(),
-            host_data: false,
-            host_clk: false,
-            host_atn: false,
+            host_iec: IecBusState::default(),
+            drive_iec: IecBusState::default(),
             interceptor: BusInterceptor::new(),
             snooper: IecSnooper::new(device_id, config),
             config,
             device_id,
             sync_hook: None,
-            drive_data: false,
-            drive_clk: false,
         }
     }
 
     pub fn reset(&mut self) {
         self.events.clear();
-        self.host_data = false;
-        self.host_clk = false;
-        self.host_atn = false;
+        self.host_iec = IecBusState::default();
+        self.drive_iec = IecBusState::default();
         self.config.reset(self.device_id);
         self.interceptor = BusInterceptor::new();
         self.snooper = IecSnooper::new(self.device_id, self.config);
         self.sync_hook = None;
-        self.drive_data = false;
-        self.drive_clk = false;
     }
 
     pub fn set_atn(&mut self, v: bool) {
-        self.host_atn = v;
+        self.host_iec.set_atn(v);
     }
     pub fn set_clk(&mut self, v: bool) {
-        self.host_clk = v;
+        self.host_iec.set_clk(v);
     }
     pub fn set_data(&mut self, v: bool) {
-        self.host_data = v;
+        self.host_iec.set_data(v);
     }
 
     pub fn ticks(&mut self, drive: &mut Emulator<TestBridge>, n: u32) {
@@ -190,21 +182,13 @@ impl TestBridge {
 }
 
 impl IecBus for TestBridge {
-    fn read_data(&self) -> bool {
-        self.host_data || self.drive_data
+    
+    fn iec_host(&self) -> IecBusState {
+        self.host_iec
     }
-    fn read_clk(&self) -> bool {
-        self.host_clk || self.drive_clk
-    }
-    fn read_atn(&self) -> bool {
-        self.host_atn
-    }
-    fn drive_data(&mut self, assert: bool) {
-        let should_drive = self.config.should_drive_data.load(std::sync::atomic::Ordering::Relaxed);
-        self.drive_data = assert || should_drive;
-    }
-    fn drive_clk(&mut self, assert: bool) {
-        self.drive_clk = assert;
+    
+    fn iec_drive(&mut self, state: IecBusState) {
+        self.drive_iec = state;
     }
 }
 
@@ -225,18 +209,22 @@ impl HostInterface for TestBridge {
         self.config.listen_addr.store(listen, std::sync::atomic::Ordering::Relaxed);
         self.config.talk_addr.store(talk, std::sync::atomic::Ordering::Relaxed);
     }
+    /* FIXME! This needs to be done differently
     fn on_bus_cycle(&mut self, pb: u8) {
         let state = IecBusByte::from_pb(pb);
         if let Some((state, delta)) = self.interceptor.tick(state) {
+            log::trace!("[Bridge] Transition: state={:02X}, delta={}", state.0, delta);
             if let Some(cmd_data) = self.snooper.tick(state, delta) {
                 let len = self.snooper.buffer_len() as u8;
+                log::info!("[Bridge] COMMAND READY: len={}", len);
                 self.send_event(DriveEvent::IecCommand {
                     data: cmd_data,
                     len,
                 });
             }
         }
-    }
+    } */
+
     fn sync(&mut self) {
         if let Some(mut hook) = self.sync_hook.take() {
             let track = self.get_active_track();
@@ -264,19 +252,18 @@ impl<'a> IecHostBus for IecTestBridge<'a> {
 
     // Checking for drive assertions simply involves observing the drive lines.
     fn get_clk(&self) -> bool {
-        self.bridge.drive_clk
+        self.bridge.drive_iec.get_clk()
     }
     fn get_data(&self) -> bool {
-        self.bridge.drive_data
+        self.bridge.drive_iec.get_data()
     }
 
     fn trace_state(&self, tag: &str) -> () {
         log::trace!(
-            "[{}]: PC=${:04X}, DATA={}, CLK={}",
+            "[{}]: PC=${:04X}, IEC={}",
             tag,
             self.drive.pc(),
-            self.bridge.drive_data,
-            self.bridge.drive_clk
+            self.bridge.drive_iec
         );
     }
 

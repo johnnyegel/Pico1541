@@ -1,5 +1,5 @@
 use crate::drivemechanics::DriveMechanics;
-use crate::interface::HostInterface;
+use crate::interface::{HostInterface, IecBusState};
 use crate::via6522::Via6522;
 use core::marker::PhantomData;
 use log;
@@ -31,8 +31,6 @@ impl<H: HostInterface> SystemBus<H> {
     pub fn new(rom: [u8; ROM_SIZE], device_id: u8) -> Self {
         // :: Intialize VIA1
         let mut via1 = Via6522::new();
-        via1.in_a = 0x0;
-        via1.in_b = Self::device_id_to_pb(0x0, device_id);
 
         let systembus = Self {
             ram: [0; RAM_SIZE],
@@ -44,6 +42,10 @@ impl<H: HostInterface> SystemBus<H> {
             device_id,
             _phantom: PhantomData,
         };
+
+        // Set up the VIA1 initial state
+        via1.in_a = 0x0;
+        via1.in_b = systembus.host_iec_to_via(&IecBusState::default());
 
         systembus
     }
@@ -77,64 +79,32 @@ impl<H: HostInterface> SystemBus<H> {
             self.so_active = false;
         }
 
-        let mut host_data = hardware.read_data();
-        let mut host_clk = hardware.read_clk();
-        let mut host_atn = hardware.read_atn();
+        // Reslove the Host IecBusState
+        let host_iec = if hardware.is_hijacked() {
+            IecBusState::default()
+        } else {
+            hardware.iec_host()
+        };
 
-        // If the bus is hijacked by the manager, blind the ROM/VIA from all IEC lines.
-        // This prevents the DOS parser from seeing the command and prevents bus contention.
-        if hardware.is_hijacked() {
-            host_data = false;
-            host_clk = false;
-            host_atn = false;
-        }
-
-        // VIA1 outputs: PB1=DATA_OUT, PB3=CLK_OUT, PB4=ATNA (1=Asserted/LOW wire)
-        let mut drv_data = (self.via1.orb & self.via1.ddrb & 0x02) != 0;
-        let drv_clk = (self.via1.orb & self.via1.ddrb & 0x08) != 0;
-
-        // Hardware ATN acknowledge: the drive controller chip XORs ATN_IN with ATNA
-        // (PB4 output) and asserts DATA when they differ.  This lets the hardware
-        // pull DATA without waiting for the CPU — and releases it once the CPU
-        // sets ATNA to match ATN, or re-asserts briefly at end-of-ATN (EOI handshake).
-        let atna = (self.via1.orb & self.via1.ddrb & 0x10) != 0;
-        let mut hw_atn_ack = host_atn ^ atna;
-
-        if hardware.is_hijacked() {
-            drv_data = false;
-            hw_atn_ack = false;
-        }
-
-        // VIA1 inputs: PB0=DATA_IN, PB2=CLK_IN, PB7=ATN_IN (1=Asserted/LOW wire)
-        // PB5, PB6: Device ID (00=8, 10=9, 01=10, 11=11)
-        let mut in_b: u8 = 0;
-        if host_data {
-            in_b |= 0x01;
-        }
-        if host_clk {
-            in_b |= 0x04;
-        }
-        if host_atn {
-            in_b |= 0x80;
-        }
-
-        // Map device_id 8..11 to PB5,PB6 such that (PB >> 5) ^ 3 == id_offset
-        in_b = Self::device_id_to_pb(in_b, self.device_id);
-
-        self.via1.in_b = in_b;
-
-        // Report bus state to host interface (for snooping)
-        hardware.on_bus_cycle(in_b);
-
+        // Update VIA1's input register B with host IEC state
+        self.via1.in_b = self.host_iec_to_via(&host_iec);
         // CA1: fires on positive edge of ATN assertion.
         // host_atn=true (Asserted/LOW wire) -> 7406 output HIGH.
-        self.via1.set_ca1(host_atn);
+        self.via1.set_ca1(host_iec.get_atn());
 
-        hardware.drive_data(drv_data || hw_atn_ack);
-        hardware.drive_clk(drv_clk);
-
+        // Execute the VIA cycles, so we get the actual output given the input state
         self.via1.tick_cycle();
         self.via2.tick_cycle();
+
+        // Resolve the IEC lines from the drive. ATN is set to ATNA (PB4) 
+        let drive_iec = if hardware.is_hijacked() {
+            IecBusState::default()
+        } else {
+            self.drive_iec_state(&host_iec)
+        };
+
+        // Set the IEC drive lines
+        hardware.iec_drive(drive_iec);
     }
 
     /// Silently discards a command so the 1541 DOS parser ignores it.
@@ -148,11 +118,34 @@ impl<H: HostInterface> SystemBus<H> {
         self.ram[0x026C] = 0;
     }
 
-    // Maps the device ID to the appropriate PB5/PB6 bits for VIA1.
     #[inline]
-    fn device_id_to_pb(in_b: u8, device_id: u8) -> u8 {
-        // PB5/PB6: Device ID (00=8, 10=9, 01=10, 11=11)
-        (in_b & 0x9F) | ((device_id & 0x03) << 5)
+    fn drive_iec_state(&self, host_iec: &IecBusState) -> IecBusState {
+        // Get the drive ATNA bit, and align it to bit 2 for the IecBusState bitmask.
+        let atna = (self.via1.orb & self.via1.ddrb & 0x10) >> 2;
+        // XOR with the host ATN to get the hardware ATN acknowledge state, 
+        // which is what the drive actually puts on the DATA line.
+        let hw_atn_ack = ((host_iec.0 & IecBusState::ATN_BIT) ^ atna) >> 2;
+
+        // Get the clock and data bits from VIA1 and align them to bits 0 and 1 for the IecBusState bitmask.
+        let data_bit = (self.via1.orb & self.via1.ddrb & 0x02) >> 1;
+        let clk_bit = (self.via1.orb & self.via1.ddrb & 0x08) >> 2;
+
+        // Or the bits together to get the combined drive state for the IecBusState bitmask.
+        IecBusState(clk_bit | data_bit | hw_atn_ack)
+    }
+
+    #[inline]
+    fn host_iec_to_via(&self, host_iec: &IecBusState) -> u8 {
+        // Map the host IEC state to the VIA1 input bits for PB0, PB2, and PB7.
+        let data = (host_iec.0 & IecBusState::DATA_BIT) << 0; // PB0 = DATA_IN
+        let clk = (host_iec.0 & IecBusState::CLK_BIT) << 1; // PB2 = CLK_IN
+        let atn = (host_iec.0 & IecBusState::ATN_BIT) << 5; // PB7 = ATN_IN
+
+        // Shift the drive ID bits into PB5/PB6 and combine with the host IEC bits.
+        let device_id_bits = (self.device_id & 0x03) << 5;
+
+        // Or all together to get the full PB input value for VIA1.
+        device_id_bits | atn | clk | data
     }
 }
 
@@ -227,19 +220,14 @@ mod tests {
     struct MockHardware {
         track: ActiveTrack,
     }
+    
     impl IecBus for MockHardware {
-        fn read_data(&self) -> bool {
-            false
+        fn iec_host(&self) -> IecBusState {
+            IecBusState::default()
         }
-        fn read_clk(&self) -> bool {
-            false
-        }
-        fn read_atn(&self) -> bool {
-            false
-        }
-        fn drive_data(&mut self, _: bool) {}
-        fn drive_clk(&mut self, _: bool) {}
+        fn iec_drive(&mut self, _: IecBusState) {}
     }
+
     impl HostInterface for MockHardware {
         fn get_active_track(&mut self) -> &mut ActiveTrack {
             &mut self.track

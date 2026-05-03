@@ -1,3 +1,6 @@
+use core::fmt;
+use core::fmt::Display;
+
 pub const MAX_TRACK_BYTES: usize = 10_000;
 
 #[derive(Debug, Clone, Copy)]
@@ -38,6 +41,80 @@ impl Default for ActiveTrack {
     }
 }
 
+/// Represents the bus state of the IEC bus lines
+/// Bit 0: DATA, Bit 1: CLK, Bit 2: ATN
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct IecBusState(pub u8);
+
+impl IecBusState {
+    pub const DATA_BIT: u8 = 0b001;
+    pub const CLK_BIT: u8 = 0b010;
+    pub const ATN_BIT: u8 = 0b100;
+
+    /// Returns true if DATA line is asserted
+    pub fn get_data(&self) -> bool {
+        self.0 & 0b001 != 0
+    }
+    /// Returns true if CLK line is asserted
+    pub fn get_clk(&self) -> bool {
+        self.0 & 0b010 != 0
+    }
+    /// Returns true if ATN line is asserted
+    pub fn get_atn(&self) -> bool {
+        self.0 & 0b100 != 0
+    }
+
+    // Set the data bit
+    pub fn set_data(&mut self, asserted: bool) {
+        if asserted {
+            self.0 |= Self::DATA_BIT;
+        } else {
+            self.0 &= !Self::DATA_BIT;
+        }
+    }
+
+    /// Set the clk bit
+    pub fn set_clk(&mut self, asserted: bool) {
+         if asserted {
+            self.0 |= Self::CLK_BIT;
+        } else {
+            self.0 &= !Self::CLK_BIT;
+        }
+    }
+
+    // Set the atn bit
+    pub fn set_atn(&mut self, asserted: bool) {
+         if asserted {
+            self.0 |= Self::ATN_BIT;
+        } else {
+            self.0 &= !Self::ATN_BIT;
+        }
+    }
+
+    /// Returns the difference between this state and the last state
+    /// Returns a bitmask indicating which lines have changed (aka edge detection)
+    pub fn delta(&self, last_state: &IecBusState) -> u8 {
+        self.0 ^ last_state.0
+    }
+}
+
+impl Default for IecBusState {
+    fn default() -> Self {
+        Self(0)
+    }   
+}
+
+impl Display for IecBusState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "IecBusState({:#02X}: ATN={}, CLK={}, DATA={}}}",
+            self.0,
+            self.get_atn(),
+            self.get_clk(),
+            self.get_data())
+    }
+}
+
+/// Events issues by the drive emulator
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DriveEvent {
     LedChanged(bool),
@@ -69,17 +146,12 @@ pub enum DriveEvent {
 /// the **combined open-drain bus state**: host assertion OR drive assertion OR
 /// ATNA contribution.  true = the line is asserted by at least one party.
 pub trait IecBus {
-    /// Returns true if the host is asserting DATA.
-    fn read_data(&self) -> bool;
-    /// Returns true if the host is asserting CLK.
-    fn read_clk(&self) -> bool;
-    /// Returns true if the host is asserting ATN.
-    fn read_atn(&self) -> bool;
+    /// Reads the current bus state from the host as a bitmask
+    /// See `IecBusState` for bit definitions.
+    fn iec_host(&self) -> IecBusState;
 
-    /// Called each cycle with the drive output DATA bus state (true = asserted).
-    fn drive_data(&mut self, assert: bool);
-    /// Called each cycle with the drive output CLK bus state (true = asserted).
-    fn drive_clk(&mut self, assert: bool);
+    /// Called each cycle with the combined open-drain bus state (true = asserted).
+    fn iec_drive(&mut self, state: IecBusState);
 }
 
 pub trait HostInterface: IecBus {
@@ -103,9 +175,6 @@ pub trait HostInterface: IecBus {
 
     /// synchronization point called every cycle.
     fn sync(&mut self) {}
-
-    /// Called each cycle with the raw VIA1 Port B byte.
-    fn on_bus_cycle(&mut self, _pb: u8) {}
 
     /// Update the IEC addresses (LISTEN and TALK) snooped by the manager.
     /// Usually called by the emulator when it detects a change in drive RAM.
