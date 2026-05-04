@@ -16,6 +16,10 @@ fn test_drive_boot() {
     }
 
     assert_ne!(drive.pc(), initial_pc);
+
+    let boot_cycles = bridge.cycles();
+    println!("Drive boot test took {} cycles", boot_cycles);
+    assert!(boot_cycles > 10_000); // Just check we actually ticked
 }
 
 #[test]

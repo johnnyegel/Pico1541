@@ -1,11 +1,25 @@
 #![no_std]
 
+#[cfg(not(feature = "logging"))]
+macro_rules! emu_info { ($($arg:tt)*) => {} }
+#[cfg(not(feature = "logging"))]
+macro_rules! emu_warn { ($($arg:tt)*) => {} }
+#[cfg(not(feature = "logging"))]
+macro_rules! emu_debug { ($($arg:tt)*) => {} }
+
+#[cfg(feature = "logging")]
+macro_rules! emu_info { ($($arg:tt)*) => { log::info!($($arg)*) } }
+#[cfg(feature = "logging")]
+macro_rules! emu_warn { ($($arg:tt)*) => { log::warn!($($arg)*) } }
+#[cfg(feature = "logging")]
+macro_rules! emu_debug { ($($arg:tt)*) => { log::debug!($($arg)*) } }
+
 pub mod drivemechanics;
+pub mod hle;
 pub mod systembus;
 pub mod via6522;
 
 use pico1541_common::interface::HostInterface;
-use log::debug;
 use racc6502::cpu::{CycleState, CPU};
 use systembus::SystemBus;
 
@@ -30,7 +44,7 @@ impl<H: HostInterface> Emulator<H> {
 
     /// Resets the 6502 CPU and VIAs.
     pub fn reset(&mut self) {
-        debug!("Emulator Reset");
+        emu_debug!("Emulator Reset");
         self.cpu.reset();
         self.bus.reset();
     }
@@ -39,6 +53,7 @@ impl<H: HostInterface> Emulator<H> {
     /// peripheral interaction during that cycle.
     pub fn tick(&mut self, hw: &mut H) {
         self.cpu.tick(&mut self.bus, hw);
+        hw.sync();
     }
 
     /// Executes the given number of CPU cycles.

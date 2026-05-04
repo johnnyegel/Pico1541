@@ -13,6 +13,7 @@ pico1541-common = { path = "../pico1541-common" }
 
 [features]
 debug = ["racc6502/debug"]
+logging = []
 
 [dev-dependencies]
 env_logger = "0.11.10"

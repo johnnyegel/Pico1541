@@ -56,7 +56,6 @@ pub fn reset_drive(drive: &mut Emulator<TestBridge>, bridge: &mut TestBridge) {
     // Boot: Wait for idle loop
     for _ in 0..5_000_000 {
         drive.tick(bridge);
-        bridge.sync();
         if drive.pc() >= IDLE_LOW && drive.pc() <= IDLE_HIGH {
             return;
         }
@@ -118,6 +117,7 @@ pub struct TestBridge {
     pub snoop_handler: IecSnoopByteHandler,
     pub device_id: u8,
     pub discard_request: bool,
+    pub total_cycles: u64,
     pub sync_hook: Option<Box<dyn FnMut(&mut ActiveTrack)>>,
 }
 
@@ -132,6 +132,7 @@ impl TestBridge {
             snoop_handler: IecSnoopByteHandler::new(),
             device_id,
             discard_request: false,
+            total_cycles: 0,
             sync_hook: None,
         }
     }
@@ -143,7 +144,12 @@ impl TestBridge {
         self.snooper = IecSnooper::new(self.device_id);
         self.snoop_handler = IecSnoopByteHandler::new();
         self.discard_request = false;
+        self.total_cycles = 0;
         self.sync_hook = None;
+    }
+
+    pub fn cycles(&self) -> u64 {
+        self.total_cycles
     }
 
     pub fn set_atn(&mut self, v: bool) {
@@ -159,7 +165,6 @@ impl TestBridge {
     pub fn ticks(&mut self, drive: &mut Emulator<TestBridge>, n: u32) {
         for _ in 0..n {
             drive.tick(self);
-            self.sync();
         }
     }
 
@@ -212,6 +217,7 @@ impl HostInterface for TestBridge {
     }
 
     fn sync(&mut self) {
+        self.total_cycles += 1;
         if let Some(mut hook) = self.sync_hook.take() {
             let track = self.get_active_track();
             hook(track);
@@ -275,7 +281,6 @@ impl<'a> IecComHostBus for IecTestBridge<'a> {
     async fn delay_us(&mut self, us: u32) {
         for _ in 0..us {
             self.drive.tick(self.bridge);
-            self.bridge.sync();
         }
     }
 }

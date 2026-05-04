@@ -178,7 +178,7 @@ impl DriveMechanics {
                         via2.set_ca1(false);
 
                         if self.current_byte_idx % 1000 == 0 {
-                            log::info!(
+                            emu_info!(
                                 "GCR Byte: ${:02X} at idx {}",
                                 gcr_byte,
                                 self.current_byte_idx
@@ -217,7 +217,7 @@ impl DriveMechanics {
         if motor_state && self.motor_delay_counter < MOTOR_SPIN_UP_CYCLES {
             self.motor_delay_counter += 1;
             if self.motor_delay_counter == MOTOR_SPIN_UP_CYCLES {
-                log::info!("Motor SPUN UP");
+                emu_info!("Motor SPUN UP");
                 self.motor_spun_up = true;
             }
         } else if !motor_state && self.motor_delay_counter > 0 {
@@ -225,7 +225,7 @@ impl DriveMechanics {
             if self.motor_spun_up
                 && self.motor_delay_counter == MOTOR_SPIN_UP_CYCLES - MOTOR_SPIN_DOWN_THRESHOLD
             {
-                log::info!("Motor SPUN DOWN");
+                emu_info!("Motor SPUN DOWN");
                 self.motor_spun_up = false;
             }
         }
@@ -243,14 +243,14 @@ impl DriveMechanics {
         // Handle LED changes (VIA2 Port B bit 3)
         if (changed & LED_BIT) != 0 {
             let led_state = (curent_state & LED_BIT) != 0;
-            log::info!("LED changed: {}", led_state);
+            emu_info!("LED changed: {}", led_state);
             hardware.send_event(DriveEvent::LedChanged(led_state));
         }
 
         // Handle Motor changes (VIA2 Port B bit 2)
         if (changed & MOTOR_BIT) != 0 {
             // NOTE! We send the event immediately!
-            log::info!("Motor changed: {}", motor_state);
+            emu_info!("Motor changed: {}", motor_state);
             hardware.send_event(DriveEvent::MotorChanged(motor_state));
         }
 
@@ -273,7 +273,7 @@ impl DriveMechanics {
                 self.current_half_track =
                     (self.current_half_track as i8 + step).clamp(0, MAX_HALF_TRACK as i8) as u8;
 
-                log::info!(
+                emu_info!(
                     "HEAD Stepped: Phase {} -> {} ({}), Half-Track: {}",
                     last_phase,
                     new_phase,
@@ -284,7 +284,7 @@ impl DriveMechanics {
                     new_half_track: self.current_half_track,
                 });
             } else {
-                log::warn!(
+                emu_warn!(
                     "Invalid step detected: last_phase={}, new_phase={}",
                     last_phase,
                     new_phase

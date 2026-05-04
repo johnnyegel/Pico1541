@@ -204,10 +204,8 @@ impl IecSnoopByteHandler {
                     self.buffer[self.pos] = byte;
                     self.pos += 1;
 
-                    if self.pos == 3 {
-                        if &self.buffer[0..3] == b"CD:" {
-                            self.command_detected = true;
-                        }
+                    if self.pos >= 3 && &self.buffer[0..3] == b"CD:" {
+                        self.command_detected = true;
                     }
                 }
                 if eoi {
@@ -227,7 +225,7 @@ impl IecSnoopByteHandler {
     }
 
     pub fn get_command(&self) -> Option<&str> {
-        if self.command_detected {
+        if self.pos > 0 {
             core::str::from_utf8(&self.buffer[..self.pos]).ok()
         } else {
             None

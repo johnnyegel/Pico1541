@@ -2,7 +2,6 @@ use crate::drivemechanics::DriveMechanics;
 use crate::via6522::Via6522;
 use pico1541_common::interface::{HostInterface, IecBusState};
 use core::marker::PhantomData;
-use log;
 use racc6502::bus::Bus;
 #[cfg(feature = "debug")]
 use racc6502::bus::MemoryMonitor;
@@ -70,7 +69,7 @@ impl<H: HostInterface> SystemBus<H> {
 
     pub fn tick_cycle(&mut self, hardware: &mut H) {
         if hardware.pop_discard_request() {
-            self.discard_command_buffer();
+            crate::hle::HleManager::intercept_command(self);
         }
 
         if self.mechanics.tick(hardware, &mut self.via2) {
@@ -102,26 +101,6 @@ impl<H: HostInterface> SystemBus<H> {
 
         // Set the IEC drive lines
         hardware.iec_drive(drive_iec);
-    }
-
-    /// Silently discards a command so the 1541 DOS parser ignores it.
-    pub fn discard_command_buffer(&mut self) {
-        // 1. Clear the command waiting flag (found at $0255 in 1541-II ROM)
-        self.ram[0x0255] = 0;
-
-        // 2. Clear the start of the command buffer
-        self.ram[0x0200] = 0;
-
-        // 3. Reset the internal error state to "00, OK" (erword at $026C)
-        self.ram[0x026C] = 0;
-
-        // 4. Force the error message buffer to "00, OK"
-        let ok_msg = b"00, OK, 00, 00";
-        for (i, &b) in ok_msg.iter().enumerate() {
-            if 0x02D5 + i < self.ram.len() {
-                self.ram[0x02D5 + i] = b;
-            }
-        }
     }
 
     #[inline]
@@ -167,7 +146,7 @@ impl<H: HostInterface> Bus for SystemBus<H> {
             0x8000..=0xBFFF => self.rom[(addr - 0x8000) as usize],
             0xC000..=0xFFFF => self.rom[(addr - 0xC000) as usize],
             _ => {
-                log::warn!("Unmapped Read: Addr=${:04X}", addr);
+                emu_warn!("Unmapped Read: Addr=${:04X}", addr);
                 0
             }
         }
@@ -186,7 +165,7 @@ impl<H: HostInterface> Bus for SystemBus<H> {
             0x1C00..=0x1FFF => self.via2.write(addr, value),
             0x8000..=0xFFFF => {}
             _ => {
-                log::warn!("Unmapped Write: Addr=${:04X}, Val=${:02X}", addr, value);
+                emu_warn!("Unmapped Write: Addr=${:04X}, Val=${:02X}", addr, value);
             }
         }
     }
