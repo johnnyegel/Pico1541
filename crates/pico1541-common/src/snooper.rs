@@ -165,8 +165,8 @@ impl IecSnooper {
         }
 
         // E -> Yes, then this is a data byte we should capture
-        log::debug!("[Snooper] Received data byte: 0x{:02X} while listening", byte);
-        dispatch(DriveEvent::IecSnoopByteReceived(byte));
+        log::debug!("[Snooper] Received data byte: 0x{:02X} while listening, EOI={}", byte, eoi);
+        dispatch(DriveEvent::IecSnoopByteReceived(byte, eoi));
 
         if eoi {
             log::trace!("[Snooper] EOI detected on byte: 0x{:02X}. Stop listening.", byte);
@@ -179,6 +179,7 @@ pub struct IecSnoopByteHandler {
     buffer: [u8; 32],
     pos: usize,
     command_detected: bool,
+    eoi_received: bool,
 }
 
 impl IecSnoopByteHandler {
@@ -187,6 +188,7 @@ impl IecSnoopByteHandler {
             buffer: [0; 32],
             pos: 0,
             command_detected: false,
+            eoi_received: false,
         }
     }
 
@@ -195,8 +197,9 @@ impl IecSnoopByteHandler {
             DriveEvent::IecSnoopSecondaryAddress(_) => {
                 self.pos = 0;
                 self.command_detected = false;
+                self.eoi_received = false;
             }
-            DriveEvent::IecSnoopByteReceived(byte) => {
+            DriveEvent::IecSnoopByteReceived(byte, eoi) => {
                 if self.pos < self.buffer.len() {
                     self.buffer[self.pos] = byte;
                     self.pos += 1;
@@ -207,9 +210,20 @@ impl IecSnoopByteHandler {
                         }
                     }
                 }
+                if eoi {
+                    self.eoi_received = true;
+                }
             }
             _ => {}
         }
+    }
+
+    pub fn is_hijacked(&self) -> bool {
+        self.command_detected
+    }
+
+    pub fn should_discard(&self) -> bool {
+        self.command_detected && self.eoi_received
     }
 
     pub fn get_command(&self) -> Option<&str> {

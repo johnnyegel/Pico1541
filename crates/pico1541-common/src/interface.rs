@@ -132,7 +132,7 @@ pub enum DriveEvent {
     },
     /// A byte received from the host on the IEC bus, with the secondary address at which it was received.
     IecSnoopSecondaryAddress(u8), // secondary address byte
-    IecSnoopByteReceived(u8), // byte
+    IecSnoopByteReceived(u8, bool), // byte, is_eoi
 }
 
 /// Open-drain IEC serial bus interface (Emulator side).

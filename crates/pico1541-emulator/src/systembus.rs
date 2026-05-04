@@ -80,11 +80,7 @@ impl<H: HostInterface> SystemBus<H> {
         }
 
         // Reslove the Host IecBusState
-        let host_iec = if hardware.is_hijacked() {
-            IecBusState::default()
-        } else {
-            hardware.iec_host()
-        };
+        let host_iec = hardware.iec_host();
 
         // Update VIA1's input register B with host IEC state
         self.via1.in_b = self.host_iec_to_via(&host_iec);
@@ -97,11 +93,12 @@ impl<H: HostInterface> SystemBus<H> {
         self.via2.tick_cycle();
 
         // Resolve the IEC lines from the drive. ATN is set to ATNA (PB4) 
-        let drive_iec = if hardware.is_hijacked() {
-            IecBusState::default()
-        } else {
-            self.drive_iec_state(&host_iec)
-        };
+        let mut drive_iec = self.drive_iec_state(&host_iec);
+
+        if hardware.is_hijacked() {
+            // "Yank the cable" from the host's perspective: the drive stops pulling any lines.
+            drive_iec = IecBusState::default();
+        }
 
         // Set the IEC drive lines
         hardware.iec_drive(drive_iec);
@@ -109,13 +106,22 @@ impl<H: HostInterface> SystemBus<H> {
 
     /// Silently discards a command so the 1541 DOS parser ignores it.
     pub fn discard_command_buffer(&mut self) {
-        // 1. Set command length to 0.
-        // The DOS parser will see an empty string and skip execution.
-        self.ram[0x02A7] = 0;
+        // 1. Clear the command waiting flag (found at $0255 in 1541-II ROM)
+        self.ram[0x0255] = 0;
 
-        // 2. Force the internal error state to "00, OK" just to be safe.
-        // This ensures the green LED stays solid and no error is returned.
+        // 2. Clear the start of the command buffer
+        self.ram[0x0200] = 0;
+
+        // 3. Reset the internal error state to "00, OK" (erword at $026C)
         self.ram[0x026C] = 0;
+
+        // 4. Force the error message buffer to "00, OK"
+        let ok_msg = b"00, OK, 00, 00";
+        for (i, &b) in ok_msg.iter().enumerate() {
+            if 0x02D5 + i < self.ram.len() {
+                self.ram[0x02D5 + i] = b;
+            }
+        }
     }
 
     #[inline]

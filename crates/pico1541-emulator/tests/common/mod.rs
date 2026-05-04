@@ -4,7 +4,7 @@ use pico1541_common::formats::{AnyDiskImage, DiskImage, G64Image, TrackLayout};
 use pico1541_common::iec_com::IecComHostBus;
 use pico1541_common::interface::IecBusState;
 use pico1541_common::storage::DummySource;
-use pico1541_common::snooper::{IecSnooper};
+use pico1541_common::snooper::{IecSnooper, IecSnoopByteHandler};
 use pico1541_common::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus};
 use pico1541_emulator::Emulator;
 use pollster::block_on;
@@ -115,7 +115,9 @@ pub struct TestBridge {
     pub host_iec: IecBusState,
     pub drive_iec: IecBusState,
     pub snooper: IecSnooper,
+    pub snoop_handler: IecSnoopByteHandler,
     pub device_id: u8,
+    pub discard_request: bool,
     pub sync_hook: Option<Box<dyn FnMut(&mut ActiveTrack)>>,
 }
 
@@ -127,7 +129,9 @@ impl TestBridge {
             host_iec: IecBusState::default(),
             drive_iec: IecBusState::default(),
             snooper: IecSnooper::new(device_id),
+            snoop_handler: IecSnoopByteHandler::new(),
             device_id,
+            discard_request: false,
             sync_hook: None,
         }
     }
@@ -137,6 +141,8 @@ impl TestBridge {
         self.host_iec = IecBusState::default();
         self.drive_iec = IecBusState::default();
         self.snooper = IecSnooper::new(self.device_id);
+        self.snoop_handler = IecSnoopByteHandler::new();
+        self.discard_request = false;
         self.sync_hook = None;
     }
 
@@ -191,12 +197,15 @@ impl HostInterface for TestBridge {
         self.events.push(event);
     }
     fn is_hijacked(&self) -> bool {
-        // TODO
-        false
+        self.snoop_handler.is_hijacked()
     }
     fn pop_discard_request(&mut self) -> bool {
-        // TODO
-        false
+        if self.discard_request {
+            self.discard_request = false;
+            true
+        } else {
+            false
+        }
     }
     fn update_iec_addresses(&mut self, listen: u8, _talk: u8) {
         self.snooper.set_listen_addr(listen);
@@ -209,14 +218,23 @@ impl HostInterface for TestBridge {
             self.sync_hook = Some(hook);
         }
 
-        // Update the snooper
-        // FIXME! We need to send both the host and drive states. In real harrdware, the Host
-        //        states will be the host and drive states combined. But the drive state will be
-        //        separate, which means we can use this to detect drive DATA assertions.
-        self.snooper.update(self.host_iec.combine(&self.drive_iec), |event| {
-            self.events.push(event);
+        // Update the snooper using combined physical state (Host + Drive)
+        let combined_state = self.host_iec.combine(&self.drive_iec);
+        let mut events = Vec::new();
+        self.snooper.update(combined_state, |event| {
+            events.push(event);
         });
 
+        for event in events {
+            self.events.push(event);
+            self.snoop_handler.handle(event);
+            
+            // Once "CD:" is detected, we "yank the cable" by hijacking the bus
+            // and requesting a discard of the command buffer.
+            if self.snoop_handler.is_hijacked() && !self.discard_request {
+                self.discard_request = true;
+            }
+        }
     }
 }
 

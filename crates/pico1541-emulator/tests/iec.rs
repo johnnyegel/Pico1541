@@ -2,7 +2,6 @@ mod common;
 
 use log::info;
 use pico1541_common::iec_com::{IecCommander, IecError};
-use pico1541_common::interface::DriveEvent;
 
 use pollster::block_on;
 
@@ -132,45 +131,38 @@ fn test_hijack_command_snoop() {
     //bridge.snooper = pico1541_common::snooper::IecSnooper::new(bridge.device_id, bridge.config);
 
     // 1. Send "CD:GAMES" exactly like a DIR command
+    // We expect a Timeout because we "yank the cable" (hijack) as soon as "CD:" is detected.
     block_on(async {
         let mut bus = common::IecTestBridge {
             drive: &mut drive,
             bridge: &mut bridge,
         };
-        IecCommander::new(&mut bus)
+        let res = IecCommander::new(&mut bus)
             .open(8, 0xFF)
             .send(b"CD:GAMES")
             .execute()
-            .await?;
-
-        bus.bridge.ticks(bus.drive, 100);
-
-        // Terminate
-        IecCommander::new(&mut bus)
-            .open(8, 0x1F) // This is just to end any pending transaction if needed
-            .execute()
-            .await?;
-
+            .await;
+        
+        // We actually expect an error here because of the hijack
+        assert!(res.is_err(), "Expected error/timeout due to hijack");
+        
         Ok::<(), IecError>(())
     })
     .unwrap();
 
     // (Rest of the test remains same...)
-    let cmd_event = bridge
-        .events
-        .iter()
-        .find(|e| matches!(e, DriveEvent::IecSnoopSecondaryAddress { .. }));
+    let mut handler = pico1541_common::snooper::IecSnoopByteHandler::new();
+    for event in &bridge.events {
+        handler.handle(*event);
+    }
 
-    assert!(cmd_event.is_some(), "Should have received IecCommand event");
-
-    /* FIXME! This needs to be handled
-    if let Some(DriveEvent::IecCommand { data, len }) = cmd_event {
-        let cmd_str = core::str::from_utf8(&data[..*len as usize]).unwrap();
-        info!("Snooped command: {}", cmd_str);
-        assert_eq!(cmd_str, "CD:GAMES");
-    } */
+    assert!(handler.is_hijacked(), "Command should be hijacked");
+    assert_eq!(handler.get_command(), Some("CD:"));
 
     // 3. Check drive status - should be 00, OK because the snooper hijacks CD:
+    // We must ensure the hijack is CLEARED before checking status
+    bridge.reset(); // Reset the bridge to clear hijacked state for status check
+    
     let mut status_vec = Vec::new();
     block_on(async {
         let mut bus = common::IecTestBridge {
