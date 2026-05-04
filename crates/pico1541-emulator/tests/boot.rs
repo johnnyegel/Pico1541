@@ -146,7 +146,16 @@ fn test_drive_boot_behavior() {
 
 #[test]
 fn test_dir_no_disk() {
-    let (mut drive, mut bridge) = common::setup_drive(true, 8, None);
+    fn debug_hook(cpu: &racc6502::cpu::CPU, _data: *mut core::ffi::c_void) {
+        if cpu.pc >= 0x8000 {
+            // Log periodically or on interesting addresses
+            if cpu.pc == 0xEA00 || cpu.pc == 0xEBFF || cpu.pc == 0xF2B0 {
+                 log::info!("PC:${:04X} A:${:02X} X:${:02X} Y:${:02X} P:${:02X}", cpu.pc, cpu.a, cpu.x, cpu.y, cpu.p);
+            }
+        }
+    }
+
+    let (mut drive, mut bridge) = common::setup_drive(true, 8, Some(debug_hook));
 
     // Ensure NO DISK is present
     bridge.track.disk_inserted = false;
@@ -157,11 +166,14 @@ fn test_dir_no_disk() {
             drive: &mut drive,
             bridge: &mut bridge,
         };
+        log::info!("Sending '$' command...");
         IecCommander::new(&mut bus)
             .open(8, 0xF0)
             .send(b"$")
             .execute()
             .await?;
+
+        log::info!("Command sent, waiting for status...");
 
         let mut status_vec = Vec::new();
         IecCommander::new(&mut bus)
@@ -171,6 +183,7 @@ fn test_dir_no_disk() {
         let status = String::from_utf8_lossy(&status_vec)
             .trim_end_matches('\r')
             .to_string();
+        log::info!("Status received: {}", status);
 
         assert!(
             !status.starts_with("00,"),
@@ -285,7 +298,7 @@ fn test_dir_listing_virtual() {
 fn test_dir_listing_g64() {
     let (mut drive, mut bridge) = common::setup_drive(true, 8, None);
 
-    bridge.mount_g64("tests/data/test2.g64");
+    bridge.mount_g64("tests/data/test.g64");
 
     log::info!(
         "Starting G64 directory LOAD... Current half-track: {}",
@@ -303,7 +316,6 @@ fn test_dir_listing_g64() {
                 .send(b"$")
                 .execute()
                 .await?;
-            bus.bridge.ticks(bus.drive, 5_000_000);
         }
 
         let mut status_vec = Vec::new();

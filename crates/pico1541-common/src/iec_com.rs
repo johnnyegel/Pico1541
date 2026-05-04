@@ -25,7 +25,7 @@ pub const DELAY_RELEASE_US: u32 = 20;
 pub const DELAY_DATA_US: u32 = 60;
 pub const DELAY_EOI_TIMEOUT_US: u32 = 200;
 pub const DELAY_ACK_TIMEOUT_US: u32 = 1_000;
-pub const DELAY_HOLD_TIMEOUT_US: u32 = 5_000_000;
+pub const DELAY_HOLD_TIMEOUT_US: u32 = 10_000_000;
 
 /// Hardware abstraction for the IEC bus.
 ///
@@ -195,18 +195,19 @@ impl<'a, B: IecComHostBus> IecTransaction<'a, B> {
         log::trace!("Turnaround: Releasing bus to allow drive to send data...");
         self.bus.trace_state("recv:turnaround");
 
-        // Turnaround: If we were the talker, we must release the clock line, and wait CLK asserted.
-        // NOTE! If the turnaround was already done, the host clock is already released and drive
-        //       CLK is already asserted, so this will just pass through.
+        // Turnaround: If we were the talker, we must release the clock line, assert data line.
         self.bus.set_clk(false);
         self.bus.set_data(true);
 
         // Wait for the drive to assert CLK, indicating it's ready to send bits
+        // NOTE! If the turnaround was already done, the host clock is already released and drive
+        //       CLK is already asserted, so this will just pass through.
         self.bus.wait_for_clk(true, DELAY_ACK_TIMEOUT_US).await?;
         self.bus.trace_state("recv:ready");
 
         // Drive signaled ready to send, so we signal ready to receive.
         self.bus.wait_for_clk(false, DELAY_ACK_TIMEOUT_US).await?;
+        self.bus.delay_us(DELAY_DATA_US).await;
         self.bus.set_data(false);
 
         self.bus.trace_state("recv:receiving");
@@ -248,7 +249,7 @@ impl<'a, B: IecComHostBus> IecTransaction<'a, B> {
         *byte = val;
         *eoi = is_eoi;
 
-        log::debug!("Received byte 0x{:02X} from drive. EOI: {}", val, is_eoi);
+        log::debug!("Received byte 0x{:02X} [{}] from drive. EOI: {}", val, Self::safe_byte_to_char(val), is_eoi);
 
         // Acknowledge byte (Listener pulls DATA low)
         self.bus.set_data(true);
@@ -261,6 +262,7 @@ impl<'a, B: IecComHostBus> IecTransaction<'a, B> {
 
         Ok(self)
     }
+
 
     /// Called to complete the communication. Releases all lines, and waits a short delay to ensure the drive has time to settle.
     pub async fn done(self) -> Result<(), IecError> {
@@ -278,6 +280,16 @@ impl<'a, B: IecComHostBus> IecTransaction<'a, B> {
 
         Ok(())
     }
+
+    // Helper to convert byte to a safe ASCII char for logging
+    fn safe_byte_to_char(byte: u8) -> char {
+        if byte.is_ascii_graphic() || byte == b' ' {
+            byte as char
+        } else {
+            '.'
+        }
+    }
+
 }
 
 /// High-level IEC bus commander providing a more ergonomic API.
