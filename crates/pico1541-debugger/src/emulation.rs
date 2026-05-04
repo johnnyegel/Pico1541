@@ -269,6 +269,7 @@ pub async fn emulation_loop(
                             format!("Motor: {}", if on { "ON" } else { "OFF" })
                         ))?;
                     }
+                    _ => {}
                 }
             }
 

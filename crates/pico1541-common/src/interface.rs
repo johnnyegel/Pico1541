@@ -133,6 +133,11 @@ pub enum DriveEvent {
     /// A byte received from the host on the IEC bus, with the secondary address at which it was received.
     IecSnoopSecondaryAddress(u8), // secondary address byte
     IecSnoopByteReceived(u8, bool), // byte, is_eoi
+    /// A complete decoded IEC command (e.g. "CD:...")
+    IecCommand {
+        data: [u8; 32],
+        len: u8,
+    },
 }
 
 /// Open-drain IEC serial bus interface (Emulator side).

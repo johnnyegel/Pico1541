@@ -107,8 +107,7 @@ fn test_drive_boot_behavior() {
                         total_cycles
                     );
                 }
-                DriveEvent::IecSnoopSecondaryAddress { .. } => {}
-                DriveEvent::IecSnoopByteReceived { .. } => {}
+                _ => {}
             }
         }
 

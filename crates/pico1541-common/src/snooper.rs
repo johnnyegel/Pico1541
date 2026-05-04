@@ -1,5 +1,28 @@
 
 use crate::interface::{IecBusState, DriveEvent};
+use portable_atomic::{AtomicBool, AtomicU8};
+
+pub struct SnooperConfig {
+    pub device_id: u8,
+    pub listen_addr: AtomicU8,
+    pub talk_addr: AtomicU8,
+    pub hijack_active: AtomicBool,
+    pub should_drive_data: AtomicBool,
+    pub discard_request: AtomicBool,
+}
+
+impl SnooperConfig {
+    pub const fn new(device_id: u8) -> Self {
+        Self {
+            device_id,
+            listen_addr: AtomicU8::new(0x20 | (device_id & 0xF)),
+            talk_addr: AtomicU8::new(0x40 | (device_id & 0xF)),
+            hijack_active: AtomicBool::new(false),
+            should_drive_data: AtomicBool::new(false),
+            discard_request: AtomicBool::new(false),
+        }
+    }
+}
 
 /// Struct to represent edges on the IEC bus
 struct IecBusEdge {

@@ -44,6 +44,10 @@ pub struct CPU {
 
     /// Instruction Register (current opcode).
     pub ir: u8,
+    /// The current addressing micro-ops.
+    pub active_addr: &'static [AddrMicroOp],
+    /// The current execution micro-ops.
+    pub active_exec: &'static [ExecMicroOp],
     /// The index of the current micro-operation within the active slice.
     pub step_index: usize,
     /// The current high-level state of the execution cycle.
@@ -83,6 +87,8 @@ impl CPU {
             s: 0xFD,
             p: 0x24,
             ir: 0,
+            active_addr: &[],
+            active_exec: &[],
             step_index: 0,
             state: CycleState::Reset,
             effective_addr: 0,
@@ -213,6 +219,10 @@ impl CPU {
         self.ir = bus.read(self.pc, ctx);
         self.pc = self.pc.wrapping_add(1);
 
+        let instruction = &INSTRUCTION_TABLE[self.ir as usize];
+        self.active_addr = instruction.addr;
+        self.active_exec = instruction.exec;
+
         #[cfg(feature = "debug")]
         if let Some(hook) = self.debug_hook {
             hook(self, self.debug_user_data);
@@ -222,9 +232,9 @@ impl CPU {
         self.step_index = 0;
     }
 
+    #[inline(always)]
     fn tick_addr<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) {
-        let instruction = &INSTRUCTION_TABLE[self.ir as usize];
-        let current_slice = instruction.addr;
+        let current_slice = self.active_addr;
 
         if current_slice.is_empty() {
             self.state = CycleState::Operation;
@@ -254,7 +264,7 @@ impl CPU {
         }
 
         if self.step_index >= current_slice.len() {
-            if instruction.exec.is_empty() {
+            if self.active_exec.is_empty() {
                 self.finish_instruction();
             } else {
                 self.state = CycleState::Operation;
@@ -263,9 +273,9 @@ impl CPU {
         }
     }
 
+    #[inline(always)]
     fn tick_operation<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) {
-        let instruction = &INSTRUCTION_TABLE[self.ir as usize];
-        let current_slice = instruction.exec;
+        let current_slice = self.active_exec;
 
         if current_slice.is_empty() {
             bus.read(self.pc, ctx);
@@ -290,6 +300,7 @@ impl CPU {
         self.state = CycleState::FetchOpcode;
     }
 
+    #[inline(always)]
     fn execute_addr_uop<B: Bus>(&mut self, uop: AddrMicroOp, bus: &mut B, ctx: &mut B::Ctx) {
         match uop {
             AddrMicroOp::FetchAddrLo => {
@@ -371,6 +382,7 @@ impl CPU {
         }
     }
 
+    #[inline(always)]
     fn execute_exec_uop<B: Bus>(&mut self, uop: ExecMicroOp, bus: &mut B, ctx: &mut B::Ctx) {
         match uop {
             ExecMicroOp::ReadEffAndLDA => {
@@ -829,15 +841,13 @@ impl CPU {
         val
     }
 
+    #[inline(always)]
     fn update_zn(&mut self, val: u8) {
-        self.set_flag(1, val == 0);
-        self.set_flag(7, (val & 0x80) != 0);
+        self.p = (self.p & !0x82) | (if val == 0 { 0x02 } else { 0 }) | (val & 0x80);
     }
 
+    #[inline(always)]
     fn set_flag(&mut self, bit: u8, val: bool) {
-        if bit == 4 || bit == 5 {
-            return;
-        }
         if val {
             self.p |= 1 << bit;
         } else {

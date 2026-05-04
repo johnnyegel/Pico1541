@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 embedded-io-async = "0.7.0"
 log = "0.4.29"
+portable-atomic = "1.13"
 
 [dev-dependencies]
 pollster = "0.3.0"

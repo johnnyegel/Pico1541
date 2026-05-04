@@ -13,12 +13,11 @@ use embassy_rp::peripherals::I2C0;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
 
-use pico1541_common::interface::{ActiveTrack, DriveEvent};
-use pico1541_common::snooper::{IecBusByte, SnooperConfig};
-use pico1541_emulator::interceptor::BusInterceptor;
-use pico1541_emulator::interface::{HostInterface, IecBus};
+use pico1541_common::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus, IecBusState};
+use pico1541_common::snooper::{IecSnooper, IecSnoopByteHandler, SnooperConfig};
 use pico1541_emulator::Emulator;
 use pico1541_manager::tasks::{DisplayTask, DriveActivityTask, SnooperTask};
+use panic_probe as _;
 
 use crate::driver::display::{DisplayWrapper, OledDisplay};
 use crate::driver::indicator::ActivityIndicator;
@@ -26,6 +25,7 @@ use crate::driver::leds::ActivityLed;
 use crate::driver::speaker::PiezoSpeaker;
 
 use static_cell::StaticCell;
+use portable_atomic::Ordering;
 
 bind_interrupts!(struct Irqs {
     I2C0_IRQ => InterruptHandler<I2C0>;
@@ -58,7 +58,7 @@ async fn main(spawner: Spawner) {
     let activity_task = DriveActivityTask::new(indicator);
 
     // 3. Snooper Task
-    let snooper_task = SnooperTask::new(8, &SNOOPER_CONFIG);
+    let snooper_task = SnooperTask::new(8);
 
     // 4. Storage (SD Card - SPI)
     // TODO: Initialize SD card driver
@@ -111,7 +111,8 @@ struct IecPins {
 struct HardwareBridge {
     track: &'static mut ActiveTrack,
     pins: IecPins,
-    interceptor: BusInterceptor,
+    snooper: IecSnooper,
+    handler: IecSnoopByteHandler,
     config: &'static SnooperConfig,
 }
 
@@ -120,7 +121,8 @@ impl HardwareBridge {
         Self {
             track,
             pins,
-            interceptor: BusInterceptor::new(),
+            snooper: IecSnooper::new(config.device_id),
+            handler: IecSnoopByteHandler::new(),
             config,
         }
     }
@@ -128,30 +130,26 @@ impl HardwareBridge {
 
 impl IecBus for HardwareBridge {
     #[inline(always)]
-    fn read_data(&self) -> bool {
-        self.pins.data_rx.is_high()
+    fn iec_host(&self) -> IecBusState {
+        let mut state = IecBusState::default();
+        state.set_data(self.pins.data_rx.is_high());
+        state.set_clk(self.pins.clk_rx.is_high());
+        state.set_atn(self.pins.atn_rx.is_high());
+        state
     }
+
     #[inline(always)]
-    fn read_clk(&self) -> bool {
-        self.pins.clk_rx.is_high()
-    }
-    #[inline(always)]
-    fn read_atn(&self) -> bool {
-        self.pins.atn_rx.is_high()
-    }
-    #[inline(always)]
-    fn drive_data(&mut self, assert: bool) {
+    fn iec_drive(&mut self, state: IecBusState) {
         // Combinatorial: Drive's output OR Snooper's hijack output
-        let should_drive = self.config.should_drive_data.load(core::sync::atomic::Ordering::Relaxed);
-        if assert || should_drive {
+        let should_drive_data = self.config.should_drive_data.load(Ordering::Relaxed);
+        
+        if state.get_data() || should_drive_data {
             self.pins.data_tx.set_high();
         } else {
             self.pins.data_tx.set_low();
         }
-    }
-    #[inline(always)]
-    fn drive_clk(&mut self, assert: bool) {
-        if assert {
+
+        if state.get_clk() {
             self.pins.clk_tx.set_high();
         } else {
             self.pins.clk_tx.set_low();
@@ -171,27 +169,43 @@ impl HostInterface for HardwareBridge {
     }
 
     fn is_hijacked(&self) -> bool {
-        self.config.hijack_active.load(core::sync::atomic::Ordering::Relaxed)
+        self.config.hijack_active.load(Ordering::Relaxed)
     }
 
     fn pop_discard_request(&mut self) -> bool {
-        let req = self.config.discard_request.swap(false, core::sync::atomic::Ordering::Relaxed);
+        let req = self.config.discard_request.swap(false, Ordering::Relaxed);
         req
     }
 
     fn update_iec_addresses(&mut self, listen: u8, talk: u8) {
-        self.config.listen_addr.store(listen, core::sync::atomic::Ordering::Relaxed);
-        self.config.talk_addr.store(talk, core::sync::atomic::Ordering::Relaxed);
+        self.config.listen_addr.store(listen, Ordering::Relaxed);
+        self.config.talk_addr.store(talk, Ordering::Relaxed);
     }
 
-    fn on_bus_cycle(&mut self, pb: u8) {
-        let state = IecBusByte::from_pb(pb);
-        if let Some((state, delta)) = self.interceptor.tick(state) {
-            self.send_event(DriveEvent::IecBusTransition(state, delta));
-        }
+    fn sync(&mut self) {
+        let host = self.iec_host();
+        let config = self.config;
+        
+        // Pass a mutable reference to self.handler via the closure's environment
+        let handler = &mut self.handler;
+        
+        self.snooper.update(host, |event| {
+            // Forward events to Core 1
+            if let Err(_) = pico1541_manager::EVENT_CHANNEL.try_send(event) { }
+            
+            // Handle for hijacking on Core 0
+            handler.handle(event);
+            if handler.is_hijacked() {
+                config.hijack_active.store(true, Ordering::Relaxed);
+                config.should_drive_data.store(true, Ordering::Relaxed);
+            }
+            if handler.should_discard() {
+                config.discard_request.store(true, Ordering::Relaxed);
+                config.hijack_active.store(false, Ordering::Relaxed);
+                config.should_drive_data.store(false, Ordering::Relaxed);
+            }
+        });
     }
-
-    fn sync(&mut self) {}
 }
 
 // --- Embassy Task Wrappers ---

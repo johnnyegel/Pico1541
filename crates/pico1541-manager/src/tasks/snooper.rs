@@ -1,14 +1,14 @@
 use crate::{DriveEvent, ACTIVITY_CHANNEL, EVENT_CHANNEL};
-use pico1541_common::snooper::{IecBusByte, IecSnooper, SnooperConfig};
+use pico1541_common::snooper::IecSnoopByteHandler;
 
 pub struct SnooperTask {
-    snooper: IecSnooper,
+    handler: IecSnoopByteHandler,
 }
 
 impl SnooperTask {
-    pub fn new(device_id: u8, config: &'static SnooperConfig) -> Self {
+    pub fn new(_device_id: u8) -> Self {
         Self {
-            snooper: IecSnooper::new(device_id, config),
+            handler: IecSnoopByteHandler::new(),
         }
     }
 
@@ -16,18 +16,21 @@ impl SnooperTask {
         loop {
             let event = EVENT_CHANNEL.receive().await;
             match event {
-                DriveEvent::IecBusTransition(state, delta) => {
-                    if let Some(cmd_data) = self.snooper.tick(state, delta) {
-                        let len = self.snooper.buffer_len() as u8;
-                        ACTIVITY_CHANNEL
-                            .send(DriveEvent::IecCommand {
-                                data: cmd_data,
-                                len,
-                            })
-                            .await;
+                DriveEvent::IecSnoopSecondaryAddress(_) | DriveEvent::IecSnoopByteReceived(_, _) => {
+                    self.handler.handle(event);
+                    
+                    // If this was an EOI, check if we have a complete command to process
+                    if let DriveEvent::IecSnoopByteReceived(_, true) = event {
+                        if let Some(cmd) = self.handler.get_command() {
+                            let mut data = [0u8; 32];
+                            let len = cmd.len().min(32) as u8;
+                            data[..len as usize].copy_from_slice(&cmd.as_bytes()[..len as usize]);
+                            
+                            ACTIVITY_CHANNEL.send(DriveEvent::IecCommand { data, len }).await;
+                        }
                     }
                 }
-                // Forward other events to the activity task
+                // Forward other events (LED, Motor, etc.) to the activity task
                 other => {
                     ACTIVITY_CHANNEL.send(other).await;
                 }

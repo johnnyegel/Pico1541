@@ -24,6 +24,7 @@ panic-probe = { version = "0.3.1", features = ["print-defmt"] }
 defmt = "0.3.10"
 defmt-rtt = "0.4.1"
 static_cell = "2.1.0"
+portable-atomic = { version = "1.5", features = ["critical-section"] }
 critical-section = "1.2.0"
 rp-pac = "7.0.0"
 rp2040-boot2 = "0.3.0"
