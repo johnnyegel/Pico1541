@@ -116,13 +116,6 @@ impl IecSnooper {
                 }
             }
             SnooperState::Ready => {
-                // :? Is data asserted without clock?
-                if edge.is_data(false) {
-                    // -> Yes, We have an EOI
-                    self.is_eoi = true;
-                    log::trace!("[Snooper] Detected DATA released in Ready. EOI detected.");
-                    return;
-                }
                 // :? Is the Clock asserted?
                 if edge.is_clk(true) {
                     // -> Yes, the we are in the receiving state
@@ -130,8 +123,14 @@ impl IecSnooper {
                     self.bit_count = 0;
                     self.current_byte = 0;
                     self.is_atn = iec_state.get_atn();
+                    self.is_eoi = false;
                     log::trace!("[Snooper] Detected CLK asserted, ATN={}, entering RECEIVING state", self.is_atn);
-
+                }
+                // :? Is data released without clock change?
+                else if edge.is_data(false) {
+                    // -> Yes, We have an EOI
+                    self.is_eoi = true;
+                    log::trace!("[Snooper] Detected DATA released in Ready. EOI detected.");
                 }
             }
             SnooperState::Receiving => {
@@ -188,7 +187,7 @@ impl IecSnooper {
         }
 
         // E -> Yes, then this is a data byte we should capture
-        log::debug!("[Snooper] Received data byte: 0x{:02X} while listening, EOI={}", byte, eoi);
+        log::trace!("[Snooper] Received data byte: 0x{:02X} while listening, EOI={}", byte, eoi);
         dispatch(DriveEvent::IecSnoopByteReceived(byte, eoi));
 
         if eoi {
@@ -255,4 +254,3 @@ impl IecSnoopByteHandler {
         }
     }
 }
-

@@ -51,6 +51,14 @@ impl IecBusState {
     pub const CLK_BIT: u8 = 0b010;
     pub const ATN_BIT: u8 = 0b100;
 
+    pub fn from_bits(atn: bool, clk: bool, data: bool) -> Self {
+        let mut bits = 0;
+        if atn { bits |= Self::ATN_BIT; }
+        if clk { bits |= Self::CLK_BIT; }
+        if data { bits |= Self::DATA_BIT; }
+        Self(bits)
+    }
+
     /// Returns true if DATA line is asserted
     pub fn get_data(&self) -> bool {
         self.0 & 0b001 != 0

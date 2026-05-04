@@ -1235,6 +1235,7 @@ name = "pico1541-common"
 version = "0.1.0"
 dependencies = [
  "embedded-io-async 0.7.0",
+ "env_logger",
  "log",
  "pollster",
  "portable-atomic",

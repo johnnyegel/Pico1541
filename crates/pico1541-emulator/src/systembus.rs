@@ -68,6 +68,8 @@ impl<H: HostInterface> SystemBus<H> {
     }
 
     pub fn tick_cycle(&mut self, hardware: &mut H) {
+        hardware.sync();
+
         if hardware.pop_discard_request() {
             crate::hle::HleManager::intercept_command(self);
         }
