@@ -325,7 +325,7 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
         if half_track % 2 != 0 {
             return Ok(TrackLayout::Empty);
         }
-        let track = half_track / 2;
+        let track = half_track / 2 + 1;
         if track < 1 || track > 40 {
             return Err(Error::InvalidTrack);
         }

@@ -1,4 +1,4 @@
-use pico1541_common::formats::{DiskImage, G64Image};
+use pico1541_common::formats::{DiskImage, D64Image, G64Image, TrackLayout};
 use pico1541_common::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus, IecBusState};
 use pico1541_common::storage::MemoryStorage;
 use pico1541_emulator::drivemechanics::DriveMechanics;
@@ -54,7 +54,7 @@ fn test_g64_track_reading_low_level() {
     let mut track_data = [0u8; pico1541_common::interface::MAX_TRACK_BYTES];
     let layout = block_on(g64.read_track(0, &mut track_data)).expect("Failed to read track 0");
 
-    if let pico1541_common::formats::TrackLayout::Accurate(bits) = layout {
+    if let TrackLayout::Accurate(bits) = layout {
         hw.track.gcr_data.copy_from_slice(&track_data);
         hw.track.bit_length = bits;
         hw.track.is_formatted = true;
@@ -109,11 +109,7 @@ fn test_g64_track_reading_low_level() {
     println!("SYNC assertions: {}", sync_assertions);
     println!("Byte Ready pulses: {}", byte_ready_pulses);
 
-    println!("First 100 bytes: {:02X?}", &captured_bytes[..100]);
-
     // Track 0 has 21 sectors * 2 blocks = 42 sync marks.
-    // Since we run for slightly more than one revolution, we might see 42 or 43 assertions
-    // depending on where the wrap occurs.
     assert!(sync_assertions >= 42, "Should have at least 42 sync marks for 21 sectors (got {})", sync_assertions);
 
     // Verify framing
@@ -121,29 +117,63 @@ fn test_g64_track_reading_low_level() {
     let mut data_blocks = 0;
     
     for &b in &captured_bytes {
-        // GCR encoded $08 (Header) starts with nibble 0x08 -> GCR 0x09.
-        // n[0] = 0x09, n[1] = 0x0A (nibble 0x00).
-        // dst[0] = (0x09 << 3) | (0x0A >> 2) = 0x48 | 0x02 = 0x4A.
-        // Wait, GCR_TABLE[0] is 0x0A, GCR_TABLE[8] is 0x09.
-        // $08 = high nibble 0, low nibble 8? No, byte $08 is high 0, low 8.
-        // n[0] = GCR_TABLE[0] = 0x0A, n[1] = GCR_TABLE[8] = 0x09.
-        // dst[0] = (0x0A << 3) | (0x09 >> 2) = 0x50 | 0x02 = 0x52.
-        
-        // $07 = high nibble 0, low nibble 7.
-        // n[0] = GCR_TABLE[0] = 0x0A, n[1] = GCR_TABLE[7] = 0x17.
-        // dst[0] = (0x0A << 3) | (0x17 >> 2) = 0x50 | 0x05 = 0x55.
-        // However, $07 is usually the first byte of a DATA block.
-        // Let's check the hex dump: we see 52 and 55 (among many 55s).
-        // Wait, the hex dump has 52 94 A5 29 4A... which is a very common pattern.
-        // 52 is likely the Header start.
-        
         if b == 0x52 { headers += 1; }
-        // For data, it's often 0x55 (GCR for $07) but that's also used for padding.
-        // Let's look for $4A which appeared in the dump too.
         if b == 0x4A { data_blocks += 1; }
     }
 
-    // We expect at least 21 of each since we covered more than one revolution.
     assert!(headers >= 21, "Should find at least 21 headers (got {})", headers);
     assert!(data_blocks >= 21, "Should find at least 21 data blocks (got {})", data_blocks);
+}
+
+#[test]
+fn test_compare_d64_g64_track_18() {
+    // 1. Load G64 Track 18
+    let g64_data = fs::read("tests/data/test.g64").expect("Failed to read G64");
+    let mut storage_g64 = MemoryStorage::new(&g64_data);
+    let mut g64 = G64Image::new(&mut storage_g64);
+
+    let mut g64_track_data = [0u8; pico1541_common::interface::MAX_TRACK_BYTES];
+    // In this specific test.g64, Track 18 is at HT 68.
+    let g64_layout = block_on(g64.read_track(68, &mut g64_track_data)).expect("Failed to read G64 track 18");
+
+    // 2. Load D64 Track 18 (HT 34)
+    let d64_data = fs::read("tests/data/test.d64").expect("Failed to read D64");
+    let mut storage_d64 = MemoryStorage::new(&d64_data);
+    let mut d64 = D64Image::new(&mut storage_d64);
+    
+    let mut d64_track_data = [0u8; pico1541_common::interface::MAX_TRACK_BYTES];
+    let d64_layout = block_on(d64.read_track(34, &mut d64_track_data)).expect("Failed to read D64 track 18");
+
+    println!("G64 Track 18 layout: {:?}", g64_layout);
+    println!("D64 Track 18 layout: {:?}", d64_layout);
+
+    // 3. Analysis
+    let g64_headers = count_headers(&g64_track_data);
+    let d64_headers = count_headers(&d64_track_data);
+
+    println!("G64 Headers: {}", g64_headers);
+    println!("D64 Headers: {}", d64_headers);
+
+    assert_eq!(d64_headers, 19, "D64 Track 18 should have 19 sectors");
+    assert!(g64_headers >= 19, "G64 Track 18 should have at least 19 sectors");
+}
+
+fn count_headers(data: &[u8]) -> usize {
+    let mut count = 0;
+    let mut i = 0;
+    while i < data.len() - 5 {
+        if data[i] == 0xFF && data[i+1] == 0xFF {
+            while i < data.len() && data[i] == 0xFF {
+                i += 1;
+            }
+            if i < data.len() {
+                if data[i] == 0x52 {
+                    count += 1;
+                }
+            }
+        } else {
+            i += 1;
+        }
+    }
+    count
 }
