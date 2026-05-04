@@ -123,7 +123,6 @@ impl IecSnooper {
                     self.bit_count = 0;
                     self.current_byte = 0;
                     self.is_atn = iec_state.get_atn();
-                    self.is_eoi = false;
                     log::trace!("[Snooper] Detected CLK asserted, ATN={}, entering RECEIVING state", self.is_atn);
                 }
                 // :? Is data released without clock change?
