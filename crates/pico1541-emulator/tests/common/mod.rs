@@ -213,7 +213,9 @@ impl HostInterface for TestBridge {
         // FIXME! We need to send both the host and drive states. In real harrdware, the Host
         //        states will be the host and drive states combined. But the drive state will be
         //        separate, which means we can use this to detect drive DATA assertions.
-        self.snooper.update(self.host_iec.combine(&self.drive_iec))
+        self.snooper.update(self.host_iec.combine(&self.drive_iec), |event| {
+            self.events.push(event);
+        });
 
     }
 }

@@ -1,5 +1,5 @@
 
-use crate::interface::IecBusState;
+use crate::interface::{IecBusState, DriveEvent};
 
 /// Struct to represent edges on the IEC bus
 struct IecBusEdge {
@@ -64,7 +64,7 @@ impl IecSnooper {
         self.listen_addr = listen_address;
     }
 
-    pub fn update(&mut self, iec_state: IecBusState) {
+    pub fn update<F: FnMut(DriveEvent)>(&mut self, iec_state: IecBusState, mut dispatch: F) {
         // Detect edge changed and return early if no change
         let delta = iec_state.delta(&self.last_iec);
         if delta.0 == 0 {
@@ -123,7 +123,7 @@ impl IecSnooper {
                     // :? Full byte received?
                     if self.bit_count == 8 {
                         // -> Yes, process the byte
-                        self.dispatch_byte(self.current_byte, self.is_atn, self.is_eoi);
+                        self.dispatch_byte(self.current_byte, self.is_atn, self.is_eoi, &mut dispatch);
                         self.state = SnooperState::Ack;
                     }
                 }
@@ -139,21 +139,21 @@ impl IecSnooper {
         }
     }
 
-    fn dispatch_byte(&mut self, byte: u8, atn: bool, eoi: bool) {
-        log::debug!("[Snooper] Decoded byte: 0x{:02X}, ATN: {}, EOI: {}", byte, atn, eoi);
+    fn dispatch_byte<F: FnMut(DriveEvent)>(&mut self, byte: u8, atn: bool, eoi: bool, dispatch: &mut F) {
+        log::trace!("[Snooper] Decoded byte: 0x{:02X}, ATN: {}, EOI: {}", byte, atn, eoi);
 
         // :? Is this an ATN byte?
         if atn {
             // -> Yes :? Are we already listening?
             if self.is_listening {
                 self.secondary_address = byte;
-                log::debug!("[Snooper] Received secondary address byte: 0x{:02X}", byte);
-
+                log::trace!("[Snooper] Received secondary address byte: 0x{:02X}", byte);
+                dispatch(DriveEvent::IecSnoopSecondaryAddress(byte));
             }
             else if byte == self.listen_addr {
                 // -> No, but this byte is the listen address, so we should start listening
                 self.is_listening = true;
-                log::debug!("[Snooper] Device addressed with byte: 0x{:02X}, entering listening mode", byte);
+                log::trace!("[Snooper] Device addressed with byte: 0x{:02X}, entering listening mode", byte);
             }
             return;
         }
@@ -165,12 +165,59 @@ impl IecSnooper {
         }
 
         // E -> Yes, then this is a data byte we should capture
-        log::info!("[Snooper] Received data byte: 0x{:02X} while listening", byte);
-        // TODO! Dispatch this byte to the receiver channel
+        log::debug!("[Snooper] Received data byte: 0x{:02X} while listening", byte);
+        dispatch(DriveEvent::IecSnoopByteReceived(byte));
 
         if eoi {
-            log::info!("[Snooper] EOI detected on byte: 0x{:02X}. Stop listening.", byte);
+            log::trace!("[Snooper] EOI detected on byte: 0x{:02X}. Stop listening.", byte);
             self.is_listening = false;
         }
     }
 }
+
+pub struct IecSnoopByteHandler {
+    buffer: [u8; 32],
+    pos: usize,
+    command_detected: bool,
+}
+
+impl IecSnoopByteHandler {
+    pub fn new() -> Self {
+        Self {
+            buffer: [0; 32],
+            pos: 0,
+            command_detected: false,
+        }
+    }
+
+    pub fn handle(&mut self, event: DriveEvent) {
+        match event {
+            DriveEvent::IecSnoopSecondaryAddress(_) => {
+                self.pos = 0;
+                self.command_detected = false;
+            }
+            DriveEvent::IecSnoopByteReceived(byte) => {
+                if self.pos < self.buffer.len() {
+                    self.buffer[self.pos] = byte;
+                    self.pos += 1;
+
+                    if self.pos == 3 {
+                        if &self.buffer[0..3] == b"CD:" {
+                            self.command_detected = true;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub fn get_command(&self) -> Option<&str> {
+        if self.command_detected {
+            core::str::from_utf8(&self.buffer[..self.pos]).ok()
+        } else {
+            None
+        }
+    }
+}
+

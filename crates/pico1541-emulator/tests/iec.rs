@@ -2,7 +2,7 @@ mod common;
 
 use log::info;
 use pico1541_common::iec_com::{IecCommander, IecError};
-use pico1541_common::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus};
+use pico1541_common::interface::DriveEvent;
 
 use pollster::block_on;
 
@@ -86,7 +86,7 @@ fn test_iec_read_status() {
 fn test_command_snoop() {
     let (mut drive, mut bridge) = common::setup_drive(true, 8, None);
 
-    // 1. Send "CD:GAMES" exactly like a DIR command
+    // 1. Send "CD:GAMED" exactly like a DIR command
     block_on(async {
         let mut bus = common::IecTestBridge {
             drive: &mut drive,
@@ -94,7 +94,7 @@ fn test_command_snoop() {
         };
         IecCommander::new(&mut bus)
             .open(8, 0xFF)
-            .send(b"CD:GAMES")
+            .send(b"CD:GAMED")
             .execute()
             .await?;
 
@@ -103,6 +103,14 @@ fn test_command_snoop() {
         Ok::<(), IecError>(())
     })
     .unwrap();
+
+    let mut handler = pico1541_common::snooper::IecSnoopByteHandler::new();
+    for event in bridge.events {
+        handler.handle(event);
+    }
+
+    log::info!("Snooped command: {:?}", handler.get_command());
+    assert_eq!(handler.get_command(), Some("CD:GAMED"));
 }
 
 #[test]
