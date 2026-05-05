@@ -18,7 +18,6 @@ impl HostInterface for MockHardware {
 
 #[test]
 fn test_hle_intercept_command_patches_ram() {
-    let mut hw = MockHardware { track: ActiveTrack::new() };
     let mut bus = SystemBus::<MockHardware>::new([0; 0x4000], 8);
     
     // 1. Simulate a "SYNTAX ERROR" state in RAM

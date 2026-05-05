@@ -1,36 +1,26 @@
 use core::fmt;
 use core::fmt::Display;
 
+use crate::formats::{TrackLayout};
+
 pub const MAX_TRACK_BYTES: usize = 10_000;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ActiveTrack {
     pub half_track: u8,
-    pub bit_length: u32,
-    pub current_byte_idx: u32,
-    pub is_dirty: bool,
-    pub disk_inserted: bool,
-    /// True if the track contains real GCR data. False for unformatted/missing
-    /// half-tracks (e.g. D64 images have no half-track data): the head reads
-    /// back a continuous stream of 0x55 bytes with no SYNC.
-    pub is_formatted: bool,
-    /// If true, the drive emulates real physical rotation.
-    /// If false, the drive can "warp" to the next sector immediately.
-    pub is_accurate: bool,
+    pub layout: TrackLayout,
+
     pub gcr_data: [u8; MAX_TRACK_BYTES],
+    pub is_dirty: bool,
 }
 
 impl ActiveTrack {
     pub fn new() -> Self {
         Self {
             half_track: 0,
-            bit_length: 0,
-            current_byte_idx: 0,
-            is_dirty: false,
-            disk_inserted: false,
-            is_formatted: true,
-            is_accurate: true,
+            layout: TrackLayout::Void,
             gcr_data: [0; MAX_TRACK_BYTES],
+            is_dirty: false,
         }
     }
 }
@@ -138,14 +128,17 @@ pub enum DriveEvent {
     HeadStepped {
         new_half_track: u8,
     },
-    /// A byte received from the host on the IEC bus, with the secondary address at which it was received.
+    /// The Snooper has detected a secondary address byte addressed to this device
     IecSnoopSecondaryAddress(u8), // secondary address byte
+    /// Byte received to this device, on the previous secondary address
     IecSnoopByteReceived(u8, bool), // byte, is_eoi
-    /// A complete decoded IEC command (e.g. "CD:...")
+    // A complete decoded IEC command (e.g. "CD:...")
+    
+    /* FIXME: Not in use?
     IecCommand {
         data: [u8; 32],
         len: u8,
-    },
+    }, */
 }
 
 /// Open-drain IEC serial bus interface (Emulator side).

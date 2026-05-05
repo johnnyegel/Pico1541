@@ -10,15 +10,21 @@ pub enum Error {
     TrackTooLarge,
 }
 
+// Represents the layout of a track read from a disk image
+// Accurate: A standard GCR track that emulates real physical rotation. Track length in bytes is provided.
+// Warp: A GCR track that allows "warping", aka, the byte position does not require accurate updates
+// Empty: An unformatted track (delivers 0x55 noise, no SYNC).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TrackLayout {
     /// A standard GCR track that emulates real physical rotation.
-    Accurate(u32),
+    Accurate(usize),
     /// A GCR track that allows "warping" (skipping gaps) for performance.
-    Warp(u32),
-    /// An unformatted track (delivers 0x55 noise, no SYNC).
-    Empty,
+    Warp(usize),
+    /// There is no readable nor writable track (either no disk, or track is not formatted)
+    /// This track layout can NOT be written to!
+    Void,
 }
+
 
 #[allow(async_fn_in_trait)]
 pub trait DiskImage {
@@ -166,7 +172,7 @@ impl<D: DirectorySource> VirtualDirImage<D> {
 impl<D: DirectorySource> DiskImage for VirtualDirImage<D> {
     async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<TrackLayout, Error> {
         if half_track != 34 && half_track != 35 {
-            return Ok(TrackLayout::Empty);
+            return Ok(TrackLayout::Void);
         }
 
         let track = 18;
@@ -323,7 +329,7 @@ impl<S: Read + Seek> D64Image<S> {
 impl<S: Read + Seek> DiskImage for D64Image<S> {
     async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<TrackLayout, Error> {
         if half_track % 2 != 0 {
-            return Ok(TrackLayout::Empty);
+            return Ok(TrackLayout::Void);
         }
         let track = half_track / 2 + 1;
         if track < 1 || track > 40 {
@@ -405,13 +411,13 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
                 }
             }
         }
-        let (_, nominal_bits) = match track {
-            1..=17 => (7692, 61536),
-            18..=24 => (7142, 57136),
-            25..=30 => (6666, 53328),
-            _ => (6250, 50000),
+        let track_bytes = match track {
+            1..=17 => 7692,
+            18..=24 => 7142,
+            25..=30 => 6666,
+            _ => 6250,
         };
-        Ok(TrackLayout::Accurate(nominal_bits))
+        Ok(TrackLayout::Accurate(track_bytes))
     }
 }
 
@@ -428,7 +434,7 @@ impl<S: Read + Seek> DiskImage for G64Image<S> {
         // G64 images typically only have full tracks (even half_track indices).
         // Track 1.0 = HT 0, Track 18.0 = HT 34.
         if half_track % 2 != 0 || half_track > 83 {
-            return Ok(TrackLayout::Empty);
+            return Ok(TrackLayout::Void);
         }
         let g64_idx = half_track / 2; // (0..42)
         let track_ptr_offset = 12 + (g64_idx as u64) * 4;
@@ -443,7 +449,7 @@ impl<S: Read + Seek> DiskImage for G64Image<S> {
             .map_err(|_| Error::Io)?;
         let track_offset = u32::from_le_bytes(ptr_bytes);
         if track_offset == 0 {
-            return Ok(TrackLayout::Empty);
+            return Ok(TrackLayout::Void);
         }
         self.storage
             .seek(SeekFrom::Start(track_offset as u64))
@@ -462,7 +468,7 @@ impl<S: Read + Seek> DiskImage for G64Image<S> {
             .read_exact(&mut dest[0..track_len])
             .await
             .map_err(|_| Error::Io)?;
-        Ok(TrackLayout::Accurate((track_len as u32) * 8))
+        Ok(TrackLayout::Accurate(track_len))
     }
 }
 

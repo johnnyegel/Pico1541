@@ -74,7 +74,6 @@ pub struct DiskRunner<S: embedded_io_async::Read + embedded_io_async::Seek + Sen
 
 impl<S: embedded_io_async::Read + embedded_io_async::Seek + Send + 'static> DiskRunner<S> {
     pub fn sync(&mut self, track: &mut ActiveTrack) {
-        track.disk_inserted = true;
         if track.half_track != self.last_half_track {
             log::info!(
                 "[DiskRunner] Loading track data for half-track {}",
@@ -82,27 +81,14 @@ impl<S: embedded_io_async::Read + embedded_io_async::Seek + Send + 'static> Disk
             );
             let mut gcr_data = [0u8; pico1541_common::interface::MAX_TRACK_BYTES];
             let layout = block_on(self.image.read_track(track.half_track, &mut gcr_data))
-                .unwrap_or(TrackLayout::Empty);
+                .unwrap_or(TrackLayout::Void);
 
-            match layout {
-                TrackLayout::Accurate(bits) => {
-                    track.gcr_data.copy_from_slice(&gcr_data);
-                    track.bit_length = bits;
-                    track.is_formatted = true;
-                    track.is_accurate = true;
-                }
-                TrackLayout::Warp(bits) => {
-                    track.gcr_data.copy_from_slice(&gcr_data);
-                    track.bit_length = bits;
-                    track.is_formatted = true;
-                    track.is_accurate = false;
-                }
-                TrackLayout::Empty => {
-                    track.bit_length = 0;
-                    track.is_formatted = false;
-                    track.is_accurate = false;
-                }
+            track.layout = layout;
+
+            if layout != TrackLayout::Void {
+                track.gcr_data.copy_from_slice(&gcr_data);
             }
+
             self.last_half_track = track.half_track;
         }
     }

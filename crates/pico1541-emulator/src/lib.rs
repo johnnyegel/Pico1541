@@ -78,7 +78,7 @@ impl<H: HostInterface> Emulator<H> {
     }
 
     pub fn half_track(&self) -> u8 {
-        self.bus.mechanics.current_half_track
+        self.bus.mechanics.halftrack_head_pos
     }
 
     /// Direct access to the internal memory bus (e.g. for inspection or peek/poke).

@@ -1,4 +1,4 @@
-use pico1541_common::formats::{DiskImage, D64Image, G64Image, TrackLayout};
+use pico1541_common::formats::{D64Image, DiskImage, G64Image, TrackLayout};
 use pico1541_common::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus, IecBusState};
 use pico1541_common::storage::MemoryStorage;
 use pico1541_emulator::drivemechanics::DriveMechanics;
@@ -16,6 +16,7 @@ impl MockHardware {
             track: ActiveTrack::new(),
         }
     }
+
 }
 
 impl IecBus for MockHardware {
@@ -45,6 +46,7 @@ fn test_g64_track_reading_low_level() {
     let mut hw = MockHardware::new();
     let mut via2 = Via6522::new();
     let mut mechanics = DriveMechanics::new();
+    mechanics.halftrack_head_pos = 0; // Set track 0
 
     // 1. Load G64 Track 0 (HT 0)
     let g64_data = fs::read("tests/data/test.g64").expect("Failed to read G64");
@@ -54,27 +56,21 @@ fn test_g64_track_reading_low_level() {
     let mut track_data = [0u8; pico1541_common::interface::MAX_TRACK_BYTES];
     let layout = block_on(g64.read_track(0, &mut track_data)).expect("Failed to read track 0");
 
-    if let TrackLayout::Accurate(bits) = layout {
-        hw.track.gcr_data.copy_from_slice(&track_data);
-        hw.track.bit_length = bits;
-        hw.track.is_formatted = true;
-        hw.track.is_accurate = true;
-        hw.track.disk_inserted = true;
-    } else {
-        panic!("Expected accurate track layout for G64 (Layout was {:?})", layout);
-    }
+    log::trace!("Track layout from G64: {:?}", layout);
+
+    hw.track.gcr_data.copy_from_slice(&track_data);
+    hw.track.layout = layout;
+
+    match layout {
+        TrackLayout::Accurate(size) => log::debug!("Track size: {}", size),
+        _ => panic!("Expected accurate track layout for G64 (Layout was {:?})", layout)
+    };
 
     // 2. Setup Drive State
     // Motor ON (PB2), Bitrate Zone 3 (PB5=1, PB6=1) for Track 0
-    // PB4 (R/W) = 1 (Read)
     via2.orb = 0b01110100; // Bit 6=1, Bit 5=1, Bit 4=1, Bit 2=1
+    via2.pcr = 0b1110_1110; // Enable Read mode and SO
     via2.ddrb = 0xFF;
-
-    // 3. Spin up motor
-    for _ in 0..250_001 {
-        mechanics.tick(&mut hw, &mut via2);
-    }
-    assert!(mechanics.motor_spun_up);
 
     // 4. Capture one revolution
     let mut captured_bytes = Vec::new();

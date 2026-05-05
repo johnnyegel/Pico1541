@@ -1,5 +1,6 @@
 mod common;
 
+use pico1541_common::formats::TrackLayout;
 use pico1541_common::iec_com::{IecCommander, IecError};
 use pico1541_common::interface::DriveEvent;
 use pollster::block_on;
@@ -158,7 +159,7 @@ fn test_dir_no_disk() {
     let (mut drive, mut bridge) = common::setup_drive(true, 8, Some(debug_hook));
 
     // Ensure NO DISK is present
-    bridge.track.disk_inserted = false;
+    bridge.track.layout = TrackLayout::Void;
     bridge.events.clear();
 
     block_on(async {
@@ -247,16 +248,9 @@ fn test_dir_listing_virtual() {
     gcr_data.fill(0x55);
 
     let layout = block_on(vdir.read_track(34, &mut gcr_data)).expect("read_track failed");
-    let bit_len = match layout {
-        pico1541_common::formats::TrackLayout::Warp(b) => b,
-        pico1541_common::formats::TrackLayout::Accurate(b) => b,
-        _ => panic!("Expected data layout"),
-    };
 
     bridge.track.gcr_data.copy_from_slice(&gcr_data);
-    bridge.track.bit_length = bit_len;
-    bridge.track.disk_inserted = true;
-    bridge.track.is_accurate = false; // Use warp mode
+    bridge.track.layout = layout;
 
     log::info!(
         "Starting directory LOAD... Current half-track: {}",

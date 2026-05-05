@@ -1,298 +1,277 @@
 use crate::via6522::Via6522;
-use pico1541_common::interface::{DriveEvent, HostInterface};
+use pico1541_common::{ActiveTrack, formats::TrackLayout, interface::{DriveEvent, HostInterface}};
 
 // 35 tracks + 7 tracks more that can be physically reached (MAX 42)
 const MAX_HALF_TRACK: u8 = (35 + 7) * 2;
+const INITIAL_HALF_TRACK: u8 = 34; // Start at track 18 (half-track 34)
+const DEFAULT_BYTE_LENGTH: usize = 7142;
 
-// Numer of CPU cycles until data is streamed to the VIA
-const MOTOR_SPIN_UP_CYCLES: u32 = 250_000;
-const MOTOR_SPIN_DOWN_THRESHOLD: u32 = 100_000;
+const BYTE_SYNC: u8 = 0xFF;
+const BYTE_VOID: u8 = 0x55;
+
+// Speed Zones based on the VIA2 outputs
+const BYTE_SPEED_ZONE_0: u32 = 32;
+const BYTE_SPEED_ZONE_1: u32 = 30;
+const BYTE_SPEED_ZONE_2: u32 = 28;
+const BYTE_SPEED_ZONE_3: u32 = 26;
+
+// Masks for individual hardware state bits on VIA2 Port B
+const MASK_MOTOR: u8 = 0x04;
+const MASK_LED: u8 = 0x08;
+const MASK_STEP: u8 = 0x03;
 
 // Mask used to determine the last state of stepper motor phases (PB0, PB1), MOTOR bit and ACT LED and (PB2, PB3)
-const STATE_MASK: u8 = 0x0F;
-const MOTOR_BIT: u8 = 0x04;
-const LED_BIT: u8 = 0x08;
-const STEP_BITS: u8 = 0x03;
+const MASK_HARDWARE_STATE: u8 = 0x0F;
+const MASK_SPEED_ZONE: u8 = 0x60;
+const MASK_SYNC: u8 = 0x80;
+const SHIFT_SPEED_ZONE: u8 = 5;
 
+/// DriveMechanics struct to represent the state of the drive's mechanical components, such as the head position and motor state.
 pub struct DriveMechanics {
-    pub current_half_track: u8,
-    pub motor_spun_up: bool,
-    pub motor_delay_counter: u32,
-    pub current_byte_idx: usize,
-    pub sub_cycle_counter: u32,
+    /// The Track the head is positioned over (not necessarily the track being read)
+    pub halftrack_head_pos: u8,
+    
+    /// The active track we are reading and writing from
+    track_byte_size: usize,
+    track_byte_pos_ix: usize,
+    
+    byte_cycle_counter: u32,
+    byte_cycle_limit: u32,
 
     last_state: u8,
-    initialized: bool,
 }
 
 impl DriveMechanics {
     pub fn new() -> Self {
         Self {
-            current_half_track: 34, // Start at track 18
-
-            motor_spun_up: false,
-            motor_delay_counter: 0,
-            current_byte_idx: 0,
-            sub_cycle_counter: 0,
+            halftrack_head_pos: INITIAL_HALF_TRACK,
+            track_byte_size: DEFAULT_BYTE_LENGTH,
+            track_byte_pos_ix: 0,
+            byte_cycle_counter: 0,
+            byte_cycle_limit: BYTE_SPEED_ZONE_0,
             last_state: 0,
-            initialized: false,
         }
     }
 
     pub fn reset(&mut self) {
-        self.current_half_track = 34; // Start at track 18
-
-        self.motor_spun_up = false;
-
-        self.motor_delay_counter = 0;
-        self.current_byte_idx = 0;
-        self.sub_cycle_counter = 0;
+        self.halftrack_head_pos = INITIAL_HALF_TRACK;
+        self.track_byte_size = DEFAULT_BYTE_LENGTH;
+        self.track_byte_pos_ix = 0;
+        self.byte_cycle_counter = 0;
+        self.byte_cycle_limit = BYTE_SPEED_ZONE_0;
         self.last_state = 0;
-        self.initialized = false;
+        
     }
 
     /// Progresses the drive mechanics by one CPU cycle.
-    /// Returns true if a new byte is ready to be processed by the CPU.
+    /// Returns true if a new byte is ready to be processed by the CPU, and the SO pin should be set
     pub fn tick<H: HostInterface>(&mut self, hardware: &mut H, via2: &mut Via6522) -> bool {
-        // On the very first tick, seed only the bitrate bits so that a zone change
-        // on tick-1 is not falsely reported. Motor/LED/step bits are left at 0 so
-        // the first ROM write that turns the motor on is detected as a real transition.
-        if !self.initialized {
-            self.last_state = via2.orb & 0x60;
-            self.initialized = true;
+        // :: Update the drive state and issue events if there are changes
+        let is_motor_on = self.update_state(via2, hardware);
+
+        // :? Is the motor not yet spun up?
+        if !is_motor_on {
+            // -> No, then reset the sub-cycle counter so that we start counting fresh towards the next spin-up.
+            via2.in_b &= !MASK_SYNC; // Clear sync pulse
+            return false;
         }
 
-        // Update the drive state and issue events if there are changes
-        let changed = self.update_state(via2, hardware);
-
-        // Reset sub_cycle_counter if bitrate changes (PB5, PB6)
-        // We do this BEFORE incrementing it below.
-        if (changed & 0x60) != 0 {
-            self.sub_cycle_counter = 0;
+        // :: Update the sub-cycle counter
+        self.byte_cycle_counter += 1;
+        // :? Did the byte-cycle counter wrap?
+        if self.byte_cycle_counter < self.byte_cycle_limit {
+            // -> No, then simply return and wait for the next tick
+            return false;
         }
+        
+        // E-> Yes, then reset the sub-cycle counter and proceed to deliver the next byte
+        self.byte_cycle_counter = 0;
 
-        // Bitrate zone (VIA2 PB5/PB6) determines cycles-per-byte for all paths below.
-        let bitrate_bits = (via2.orb >> 5) & 0x03;
-        let cycles_per_byte: u32 = match bitrate_bits {
-            0 => 32, // Zone 0: Tracks 31-35
-            1 => 30, // Zone 1: Tracks 25-30
-            2 => 28, // Zone 2: Tracks 18-24
-            3 => 26, // Zone 3: Tracks 1-17
-            _ => 32,
-        };
+        // :: Get the active track from hardware, and determine the layout based on the current half-track position.
+        let track = hardware.get_active_track();
+        
+        // :: Determine the current operation mode
+        // Determine read/from cb2 output:
+        let cb2_output = via2.get_cb2_out();
 
-        // Fetch shared metadata — drop the reference before calling any other hardware methods
-        let (bit_length, is_formatted) = {
-            let track = hardware.get_active_track();
-            track.half_track = self.current_half_track;
+        // Read mode: Some(true), Write mode: Some(false), None: bith false
+        let is_read_mode = cb2_output == Some(true);
+        let is_write_mode = cb2_output == Some(false);
+        
+        // Determine SO enabled mode
+        let is_so_enabled = via2.get_ca2_out().unwrap_or(false);
 
-            if !self.motor_spun_up {
-                self.sub_cycle_counter = 0;
-                self.current_byte_idx = 0;
-                via2.in_b &= !0x80;
+        // :? Is Read mode enabled?
+        if is_read_mode {
+            // :: Update the track byte position and read the gcr byte
+            let read_gcr_byte = self.resolve_track_byte_position(&track)
+                    .map(|ix| track.gcr_data[ix])
+                    .unwrap_or(BYTE_VOID);
+            
+            // Set the byte to VIA2 PA
+            via2.in_a = read_gcr_byte;
+
+            // :? Is this a sync byte?
+            if read_gcr_byte == BYTE_SYNC {
+                // -> Yes, then flag sync to via2
+                via2.in_b |= MASK_SYNC;
+
+                // We can return as there should be no byte ready pulse
                 return false;
             }
-            if !track.disk_inserted {
-                // Motor running but no disk: deliver 0x55 noise bytes at the normal bitrate.
-                // Without this, the ROM sits in a tight `CLV / BVC` loop waiting for the SO
-                // pin (byte-ready), which is never asserted when no bytes arrive, hanging the
-                // CPU forever instead of reaching the ROM's own sync-search timeout.
-                via2.in_b &= !0x80; // SYNC never asserted — no disk
-                self.sub_cycle_counter += 1;
-                if self.sub_cycle_counter >= cycles_per_byte {
-                    self.sub_cycle_counter = 0;
-                    via2.in_a = 0x55;
-                    via2.set_ca1(true);
-                    via2.set_ca1(false);
-                    return true; // pulse SO
-                }
-                return false;
+            else {
+                via2.in_b &= !MASK_SYNC;
             }
-            (track.bit_length, track.is_formatted)
-        };
 
-        self.sub_cycle_counter += 1;
-        if self.sub_cycle_counter >= cycles_per_byte {
-            self.sub_cycle_counter = 0;
 
-            let track_bytes = (bit_length / 8) as usize;
-            if track_bytes > 0 {
-                self.current_byte_idx = (self.current_byte_idx + 1) % track_bytes;
+        }
+        // :? Is write mode enabled?
+        else if is_write_mode {
+            // TODO! We currently do not do write!
 
-                // VIA2 Port B bit 4: R/W mode — active-LOW (0 = write, 1 = read).
-                // On real 1541-II hardware the R/W signal to the head amplifier
-                // is active-LOW: the ROM clears PB4 to enable write, and leaves
-                // it HIGH (=1) for normal read operation.
-                let write_mode = (via2.orb & 0x10) == 0;
-
-                let track = hardware.get_active_track();
-                track.current_byte_idx = self.current_byte_idx as u32;
-
-                if write_mode {
-                    track.gcr_data[self.current_byte_idx] = via2.ora;
-                    track.is_dirty = true;
-                    return true;
-                } else {
-                    let mut gcr_byte = if !is_formatted {
-                        // Unformatted/missing track — head reads back flux noise,
-                        // represented as 0x55. No SYNC is ever produced.
-                        0x55
-                    } else {
-                        track.gcr_data[self.current_byte_idx]
-                    };
-
-                    // Warp logic: if not accurate (e.g. virtual dir), skip gaps immediately
-                    if !track.is_accurate && gcr_byte == 0x55 {
-                        let start_idx = self.current_byte_idx;
-                        let mut found = false;
-                        for _ in 0..track_bytes {
-                            self.current_byte_idx = (self.current_byte_idx + 1) % track_bytes;
-                            if track.gcr_data[self.current_byte_idx] == 0xFF {
-                                found = true;
-                                break;
-                            }
-                        }
-                        if found {
-                            gcr_byte = 0xFF;
-                            track.current_byte_idx = self.current_byte_idx as u32;
-                        } else {
-                            self.current_byte_idx = start_idx; // Restore if no SYNC found
-                        }
-                    }
-
-                    // Port A is always updated with the byte from the head,
-                    // even if it is SYNC (which is then ignored by the CPU
-                    // because SYNC is asserted).
-                    via2.in_a = gcr_byte;
-
-                    if is_formatted && gcr_byte == 0xFF {
-                        via2.in_b |= 0x80; // SYNC found (1)
-                                           // SYNC bytes do not trigger a BYTE READY (SO/CA1) pulse.
-                        return false;
-                    } else {
-                        via2.in_b &= !0x80; // SYNC released (0)
-
-                        // Pulse CA1 to latch port A: on real hardware BYTE_READY fires
-                        // both the 6502 SO pin and VIA2 CA1.
-                        via2.set_ca1(true);
-                        via2.set_ca1(false);
-
-                        if self.current_byte_idx % 1000 == 0 {
-                            emu_info!(
-                                "GCR Byte: ${:02X} at idx {}",
-                                gcr_byte,
-                                self.current_byte_idx
-                            );
-                        }
-                        return true; // SO pulse for data bytes
-                    }
-                }
-            }
         }
 
-        false
+        // Finally handle byte ready signalling and return the SO state
+        via2.ca1_irq();
+
+        // The SO signals if the CPU SO pin should be triggered
+        return is_so_enabled;
     }
 
     #[cfg(feature = "debug")]
     pub fn led_on(&self, via2: &Via6522) -> bool {
-        (via2.orb & LED_BIT) != 0
+        (via2.orb & MASK_LED) != 0
     }
 
     #[cfg(feature = "debug")]
     pub fn motor_on(&self, via2: &Via6522) -> bool {
-        (via2.orb & MOTOR_BIT) != 0
+        (via2.orb & MASK_MOTOR) != 0
+    }
+
+    // ========== Internal helper functions ==================================================
+
+    /// Updates the track current position, and returns the position in the buffer to read from or write to
+    #[inline(always)]
+    fn resolve_track_byte_position(&mut self, track: &ActiveTrack) -> Option<usize> {
+        // :? Does the track match the head position?
+        let layout = if self.halftrack_head_pos == track.half_track {
+            // -> Yes, get track layout from track
+            track.layout
+        } else {
+            // -> No, then we use void as the layout
+            TrackLayout::Void
+        };
+
+        let has_position = match layout {
+            TrackLayout::Accurate(size) => {
+                if size != self.track_byte_size {
+                    // Scale the byte position to the new track size
+                    self.track_byte_pos_ix = (self.track_byte_pos_ix * size) 
+                            / self.track_byte_size;
+
+                }
+                self.track_byte_size = size;
+                true
+            },
+            TrackLayout::Warp(size) => {
+                self.track_byte_size = size;
+                true
+            },
+            TrackLayout::Void => false
+        };
+
+        // :: Capture the current byte position
+        let current_byte_pos = self.track_byte_pos_ix;
+
+        self.track_byte_pos_ix += 1;
+        if self.track_byte_pos_ix > self.track_byte_size {
+            self.track_byte_pos_ix -= self.track_byte_size;
+        }
+
+        // Return the position, if the track has one
+        if has_position {
+            Some(current_byte_pos)
+        }
+        else {
+            None
+        }
     }
 
     /// Updates the drive mechanics state, and issues events accordingly.
-    /// Returns the bits that changed on the relevant Port B mask.
+    /// Returns the current motor state
     #[inline(always)]
-    fn update_state(&mut self, via2: &mut Via6522, hardware: &mut impl HostInterface) -> u8 {
+    fn update_state(&mut self, via2: &mut Via6522, hardware: &mut impl HostInterface) -> bool {
         // Catch state changes on the relevant bits of VIA2 Port B (including bitrate)
-        let full_relevant_state = via2.orb & (STATE_MASK | 0x60);
-        let curent_state = full_relevant_state & STATE_MASK;
-
-        // Handle motor spin un/down logic immediately, as this is needed
-        // for each cycle and only depends on the current motor bit state.
-        let motor_state = (curent_state & MOTOR_BIT) != 0;
-        if motor_state && self.motor_delay_counter < MOTOR_SPIN_UP_CYCLES {
-            self.motor_delay_counter += 1;
-            if self.motor_delay_counter == MOTOR_SPIN_UP_CYCLES {
-                emu_info!("Motor SPUN UP");
-                self.motor_spun_up = true;
-            }
-        } else if !motor_state && self.motor_delay_counter > 0 {
-            self.motor_delay_counter -= 1;
-            if self.motor_spun_up
-                && self.motor_delay_counter == MOTOR_SPIN_UP_CYCLES - MOTOR_SPIN_DOWN_THRESHOLD
-            {
-                emu_info!("Motor SPUN DOWN");
-                self.motor_spun_up = false;
-            }
-        }
+        let full_state = via2.orb & (MASK_HARDWARE_STATE | MASK_SPEED_ZONE);
 
         // Has anything changed?
-        let changed = self.last_state ^ full_relevant_state;
+        let last_state = self.last_state;
+        let changed = self.last_state ^ full_state;
         if changed == 0 {
-            return 0; // No relevant state changes
+            // No changes to handle, just return the motor state
+            return full_state & MASK_MOTOR != 0;
         }
 
-        // Keep the phase bits of the last state, and update the last state
-        let last_phase = self.last_state & STEP_BITS;
-        self.last_state = full_relevant_state;
+        self.last_state = full_state;
 
-        // Handle LED changes (VIA2 Port B bit 3)
-        if (changed & LED_BIT) != 0 {
-            let led_state = (curent_state & LED_BIT) != 0;
-            emu_info!("LED changed: {}", led_state);
-            hardware.send_event(DriveEvent::LedChanged(led_state));
+        // Check speed zone changes first
+        let is_speed_zone_changed = changed & MASK_SPEED_ZONE != 0;
+        if is_speed_zone_changed {
+            // Update the speed zone
+            let new_speed_zone = (full_state & MASK_SPEED_ZONE) >> SHIFT_SPEED_ZONE;
+            self.byte_cycle_limit = match new_speed_zone {
+                0 => BYTE_SPEED_ZONE_0,
+                1 => BYTE_SPEED_ZONE_1,
+                2 => BYTE_SPEED_ZONE_2,
+                3 => BYTE_SPEED_ZONE_3,
+                _ => BYTE_SPEED_ZONE_0,
+            };
+            emu_debug!("Speed zone changed: {}, cycles/byte: {}", new_speed_zone, self.byte_cycle_limit);
         }
 
-        // Handle Motor changes (VIA2 Port B bit 2)
-        if (changed & MOTOR_BIT) != 0 {
-            // NOTE! We send the event immediately!
-            emu_info!("Motor changed: {}", motor_state);
-            hardware.send_event(DriveEvent::MotorChanged(motor_state));
-        }
-
-        // Handle Stepper changes (VIA2 Port B bits 0 and 1)
-        if (changed & STEP_BITS) != 0 {
-            let new_phase = curent_state & STEP_BITS;
+        // Check head stepping
+        let is_track_step = changed & MASK_STEP != 0;
+        if is_track_step {
+            // Get the previous and current phase
+            let last_phase = last_state & MASK_STEP;
+            let new_phase = full_state & MASK_STEP;
 
             // Determine the step direction based on the phase change
             // Anta at 'old_bits' er forrige verdi (0-3) og 'new_bits' er nåværende (0-3)
-            let delta = (new_phase.wrapping_sub(last_phase) & 3) as i8;
-            let step = match delta {
-                1 => 1,  // Step in
-                3 => -1, // Step out
-                _ => 0,  // No change or invalid transition (e.g., 0->2 or 1->3)
+            let delta = (new_phase.wrapping_sub(last_phase) & MASK_STEP) as i8;
+            self.halftrack_head_pos = match delta {
+                1 => self.halftrack_head_pos.saturating_add(1).clamp(1, MAX_HALF_TRACK),  // Step in
+                3 => self.halftrack_head_pos.saturating_sub(1).clamp(1, MAX_HALF_TRACK),  // Step out
+                _ => self.halftrack_head_pos,  // No change or invalid transition (e.g., 0->2 or 1->3)
             };
 
-            // Ignore invalid transitions that don't correspond to a single step
-            if step != 0 {
-                // Update the current half track, ensuring it stays within valid bounds
-                self.current_half_track =
-                    (self.current_half_track as i8 + step).clamp(0, MAX_HALF_TRACK as i8) as u8;
-
-                emu_info!(
-                    "HEAD Stepped: Phase {} -> {} ({}), Half-Track: {}",
+            emu_debug!(
+                    "HEAD Stepped: Phase {} -> {}, Half-Track: {}",
                     last_phase,
                     new_phase,
-                    step,
-                    self.current_half_track
-                );
-                hardware.send_event(DriveEvent::HeadStepped {
-                    new_half_track: self.current_half_track,
-                });
-            } else {
-                emu_warn!(
-                    "Invalid step detected: last_phase={}, new_phase={}",
-                    last_phase,
-                    new_phase
-                );
-            }
+                    self.halftrack_head_pos);
+
+            // Send step event
+            hardware.send_event(DriveEvent::HeadStepped { new_half_track: self.halftrack_head_pos} );
         }
 
-        // Return the full change mask
-        changed
+        // :: Handle LED events
+        if changed & MASK_LED != 0 {
+            let led_state = full_state & MASK_LED != 0;
+            hardware.send_event(DriveEvent::LedChanged(led_state));
+
+            emu_debug!("LED changed state: {}", led_state);
+        }
+
+        // :: Handle Motor events
+        if changed & MASK_MOTOR != 0 {
+            let motor_state = full_state & MASK_MOTOR != 0;
+            hardware.send_event(DriveEvent::MotorChanged(motor_state));
+
+            emu_debug!("MOTOR changed state: {}", motor_state);
+        }
+
+        // Return the motor state
+        return full_state & MASK_MOTOR != 0;
     }
 }

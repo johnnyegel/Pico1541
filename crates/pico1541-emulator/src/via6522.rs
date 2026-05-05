@@ -278,14 +278,50 @@ impl Via6522 {
         }
     }
 
+    /// Convenience function to get the value of CB1, if it an output
+    #[inline]
+    pub fn get_ca2_out(&self) -> Option<bool> {
+        match self.pcr & 0b0000_1110 {
+            0b0000_1100 => Option::Some(false),
+            0b0000_1110 => Option::Some(true),
+            _ => Option::None
+        }
+    }
+
+    /// Convenience function to get the value of CB2, if it an output
+    #[inline]
+    pub fn get_cb2_out(&self) -> Option<bool> {
+        match self.pcr & 0b1110_0000 {
+            0b1100_0000 => Option::Some(false),
+            0b1110_0000 => Option::Some(true),
+            _ => Option::None
+        }
+    }
+
+    /// Trigger the CA1 IRQ and Latch PA, regardless of the Edge configuration
+    /// (Fast convenience method, but this is NOT exact behavior)
+    #[inline]
+    pub fn ca1_irq(&mut self) {
+        self.ifr |= 0x02;
+        self.update_irq();
+        if (self.acr & 0x01) != 0 {
+            self.latch_a = (self.ora & self.ddra) | (self.in_a & !self.ddra);
+        }
+    }
+
+    /// Trigger the CA2 IRQ, regardless of the Edge configuration
+    /// (Fast convenience method, but this is NOT exact behavior)
+    #[inline]
+    pub fn ca2_irq(&mut self) {
+        self.ifr |= 0x01;
+        self.update_irq();
+    }
+
+
     pub fn set_ca1(&mut self, val: bool) {
         let positive_edge = (self.pcr & 0x01) != 0;
         if (val && !self.last_ca1 && positive_edge) || (!val && self.last_ca1 && !positive_edge) {
-            self.ifr |= 0x02;
-            self.update_irq();
-            if (self.acr & 0x01) != 0 {
-                self.latch_a = (self.ora & self.ddra) | (self.in_a & !self.ddra);
-            }
+            self.ca1_irq();
         }
         self.last_ca1 = val;
     }
@@ -293,10 +329,8 @@ impl Via6522 {
     pub fn set_ca2(&mut self, val: bool) {
         if (self.pcr & 0x08) == 0 {
             let positive_edge = (self.pcr & 0x04) != 0;
-            if (val && !self.last_ca2 && positive_edge) || (!val && self.last_ca2 && !positive_edge)
-            {
-                self.ifr |= 0x01;
-                self.update_irq();
+            if (val && !self.last_ca2 && positive_edge) || (!val && self.last_ca2 && !positive_edge) {
+                self.ca2_irq();
             }
         }
         self.last_ca2 = val;

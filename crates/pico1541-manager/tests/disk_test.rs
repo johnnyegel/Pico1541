@@ -12,13 +12,13 @@ fn test_d64_load_track() {
     let storage = MemoryStorage::new(&d64_data);
     let mut image = D64Image::new(storage);
 
-    use pico1541_common::formats::TrackLayout;
+    use pico1541_common::formats::TrackType;
     let mut buffer = [0u8; 10000];
     let layout = block_on(image.read_track(2, &mut buffer)).unwrap(); // Track 1.0 = Half-track 2
 
     let bit_len = match layout {
-        TrackLayout::Accurate(bits) => bits,
-        TrackLayout::Warp(bits) => bits,
+        TrackType::Accurate(bits) => bits,
+        TrackType::Warp(bits) => bits,
         _ => panic!("Expected Accurate or Warp track"),
     };
 
