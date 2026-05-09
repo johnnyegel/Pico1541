@@ -109,8 +109,11 @@ pub struct TestBridge {
 
 impl TestBridge {
     pub fn new(device_id: u8) -> Self {
+        let mut track = ActiveTrack::new();
+        track.half_track = 34; // INITIAL_HALF_TRACK
+
         Self {
-            track: ActiveTrack::new(),
+            track,
             events: Vec::new(),
             host_iec: IecBusState::default(),
             drive_iec: IecBusState::default(),
@@ -124,6 +127,7 @@ impl TestBridge {
     }
 
     pub fn reset(&mut self) {
+        self.track.half_track = 34;
         self.events.clear();
         self.host_iec = IecBusState::default();
         self.drive_iec = IecBusState::default();
@@ -136,6 +140,10 @@ impl TestBridge {
 
     pub fn cycles(&self) -> u64 {
         self.total_cycles
+    }
+
+    pub fn is_idle(&self, drive: &Emulator<TestBridge>) -> bool {
+        drive.pc() >= IDLE_LOW && drive.pc() <= IDLE_HIGH
     }
 
     pub fn set_atn(&mut self, v: bool) {
@@ -186,6 +194,13 @@ impl HostInterface for TestBridge {
     }
     fn send_event(&mut self, event: DriveEvent) {
         self.events.push(event);
+        log::info!("[DriveEvent] {:?}", event);
+        match event {
+            DriveEvent::HeadStepped { new_half_track } => {
+                self.track.half_track = new_half_track;
+            }
+            _ => {}
+        }
     }
     fn is_hijacked(&self) -> bool {
         self.snoop_handler.is_hijacked()

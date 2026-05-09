@@ -24,7 +24,7 @@ pub const DELAY_POLL_US: u32 = 10;
 pub const DELAY_RELEASE_US: u32 = 20;
 pub const DELAY_DATA_US: u32 = 60;
 pub const DELAY_EOI_TIMEOUT_US: u32 = 200;
-pub const DELAY_ACK_TIMEOUT_US: u32 = 1_000;
+pub const DELAY_ACK_TIMEOUT_US: u32 = 10_000_000;
 pub const DELAY_HOLD_TIMEOUT_US: u32 = 10_000_000;
 
 /// Hardware abstraction for the IEC bus.

@@ -289,7 +289,7 @@ impl<D: DirectorySource> DiskImage for VirtualDirImage<D> {
             }
         }
 
-        Ok(TrackLayout::Warp(57136))
+        Ok(TrackLayout::Warp(7142))
     }
 }
 
@@ -433,10 +433,10 @@ impl<S: Read + Seek> DiskImage for G64Image<S> {
     async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<TrackLayout, Error> {
         // G64 images typically only have full tracks (even half_track indices).
         // Track 1.0 = HT 0, Track 18.0 = HT 34.
-        if half_track % 2 != 0 || half_track > 83 {
+        if half_track > 83 {
             return Ok(TrackLayout::Void);
         }
-        let g64_idx = half_track / 2; // (0..42)
+        let g64_idx = half_track; // (0..83)
         let track_ptr_offset = 12 + (g64_idx as u64) * 4;
         self.storage
             .seek(SeekFrom::Start(track_ptr_offset))
@@ -448,6 +448,7 @@ impl<S: Read + Seek> DiskImage for G64Image<S> {
             .await
             .map_err(|_| Error::Io)?;
         let track_offset = u32::from_le_bytes(ptr_bytes);
+        
         if track_offset == 0 {
             return Ok(TrackLayout::Void);
         }
@@ -461,6 +462,7 @@ impl<S: Read + Seek> DiskImage for G64Image<S> {
             .await
             .map_err(|_| Error::Io)?;
         let track_len = u16::from_le_bytes(len_bytes) as usize;
+
         if track_len > dest.len() {
             return Err(Error::TrackTooLarge);
         }
