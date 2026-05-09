@@ -11,6 +11,7 @@ pub struct ActiveTrack {
     pub layout: TrackLayout,
 
     pub gcr_data: [u8; MAX_TRACK_BYTES],
+    pub current_byte_idx: u16,
     pub is_dirty: bool,
 }
 
@@ -20,6 +21,7 @@ impl ActiveTrack {
             half_track: 0,
             layout: TrackLayout::Void,
             gcr_data: [0; MAX_TRACK_BYTES],
+            current_byte_idx: 0,
             is_dirty: false,
         }
     }
@@ -132,13 +134,11 @@ pub enum DriveEvent {
     IecSnoopSecondaryAddress(u8), // secondary address byte
     /// Byte received to this device, on the previous secondary address
     IecSnoopByteReceived(u8, bool), // byte, is_eoi
-    // A complete decoded IEC command (e.g. "CD:...")
-    
-    /* FIXME: Not in use?
+    /// A complete decoded IEC command (e.g. "CD:...")
     IecCommand {
         data: [u8; 32],
         len: u8,
-    }, */
+    },
 }
 
 /// Open-drain IEC serial bus interface (Emulator side).

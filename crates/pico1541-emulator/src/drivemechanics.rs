@@ -73,6 +73,7 @@ impl DriveMechanics {
 
         // Get the active track from hardware
         let track = hardware.get_active_track();
+        track.current_byte_idx = self.track_byte_pos_ix as u16;
 
         // :: Handle the start of a new byte
         if self.byte_cycle_counter == 0 {
