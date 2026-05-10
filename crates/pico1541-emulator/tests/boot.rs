@@ -152,6 +152,23 @@ fn test_dir_listing_virtual() {
     drive.bus_mut().ram[0x16] = 0x31;
     drive.bus_mut().ram[0x17] = 0x31;
 
+    // Move physical head to Track 18.0 (HT 34)
+    drive.bus_mut().mechanics.halftrack_head_pos = 34;
+    bridge.track.half_track = 34;
+
+    log::info!("Waiting for drive to reach idle loop...");
+    let mut timeout = 0;
+    while !bridge.is_idle(&drive) {
+        bridge.ticks(&mut drive, 1000);
+        timeout += 1;
+        if timeout > 5000 {
+            panic!(
+                "Drive never reached idle loop after reset (PC=${:04X})",
+                drive.pc()
+            );
+        }
+    }
+
     let mut gcr_data = [0u8; pico1541_common::interface::MAX_TRACK_BYTES];
     // Fill with noise
     gcr_data.fill(0x55);

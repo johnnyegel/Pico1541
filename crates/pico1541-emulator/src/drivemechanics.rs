@@ -104,17 +104,22 @@ impl DriveMechanics {
             self.byte_cycle_counter = 0;
 
             // Advance the track position
-            let gcr_byte = self.resolve_track_byte_position(&track)
+            let gcr_pos = self.resolve_track_byte_position(&track);
+            let gcr_byte = gcr_pos
                     .map(|ix| track.gcr_data[ix])
                     .unwrap_or(BYTE_VOID);
 
             // Determine read mode from CB2 (Manual High = Read)
             let cb2_output = via2.get_cb2_out();
-            let is_read_mode = cb2_output == Some(true);
+            let is_read_mode = cb2_output != Some(false); // Default to read
 
             // If in read mode, put the byte in VIA2 Port A
             if is_read_mode {
                 via2.in_a = gcr_byte;
+            } else if let Some(ix) = gcr_pos {
+                // WRITE mode: take from ORA and put to disk
+                track.gcr_data[ix] = via2.ora;
+                track.is_dirty = true;
             }
 
             // Signal CA1 and SO ONLY if SYNC is NOT active.
@@ -125,8 +130,8 @@ impl DriveMechanics {
                 // Signal CA1 on every byte ready
                 via2.ca1_irq();
 
-                // Trigger SO pulse (stay active for 2 cycles to ensure CPU sees it)
-                self.so_pulse_remaining = 2;
+                // Trigger SO pulse (stay active for 1 cycle to ensure CPU sees it)
+                self.so_pulse_remaining = 1;
             }
         }
 
@@ -272,6 +277,8 @@ impl DriveMechanics {
                 0 => CYCLES_ZONE_3, 
                 _ => CYCLES_ZONE_0,
             };
+            // Reset counter to ensure clean timing after switch
+            self.byte_cycle_counter = 0;
         }
 
         // Check head stepping

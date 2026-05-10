@@ -79,11 +79,12 @@ fn test_g64_track_reading_low_level() {
     let mut byte_ready_pulses = 0;
 
     // A full revolution at 300 RPM (5Hz) is 200,000 cycles at 1MHz.
-    // At Zone 3 (26 cycles/byte), that's ~7692 bytes.
-    for i in 0..200_000 {
+    // However, some tracks in Zone 0 can take up to 246,144 cycles.
+    // We use 300,000 to be safe.
+    for i in 0..300_000 {
         let byte_ready = mechanics.tick(&mut hw, &mut via2);
 
-        let sync_active = (via2.in_b & 0x80) != 0;
+        let sync_active = (via2.in_b & 0x80) == 0;
 
         if sync_active && !in_sync {
             sync_assertions += 1;
@@ -129,8 +130,8 @@ fn test_compare_d64_g64_track_18() {
     let mut g64 = G64Image::new(&mut storage_g64);
 
     let mut g64_track_data = [0u8; pico1541_common::interface::MAX_TRACK_BYTES];
-    // In this specific test.g64, Track 18 is at HT 68.
-    let g64_layout = block_on(g64.read_track(68, &mut g64_track_data)).expect("Failed to read G64 track 18");
+    // Track 18.0 is at half-track 34
+    let g64_layout = block_on(g64.read_track(34, &mut g64_track_data)).expect("Failed to read G64 track 18");
 
     // 2. Load D64 Track 18 (HT 34)
     let d64_data = fs::read("tests/data/test.d64").expect("Failed to read D64");
