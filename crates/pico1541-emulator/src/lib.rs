@@ -1,16 +1,26 @@
 #![no_std]
 
+#[allow(unused_macros)]
 #[cfg(not(feature = "logging"))]
 macro_rules! emu_info { ($($arg:tt)*) => {} }
+
+#[allow(unused_macros)]
 #[cfg(not(feature = "logging"))]
 macro_rules! emu_warn { ($($arg:tt)*) => {} }
+
+#[allow(unused_macros)]
 #[cfg(not(feature = "logging"))]
 macro_rules! emu_debug { ($($arg:tt)*) => {} }
 
+#[allow(unused_macros)]
 #[cfg(feature = "logging")]
 macro_rules! emu_info { ($($arg:tt)*) => { log::info!($($arg)*) } }
+
+#[allow(unused_macros)]
 #[cfg(feature = "logging")]
 macro_rules! emu_warn { ($($arg:tt)*) => { log::warn!($($arg)*) } }
+
+#[allow(unused_macros)]
 #[cfg(feature = "logging")]
 macro_rules! emu_debug { ($($arg:tt)*) => { log::debug!($($arg)*) } }
 
@@ -78,7 +88,7 @@ impl<H: HostInterface> Emulator<H> {
     }
 
     pub fn half_track(&self) -> u8 {
-        self.bus.mechanics.halftrack_head_pos
+        self.bus.mechanics.half_track()
     }
 
     /// Direct access to the internal memory bus (e.g. for inspection or peek/poke).

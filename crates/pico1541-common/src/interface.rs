@@ -11,6 +11,7 @@ pub struct ActiveTrack {
     pub layout: TrackLayout,
 
     pub gcr_data: [u8; MAX_TRACK_BYTES],
+    // FIXME! This should NOT be part of the active track!
     pub current_byte_idx: u16,
     pub is_dirty: bool,
 }

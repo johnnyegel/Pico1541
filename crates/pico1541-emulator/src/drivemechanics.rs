@@ -2,8 +2,11 @@ use crate::via6522::Via6522;
 use pico1541_common::{ActiveTrack, formats::TrackLayout, interface::{DriveEvent, HostInterface}};
 
 // 35 tracks + 7 tracks more that can be physically reached (MAX 42)
-const MAX_HALF_TRACK: u8 = (35 + 7) * 2;
-const INITIAL_HALF_TRACK: u8 = 0; // Start at track 1 (half-track 0)
+// NOTE! Min track is -2, since the physical head can move slightly beyond the 
+//       outer most track of the disk before hitting the physical head-stop.
+const MIN_HALF_TRACK: i8 = -2;
+const MAX_HALF_TRACK: i8 = (35 + 7) * 2;
+const INITIAL_HALF_TRACK: i8 = 34; // Start at track 18 (Half-track 34)
 const DEFAULT_BYTE_LENGTH: usize = 7692;
 
 const BYTE_SYNC: u8 = 0xFF;
@@ -29,7 +32,7 @@ const SHIFT_SPEED_ZONE: u8 = 5;
 /// DriveMechanics struct to represent the state of the drive's mechanical components, such as the head position and motor state.
 pub struct DriveMechanics {
     /// The Track the head is positioned over (not necessarily the track being read)
-    pub halftrack_head_pos: u8,
+    pub halftrack_head_pos: i8,
     
     /// The active track we are reading and writing from
     track_byte_size: usize,
@@ -39,7 +42,6 @@ pub struct DriveMechanics {
     byte_cycle_limit: u32,
 
     last_state: u8,
-    so_pulse_remaining: u32,
 }
 
 impl DriveMechanics {
@@ -51,7 +53,6 @@ impl DriveMechanics {
             byte_cycle_counter: 0,
             byte_cycle_limit: CYCLES_ZONE_0, // Track 1 default
             last_state: 0,
-            so_pulse_remaining: 0,
         }
     }
 
@@ -62,7 +63,6 @@ impl DriveMechanics {
         self.byte_cycle_counter = 0;
         self.byte_cycle_limit = CYCLES_ZONE_0;
         self.last_state = 0;
-        self.so_pulse_remaining = 0;
     }
 
     /// Progresses the drive mechanics by one CPU cycle.
@@ -71,84 +71,73 @@ impl DriveMechanics {
         // :: Update the drive state and issue events if there are changes
         let is_motor_on = self.update_state(via2, hardware);
 
-        // Get the active track from hardware
-        let track = hardware.get_active_track();
-        track.current_byte_idx = self.track_byte_pos_ix as u16;
-
-        // :: Handle the start of a new byte
-        if self.byte_cycle_counter == 0 {
-            // :: Peak at the next byte to update SYNC state early
-            let next_gcr_byte = self.resolve_track_byte_position_peek(&track)
-                    .map(|ix| track.gcr_data[ix])
-                    .unwrap_or(BYTE_VOID);
-
-            // SYNC signal is Active LOW (0 = SYNC found, 1 = No SYNC)
-            if is_motor_on && next_gcr_byte == BYTE_SYNC {
-                via2.in_b &= !MASK_SYNC; // Assert SYNC (Pull PB7 Low)
-            } else {
-                via2.in_b |= MASK_SYNC;  // Release SYNC (Let PB7 float High)
-            }
-        }
-
         // :? Is the motor off?
         if !is_motor_on {
             return false;
         }
 
-        // :: Update the sub-cycle counter
-        self.byte_cycle_counter += 1;
+        // Get the active track from hardware
+        let track = hardware.get_active_track();
+        track.current_byte_idx = self.track_byte_pos_ix as u16;
 
         // :? Did the byte-cycle counter reach the limit?
-        if self.byte_cycle_counter >= self.byte_cycle_limit {
-            // E-> Yes, reset and signal byte ready
-            self.byte_cycle_counter = 0;
+        if self.byte_cycle_counter > 0 {
+            // -> No, then decrease counter and continue
+            self.byte_cycle_counter -= 1;
+            return false;
+        }
 
-            // Advance the track position
-            let gcr_pos = self.resolve_track_byte_position(&track);
+        // E-> Yes, reset and process incoming byte
+        self.byte_cycle_counter = self.byte_cycle_limit;
+
+        // Advance the track position
+        let gcr_pos = self.resolve_track_byte_position(&track);
+
+        // Determine read mode from CB2 (Manual High = Read)
+        let is_read_mode = via2.get_cb2_out().unwrap_or(true);
+
+        // :? Is Read mode enabled?
+        if is_read_mode {
+            // -> Yes, then get the byte
             let gcr_byte = gcr_pos
                     .map(|ix| track.gcr_data[ix])
                     .unwrap_or(BYTE_VOID);
 
-            // Determine read mode from CB2 (Manual High = Read)
-            let cb2_output = via2.get_cb2_out();
-            let is_read_mode = cb2_output != Some(false); // Default to read
+            // SYNC signal is Active LOW (0 = SYNC found, 1 = No SYNC)
+            if gcr_byte == BYTE_SYNC {
+                via2.in_b &= !MASK_SYNC; // Assert SYNC (Pull PB7 Low)
+            } else {
+                via2.in_b |= MASK_SYNC;  // Release SYNC (Let PB7 float High)
+            }                
 
-            // If in read mode, put the byte in VIA2 Port A
-            if is_read_mode {
-                via2.in_a = gcr_byte;
-            } else if let Some(ix) = gcr_pos {
-                // WRITE mode: take from ORA and put to disk
-                track.gcr_data[ix] = via2.ora;
-                track.is_dirty = true;
-            }
-
-            // Signal CA1 and SO ONLY if SYNC is NOT active.
-            // On real 1541 hardware, the bit-shifter is held while SYNC is asserted,
-            // so no Byte Ready pulses are generated during SYNC.
-            let sync_active = (via2.in_b & MASK_SYNC) == 0;
-            if !sync_active {
-                // Signal CA1 on every byte ready
-                via2.ca1_irq();
-
-                // Trigger SO pulse (stay active for 1 cycle to ensure CPU sees it)
-                self.so_pulse_remaining = 1;
-            }
+            via2.in_a = gcr_byte;
+        } 
+        else if let Some(ix) = gcr_pos {
+            // WRITE mode: take from ORA and put to disk
+            track.gcr_data[ix] = via2.ora;
+            track.is_dirty = true;
         }
 
-        // :: Handle SO pulse signaling
-        if self.so_pulse_remaining > 0 {
-            self.so_pulse_remaining -= 1;
-            
+        // Signal CA1 and SO ONLY if SYNC is NOT active.
+        // On real 1541 hardware, the bit-shifter is held while SYNC is asserted,
+        // so no Byte Ready pulses are generated during SYNC.
+        let sync_active = (via2.in_b & MASK_SYNC) == 0;
+        if !sync_active {
+            // Signal CA1 on every byte ready
+            via2.ca1_irq();
+
+            // Trigger SO pulse (stay active for 1 cycle to ensure CPU sees it)
             // 1541-II hardware uses CA2=HIGH to ENABLE SO signals.
-            let ca2_output = via2.get_ca2_out().unwrap_or(false);
-            let is_so_enabled = ca2_output;
-            
-            if is_so_enabled {
-                return true;    // Signal SO to the CPU
-            }
-        }
+            let is_so_enabled = via2.get_ca2_out().unwrap_or(false);
+            return is_so_enabled;
+        }   
 
         return false;
+    }
+
+    pub fn half_track(&self) -> u8 {
+        // Do not expose the physical half-track outside the drive mechanics.
+        self.halftrack_head_pos.clamp(0, MAX_HALF_TRACK) as u8
     }
 
     #[cfg(feature = "debug")]
@@ -163,44 +152,10 @@ impl DriveMechanics {
 
     // ========== Internal helper functions ==================================================
 
-    /// Peak at the next track position without advancing
-    #[inline(always)]
-    fn resolve_track_byte_position_peek(&self, track: &ActiveTrack) -> Option<usize> {
-        // :? Does the track match the head position?
-        if self.halftrack_head_pos == track.half_track {
-            if let TrackLayout::Accurate(_) = track.layout {
-                if self.track_byte_pos_ix < 10000 {
-                    return Some(self.track_byte_pos_ix);
-                }
-            }
-            if let TrackLayout::Warp(_) = track.layout {
-                if self.track_byte_pos_ix < 10000 {
-                    return Some(self.track_byte_pos_ix);
-                }
-            }
-        }
-        None
-    }
-
-    /// Advance the track position without reading
-    #[inline(always)]
-    fn resolve_track_byte_position_advance(&mut self) {
-        self.track_byte_pos_ix += 1;
-        
-        // Hard clamp
-        if self.track_byte_pos_ix >= 10000 {
-            self.track_byte_pos_ix = 0;
-        }
-
-        if self.track_byte_size > 0 && self.track_byte_pos_ix >= self.track_byte_size {
-            self.track_byte_pos_ix = 0;
-        }
-    }
-
     /// Updates the track current position, and returns the position in the buffer
     #[inline(always)]
     fn resolve_track_byte_position(&mut self, track: &ActiveTrack) -> Option<usize> {
-        let layout = if self.halftrack_head_pos == track.half_track {
+        let layout = if self.halftrack_head_pos == track.half_track as i8 {
             track.layout
         } else {
             TrackLayout::Void
@@ -208,15 +163,26 @@ impl DriveMechanics {
 
         let has_position = match layout {
             TrackLayout::Accurate(size) => {
+                // :? Has the track size changed?    
                 if size != self.track_byte_size && self.track_byte_size > 0 {
-                    self.track_byte_pos_ix = (self.track_byte_pos_ix * size) 
+                    // -> Yes, then calculate the new track byte position
+                    let new_track_position = (self.track_byte_pos_ix * size) 
                             / self.track_byte_size;
 
+                    log::debug!("[Accurate] Recalculated track [{}] position: {} / {} -> {} / {}", 
+                            self.halftrack_head_pos, self.track_byte_pos_ix, self.track_byte_size, new_track_position, size);
+                    
+                    // Set the new track position, and ensure it is inside the track rance
+                    self.track_byte_pos_ix = if new_track_position < size {
+                        new_track_position
+                    } else {
+                        0
+                    };
+                    
+                    // Set the size of the track
+                    self.track_byte_size = size;
                 }
-                self.track_byte_size = size;
-                if self.track_byte_pos_ix >= self.track_byte_size || self.track_byte_pos_ix >= 10000 {
-                    self.track_byte_pos_ix = 0;
-                }
+                
                 true
             },
             TrackLayout::Warp(size) => {
@@ -226,12 +192,20 @@ impl DriveMechanics {
             TrackLayout::Void => false
         };
 
+        // :: Advance the track position
         let current_byte_pos = self.track_byte_pos_ix;
-        self.resolve_track_byte_position_advance();
+        self.track_byte_pos_ix += 1;
 
+        if self.track_byte_pos_ix > self.track_byte_size {
+            self.track_byte_pos_ix = 0;
+        }
+
+        // :? Is there a valid track position
         if has_position {
+            // -> Yes, to return it
             Some(current_byte_pos)
         } else {
+            // -> No, then return None
             None
         }
     }
@@ -292,13 +266,25 @@ impl DriveMechanics {
             // Stepper Direction Inverted based on 1541-II ROM traces:
             // Delta 1 (00->01) is OUT (towards Track 1)
             // Delta 3 (01->00) is IN (towards Track 35)
-            self.halftrack_head_pos = match delta {
-                3 => self.halftrack_head_pos.saturating_add(1).clamp(0, MAX_HALF_TRACK),  // Step IN
-                1 => self.halftrack_head_pos.saturating_sub(1).clamp(0, MAX_HALF_TRACK),  // Step OUT
+            let last_half_track_pos = self.halftrack_head_pos;
+            let step = match delta {
+                1 => 1,  // Step IN
+                3 => -1, // Step OUT
                 _ => self.halftrack_head_pos,
             };
 
-            hardware.send_event(DriveEvent::HeadStepped { new_half_track: self.halftrack_head_pos} );
+            // Move the physical head, and clap it to the min and max physical half-track
+            self.halftrack_head_pos = (last_half_track_pos + step)
+                    .clamp(MIN_HALF_TRACK, MAX_HALF_TRACK);
+
+            emu_debug!("Head stepped [phase: {} -> {}, delta: {}] to Half-Track position: {} -> {}", 
+                    last_phase, new_phase, delta, last_half_track_pos, self.halftrack_head_pos);
+
+            // :? Is the head position within the actual readable track range?
+            if self.halftrack_head_pos >= 0 && self.halftrack_head_pos <= MAX_HALF_TRACK {
+                // -> Yes, then issue the event
+                hardware.send_event(DriveEvent::HeadStepped { new_half_track: self.halftrack_head_pos as u8} );
+            }
         }
 
         full_state & MASK_MOTOR != 0

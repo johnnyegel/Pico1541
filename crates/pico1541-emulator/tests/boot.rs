@@ -143,19 +143,6 @@ fn test_dir_listing_virtual() {
 
     let (mut drive, mut bridge) = common::setup_drive(true, 8, None);
 
-    // Patch ROM state after reset:
-    // $22: Current Track (Set to 18)
-    // $12-$13: Master ID, $16-$17: Current ID (Set to match VirtualDirImage '11')
-    drive.bus_mut().ram[0x22] = 18;
-    drive.bus_mut().ram[0x12] = 0x31;
-    drive.bus_mut().ram[0x13] = 0x31;
-    drive.bus_mut().ram[0x16] = 0x31;
-    drive.bus_mut().ram[0x17] = 0x31;
-
-    // Move physical head to Track 18.0 (HT 34)
-    drive.bus_mut().mechanics.halftrack_head_pos = 34;
-    bridge.track.half_track = 34;
-
     log::info!("Waiting for drive to reach idle loop...");
     let mut timeout = 0;
     while !bridge.is_idle(&drive) {
@@ -219,8 +206,8 @@ fn test_dir_listing_virtual() {
                 .await?;
         }
 
-        log::info!("Received {} bytes of directory data", received.len());
         let text = String::from_utf8_lossy(&received);
+        log::info!("Received {} bytes of directory data:\n{}", received.len(), text);
         assert!(text.contains("FILE01"), "Directory listing missing FILE01");
         assert!(
             text.contains("VIRTUAL DISK"),
@@ -237,17 +224,11 @@ fn test_dir_listing_g64() {
 
     bridge.mount_g64("tests/data/test.g64");
 
-    // "Magic-free" synchronization: ensure physical head and ROM are in sync at Track 18
-    // This avoids the ROM getting stuck in a read-loop at the wrong speed on Track 1.
-    drive.bus_mut().ram[0x22] = 18; // ROM Current Track
-    drive.bus_mut().ram[0x12] = 0xA0; // ROM Master ID
-    drive.bus_mut().ram[0x13] = 0xA0;
-    drive.bus_mut().ram[0x16] = 0xA0; // ROM Current ID
-    drive.bus_mut().ram[0x17] = 0xA0;
-    
+    /*
     // Move physical head to Track 18.0 (HT 34)
     drive.bus_mut().mechanics.halftrack_head_pos = 34;
     bridge.track.half_track = 34;
+    */
 
     log::info!("Waiting for drive to reach idle loop...");
     let mut timeout = 0;
@@ -291,8 +272,8 @@ fn test_dir_listing_g64() {
                 .await?;
         }
 
-        log::info!("Received {} bytes of G64 directory data", received.len());
         let text = String::from_utf8_lossy(&received);
+        log::info!("Received {} bytes of G64 directory data.\n{}", received.len(), text);
         assert!(text.contains("GAME"), "Directory listing missing GAME");
         Ok::<(), IecError>(())
     })

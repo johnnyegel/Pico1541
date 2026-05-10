@@ -431,6 +431,7 @@ impl<S: Read + Seek> G64Image<S> {
 }
 impl<S: Read + Seek> DiskImage for G64Image<S> {
     async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<TrackLayout, Error> {
+        log::info!("Reading G64 track {}", half_track);
         // G64 images typically only have full tracks (even half_track indices).
         // Track 1.0 = HT 0, Track 18.0 = HT 34.
         if half_track > 83 {
