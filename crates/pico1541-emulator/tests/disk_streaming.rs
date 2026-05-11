@@ -20,6 +20,7 @@ fn test_disk_streaming_data() {
 
     let mut via2 = Via6522::new();
     let mut mechanics = DriveMechanics::new();
+    mechanics.halftrack_head_pos = 0; // Align head with Track 1 (half-track 0)
 
     // Set bitrate Zone 0 (32 cycles) explicitly
     // In our implementation Zone 0 (32 cycles) is bits 5,6 = 11 (0x60)
@@ -66,6 +67,7 @@ fn test_disk_streaming_sync() {
 
     let mut via2 = Via6522::new();
     let mut mechanics = DriveMechanics::new();
+    mechanics.halftrack_head_pos = 0; // Align head with Track 1 (half-track 0)
     via2.orb = (via2.orb & !0x60) | 0x60 | 0x04; // Zone 0 (32 cycles) + Motor ON
     
     // Set READ mode (CB2 out = true) AND enable SO (CA2 out = true)
@@ -111,6 +113,7 @@ fn test_disk_bitrate_zones() {
 
     let mut via2 = Via6522::new();
     let mut mechanics = DriveMechanics::new();
+    mechanics.halftrack_head_pos = 0; // Align head with Track 1 (half-track 0)
     via2.pcr = 0b1110_1110; // Enable SO
 
     // Test Zone 0: 32 cycles (bits 5,6 = 11 -> 0x60)
@@ -159,6 +162,7 @@ fn test_disk_write_streaming() {
 
     let mut via2 = Via6522::new();
     let mut mechanics = DriveMechanics::new();
+    mechanics.halftrack_head_pos = 0; // Align head with Track 1 (half-track 0)
 
     via2.orb |= 0x04; // Motor ON
     via2.orb |= 0x60; // Zone 0 (32 cycles)

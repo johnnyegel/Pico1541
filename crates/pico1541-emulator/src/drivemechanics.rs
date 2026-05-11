@@ -81,14 +81,13 @@ impl DriveMechanics {
         track.current_byte_idx = self.track_byte_pos_ix as u16;
 
         // :? Did the byte-cycle counter reach the limit?
-        if self.byte_cycle_counter > 0 {
-            // -> No, then decrease counter and continue
-            self.byte_cycle_counter -= 1;
+        self.byte_cycle_counter += 1;
+        if self.byte_cycle_counter < self.byte_cycle_limit {
             return false;
         }
 
         // E-> Yes, reset and process incoming byte
-        self.byte_cycle_counter = self.byte_cycle_limit;
+        self.byte_cycle_counter = 0;
 
         // Advance the track position
         let gcr_pos = self.resolve_track_byte_position(&track);
