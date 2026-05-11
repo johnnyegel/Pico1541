@@ -67,12 +67,16 @@ pub fn reset_drive(drive: &mut Emulator<TestBridge>, bridge: &mut TestBridge) {
     );
 }
 
-pub struct DiskRunner<S: embedded_io_async::Read + embedded_io_async::Seek + Send + 'static> {
-    pub image: AnyDiskImage<S, DummySource>,
+pub struct DiskRunner<S: embedded_io_async::Read + embedded_io_async::Seek + Send + 'static, D: pico1541_common::storage::DirectorySource = DummySource> {
+    pub image: AnyDiskImage<S, D>,
     pub last_half_track: u8,
 }
 
-impl<S: embedded_io_async::Read + embedded_io_async::Seek + Send + 'static> DiskRunner<S> {
+impl<S, D> DiskRunner<S, D> 
+where 
+    S: embedded_io_async::Read + embedded_io_async::Seek + Send + 'static,
+    D: pico1541_common::storage::DirectorySource
+{
     pub fn sync(&mut self, track: &mut ActiveTrack) {
         if track.half_track != self.last_half_track {
             log::info!(
@@ -163,13 +167,13 @@ impl TestBridge {
     }
 
     pub fn mount_g64(&mut self, path: &str) {
-        use pico1541_common::storage::MemoryStorage;
+        use pico1541_common::storage::{MemoryStorage, DummySource};
         use std::fs;
         let data = fs::read(path).expect("Failed to read G64");
         let data_ref: &'static [u8] = Box::leak(data.into_boxed_slice());
         let img = G64Image::new(MemoryStorage::new(data_ref));
         let mut runner = DiskRunner {
-            image: AnyDiskImage::G64(img),
+            image: AnyDiskImage::<MemoryStorage<'static>, DummySource>::G64(img),
             last_half_track: 255,
         };
         self.sync_hook = Some(Box::new(move |track| {

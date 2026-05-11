@@ -34,6 +34,31 @@ pub trait DirectorySource {
     fn name(&self) -> &[u8; 16];
     fn next_entry(&mut self) -> Option<DirectoryEntry>;
     fn rewind(&mut self);
+    fn find_entry(&mut self, filename: &[u8]) -> Option<DirectoryEntry> {
+        self.rewind();
+        while let Some(entry) = self.next_entry() {
+            let mut match_found = true;
+            for i in 0..filename.len().min(16) {
+                if entry.filename[i] != filename[i] {
+                    match_found = false;
+                    break;
+                }
+            }
+            if match_found {
+                // Check if the rest of entry.filename is padding (0xA0)
+                for i in filename.len().min(16)..16 {
+                    if entry.filename[i] != 0xA0 {
+                        match_found = false;
+                        break;
+                    }
+                }
+            }
+            if match_found {
+                return Some(entry);
+            }
+        }
+        None
+    }
 }
 
 pub struct DummySource;
@@ -45,6 +70,43 @@ impl DirectorySource for DummySource {
         None
     }
     fn rewind(&mut self) {}
+}
+
+pub struct StaticDirectorySource<'a> {
+    name: [u8; 16],
+    entries: &'a [DirectoryEntry],
+    index: usize,
+}
+
+impl<'a> StaticDirectorySource<'a> {
+    pub fn new(name: &[u8], entries: &'a [DirectoryEntry]) -> Self {
+        let mut n = [0xA0; 16];
+        let len = name.len().min(16);
+        n[..len].copy_from_slice(&name[..len]);
+        Self {
+            name: n,
+            entries,
+            index: 0,
+        }
+    }
+}
+
+impl<'a> DirectorySource for StaticDirectorySource<'a> {
+    fn name(&self) -> &[u8; 16] {
+        &self.name
+    }
+    fn next_entry(&mut self) -> Option<DirectoryEntry> {
+        if self.index < self.entries.len() {
+            let entry = self.entries[self.index];
+            self.index += 1;
+            Some(entry)
+        } else {
+            None
+        }
+    }
+    fn rewind(&mut self) {
+        self.index = 0;
+    }
 }
 
 impl<'a> MemoryStorage<'a> {

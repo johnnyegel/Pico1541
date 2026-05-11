@@ -37,8 +37,9 @@ pub trait DiskImage {
     async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<TrackLayout, Error>;
 }
 
-pub struct VirtualDiskImage<D: DirectorySource> {
+pub struct VirtualDiskImage<S, D: DirectorySource> {
     pub source: D,
+    pub file_storage: Option<S>,
     id: [u8; 2],
     pub sector1_idx: usize,
     pub sector2_idx: usize,
@@ -46,10 +47,11 @@ pub struct VirtualDiskImage<D: DirectorySource> {
     pub shortcut_entry: Option<crate::storage::DirectoryEntry>,
 }
 
-impl<D: DirectorySource> VirtualDiskImage<D> {
+impl<S, D: DirectorySource> VirtualDiskImage<S, D> {
     pub fn new(source: D) -> Self {
         Self {
             source,
+            file_storage: None,
             id: [0x56, 0x44], // "VD"
             sector1_idx: 0,
             sector2_idx: 0,
@@ -179,7 +181,7 @@ impl<D: DirectorySource> VirtualDiskImage<D> {
     }
 }
 
-impl<D: DirectorySource> DiskImage for VirtualDiskImage<D> {
+impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
     async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<TrackLayout, Error> {
         if half_track > 83 {
             return Ok(TrackLayout::Void);
@@ -238,9 +240,24 @@ impl<D: DirectorySource> DiskImage for VirtualDiskImage<D> {
                         write_ptr += 1;
                     }
                 }
-                // Empty Data Block
+                
+                let mut sector_data = [0u8; 256];
+                if let Some(storage) = &mut self.file_storage {
+                    let file_offset = (sector as u64) * 256;
+                    let _ = storage.seek(SeekFrom::Start(file_offset)).await;
+                    let _ = storage.read_exact(&mut sector_data).await;
+                }
+
+                let mut data_checksum = 0u8;
+                for b in sector_data.iter() {
+                    data_checksum ^= b;
+                }
+
                 let mut data_raw = [0u8; 260];
                 data_raw[0] = 0x07;
+                data_raw[1..257].copy_from_slice(&sector_data);
+                data_raw[257] = data_checksum;
+
                 for i in 0..65 {
                     let mut src = [0u8; 4];
                     src.copy_from_slice(&data_raw[i * 4..(i + 1) * 4]);
@@ -654,11 +671,11 @@ impl<S: Read + Seek> DiskImage for G64Image<S> {
 pub enum AnyDiskImage<S: Read + Seek, D: DirectorySource> {
     D64(D64Image<S>),
     G64(G64Image<S>),
-    VirtualDisk(VirtualDiskImage<D>),
+    VirtualDisk(VirtualDiskImage<S, D>),
 }
 
 impl<S: Read + Seek, D: DirectorySource> AnyDiskImage<S, D> {
-    pub fn as_virtual_disk_mut(&mut self) -> Option<&mut VirtualDiskImage<D>> {
+    pub fn as_virtual_disk_mut(&mut self) -> Option<&mut VirtualDiskImage<S, D>> {
         if let Self::VirtualDisk(img) = self {
             Some(img)
         } else {

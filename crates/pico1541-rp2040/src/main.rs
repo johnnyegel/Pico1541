@@ -15,8 +15,10 @@ use embassy_sync::mutex::Mutex;
 
 use pico1541_common::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus, IecBusState};
 use pico1541_common::snooper::{IecSnooper, IecSnoopByteHandler, SnooperConfig};
+use pico1541_common::formats::{AnyDiskImage, VirtualDiskImage};
+use pico1541_common::storage::{DirectoryEntry, StaticDirectorySource, MemoryStorage};
 use pico1541_emulator::Emulator;
-use pico1541_manager::tasks::{DisplayTask, DriveActivityTask, SnooperTask};
+use pico1541_manager::tasks::{DisplayTask, DriveActivityTask, SnooperTask, VirtualDiskTask};
 use panic_probe as _;
 
 use crate::driver::display::{DisplayWrapper, OledDisplay};
@@ -61,21 +63,34 @@ async fn main(spawner: Spawner) {
     let snooper_task = SnooperTask::new(8);
 
     // 4. Storage (SD Card - SPI)
-    // TODO: Initialize SD card driver
+    // For now, use a virtual disk with static content
+    static DIR_ENTRIES: [DirectoryEntry; 1] = [
+        DirectoryEntry::new(b"GAME", 1, 0, 10),
+    ];
+    let dir_source = StaticDirectorySource::new(b"VIRTUAL DISK", &DIR_ENTRIES);
+    let mut vdisk = VirtualDiskImage::new(dir_source);
+    
+    // Sample file data for "GAME"
+    static GAME_DATA: &[u8] = include_bytes!("../../../crates/pico1541-emulator/tests/data/game.prg");
+    vdisk.file_storage = Some(MemoryStorage::new(GAME_DATA));
+    
+    static DISK_IMAGE: StaticCell<AnyDiskImage<MemoryStorage<'static>, StaticDirectorySource<'static>>> = StaticCell::new();
+    let disk_image = DISK_IMAGE.init(AnyDiskImage::VirtualDisk(vdisk));
 
     // 5. Keyboard (Matrix)
     // TODO: Initialize keyboard driver
+
+    // Shared ActiveTrack buffer
+    static ACTIVE_TRACK: StaticCell<ActiveTrack> = StaticCell::new();
+    let track = ACTIVE_TRACK.init(ActiveTrack::new());
+
+    let vdisk_task = VirtualDiskTask::new(disk_image, track);
 
     // Spawn Manager Tasks
     spawner.spawn(display_run(display_task)).unwrap();
     spawner.spawn(activity_run(activity_task)).unwrap();
     spawner.spawn(snooper_run(snooper_task)).unwrap();
-
-    // --- Emulator Setup (Core 0 - 1541-II) ---
-
-    // Shared ActiveTrack buffer
-    static ACTIVE_TRACK: StaticCell<ActiveTrack> = StaticCell::new();
-    let track = ACTIVE_TRACK.init(ActiveTrack::new());
+    spawner.spawn(vdisk_run(vdisk_task)).unwrap();
 
     // IEC Pins
     let pins = IecPins {
@@ -224,6 +239,11 @@ async fn activity_run(mut task: DriveActivityTask<ActivityIndicator>) {
 
 #[embassy_executor::task]
 async fn snooper_run(mut task: SnooperTask) {
+    task.run().await;
+}
+
+#[embassy_executor::task]
+async fn vdisk_run(mut task: VirtualDiskTask<'static, MemoryStorage<'static>, StaticDirectorySource<'static>>) {
     task.run().await;
 }
 

@@ -18,8 +18,9 @@ impl<I: IndicatorDriver> DriveActivityTask<I> {
                 DriveEvent::LedChanged(active) => {
                     self.indicator.set_activity_led(active);
                 }
-                DriveEvent::HeadStepped { .. } => {
+                DriveEvent::HeadStepped { new_half_track } => {
                     self.indicator.beep();
+                    let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::HeadStepped(new_half_track));
                 }
                 DriveEvent::IecCommand { data, len } => {
                     let cmd_str =
@@ -36,7 +37,12 @@ impl<I: IndicatorDriver> DriveActivityTask<I> {
         if cmd.starts_with("CD:") {
             let path = &cmd[3..];
             info!("Changing directory to: {}", path);
-            // In a real implementation, this would interact with the filesystem driver
+            
+            let mut filename = [0xA0; 16];
+            let len = path.len().min(16);
+            filename[..len].copy_from_slice(&path.as_bytes()[..len]);
+            
+            let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::LoadFile(filename));
         } else if cmd.starts_with("MD:") {
             let path = &cmd[3..];
             info!("Creating directory: {}", path);

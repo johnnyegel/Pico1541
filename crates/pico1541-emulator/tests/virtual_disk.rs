@@ -8,8 +8,8 @@ fn test_virtual_disk_skeleton_orientation() {
     let (mut drive, mut bridge) = setup_drive(true, 8, None);
 
     // Mount VirtualDiskImage
-    let disk = VirtualDiskImage::new(DummySource);
-    let mut runner: DiskRunner<pico1541_common::storage::MemoryStorage<'static>> = DiskRunner {
+    let disk = VirtualDiskImage::<pico1541_common::storage::MemoryStorage<'static>, DummySource>::new(DummySource);
+    let mut runner = DiskRunner {
         image: AnyDiskImage::VirtualDisk(disk),
         last_half_track: 255,
     };
@@ -69,8 +69,8 @@ fn test_virtual_disk_skeleton_orientation() {
 fn test_virtual_disk_stridden_warp() {
     let (mut drive, mut bridge) = setup_drive(true, 8, None);
 
-    let disk = VirtualDiskImage::new(DummySource);
-    let mut runner: DiskRunner<pico1541_common::storage::MemoryStorage<'static>> = DiskRunner {
+    let disk = VirtualDiskImage::<pico1541_common::storage::MemoryStorage<'static>, DummySource>::new(DummySource);
+    let mut runner = DiskRunner {
         image: AnyDiskImage::VirtualDisk(disk),
         last_half_track: 255,
     };
@@ -152,4 +152,22 @@ fn test_virtual_disk_load_interception() {
         assert_eq!(cmd, "GAME");
         log::info!("Intercepted command: {}", cmd);
     }
+}
+
+#[test]
+fn test_virtual_disk_shortcut_generation() {
+    use pico1541_common::storage::DirectoryEntry;
+    use pico1541_common::DiskImage;
+
+    let source = DummySource;
+    let mut vdir = VirtualDiskImage::<pico1541_common::storage::MemoryStorage<'static>, DummySource>::new(source);
+    
+    // Set a shortcut entry
+    let entry = DirectoryEntry::new(b"MYGAME", 1, 0, 100);
+    vdir.set_shortcut_entry(Some(entry));
+    assert_eq!(vdir.shortcut_entry.unwrap().filename[0..6], *b"MYGAME");
+    
+    let mut dest = vec![0u8; 10000];
+    let result = pollster::block_on(vdir.read_track(34, &mut dest)); // HT 34 = Track 18
+    assert!(result.is_ok());
 }
