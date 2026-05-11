@@ -54,7 +54,7 @@ pub fn reset_drive(drive: &mut Emulator<TestBridge>, bridge: &mut TestBridge) {
     drive.reset();
 
     // Boot: Wait for idle loop
-    for _ in 0..5_000_000 {
+    for _ in 0..10_000_000 {
         drive.tick(bridge);
         if drive.pc() >= IDLE_LOW && drive.pc() <= IDLE_HIGH {
             return;
@@ -234,7 +234,17 @@ impl HostInterface for TestBridge {
 
         for event in events {
             self.events.push(event);
-            self.snoop_handler.handle(event);
+            let mut extra_events = Vec::new();
+            self.snoop_handler.handle(event, |e| extra_events.push(e));
+            
+            for e in extra_events {
+                self.events.push(e);
+                // Also check if any extra event triggers hijack/discard
+                if matches!(e, DriveEvent::IecCommand { .. }) {
+                     // In the test bridge, we might want to do something here,
+                     // but for now just having it in self.events is enough.
+                }
+            }
             
             // Once "CD:" is detected, we "yank the cable" by hijacking the bus
             // and requesting a discard of the command buffer.

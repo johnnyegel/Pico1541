@@ -88,7 +88,7 @@ fn test_dir_no_disk() {
 
 #[test]
 fn test_dir_listing_virtual() {
-    use pico1541_common::formats::{DiskImage, VirtualDirImage};
+    use pico1541_common::formats::{DiskImage, VirtualDiskImage};
     use pico1541_common::storage::{DirectoryEntry, DirectorySource};
 
     struct TestSource {
@@ -138,7 +138,7 @@ fn test_dir_listing_virtual() {
         entries,
         pos: 0,
     };
-    let mut vdir = VirtualDirImage::new(source);
+    let mut vdir = VirtualDiskImage::new(source);
     vdir.set_id([0x31, 0x31]);
 
     let (mut drive, mut bridge) = common::setup_drive(true, 8, None);

@@ -1,4 +1,4 @@
-use pico1541_common::formats::{D64Image, DiskImage, G64Image, TrackLayout, VirtualDirImage};
+use pico1541_common::formats::{D64Image, DiskImage, G64Image, TrackLayout, VirtualDiskImage};
 use pico1541_common::storage::{DirectoryEntry, DirectorySource, MemoryStorage};
 use pollster::block_on;
 
@@ -52,7 +52,7 @@ fn test_g64_image_read_track() {
 }
 
 #[test]
-fn test_virtual_dir_image() {
+fn test_virtual_disk_image() {
     struct MockSource {
         entries: Vec<DirectoryEntry>,
         pos: usize,
@@ -79,10 +79,10 @@ fn test_virtual_dir_image() {
         entries: vec![DirectoryEntry::new(b"FILE1", 1, 0, 10)],
         pos: 0,
     };
-    let mut img = VirtualDirImage::new(source);
+    let mut img = VirtualDiskImage::new(source);
     let mut dest = vec![0u8; 10000];
 
     let result = block_on(img.read_track(34, &mut dest)).unwrap();
-    assert!(matches!(result, TrackLayout::Warp(7142)));
+    assert!(matches!(result, TrackLayout::Accurate(7142)));
     assert!(dest.iter().any(|&b| b != 0));
 }

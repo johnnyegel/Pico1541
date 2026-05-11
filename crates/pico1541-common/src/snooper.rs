@@ -213,12 +213,16 @@ impl IecSnoopByteHandler {
         }
     }
 
-    pub fn handle(&mut self, event: DriveEvent) {
+    pub fn handle(&mut self, event: DriveEvent, mut dispatch: impl FnMut(DriveEvent)) {
         match event {
-            DriveEvent::IecSnoopSecondaryAddress(_) => {
+            DriveEvent::IecSnoopSecondaryAddress(sa) => {
                 self.pos = 0;
                 self.command_detected = false;
                 self.eoi_received = false;
+                // Secondary address 0xF0..0xFF are for commands or specific channels
+                if sa >= 0x60 && sa <= 0x6F {
+                    // This is an OPEN command on channel sa & 0x0F
+                }
             }
             DriveEvent::IecSnoopByteReceived(byte, eoi) => {
                 if self.pos < self.buffer.len() {
@@ -231,6 +235,10 @@ impl IecSnoopByteHandler {
                 }
                 if eoi {
                     self.eoi_received = true;
+                    let mut data = [0u8; 32];
+                    let len = self.pos.min(32);
+                    data[..len].copy_from_slice(&self.buffer[..len]);
+                    dispatch(DriveEvent::IecCommand { data, len: len as u8 });
                 }
             }
             _ => {}

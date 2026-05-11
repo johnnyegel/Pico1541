@@ -3,12 +3,12 @@ use pico1541_common::formats::AnyDiskImage;
 use pico1541_common::interface::ActiveTrack;
 use pico1541_common::storage::DirectorySource;
 
-pub struct VirtualDirTask<'a, S: Read + Seek, D: DirectorySource> {
+pub struct VirtualDiskTask<'a, S: Read + Seek, D: DirectorySource> {
     disk_image: &'a mut AnyDiskImage<S, D>,
     active_track: &'a mut ActiveTrack,
 }
 
-impl<'a, S: Read + Seek, D: DirectorySource> VirtualDirTask<'a, S, D> {
+impl<'a, S: Read + Seek, D: DirectorySource> VirtualDiskTask<'a, S, D> {
     pub fn new(disk_image: &'a mut AnyDiskImage<S, D>, active_track: &'a mut ActiveTrack) -> Self {
         Self {
             disk_image,
@@ -22,7 +22,7 @@ impl<'a, S: Read + Seek, D: DirectorySource> VirtualDirTask<'a, S, D> {
             // We need a way to know the current track, but for now we assume Track 18
             // or we could check some state.
 
-            if let Some(vdir) = self.disk_image.as_virtual_dir_mut() {
+            if let Some(vdir) = self.disk_image.as_virtual_disk_mut() {
                 let current_idx = self.active_track.current_byte_idx as usize;
                 vdir.update_dynamic_buffer(current_idx, &mut self.active_track.gcr_data);
             }

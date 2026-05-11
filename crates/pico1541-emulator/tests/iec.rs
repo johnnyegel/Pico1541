@@ -105,7 +105,7 @@ fn test_command_snoop() {
 
     let mut handler = pico1541_common::snooper::IecSnoopByteHandler::new();
     for event in bridge.events {
-        handler.handle(event);
+        handler.handle(event, |_| {});
     }
 
     log::info!("Snooped command: {:?}", handler.get_command());
@@ -153,7 +153,7 @@ fn test_hijack_command_snoop() {
     // (Rest of the test remains same...)
     let mut handler = pico1541_common::snooper::IecSnoopByteHandler::new();
     for event in &bridge.events {
-        handler.handle(*event);
+        handler.handle(*event, |_| {});
     }
 
     assert!(handler.is_hijacked(), "Command should be hijacked");
@@ -185,4 +185,22 @@ fn test_hijack_command_snoop() {
         "Expected 00, OK, got: {:?}",
         status
     );
+}
+
+#[test]
+fn test_iec_load_command() {
+    let (mut drive, mut bridge) = common::setup_drive(true, 8, None);
+
+    block_on(async {
+        let mut bus = common::IecTestBridge {
+            drive: &mut drive,
+            bridge: &mut bridge,
+        };
+        IecCommander::new(&mut bus)
+            .open(8, 15)
+            .send(b"I")
+            .execute()
+            .await
+    })
+    .unwrap();
 }

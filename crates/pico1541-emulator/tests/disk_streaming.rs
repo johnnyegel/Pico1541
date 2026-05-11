@@ -32,7 +32,7 @@ fn test_disk_streaming_data() {
 
     // First byte delivered should be idx 0: 0xAA. Should take exactly 32 ticks.
     let mut ticks = 0;
-    while !mechanics.tick(&mut hardware, &mut via2) {
+    while !mechanics.tick(&mut hardware, &mut via2, 0) {
         ticks += 1;
         if ticks > 100 {
             panic!("Timeout waiting for idx 0");
@@ -45,7 +45,7 @@ fn test_disk_streaming_data() {
 
     // Second byte idx 1: 0x55. Exactly 32 ticks.
     ticks = 0;
-    while !mechanics.tick(&mut hardware, &mut via2) {
+    while !mechanics.tick(&mut hardware, &mut via2, 0) {
         ticks += 1;
         if ticks > 100 {
             panic!("Timeout waiting for idx 1");
@@ -77,7 +77,7 @@ fn test_disk_streaming_sync() {
     // Run for 32 cycles. SYNC suppresses SO, so tick() must return false.
     for i in 0..32 {
         assert!(
-            !mechanics.tick(&mut hardware, &mut via2),
+            !mechanics.tick(&mut hardware, &mut via2, 0),
             "SYNC should NOT pulse SO (cycle {})", i
         );
     }
@@ -92,7 +92,7 @@ fn test_disk_streaming_sync() {
     // Next byte idx 1: 0x55 (Data)
     // This one IS data, so it should return true on the 32nd cycle.
     let mut ticks = 0;
-    while !mechanics.tick(&mut hardware, &mut via2) {
+    while !mechanics.tick(&mut hardware, &mut via2, 0) {
         ticks += 1;
         if ticks > 100 {
              panic!("Timeout waiting for data byte after SYNC");
@@ -119,7 +119,7 @@ fn test_disk_bitrate_zones() {
     // Test Zone 0: 32 cycles (bits 5,6 = 11 -> 0x60)
     via2.orb = 0x60 | 0x04; // Motor ON
     let mut ticks = 0;
-    while !mechanics.tick(&mut hardware, &mut via2) {
+    while !mechanics.tick(&mut hardware, &mut via2, 0) {
         ticks += 1;
         if ticks > 100 { panic!("Timeout Zone 0"); }
     }
@@ -128,7 +128,7 @@ fn test_disk_bitrate_zones() {
     // Test Zone 1: 30 cycles (bits 5,6 = 10 -> 0x40)
     via2.orb = 0x40 | 0x04;
     ticks = 0;
-    while !mechanics.tick(&mut hardware, &mut via2) {
+    while !mechanics.tick(&mut hardware, &mut via2, 0) {
         ticks += 1;
         if ticks > 100 { panic!("Timeout Zone 1"); }
     }
@@ -137,7 +137,7 @@ fn test_disk_bitrate_zones() {
     // Test Zone 2: 28 cycles (bits 5,6 = 01 -> 0x20)
     via2.orb = 0x20 | 0x04;
     ticks = 0;
-    while !mechanics.tick(&mut hardware, &mut via2) {
+    while !mechanics.tick(&mut hardware, &mut via2, 0) {
         ticks += 1;
         if ticks > 100 { panic!("Timeout Zone 2"); }
     }
@@ -146,7 +146,7 @@ fn test_disk_bitrate_zones() {
     // Test Zone 3: 26 cycles (bits 5,6 = 00 -> 0x00)
     via2.orb = 0x00 | 0x04;
     ticks = 0;
-    while !mechanics.tick(&mut hardware, &mut via2) {
+    while !mechanics.tick(&mut hardware, &mut via2, 0) {
         ticks += 1;
         if ticks > 100 { panic!("Timeout Zone 3"); }
     }
@@ -177,7 +177,7 @@ fn test_disk_write_streaming() {
     // First byte delivered should go to idx 0
     let mut delivered = false;
     for _ in 0..32 {
-        if mechanics.tick(&mut hardware, &mut via2) {
+        if mechanics.tick(&mut hardware, &mut via2, 0) {
             delivered = true;
         }
     }

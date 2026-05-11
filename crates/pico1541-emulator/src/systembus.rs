@@ -74,7 +74,14 @@ impl<H: HostInterface> SystemBus<H> {
             crate::hle::HleManager::intercept_command(self);
         }
 
-        if self.mechanics.tick(hardware, &mut self.via2) {
+        let requested_sector = self.ram[0x000C];
+        /*
+        let track = hardware.get_active_track();
+        if !matches!(track.layout, pico1541_common::formats::TrackLayout::Void) {
+            emu_debug!("Tick: PC=${:04X}, Sector={}, Layout={:?}", self.pc(), requested_sector, track.layout);
+        }
+        */
+        if self.mechanics.tick(hardware, &mut self.via2, requested_sector) {
             self.so_active = true;
         } else {
             self.so_active = false;
@@ -92,6 +99,10 @@ impl<H: HostInterface> SystemBus<H> {
         // Execute the VIA cycles, so we get the actual output given the input state
         self.via1.tick_cycle();
         self.via2.tick_cycle();
+
+        if self.via1.irq || self.via2.irq {
+            // emu_debug!("IRQ Pending: VIA1={:02X}, VIA2={:02X}", self.via1.ifr, self.via2.ifr);
+        }
 
         // Resolve the IEC lines from the drive. ATN is set to ATNA (PB4) 
         let mut drive_iec = self.drive_iec_state(&host_iec);

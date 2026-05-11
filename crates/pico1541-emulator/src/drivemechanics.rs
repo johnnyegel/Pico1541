@@ -42,6 +42,7 @@ pub struct DriveMechanics {
     byte_cycle_limit: u32,
 
     last_state: u8,
+    last_requested_sector: u8,
 }
 
 impl DriveMechanics {
@@ -53,6 +54,7 @@ impl DriveMechanics {
             byte_cycle_counter: 0,
             byte_cycle_limit: CYCLES_ZONE_0, // Track 1 default
             last_state: 0,
+            last_requested_sector: 0xFF,
         }
     }
 
@@ -63,11 +65,12 @@ impl DriveMechanics {
         self.byte_cycle_counter = 0;
         self.byte_cycle_limit = CYCLES_ZONE_0;
         self.last_state = 0;
+        self.last_requested_sector = 0xFF;
     }
 
     /// Progresses the drive mechanics by one CPU cycle.
     /// Returns true if a new byte is ready to be processed by the CPU, and the SO pin should be set
-    pub fn tick<H: HostInterface>(&mut self, hardware: &mut H, via2: &mut Via6522) -> bool {
+    pub fn tick<H: HostInterface>(&mut self, hardware: &mut H, via2: &mut Via6522, requested_sector: u8) -> bool {
         // :: Update the drive state and issue events if there are changes
         let is_motor_on = self.update_state(via2, hardware);
 
@@ -90,7 +93,7 @@ impl DriveMechanics {
         self.byte_cycle_counter = 0;
 
         // Advance the track position
-        let gcr_pos = self.resolve_track_byte_position(&track);
+        let gcr_pos = self.resolve_track_byte_position(&track, requested_sector);
 
         // Determine read mode from CB2 (Manual High = Read)
         let is_read_mode = via2.get_cb2_out().unwrap_or(true);
@@ -139,6 +142,10 @@ impl DriveMechanics {
         self.halftrack_head_pos.clamp(0, MAX_HALF_TRACK) as u8
     }
 
+    pub fn track_byte_pos_ix(&self) -> usize {
+        self.track_byte_pos_ix
+    }
+
     #[cfg(feature = "debug")]
     pub fn led_on(&self, via2: &Via6522) -> bool {
         (via2.orb & MASK_LED) != 0
@@ -153,7 +160,7 @@ impl DriveMechanics {
 
     /// Updates the track current position, and returns the position in the buffer
     #[inline(always)]
-    fn resolve_track_byte_position(&mut self, track: &ActiveTrack) -> Option<usize> {
+    fn resolve_track_byte_position(&mut self, track: &ActiveTrack, requested_sector: u8) -> Option<usize> {
         let layout = if self.halftrack_head_pos == track.half_track as i8 {
             track.layout
         } else {
@@ -182,11 +189,24 @@ impl DriveMechanics {
                 self.track_byte_size = size;
                 true
             },
-            TrackLayout::Void => false
+            TrackLayout::StriddenWarp(size, stride) => {
+                self.track_byte_size = size;
+                if requested_sector != self.last_requested_sector {
+                    emu_info!("[StriddenWarp] Warping from sector {} to {} (stride={}, pos={} -> {})", 
+                        self.last_requested_sector, requested_sector, stride, self.track_byte_pos_ix, (requested_sector as usize) * stride);
+                    self.track_byte_pos_ix = (requested_sector as usize) * stride;
+                    self.last_requested_sector = requested_sector;
+                }
+                true
+            },
+            TrackLayout::Void => {
+                self.last_requested_sector = 0xFF; // Reset sector tracking on void track
+                false
+            }
         };
 
         // :? Is track position past the end of the track?
-        if self.track_byte_pos_ix > self.track_byte_size {
+        if self.track_byte_pos_ix >= self.track_byte_size {
             // -> Yes, then reset the track position
             self.track_byte_pos_ix = 0;
         }
@@ -194,7 +214,6 @@ impl DriveMechanics {
         // :: Get the current track position, and advance by 1 byte
         let current_byte_pos = self.track_byte_pos_ix;
         self.track_byte_pos_ix += 1;
-
 
         // :? Is there a valid track position
         if has_position {
@@ -266,7 +285,7 @@ impl DriveMechanics {
             let step = match delta {
                 1 => 1,  // Step IN
                 3 => -1, // Step OUT
-                _ => self.halftrack_head_pos,
+                _ => 0,
             };
 
             // Move the physical head, and clap it to the min and max physical half-track

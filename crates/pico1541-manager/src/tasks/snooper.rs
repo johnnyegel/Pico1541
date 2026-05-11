@@ -17,18 +17,9 @@ impl SnooperTask {
             let event = EVENT_CHANNEL.receive().await;
             match event {
                 DriveEvent::IecSnoopSecondaryAddress(_) | DriveEvent::IecSnoopByteReceived(_, _) => {
-                    self.handler.handle(event);
-                    
-                    // If this was an EOI, check if we have a complete command to process
-                    if let DriveEvent::IecSnoopByteReceived(_, true) = event {
-                        if let Some(cmd) = self.handler.get_command() {
-                            let mut data = [0u8; 32];
-                            let len = cmd.len().min(32) as u8;
-                            data[..len as usize].copy_from_slice(&cmd.as_bytes()[..len as usize]);
-                            
-                            ACTIVITY_CHANNEL.send(DriveEvent::IecCommand { data, len }).await;
-                        }
-                    }
+                    self.handler.handle(event, |e| {
+                        let _ = ACTIVITY_CHANNEL.try_send(e);
+                    });
                 }
                 // Forward other events (LED, Motor, etc.) to the activity task
                 other => {

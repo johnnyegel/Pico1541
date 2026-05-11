@@ -13,6 +13,7 @@ pub enum Error {
 // Represents the layout of a track read from a disk image
 // Accurate: A standard GCR track that emulates real physical rotation. Track length in bytes is provided.
 // Warp: A GCR track that allows "warping", aka, the byte position does not require accurate updates
+// StriddenWarp: A GCR track where sectors are at fixed strides, allowing instant warping via sector snooping.
 // Empty: An unformatted track (delivers 0x55 noise, no SYNC).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TrackLayout {
@@ -20,6 +21,9 @@ pub enum TrackLayout {
     Accurate(usize),
     /// A GCR track that allows "warping" (skipping gaps) for performance.
     Warp(usize),
+    /// A GCR track where sectors are at fixed strides, allowing instant warping via sector snooping.
+    /// (total_size, sector_stride)
+    StriddenWarp(usize, usize),
     /// There is no readable nor writable track (either no disk, or track is not formatted)
     /// This track layout can NOT be written to!
     Void,
@@ -33,15 +37,16 @@ pub trait DiskImage {
     async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<TrackLayout, Error>;
 }
 
-pub struct VirtualDirImage<D: DirectorySource> {
+pub struct VirtualDiskImage<D: DirectorySource> {
     pub source: D,
     id: [u8; 2],
     pub sector1_idx: usize,
     pub sector2_idx: usize,
     pub next_sector_to_update: u8,
+    pub shortcut_entry: Option<crate::storage::DirectoryEntry>,
 }
 
-impl<D: DirectorySource> VirtualDirImage<D> {
+impl<D: DirectorySource> VirtualDiskImage<D> {
     pub fn new(source: D) -> Self {
         Self {
             source,
@@ -49,11 +54,16 @@ impl<D: DirectorySource> VirtualDirImage<D> {
             sector1_idx: 0,
             sector2_idx: 0,
             next_sector_to_update: 2,
+            shortcut_entry: None,
         }
     }
 
     pub fn set_id(&mut self, id: [u8; 2]) {
         self.id = id;
+    }
+
+    pub fn set_shortcut_entry(&mut self, entry: Option<crate::storage::DirectoryEntry>) {
+        self.shortcut_entry = entry;
     }
 
     pub fn encode_directory_sector(
@@ -169,18 +179,220 @@ impl<D: DirectorySource> VirtualDirImage<D> {
     }
 }
 
-impl<D: DirectorySource> DiskImage for VirtualDirImage<D> {
+impl<D: DirectorySource> DiskImage for VirtualDiskImage<D> {
     async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<TrackLayout, Error> {
-        if half_track != 34 && half_track != 35 {
+        if half_track > 83 {
             return Ok(TrackLayout::Void);
         }
 
-        let track = 18;
+        let track = half_track / 2 + 1;
 
-        // Track 18: Generate BAM and initial directory sectors
-        let sectors = 19;
+        if track == 1 {
+            // Track 1: Infinite File Track
+            let sectors = 25;
+            let stride = 400;
+
+            for sector in 0..sectors {
+                let mut write_ptr = sector * stride;
+
+                // Lead-in
+                for _ in 0..5 {
+                    if write_ptr < dest.len() {
+                        dest[write_ptr] = 0xAA;
+                        write_ptr += 1;
+                    }
+                }
+
+                // Header SYNC
+                for _ in 0..10 {
+                    if write_ptr < dest.len() {
+                        dest[write_ptr] = 0xFF;
+                        write_ptr += 1;
+                    }
+                }
+                let checksum = (sector as u8) ^ (track as u8) ^ self.id[0] ^ self.id[1];
+                let header_raw = [
+                    0x08, checksum, sector as u8, track as u8, self.id[1], self.id[0], 0x0F, 0x0F,
+                ];
+                for i in 0..2 {
+                    let mut src = [0u8; 4];
+                    src.copy_from_slice(&header_raw[i * 4..(i + 1) * 4]);
+                    let mut dst = [0u8; 5];
+                    gcr::encode_gcr_block(&src, &mut dst);
+                    if write_ptr + 5 <= dest.len() {
+                        dest[write_ptr..write_ptr + 5].copy_from_slice(&dst);
+                        write_ptr += 5;
+                    }
+                }
+                // Header-to-Data Gap
+                for _ in 0..9 {
+                    if write_ptr < dest.len() {
+                        dest[write_ptr] = 0xAA;
+                        write_ptr += 1;
+                    }
+                }
+                // Data SYNC
+                for _ in 0..10 {
+                    if write_ptr < dest.len() {
+                        dest[write_ptr] = 0xFF;
+                        write_ptr += 1;
+                    }
+                }
+                // Empty Data Block
+                let mut data_raw = [0u8; 260];
+                data_raw[0] = 0x07;
+                for i in 0..65 {
+                    let mut src = [0u8; 4];
+                    src.copy_from_slice(&data_raw[i * 4..(i + 1) * 4]);
+                    let mut dst = [0u8; 5];
+                    gcr::encode_gcr_block(&src, &mut dst);
+                    if write_ptr + 5 <= dest.len() {
+                        dest[write_ptr..write_ptr + 5].copy_from_slice(&dst);
+                        write_ptr += 5;
+                    }
+                }
+            }
+
+            log::info!("VirtualDiskImage: Returning StriddenWarp for track 1");
+            return Ok(TrackLayout::StriddenWarp(10000, stride));
+        }
+
+        if half_track == 34 || half_track == 35 {
+            // Track 18: Generate BAM and initial directory sectors
+            let sectors = 19;
+            let mut write_ptr = 0;
+
+            for _ in 0..40 {
+                if write_ptr < dest.len() {
+                    dest[write_ptr] = 0xAA;
+                    write_ptr += 1;
+                }
+            }
+
+            self.source.rewind();
+
+            for sector in 0..sectors {
+                let mut sector_data = [0u8; 256];
+
+                if sector == 0 {
+                    sector_data[0] = 18;
+                    sector_data[1] = 1;
+                    sector_data[2] = 0x41;
+                    for i in 4..144 {
+                        sector_data[i] = 0;
+                    }
+                    sector_data[144..160].copy_from_slice(self.source.name());
+                    sector_data[160..162].copy_from_slice(b"\xA0\xA0");
+                    sector_data[162..164].copy_from_slice(&self.id);
+                    sector_data[164] = 0xA0;
+                    sector_data[165] = 0x32;
+                    sector_data[166] = 0x41;
+                } else if sector == 1 || sector == 2 {
+                    if let Some(entry) = self.shortcut_entry {
+                        if sector == 1 {
+                            self.encode_directory_sector(&[entry], 0, 0xFF, &mut sector_data);
+                        } else {
+                            // Sector 2 is empty/end
+                            self.encode_directory_sector(&[], 0, 0xFF, &mut sector_data);
+                        }
+                    } else {
+                        if sector == 1 {
+                            self.sector1_idx = write_ptr + 39;
+                        } else {
+                            self.sector2_idx = write_ptr + 39;
+                        }
+
+                        let mut entries = [crate::storage::DirectoryEntry::new(b"", 0, 0, 0); 8];
+                        let mut count = 0;
+                        for i in 0..8 {
+                            if let Some(entry) = self.source.next_entry() {
+                                entries[i] = entry;
+                                count += 1;
+                            } else {
+                                break;
+                            }
+                        }
+                        let (next_t, next_s) = if count == 0 {
+                            (0, 0xFF)
+                        } else {
+                            (18, if sector == 1 { 2 } else { 1 })
+                        };
+                        self.encode_directory_sector(&entries[..count], next_t, next_s, &mut sector_data);
+                    }
+                }
+
+                for _ in 0..10 {
+                    if write_ptr < dest.len() {
+                        dest[write_ptr] = 0xFF;
+                        write_ptr += 1;
+                    }
+                }
+                let checksum = (sector as u8) ^ (track as u8) ^ self.id[0] ^ self.id[1];
+                let header_raw = [
+                    0x08, checksum, sector as u8, track as u8, self.id[1], self.id[0], 0x0F, 0x0F,
+                ];
+                for i in 0..2 {
+                    let mut src = [0u8; 4];
+                    src.copy_from_slice(&header_raw[i * 4..(i + 1) * 4]);
+                    let mut dst = [0u8; 5];
+                    gcr::encode_gcr_block(&src, &mut dst);
+                    if write_ptr + 5 <= dest.len() {
+                        dest[write_ptr..write_ptr + 5].copy_from_slice(&dst);
+                        write_ptr += 5;
+                    }
+                }
+                for _ in 0..9 {
+                    if write_ptr < dest.len() {
+                        dest[write_ptr] = 0xAA;
+                        write_ptr += 1;
+                    }
+                }
+                for _ in 0..10 {
+                    if write_ptr < dest.len() {
+                        dest[write_ptr] = 0xFF;
+                        write_ptr += 1;
+                    }
+                }
+                let mut data_checksum = 0u8;
+                for b in sector_data.iter() {
+                    data_checksum ^= b;
+                }
+                let mut data_raw = [0u8; 260];
+                data_raw[0] = 0x07;
+                data_raw[1..257].copy_from_slice(&sector_data);
+                data_raw[257] = data_checksum;
+                for i in 0..65 {
+                    let mut src = [0u8; 4];
+                    src.copy_from_slice(&data_raw[i * 4..(i + 1) * 4]);
+                    let mut dst = [0u8; 5];
+                    gcr::encode_gcr_block(&src, &mut dst);
+                    if write_ptr + 5 <= dest.len() {
+                        dest[write_ptr..write_ptr + 5].copy_from_slice(&dst);
+                        write_ptr += 5;
+                    }
+                }
+                for _ in 0..8 {
+                    if write_ptr < dest.len() {
+                        dest[write_ptr] = 0xAA;
+                        write_ptr += 1;
+                    }
+                }
+            }
+
+            return Ok(TrackLayout::Accurate(7142));
+        }
+
+        // Generate Skeleton Track for other tracks
+        let sectors = match track {
+            1..=17 => 21,
+            18..=24 => 19,
+            25..=30 => 18,
+            31..=40 => 17,
+            _ => 17,
+        };
+
         let mut write_ptr = 0;
-
+        // Lead-in
         for _ in 0..40 {
             if write_ptr < dest.len() {
                 dest[write_ptr] = 0xAA;
@@ -188,58 +400,17 @@ impl<D: DirectorySource> DiskImage for VirtualDirImage<D> {
             }
         }
 
-        self.source.rewind();
-
         for sector in 0..sectors {
-            let mut sector_data = [0u8; 256];
-
-            if sector == 0 {
-                sector_data[0] = 18;
-                sector_data[1] = 1;
-                sector_data[2] = 0x41;
-                for i in 4..144 {
-                    sector_data[i] = 0;
-                }
-                sector_data[144..160].copy_from_slice(self.source.name());
-                sector_data[160..162].copy_from_slice(b"\xA0\xA0");
-                sector_data[162..164].copy_from_slice(&self.id);
-                sector_data[164] = 0xA0;
-                sector_data[165] = 0x32;
-                sector_data[166] = 0x41;
-            } else if sector == 1 || sector == 2 {
-                if sector == 1 {
-                    self.sector1_idx = write_ptr + 39;
-                } else {
-                    self.sector2_idx = write_ptr + 39;
-                }
-
-                let mut entries = [crate::storage::DirectoryEntry::new(b"", 0, 0, 0); 8];
-                let mut count = 0;
-                for i in 0..8 {
-                    if let Some(entry) = self.source.next_entry() {
-                        entries[i] = entry;
-                        count += 1;
-                    } else {
-                        break;
-                    }
-                }
-                let (next_t, next_s) = if count == 0 {
-                    (0, 0xFF)
-                } else {
-                    (18, if sector == 1 { 2 } else { 1 })
-                };
-                self.encode_directory_sector(&entries[..count], next_t, next_s, &mut sector_data);
-            }
-
+            // Header SYNC
             for _ in 0..10 {
                 if write_ptr < dest.len() {
                     dest[write_ptr] = 0xFF;
                     write_ptr += 1;
                 }
             }
-            let checksum = sector ^ track ^ self.id[0] ^ self.id[1];
+            let checksum = (sector as u8) ^ (track as u8) ^ self.id[0] ^ self.id[1];
             let header_raw = [
-                0x08, checksum, sector, track, self.id[1], self.id[0], 0x0F, 0x0F,
+                0x08, checksum, sector as u8, track as u8, self.id[1], self.id[0], 0x0F, 0x0F,
             ];
             for i in 0..2 {
                 let mut src = [0u8; 4];
@@ -251,26 +422,23 @@ impl<D: DirectorySource> DiskImage for VirtualDirImage<D> {
                     write_ptr += 5;
                 }
             }
+            // Header-to-Data Gap
             for _ in 0..9 {
                 if write_ptr < dest.len() {
                     dest[write_ptr] = 0xAA;
                     write_ptr += 1;
                 }
             }
+            // Data SYNC
             for _ in 0..10 {
                 if write_ptr < dest.len() {
                     dest[write_ptr] = 0xFF;
                     write_ptr += 1;
                 }
             }
-            let mut data_checksum = 0u8;
-            for b in sector_data.iter() {
-                data_checksum ^= b;
-            }
+            // Empty Data Block (0x07 mark + 256 bytes 0 + 0 checksum + 0 offbyte)
             let mut data_raw = [0u8; 260];
             data_raw[0] = 0x07;
-            data_raw[1..257].copy_from_slice(&sector_data);
-            data_raw[257] = data_checksum;
             for i in 0..65 {
                 let mut src = [0u8; 4];
                 src.copy_from_slice(&data_raw[i * 4..(i + 1) * 4]);
@@ -281,6 +449,7 @@ impl<D: DirectorySource> DiskImage for VirtualDirImage<D> {
                     write_ptr += 5;
                 }
             }
+            // Inter-sector gap
             for _ in 0..8 {
                 if write_ptr < dest.len() {
                     dest[write_ptr] = 0xAA;
@@ -289,7 +458,14 @@ impl<D: DirectorySource> DiskImage for VirtualDirImage<D> {
             }
         }
 
-        Ok(TrackLayout::Warp(7142))
+        let track_bytes = match track {
+            1..=17 => 7692,
+            18..=24 => 7142,
+            25..=30 => 6666,
+            _ => 6250,
+        };
+
+        Ok(TrackLayout::Warp(track_bytes))
     }
 }
 
@@ -478,12 +654,12 @@ impl<S: Read + Seek> DiskImage for G64Image<S> {
 pub enum AnyDiskImage<S: Read + Seek, D: DirectorySource> {
     D64(D64Image<S>),
     G64(G64Image<S>),
-    VirtualDir(VirtualDirImage<D>),
+    VirtualDisk(VirtualDiskImage<D>),
 }
 
 impl<S: Read + Seek, D: DirectorySource> AnyDiskImage<S, D> {
-    pub fn as_virtual_dir_mut(&mut self) -> Option<&mut VirtualDirImage<D>> {
-        if let Self::VirtualDir(img) = self {
+    pub fn as_virtual_disk_mut(&mut self) -> Option<&mut VirtualDiskImage<D>> {
+        if let Self::VirtualDisk(img) = self {
             Some(img)
         } else {
             None
@@ -496,7 +672,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for AnyDiskImage<S, D> {
         match self {
             Self::D64(img) => img.read_track(half_track, dest).await,
             Self::G64(img) => img.read_track(half_track, dest).await,
-            Self::VirtualDir(img) => img.read_track(half_track, dest).await,
+            Self::VirtualDisk(img) => img.read_track(half_track, dest).await,
         }
     }
 }

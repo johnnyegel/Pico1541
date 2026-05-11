@@ -194,7 +194,9 @@ impl HostInterface for HardwareBridge {
             if let Err(_) = pico1541_manager::EVENT_CHANNEL.try_send(event) { }
             
             // Handle for hijacking on Core 0
-            handler.handle(event);
+            handler.handle(event, |e| {
+                 if let Err(_) = pico1541_manager::EVENT_CHANNEL.try_send(e) { }
+            });
             if handler.is_hijacked() {
                 config.hijack_active.store(true, Ordering::Relaxed);
                 config.should_drive_data.store(true, Ordering::Relaxed);
