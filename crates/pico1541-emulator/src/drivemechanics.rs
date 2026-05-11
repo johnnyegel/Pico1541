@@ -169,17 +169,11 @@ impl DriveMechanics {
                     let new_track_position = (self.track_byte_pos_ix * size) 
                             / self.track_byte_size;
 
-                    log::debug!("[Accurate] Recalculated track [{}] position: {} / {} -> {} / {}", 
+                    emu_debug!("[Accurate] Recalculated track [{}] position: {} / {} -> {} / {}", 
                             self.halftrack_head_pos, self.track_byte_pos_ix, self.track_byte_size, new_track_position, size);
                     
-                    // Set the new track position, and ensure it is inside the track rance
-                    self.track_byte_pos_ix = if new_track_position < size {
-                        new_track_position
-                    } else {
-                        0
-                    };
-                    
-                    // Set the size of the track
+                    // Update the byte position and size
+                    self.track_byte_pos_ix = new_track_position;
                     self.track_byte_size = size;
                 }
                 
@@ -192,13 +186,16 @@ impl DriveMechanics {
             TrackLayout::Void => false
         };
 
-        // :: Advance the track position
+        // :? Is track position past the end of the track?
+        if self.track_byte_pos_ix > self.track_byte_size {
+            // -> Yes, then reset the track position
+            self.track_byte_pos_ix = 0;
+        }
+
+        // :: Get the current track position, and advance by 1 byte
         let current_byte_pos = self.track_byte_pos_ix;
         self.track_byte_pos_ix += 1;
 
-        if self.track_byte_pos_ix > self.track_byte_size {
-            self.track_byte_pos_ix = 0;
-        }
 
         // :? Is there a valid track position
         if has_position {
