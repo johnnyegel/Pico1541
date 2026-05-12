@@ -14,9 +14,15 @@ pub trait DisplayDriver {
     async fn redraw(&mut self);
 }
 
+/// Driver for RGB LED control.
+pub trait RgbLedDriver {
+    fn set_color(&mut self, r: bool, g: bool, b: bool);
+}
+
 /// Driver for keyboard/button input.
 pub trait InputDriver {
     async fn wait_for_button(&mut self) -> u8;
+    fn scan(&mut self) -> u8;
 }
 
 /// Driver for status and activity indicators.

@@ -1,7 +1,7 @@
 use embassy_rp::gpio::{Level, Output, Pin};
 use embassy_rp::Peri;
+use pico1541_manager::driver::RgbLedDriver;
 
-#[allow(dead_code)]
 /// Driver for the RGB Status/Power LED (GPIO 26, 27, 28).
 pub struct StatusLeds {
     pub red: Output<'static>,
@@ -9,7 +9,6 @@ pub struct StatusLeds {
     pub blue: Output<'static>,
 }
 
-#[allow(dead_code)]
 impl StatusLeds {
     pub fn new(
         red: Peri<'static, impl Pin>,
@@ -22,8 +21,10 @@ impl StatusLeds {
             blue: Output::new(blue, Level::High),
         }
     }
+}
 
-    pub fn set_color(&mut self, r: bool, g: bool, b: bool) {
+impl RgbLedDriver for StatusLeds {
+    fn set_color(&mut self, r: bool, g: bool, b: bool) {
         self.red.set_level(if r { Level::Low } else { Level::High });
         self.green
             .set_level(if g { Level::Low } else { Level::High });

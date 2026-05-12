@@ -18,12 +18,13 @@ use pico1541_common::snooper::{IecSnooper, IecSnoopByteHandler, SnooperConfig};
 use pico1541_common::formats::{AnyDiskImage, VirtualDiskImage};
 use pico1541_common::storage::{DirectoryEntry, StaticDirectorySource, MemoryStorage};
 use pico1541_emulator::Emulator;
-use pico1541_manager::tasks::{DisplayTask, DriveActivityTask, SnooperTask, VirtualDiskTask};
+use pico1541_manager::tasks::{DisplayTask, DriveActivityTask, HardwareTestTask, SnooperTask, VirtualDiskTask};
 use panic_probe as _;
 
 use crate::driver::display::{DisplayWrapper, OledDisplay};
 use crate::driver::indicator::ActivityIndicator;
-use crate::driver::leds::ActivityLed;
+use crate::driver::input::KeyboardInput;
+use crate::driver::leds::{ActivityLed, StatusLeds};
 use crate::driver::speaker::PiezoSpeaker;
 
 use static_cell::StaticCell;
@@ -51,7 +52,6 @@ async fn main(spawner: Spawner) {
     let mut oled_obj = OledDisplay::new(i2c);
     oled_obj.init().await;
     let oled_mutex = OLED.init(Mutex::new(oled_obj));
-    let display_task = DisplayTask::new(DisplayWrapper(oled_mutex));
 
     // 2. Indicators (Piezo + LEDs)
     let activity_led = ActivityLed::new(p.PIN_22, p.PIN_3);
@@ -59,7 +59,13 @@ async fn main(spawner: Spawner) {
     let indicator = ActivityIndicator::new(activity_led, piezo);
     let activity_task = DriveActivityTask::new(indicator);
 
-    // 3. Snooper Task
+    // 3. RGB Status LEDs
+    let status_leds = StatusLeds::new(p.PIN_26, p.PIN_27, p.PIN_28);
+
+    // 4. Keyboard Matrix
+    let keyboard = KeyboardInput::new(p.PIN_6, p.PIN_7, p.PIN_8, p.PIN_9);
+
+    // 5. Snooper Task
     let snooper_task = SnooperTask::new(8);
 
     // 4. Storage (SD Card - SPI)
@@ -95,8 +101,12 @@ async fn main(spawner: Spawner) {
     let track_for_task = unsafe { &mut *track_ptr };
     let vdisk_task = VirtualDiskTask::new(disk_image, track_for_task);
 
-    // Spawn Manager Tasks
-    spawner.spawn(display_run(display_task).unwrap());
+    // --- Hardware Test Mode (Default Boot) ---
+    let test_task = HardwareTestTask::new(DisplayWrapper(oled_mutex), keyboard, status_leds);
+    spawner.spawn(test_run(test_task).unwrap());
+
+    // Spawn other Manager Tasks
+    // spawner.spawn(display_run(display_task).unwrap()); // HardwareTestTask handles display for now
     spawner.spawn(activity_run(activity_task).unwrap());
     spawner.spawn(snooper_run(snooper_task).unwrap());
     spawner.spawn(vdisk_run(vdisk_task).unwrap());
@@ -254,6 +264,11 @@ async fn snooper_run(mut task: SnooperTask) {
 
 #[embassy_executor::task]
 async fn vdisk_run(mut task: VirtualDiskTask<'static, MemoryStorage<'static>, StaticDirectorySource<'static>>) {
+    task.run().await;
+}
+
+#[embassy_executor::task]
+async fn test_run(mut task: HardwareTestTask<DisplayWrapper<NoopRawMutex>, KeyboardInput, StatusLeds>) {
     task.run().await;
 }
 
