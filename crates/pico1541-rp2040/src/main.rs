@@ -54,8 +54,8 @@ async fn main(spawner: Spawner) {
     let display_task = DisplayTask::new(DisplayWrapper(oled_mutex));
 
     // 2. Indicators (Piezo + LEDs)
-    let activity_led = ActivityLed::new(p.PIN_22.into(), p.PIN_3.into());
-    let piezo = PiezoSpeaker::new(p.PIN_2.into());
+    let activity_led = ActivityLed::new(p.PIN_22, p.PIN_3);
+    let piezo = PiezoSpeaker::new(p.PIN_2);
     let indicator = ActivityIndicator::new(activity_led, piezo);
     let activity_task = DriveActivityTask::new(indicator);
 
@@ -65,7 +65,13 @@ async fn main(spawner: Spawner) {
     // 4. Storage (SD Card - SPI)
     // For now, use a virtual disk with static content
     static DIR_ENTRIES: [DirectoryEntry; 1] = [
-        DirectoryEntry::new(b"GAME", 1, 0, 10),
+        DirectoryEntry {
+            file_type: 0x82,
+            filename: [b'G', b'A', b'M', b'E', 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0],
+            first_track: 1,
+            first_sector: 0,
+            block_size: 10,
+        },
     ];
     let dir_source = StaticDirectorySource::new(b"VIRTUAL DISK", &DIR_ENTRIES);
     let mut vdisk = VirtualDiskImage::new(dir_source);
@@ -82,15 +88,18 @@ async fn main(spawner: Spawner) {
 
     // Shared ActiveTrack buffer
     static ACTIVE_TRACK: StaticCell<ActiveTrack> = StaticCell::new();
-    let track = ACTIVE_TRACK.init(ActiveTrack::new());
+    let track_ptr = ACTIVE_TRACK.init(ActiveTrack::new()) as *mut ActiveTrack;
 
-    let vdisk_task = VirtualDiskTask::new(disk_image, track);
+    // Safety: Core 0 (Emulator) and Core 1 (Manager) share the ActiveTrack buffer.
+    // Core 0 reads/writes it in a cycle-exact loop, while Core 1 updates it during loads.
+    let track_for_task = unsafe { &mut *track_ptr };
+    let vdisk_task = VirtualDiskTask::new(disk_image, track_for_task);
 
     // Spawn Manager Tasks
-    spawner.spawn(display_run(display_task)).unwrap();
-    spawner.spawn(activity_run(activity_task)).unwrap();
-    spawner.spawn(snooper_run(snooper_task)).unwrap();
-    spawner.spawn(vdisk_run(vdisk_task)).unwrap();
+    spawner.spawn(display_run(display_task).unwrap());
+    spawner.spawn(activity_run(activity_task).unwrap());
+    spawner.spawn(snooper_run(snooper_task).unwrap());
+    spawner.spawn(vdisk_run(vdisk_task).unwrap());
 
     // IEC Pins
     let pins = IecPins {
@@ -101,7 +110,8 @@ async fn main(spawner: Spawner) {
         clk_tx: Output::new(p.PIN_20, Level::Low),
     };
 
-    let bridge = HardwareBridge::new(pins, track, &SNOOPER_CONFIG);
+    let track_for_bridge = unsafe { &mut *track_ptr };
+    let bridge = HardwareBridge::new(pins, track_for_bridge, &SNOOPER_CONFIG);
 
     // 1541-II ROM (Stock)
     let rom = include_bytes!("../../../roms/1541-II.251968-03.bin");

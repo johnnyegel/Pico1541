@@ -21,4 +21,4 @@ pico1541-emulator = { path = ".", features = ["debug"] }
 racc6502 = { path = "../racc6502", features = ["debug"] }
 pico1541-common = { path = "../pico1541-common" }
 futures = "0.3"
-pollster = "0.3.0"
+pollster = "0.4.0"

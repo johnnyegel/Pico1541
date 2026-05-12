@@ -1,11 +1,12 @@
-use embassy_rp::gpio::{AnyPin, Level, Output};
+use embassy_rp::gpio::{Level, Output, Pin};
+use embassy_rp::Peri;
 
 pub struct PiezoSpeaker {
     pub piezo: Output<'static>,
 }
 
 impl PiezoSpeaker {
-    pub fn new(pin: AnyPin) -> Self {
+    pub fn new(pin: Peri<'static, impl Pin>) -> Self {
         Self {
             piezo: Output::new(pin, Level::Low),
         }
