@@ -16,20 +16,20 @@ impl StatusLeds {
         blue: Peri<'static, impl Pin>,
     ) -> Self {
         Self {
-            red: Output::new(red, Level::High), // Active Low assumed
-            green: Output::new(green, Level::High),
-            blue: Output::new(blue, Level::High),
+            red: Output::new(red, Level::Low),
+            green: Output::new(green, Level::Low),
+            blue: Output::new(blue, Level::Low),
         }
     }
 }
 
 impl RgbLedDriver for StatusLeds {
     fn set_color(&mut self, r: bool, g: bool, b: bool) {
-        self.red.set_level(if r { Level::Low } else { Level::High });
+        self.red.set_level(if r { Level::High } else { Level::Low });
         self.green
-            .set_level(if g { Level::Low } else { Level::High });
+            .set_level(if g { Level::High } else { Level::Low });
         self.blue
-            .set_level(if b { Level::Low } else { Level::High });
+            .set_level(if b { Level::High } else { Level::Low });
     }
 }
 
@@ -50,15 +50,21 @@ impl ActivityLed {
         }
     }
 
-    pub fn set_state(&mut self, active: bool) {
-        // Example: Red when active, Blue/Off otherwise
-        // Depends on the specific LED and wiring
-        if active {
-            self.pos.set_high();
-            self.neg.set_low();
-        } else {
-            self.pos.set_low();
-            self.neg.set_low();
+    pub fn set_color(&mut self, color: pico1541_manager::driver::ActivityColor) {
+        use pico1541_manager::driver::ActivityColor;
+        match color {
+            ActivityColor::Red => {
+                self.pos.set_low();
+                self.neg.set_high();
+            }
+            ActivityColor::Green => {
+                self.pos.set_high();
+                self.neg.set_low();
+            }
+            ActivityColor::Off => {
+                self.pos.set_low();
+                self.neg.set_low();
+            }
         }
     }
 }

@@ -16,7 +16,12 @@ impl<I: IndicatorDriver> DriveActivityTask<I> {
             let event = ACTIVITY_CHANNEL.receive().await;
             match event {
                 DriveEvent::LedChanged(active) => {
-                    self.indicator.set_activity_led(active);
+                    let color = if active {
+                        crate::driver::ActivityColor::Red
+                    } else {
+                        crate::driver::ActivityColor::Off
+                    };
+                    self.indicator.set_activity_led(color);
                 }
                 DriveEvent::HeadStepped { new_half_track } => {
                     self.indicator.beep();

@@ -14342,7 +14342,7 @@
 				(justify right)
 			)
 		)
-		(property "Footprint" "LED_THT:LED_D5.0mm-4_RGB_Staggered_Pins"
+		(property "Footprint" "Pico1541-footprints:LED_D5.0mm-4_RGB_CorrectStaggered_Pins"
 			(at 133.35 111.76 0)
 			(hide yes)
 			(show_name no)

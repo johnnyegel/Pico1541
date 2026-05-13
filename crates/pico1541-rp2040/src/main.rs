@@ -24,7 +24,7 @@ use pico1541_manager::tasks::{DriveActivityTask, HardwareTestTask, SnooperTask, 
 use panic_probe as _;
 
 use crate::driver::display::{DisplayWrapper, OledDisplay};
-use crate::driver::indicator::ActivityIndicator;
+use crate::driver::indicator::{ActivityIndicator, IndicatorWrapper};
 use crate::driver::input::KeyboardInput;
 use crate::driver::leds::{ActivityLed, StatusLeds};
 use crate::driver::speaker::PiezoSpeaker;
@@ -63,7 +63,11 @@ async fn main(_spawner: Spawner) {
     let activity_led = ActivityLed::new(p.PIN_22, p.PIN_3);
     let piezo = PiezoSpeaker::new(p.PIN_2);
     let indicator = ActivityIndicator::new(activity_led, piezo);
-    let activity_task = DriveActivityTask::new(indicator);
+
+    static INDICATOR: StaticCell<Mutex<CriticalSectionRawMutex, ActivityIndicator>> =
+        StaticCell::new();
+    let indicator_mutex = INDICATOR.init(Mutex::new(indicator));
+    let activity_task = DriveActivityTask::new(IndicatorWrapper(indicator_mutex));
 
     // 3. RGB Status LEDs
     let status_leds = StatusLeds::new(p.PIN_26, p.PIN_27, p.PIN_28);
@@ -109,7 +113,12 @@ async fn main(_spawner: Spawner) {
 
     // --- Spawn Core 1 ---
     // Core 1 will handle the Manager tasks and Heartbeat
-    let test_task = HardwareTestTask::new(DisplayWrapper(oled_mutex), keyboard, status_leds);
+    let test_task = HardwareTestTask::new(
+        DisplayWrapper(oled_mutex),
+        keyboard,
+        status_leds,
+        IndicatorWrapper(indicator_mutex),
+    );
     let pin25 = p.PIN_25;
 
     embassy_rp::multicore::spawn_core1(p.CORE1, stack, move || {
@@ -252,7 +261,7 @@ impl HostInterface for HardwareBridge {
 // --- Embassy Task Wrappers ---
 
 #[embassy_executor::task]
-async fn activity_run(mut task: DriveActivityTask<ActivityIndicator>) {
+async fn activity_run(mut task: DriveActivityTask<IndicatorWrapper<CriticalSectionRawMutex>>) {
     task.run().await;
 }
 
@@ -267,7 +276,14 @@ async fn vdisk_run(mut task: VirtualDiskTask<'static, MemoryStorage<'static>, St
 }
 
 #[embassy_executor::task]
-async fn test_run(mut task: HardwareTestTask<DisplayWrapper<CriticalSectionRawMutex>, KeyboardInput, StatusLeds>) {
+async fn test_run(
+    mut task: HardwareTestTask<
+        DisplayWrapper<CriticalSectionRawMutex>,
+        KeyboardInput,
+        StatusLeds,
+        IndicatorWrapper<CriticalSectionRawMutex>,
+    >,
+) {
     task.run().await;
 }
 
@@ -284,8 +300,13 @@ async fn blinky(pin: Peri<'static, PIN_25>) {
 }
 
 fn core1_main(
-    test_task: HardwareTestTask<DisplayWrapper<CriticalSectionRawMutex>, KeyboardInput, StatusLeds>,
-    activity_task: DriveActivityTask<ActivityIndicator>,
+    test_task: HardwareTestTask<
+        DisplayWrapper<CriticalSectionRawMutex>,
+        KeyboardInput,
+        StatusLeds,
+        IndicatorWrapper<CriticalSectionRawMutex>,
+    >,
+    activity_task: DriveActivityTask<IndicatorWrapper<CriticalSectionRawMutex>>,
     snooper_task: SnooperTask,
     vdisk_task: VirtualDiskTask<'static, MemoryStorage<'static>, StaticDirectorySource<'static>>,
     pin25: Peri<'static, PIN_25>,

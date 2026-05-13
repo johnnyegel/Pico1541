@@ -25,15 +25,23 @@ pub trait InputDriver {
     fn scan(&mut self) -> u8;
 }
 
+/// Color for the bi-color Activity LED.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ActivityColor {
+    Off,
+    Red,
+    Green,
+}
+
 /// Driver for status and activity indicators.
 pub trait IndicatorDriver {
-    fn set_activity_led(&mut self, active: bool);
+    fn set_activity_led(&mut self, color: ActivityColor);
     fn beep(&mut self);
 }
 
 impl<T: IndicatorDriver + ?Sized> IndicatorDriver for &mut T {
-    fn set_activity_led(&mut self, active: bool) {
-        (**self).set_activity_led(active);
+    fn set_activity_led(&mut self, color: ActivityColor) {
+        (**self).set_activity_led(color);
     }
 
     fn beep(&mut self) {
