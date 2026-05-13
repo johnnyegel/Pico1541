@@ -28,7 +28,7 @@ use panic_probe as _;
 use crate::driver::display::{DisplayWrapper, OledDisplay};
 use crate::driver::indicator::{ActivityIndicator, IndicatorWrapper};
 use crate::driver::input::KeyboardInput;
-use crate::driver::leds::{ActivityLed, StatusLeds};
+use crate::driver::leds::{ActivityLed, StatusLeds, StatusLedsWrapper};
 use crate::driver::speaker::PiezoSpeaker;
 
 use static_cell::StaticCell;
@@ -71,8 +71,10 @@ async fn main(_spawner: Spawner) {
     let indicator_mutex = INDICATOR.init(Mutex::new(indicator));
     let activity_task = DriveActivityTask::new(IndicatorWrapper(indicator_mutex));
 
-    // 3. RGB Status LEDs (Reserved for future system status)
-    let _status_leds = StatusLeds::new(p.PIN_26, p.PIN_27, p.PIN_28);
+    // 3. RGB Status LEDs (Used in Hardware Test via Main Menu)
+    let status_leds_obj = StatusLeds::new(p.PIN_26, p.PIN_27, p.PIN_28);
+    static STATUS_LEDS: StaticCell<Mutex<CriticalSectionRawMutex, StatusLeds>> = StaticCell::new();
+    let status_leds_mutex = STATUS_LEDS.init(Mutex::new(status_leds_obj));
 
     // 4. Keyboard Matrix
     let keyboard = KeyboardInput::new(p.PIN_6, p.PIN_7, p.PIN_8, p.PIN_9);
@@ -119,7 +121,11 @@ async fn main(_spawner: Spawner) {
 
     // --- Spawn Core 1 ---
     // Core 1 will handle the Manager tasks and Heartbeat
-    let menu_task = MainMenuTask::new(DisplayWrapper(oled_mutex));
+    let menu_task = MainMenuTask::new(
+        DisplayWrapper(oled_mutex),
+        StatusLedsWrapper(status_leds_mutex),
+        IndicatorWrapper(indicator_mutex),
+    );
     let pin25 = p.PIN_25;
 
     embassy_rp::multicore::spawn_core1(p.CORE1, stack, move || {
@@ -295,7 +301,13 @@ async fn keyboard_run(mut task: KeyboardTask<KeyboardInput>) {
 }
 
 #[embassy_executor::task]
-async fn menu_run(mut task: MainMenuTask<DisplayWrapper<CriticalSectionRawMutex>>) {
+async fn menu_run(
+    mut task: MainMenuTask<
+        DisplayWrapper<CriticalSectionRawMutex>,
+        StatusLedsWrapper<CriticalSectionRawMutex>,
+        IndicatorWrapper<CriticalSectionRawMutex>,
+    >,
+) {
     task.run().await;
 }
 
@@ -312,7 +324,11 @@ async fn blinky(pin: Peri<'static, PIN_25>) {
 }
 
 fn core1_main(
-    menu_task: MainMenuTask<DisplayWrapper<CriticalSectionRawMutex>>,
+    menu_task: MainMenuTask<
+        DisplayWrapper<CriticalSectionRawMutex>,
+        StatusLedsWrapper<CriticalSectionRawMutex>,
+        IndicatorWrapper<CriticalSectionRawMutex>,
+    >,
     activity_task: DriveActivityTask<IndicatorWrapper<CriticalSectionRawMutex>>,
     keyboard_task: KeyboardTask<KeyboardInput>,
     display_task: DisplayTask<DisplayWrapper<CriticalSectionRawMutex>>,

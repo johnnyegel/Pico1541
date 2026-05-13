@@ -33,6 +33,26 @@ impl RgbLedDriver for StatusLeds {
     }
 }
 
+pub struct StatusLedsWrapper<M: embassy_sync::blocking_mutex::raw::RawMutex + 'static>(
+    pub &'static embassy_sync::mutex::Mutex<M, StatusLeds>,
+);
+
+impl<M: embassy_sync::blocking_mutex::raw::RawMutex + 'static> Clone for StatusLedsWrapper<M> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<M: embassy_sync::blocking_mutex::raw::RawMutex + 'static> Copy for StatusLedsWrapper<M> {}
+
+impl<M: embassy_sync::blocking_mutex::raw::RawMutex + 'static> RgbLedDriver for StatusLedsWrapper<M> {
+    fn set_color(&mut self, red: bool, green: bool, blue: bool) {
+        if let Ok(mut l) = self.0.try_lock() {
+            l.set_color(red, green, blue);
+        }
+    }
+}
+
 /// Driver for the Activity LED (Bi-color, GPIO 22, 3).
 pub struct ActivityLed {
     pub pos: Output<'static>,

@@ -30,17 +30,27 @@ where
         }
     }
 
-    pub async fn run(&mut self) -> ! {
+    pub async fn run(&mut self) {
         self.display.clear().await;
         self.display.print(0, "Hardware Test Mode").await;
         self.display.print(1, "Buttons: 0000").await;
+        self.display.print(4, "Hold BACK to exit").await;
         self.display.request_redraw();
         
         let mut step = 0;
         let mut next_led_update = Instant::now();
+        let mut back_pressed_since: Option<Instant> = None;
 
         loop {
             let now = Instant::now();
+            
+            // Check if we should exit (2 seconds hold)
+            if let Some(pressed_at) = back_pressed_since {
+                if now - pressed_at >= Duration::from_secs(2) {
+                    return; // Exit task
+                }
+            }
+
             let led_timer = if next_led_update <= now {
                 Timer::after(Duration::from_ticks(0))
             } else {
@@ -99,6 +109,16 @@ where
                     let mut status = String::<32>::new();
                     let _ = write!(status, "Buttons: {:04b}", buttons);
                     self.display.print(1, &status).await;
+                    
+                    // Update Back button hold state
+                    if buttons & 0b0001 != 0 {
+                        if back_pressed_since.is_none() {
+                            back_pressed_since = Some(Instant::now());
+                        }
+                    } else {
+                        back_pressed_since = None;
+                    }
+                    
                     self.display.request_redraw();
                 }
             }
