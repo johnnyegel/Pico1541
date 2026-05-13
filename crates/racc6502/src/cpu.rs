@@ -106,7 +106,15 @@ impl CPU {
         cpu.reset();
         cpu
     }
+}
 
+impl Default for CPU {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl CPU {
     /// Triggers a hard reset of the CPU.
     pub fn reset(&mut self) {
         self.state = CycleState::Reset;

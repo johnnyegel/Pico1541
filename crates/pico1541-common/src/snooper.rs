@@ -212,7 +212,15 @@ impl IecSnoopByteHandler {
             eoi_received: false,
         }
     }
+}
 
+impl Default for IecSnoopByteHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl IecSnoopByteHandler {
     pub fn handle(&mut self, event: DriveEvent, mut dispatch: impl FnMut(DriveEvent)) {
         match event {
             DriveEvent::IecSnoopSecondaryAddress(sa) => {
@@ -220,7 +228,7 @@ impl IecSnoopByteHandler {
                 self.command_detected = false;
                 self.eoi_received = false;
                 // Secondary address 0xF0..0xFF are for commands or specific channels
-                if sa >= 0x60 && sa <= 0x6F {
+                if (0x60..=0x6F).contains(&sa) {
                     // This is an OPEN command on channel sa & 0x0F
                 }
             }

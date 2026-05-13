@@ -81,11 +81,7 @@ impl<H: HostInterface> SystemBus<H> {
             emu_debug!("Tick: PC=${:04X}, Sector={}, Layout={:?}", self.pc(), requested_sector, track.layout);
         }
         */
-        if self.mechanics.tick(hardware, &mut self.via2, requested_sector) {
-            self.so_active = true;
-        } else {
-            self.so_active = false;
-        }
+        self.so_active = self.mechanics.tick(hardware, &mut self.via2, requested_sector);
 
         // Reslove the Host IecBusState
         let host_iec = hardware.iec_host();
@@ -135,7 +131,7 @@ impl<H: HostInterface> SystemBus<H> {
     #[inline]
     fn host_iec_to_via(&self, host_iec: &IecBusState) -> u8 {
         // Map the host IEC state to the VIA1 input bits for PB0, PB2, and PB7.
-        let data = (host_iec.0 & IecBusState::DATA_BIT) << 0; // PB0 = DATA_IN
+        let data = host_iec.0 & IecBusState::DATA_BIT; // PB0 = DATA_IN
         let clk = (host_iec.0 & IecBusState::CLK_BIT) << 1; // PB2 = CLK_IN
         let atn = (host_iec.0 & IecBusState::ATN_BIT) << 5; // PB7 = ATN_IN
 

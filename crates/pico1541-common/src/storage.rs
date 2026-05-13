@@ -38,16 +38,16 @@ pub trait DirectorySource {
         self.rewind();
         while let Some(entry) = self.next_entry() {
             let mut match_found = true;
-            for i in 0..filename.len().min(16) {
-                if entry.filename[i] != filename[i] {
+            for (&e_byte, &f_byte) in entry.filename.iter().zip(filename.iter()).take(16) {
+                if e_byte != f_byte {
                     match_found = false;
                     break;
                 }
             }
             if match_found {
                 // Check if the rest of entry.filename is padding (0xA0)
-                for i in filename.len().min(16)..16 {
-                    if entry.filename[i] != 0xA0 {
+                for &e_byte in entry.filename.iter().skip(filename.len()).take(16 - filename.len()) {
+                    if e_byte != 0xA0 {
                         match_found = false;
                         break;
                     }

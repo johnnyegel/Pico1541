@@ -343,10 +343,12 @@ impl<'a, B: IecComHostBus> IecCommander<'a, B> {
                 .await?;
 
             // Send data bytes, and use send_eoi for the last byte to properly signal EOI to the drive.
-            for i in 0..data.len() - 1 {
-                com = com.send(data[i]).await?;
+            if let Some((last, head)) = data.split_last() {
+                for &b in head {
+                    com = com.send(b).await?;
+                }
+                com = com.send_eoi(*last).await?;
             }
-            com = com.send_eoi(data[data.len() - 1]).await?;
 
 
             com = com
@@ -407,10 +409,12 @@ impl<'a, B: IecComHostBus> IecCommander<'a, B> {
                 .await?;
 
             // Send data bytes, and use send_eoi for the last byte to properly signal EOI to the drive.
-            for i in 0..data.len() - 1 {
-                com = com.send(data[i]).await?;
+            if let Some((last, head)) = data.split_last() {
+                for &b in head {
+                    com = com.send(b).await?;
+                }
+                com = com.send_eoi(*last).await?;
             }
-            com = com.send_eoi(data[data.len() - 1]).await?;
 
             com = com
                 .atn_assert()

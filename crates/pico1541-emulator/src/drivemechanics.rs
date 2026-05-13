@@ -57,7 +57,15 @@ impl DriveMechanics {
             last_requested_sector: 0xFF,
         }
     }
+}
 
+impl Default for DriveMechanics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DriveMechanics {
     pub fn reset(&mut self) {
         self.halftrack_head_pos = INITIAL_HALF_TRACK;
         self.track_byte_size = DEFAULT_BYTE_LENGTH;
@@ -93,7 +101,7 @@ impl DriveMechanics {
         self.byte_cycle_counter = 0;
 
         // Advance the track position
-        let gcr_pos = self.resolve_track_byte_position(&track, requested_sector);
+        let gcr_pos = self.resolve_track_byte_position(track, requested_sector);
 
         // Determine read mode from CB2 (Manual High = Read)
         let is_read_mode = via2.get_cb2_out().unwrap_or(true);
@@ -134,7 +142,7 @@ impl DriveMechanics {
             return is_so_enabled;
         }   
 
-        return false;
+        false
     }
 
     pub fn half_track(&self) -> u8 {

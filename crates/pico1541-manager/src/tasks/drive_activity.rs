@@ -34,8 +34,7 @@ impl<I: IndicatorDriver> DriveActivityTask<I> {
     }
 
     async fn handle_command(&mut self, cmd: &str) {
-        if cmd.starts_with("CD:") {
-            let path = &cmd[3..];
+        if let Some(path) = cmd.strip_prefix("CD:") {
             info!("Changing directory to: {}", path);
             
             let mut filename = [0xA0; 16];
@@ -43,8 +42,7 @@ impl<I: IndicatorDriver> DriveActivityTask<I> {
             filename[..len].copy_from_slice(&path.as_bytes()[..len]);
             
             let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::LoadFile(filename));
-        } else if cmd.starts_with("MD:") {
-            let path = &cmd[3..];
+        } else if let Some(path) = cmd.strip_prefix("MD:") {
             info!("Creating directory: {}", path);
         }
     }

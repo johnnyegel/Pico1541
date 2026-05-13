@@ -118,11 +118,9 @@ impl<S, D: DirectorySource> VirtualDiskImage<S, D> {
         data_raw[1..257].copy_from_slice(&raw);
         data_raw[257] = data_checksum;
 
-        for i in 0..65 {
-            let mut src = [0u8; 4];
-            src.copy_from_slice(&data_raw[i * 4..(i + 1) * 4]);
+        for (i, chunk) in data_raw.chunks_exact(4).enumerate() {
             crate::gcr::encode_gcr_block(
-                &src,
+                chunk.try_into().unwrap(),
                 (&mut dest_gcr[i * 5..(i + 1) * 5]).try_into().unwrap(),
             );
         }
@@ -154,9 +152,9 @@ impl<S, D: DirectorySource> VirtualDiskImage<S, D> {
 
         let mut entries = [crate::storage::DirectoryEntry::new(b"", 0, 0, 0); 8];
         let mut count = 0;
-        for i in 0..8 {
+        for entry_slot in &mut entries {
             if let Some(entry) = self.source.next_entry() {
-                entries[i] = entry;
+                *entry_slot = entry;
                 count += 1;
             } else {
                 break;
@@ -212,15 +210,13 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                         write_ptr += 1;
                     }
                 }
-                let checksum = (sector as u8) ^ (track as u8) ^ self.id[0] ^ self.id[1];
+                let checksum = (sector as u8) ^ track ^ self.id[0] ^ self.id[1];
                 let header_raw = [
-                    0x08, checksum, sector as u8, track as u8, self.id[1], self.id[0], 0x0F, 0x0F,
+                    0x08, checksum, sector as u8, track, self.id[1], self.id[0], 0x0F, 0x0F,
                 ];
-                for i in 0..2 {
-                    let mut src = [0u8; 4];
-                    src.copy_from_slice(&header_raw[i * 4..(i + 1) * 4]);
+                for chunk in header_raw.chunks_exact(4) {
                     let mut dst = [0u8; 5];
-                    gcr::encode_gcr_block(&src, &mut dst);
+                    gcr::encode_gcr_block(chunk.try_into().unwrap(), &mut dst);
                     if write_ptr + 5 <= dest.len() {
                         dest[write_ptr..write_ptr + 5].copy_from_slice(&dst);
                         write_ptr += 5;
@@ -258,11 +254,9 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                 data_raw[1..257].copy_from_slice(&sector_data);
                 data_raw[257] = data_checksum;
 
-                for i in 0..65 {
-                    let mut src = [0u8; 4];
-                    src.copy_from_slice(&data_raw[i * 4..(i + 1) * 4]);
+                for chunk in data_raw.chunks_exact(4) {
                     let mut dst = [0u8; 5];
-                    gcr::encode_gcr_block(&src, &mut dst);
+                    gcr::encode_gcr_block(chunk.try_into().unwrap(), &mut dst);
                     if write_ptr + 5 <= dest.len() {
                         dest[write_ptr..write_ptr + 5].copy_from_slice(&dst);
                         write_ptr += 5;
@@ -295,8 +289,8 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                     sector_data[0] = 18;
                     sector_data[1] = 1;
                     sector_data[2] = 0x41;
-                    for i in 4..144 {
-                        sector_data[i] = 0;
+                    for b in sector_data.iter_mut().take(144).skip(4) {
+                        *b = 0;
                     }
                     sector_data[144..160].copy_from_slice(self.source.name());
                     sector_data[160..162].copy_from_slice(b"\xA0\xA0");
@@ -321,9 +315,9 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
 
                         let mut entries = [crate::storage::DirectoryEntry::new(b"", 0, 0, 0); 8];
                         let mut count = 0;
-                        for i in 0..8 {
+                        for entry_slot in &mut entries {
                             if let Some(entry) = self.source.next_entry() {
-                                entries[i] = entry;
+                                *entry_slot = entry;
                                 count += 1;
                             } else {
                                 break;
@@ -344,15 +338,13 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                         write_ptr += 1;
                     }
                 }
-                let checksum = (sector as u8) ^ (track as u8) ^ self.id[0] ^ self.id[1];
+                let checksum = (sector as u8) ^ track ^ self.id[0] ^ self.id[1];
                 let header_raw = [
-                    0x08, checksum, sector as u8, track as u8, self.id[1], self.id[0], 0x0F, 0x0F,
+                    0x08, checksum, sector as u8, track, self.id[1], self.id[0], 0x0F, 0x0F,
                 ];
-                for i in 0..2 {
-                    let mut src = [0u8; 4];
-                    src.copy_from_slice(&header_raw[i * 4..(i + 1) * 4]);
+                for chunk in header_raw.chunks_exact(4) {
                     let mut dst = [0u8; 5];
-                    gcr::encode_gcr_block(&src, &mut dst);
+                    gcr::encode_gcr_block(chunk.try_into().unwrap(), &mut dst);
                     if write_ptr + 5 <= dest.len() {
                         dest[write_ptr..write_ptr + 5].copy_from_slice(&dst);
                         write_ptr += 5;
@@ -378,11 +370,9 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                 data_raw[0] = 0x07;
                 data_raw[1..257].copy_from_slice(&sector_data);
                 data_raw[257] = data_checksum;
-                for i in 0..65 {
-                    let mut src = [0u8; 4];
-                    src.copy_from_slice(&data_raw[i * 4..(i + 1) * 4]);
+                for chunk in data_raw.chunks_exact(4) {
                     let mut dst = [0u8; 5];
-                    gcr::encode_gcr_block(&src, &mut dst);
+                    gcr::encode_gcr_block(chunk.try_into().unwrap(), &mut dst);
                     if write_ptr + 5 <= dest.len() {
                         dest[write_ptr..write_ptr + 5].copy_from_slice(&dst);
                         write_ptr += 5;
@@ -425,15 +415,13 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                     write_ptr += 1;
                 }
             }
-            let checksum = (sector as u8) ^ (track as u8) ^ self.id[0] ^ self.id[1];
+            let checksum = (sector as u8) ^ track ^ self.id[0] ^ self.id[1];
             let header_raw = [
-                0x08, checksum, sector as u8, track as u8, self.id[1], self.id[0], 0x0F, 0x0F,
+                0x08, checksum, sector as u8, track, self.id[1], self.id[0], 0x0F, 0x0F,
             ];
-            for i in 0..2 {
-                let mut src = [0u8; 4];
-                src.copy_from_slice(&header_raw[i * 4..(i + 1) * 4]);
+            for chunk in header_raw.chunks_exact(4) {
                 let mut dst = [0u8; 5];
-                gcr::encode_gcr_block(&src, &mut dst);
+                gcr::encode_gcr_block(chunk.try_into().unwrap(), &mut dst);
                 if write_ptr + 5 <= dest.len() {
                     dest[write_ptr..write_ptr + 5].copy_from_slice(&dst);
                     write_ptr += 5;
@@ -456,11 +444,9 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
             // Empty Data Block (0x07 mark + 256 bytes 0 + 0 checksum + 0 offbyte)
             let mut data_raw = [0u8; 260];
             data_raw[0] = 0x07;
-            for i in 0..65 {
-                let mut src = [0u8; 4];
-                src.copy_from_slice(&data_raw[i * 4..(i + 1) * 4]);
+            for chunk in data_raw.chunks_exact(4) {
                 let mut dst = [0u8; 5];
-                gcr::encode_gcr_block(&src, &mut dst);
+                gcr::encode_gcr_block(chunk.try_into().unwrap(), &mut dst);
                 if write_ptr + 5 <= dest.len() {
                     dest[write_ptr..write_ptr + 5].copy_from_slice(&dst);
                     write_ptr += 5;
@@ -521,11 +507,11 @@ impl<S: Read + Seek> D64Image<S> {
 
 impl<S: Read + Seek> DiskImage for D64Image<S> {
     async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<TrackLayout, Error> {
-        if half_track % 2 != 0 {
+        if !half_track.is_multiple_of(2) {
             return Ok(TrackLayout::Void);
         }
         let track = half_track / 2 + 1;
-        if track < 1 || track > 40 {
+        if !(1..=40).contains(&track) {
             return Err(Error::InvalidTrack);
         }
         let sectors = Self::get_sectors_per_track(track);
@@ -557,11 +543,9 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
             let header_raw = [
                 0x08, checksum, sector, track, self.id[1], self.id[0], 0x0F, 0x0F,
             ];
-            for i in 0..2 {
-                let mut src = [0u8; 4];
-                src.copy_from_slice(&header_raw[i * 4..(i + 1) * 4]);
+            for chunk in header_raw.chunks_exact(4) {
                 let mut dst = [0u8; 5];
-                gcr::encode_gcr_block(&src, &mut dst);
+                gcr::encode_gcr_block(chunk.try_into().unwrap(), &mut dst);
                 if write_ptr + 5 <= dest.len() {
                     dest[write_ptr..write_ptr + 5].copy_from_slice(&dst);
                     write_ptr += 5;
@@ -587,11 +571,9 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
             data_raw[0] = 0x07;
             data_raw[1..257].copy_from_slice(&sector_data);
             data_raw[257] = data_checksum;
-            for i in 0..65 {
-                let mut src = [0u8; 4];
-                src.copy_from_slice(&data_raw[i * 4..(i + 1) * 4]);
+            for chunk in data_raw.chunks_exact(4) {
                 let mut dst = [0u8; 5];
-                gcr::encode_gcr_block(&src, &mut dst);
+                gcr::encode_gcr_block(chunk.try_into().unwrap(), &mut dst);
                 if write_ptr + 5 <= dest.len() {
                     dest[write_ptr..write_ptr + 5].copy_from_slice(&dst);
                     write_ptr += 5;

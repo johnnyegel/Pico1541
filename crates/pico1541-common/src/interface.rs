@@ -36,7 +36,7 @@ impl Default for ActiveTrack {
 
 /// Represents the bus state of the IEC bus lines
 /// Bit 0: DATA, Bit 1: CLK, Bit 2: ATN
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct IecBusState(pub u8);
 
 impl IecBusState {
@@ -105,12 +105,6 @@ impl IecBusState {
     pub fn delta(&self, last_state: &IecBusState) -> IecBusState {
         IecBusState(self.0 ^ last_state.0)
     }
-}
-
-impl Default for IecBusState {
-    fn default() -> Self {
-        Self(0)
-    }   
 }
 
 impl Display for IecBusState {

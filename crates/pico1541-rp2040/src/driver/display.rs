@@ -76,12 +76,10 @@ impl OledDisplay {
 
     #[allow(dead_code)]
     pub fn set_selection(&mut self, index: u8) {
-        if index < 6 {
-            if self.selected_line != index {
-                self.selected_line = index;
-                self.scroll_offset = 0;
-                self.scroll_dir = 1;
-            }
+        if index < 6 && self.selected_line != index {
+            self.selected_line = index;
+            self.scroll_offset = 0;
+            self.scroll_dir = 1;
         }
     }
 
@@ -141,7 +139,7 @@ pub struct DisplayWrapper<M: RawMutex + 'static>(pub &'static Mutex<M, OledDispl
 
 impl<M: RawMutex + 'static> Clone for DisplayWrapper<M> {
     fn clone(&self) -> Self {
-        Self(self.0)
+        *self
     }
 }
 

@@ -39,13 +39,14 @@ bind_interrupts!(struct Irqs {
 static SNOOPER_CONFIG: SnooperConfig = SnooperConfig::new(8);
 
 // Core 1 Stack
-static mut CORE1_STACK: Stack<4096> = Stack::new();
+static CORE1_STACK: StaticCell<Stack<4096>> = StaticCell::new();
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     info!("Pico1541 Starting...");
 
+    let stack = CORE1_STACK.init(Stack::new());
     // --- Hardware Drivers (Core 1 - Manager) ---
 
     // 1. OLED Display (I2C)
@@ -111,11 +112,9 @@ async fn main(_spawner: Spawner) {
     let test_task = HardwareTestTask::new(DisplayWrapper(oled_mutex), keyboard, status_leds);
     let pin25 = p.PIN_25;
 
-    unsafe {
-        embassy_rp::multicore::spawn_core1(p.CORE1, &mut CORE1_STACK, move || {
-            core1_main(test_task, activity_task, snooper_task, vdisk_task, pin25);
-        });
-    }
+    embassy_rp::multicore::spawn_core1(p.CORE1, stack, move || {
+        core1_main(test_task, activity_task, snooper_task, vdisk_task, pin25);
+    });
 
     // IEC Pins
     let pins = IecPins {
@@ -204,7 +203,7 @@ impl HostInterface for HardwareBridge {
     }
 
     fn send_event(&mut self, event: DriveEvent) {
-        if let Err(_) = pico1541_manager::EVENT_CHANNEL.try_send(event) {
+        if pico1541_manager::EVENT_CHANNEL.try_send(event).is_err() {
             // Channel full
         }
     }
@@ -214,8 +213,7 @@ impl HostInterface for HardwareBridge {
     }
 
     fn pop_discard_request(&mut self) -> bool {
-        let req = self.config.discard_request.swap(false, Ordering::Relaxed);
-        req
+        self.config.discard_request.swap(false, Ordering::Relaxed)
     }
 
     fn update_iec_addresses(&mut self, listen: u8, talk: u8) {
@@ -232,11 +230,11 @@ impl HostInterface for HardwareBridge {
         
         self.snooper.update(host, |event| {
             // Forward events to Core 1
-            if let Err(_) = pico1541_manager::EVENT_CHANNEL.try_send(event) { }
+            let _ = pico1541_manager::EVENT_CHANNEL.try_send(event);
             
             // Handle for hijacking on Core 0
             handler.handle(event, |e| {
-                 if let Err(_) = pico1541_manager::EVENT_CHANNEL.try_send(e) { }
+                 let _ = pico1541_manager::EVENT_CHANNEL.try_send(e);
             });
             if handler.is_hijacked() {
                 config.hijack_active.store(true, Ordering::Relaxed);
