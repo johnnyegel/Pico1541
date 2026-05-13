@@ -8,17 +8,19 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
-use embassy_rp::i2c::{Config, I2c, InterruptHandler};
-use embassy_rp::peripherals::{I2C0, PIN_25};
+use embassy_rp::i2c::{Config, InterruptHandler};
+use embassy_rp::peripherals::{I2C0, SPI1, PIN_25};
+use embassy_rp::spi::{Config as SpiConfig, Spi};
 use embassy_rp::Peri;
-use embassy_rp::multicore::{Stack};
-use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex};
+use embassy_rp::multicore::Stack;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
+use embedded_hal_bus::spi::ExclusiveDevice;
 
 use pico1541_common::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus, IecBusState};
 use pico1541_common::snooper::{IecSnooper, IecSnoopByteHandler, SnooperConfig};
 use pico1541_common::formats::{AnyDiskImage, VirtualDiskImage};
-use pico1541_common::storage::{DirectoryEntry, StaticDirectorySource, MemoryStorage};
+use pico1541_common::storage::{DirectoryEntry, StaticDirectorySource, MemoryStorage, RuntimeStorage};
 use pico1541_emulator::Emulator;
 use pico1541_manager::tasks::{
     DisplayTask, DriveActivityTask, KeyboardTask, MainMenuTask, SnooperTask, VirtualDiskTask,
@@ -30,6 +32,7 @@ use crate::driver::indicator::{ActivityIndicator, IndicatorWrapper};
 use crate::driver::input::KeyboardInput;
 use crate::driver::leds::{ActivityLed, StatusLeds, StatusLedsWrapper};
 use crate::driver::speaker::PiezoSpeaker;
+use crate::driver::storage::{SdFileHandle, SdStorage, StorageWrapper};
 
 use static_cell::StaticCell;
 use portable_atomic::Ordering;
@@ -43,6 +46,24 @@ static SNOOPER_CONFIG: SnooperConfig = SnooperConfig::new(8);
 // Core 1 Stack
 static CORE1_STACK: StaticCell<Stack<4096>> = StaticCell::new();
 
+type MySpi = Spi<'static, SPI1, embassy_rp::spi::Blocking>;
+type MyCs = Output<'static>;
+type MyDelay = embassy_time::Delay;
+type MySpiDev = ExclusiveDevice<MySpi, MyCs, MyDelay>;
+type MyFile = SdFileHandle<MySpiDev, DummyPin, MyDelay>;
+type MyStorage = RuntimeStorage<'static, MyFile>;
+type MyDir = StaticDirectorySource<'static>;
+type MyDisk = AnyDiskImage<MyStorage, MyDir>;
+// In embedded-sdmmc 0.7, SdCard takes SPI, CS, DELAYER.
+// If SPI is SpiDevice, CS is STILL required? No, usually not.
+// Wait, I will use a dummy pin for CS if SdCard insists on it.
+struct DummyPin;
+impl embedded_hal::digital::ErrorType for DummyPin { type Error = core::convert::Infallible; }
+impl embedded_hal::digital::OutputPin for DummyPin {
+    fn set_low(&mut self) -> Result<(), Self::Error> { Ok(()) }
+    fn set_high(&mut self) -> Result<(), Self::Error> { Ok(()) }
+}
+
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
@@ -54,7 +75,7 @@ async fn main(_spawner: Spawner) {
     // 1. OLED Display (I2C)
     let sda = p.PIN_4;
     let scl = p.PIN_5;
-    let i2c = I2c::new_async(p.I2C0, scl, sda, Irqs, Config::default());
+    let i2c = embassy_rp::i2c::I2c::new_async(p.I2C0, scl, sda, Irqs, Config::default());
 
     static OLED: StaticCell<Mutex<CriticalSectionRawMutex, OledDisplay>> = StaticCell::new();
     let mut oled_obj = OledDisplay::new(i2c);
@@ -76,18 +97,31 @@ async fn main(_spawner: Spawner) {
     static STATUS_LEDS: StaticCell<Mutex<CriticalSectionRawMutex, StatusLeds>> = StaticCell::new();
     let status_leds_mutex = STATUS_LEDS.init(Mutex::new(status_leds_obj));
 
-    // 4. Keyboard Matrix
+    // 4. SD Card (SPI1)
+    let mosi = p.PIN_15;
+    let miso = p.PIN_12;
+    let clk = p.PIN_14;
+    let cs = Output::new(p.PIN_13, Level::High);
+    let mut spi_config = SpiConfig::default();
+    spi_config.frequency = 400_000; // Start slow for SD init
+    let spi = Spi::new_blocking(p.SPI1, clk, mosi, miso, spi_config);
+    let spi_dev = ExclusiveDevice::new(spi, cs, embassy_time::Delay).unwrap();
+
+    static SD_STORAGE: StaticCell<Mutex<CriticalSectionRawMutex, SdStorage<MySpiDev, DummyPin, MyDelay>>> = StaticCell::new();
+    let sd_obj = SdStorage::new(spi_dev, DummyPin, embassy_time::Delay);
+    let sd_mutex = SD_STORAGE.init(Mutex::new(sd_obj));
+
+    // 5. Keyboard Matrix
     let keyboard = KeyboardInput::new(p.PIN_6, p.PIN_7, p.PIN_8, p.PIN_9);
     let keyboard_task = KeyboardTask::new(keyboard);
 
-    // 5. Display Task
+    // 6. Display Task
     let display_task = DisplayTask::new(DisplayWrapper(oled_mutex));
 
-    // 6. Snooper Task
+    // 7. Snooper Task
     let snooper_task = SnooperTask::new(8);
 
-    // 4. Storage (SD Card - SPI)
-    // For now, use a virtual disk with static content
+    // 8. Storage (Virtual Disk for fallback)
     static DIR_ENTRIES: [DirectoryEntry; 1] = [
         DirectoryEntry {
             file_type: 0x82,
@@ -100,31 +134,26 @@ async fn main(_spawner: Spawner) {
     let dir_source = StaticDirectorySource::new(b"VIRTUAL DISK", &DIR_ENTRIES);
     let mut vdisk = VirtualDiskImage::new(dir_source);
     
-    // Sample file data for "GAME"
     static GAME_DATA: &[u8] = include_bytes!("../../../crates/pico1541-emulator/tests/data/game.prg");
-    vdisk.file_storage = Some(MemoryStorage::new(GAME_DATA));
+    vdisk.file_storage = Some(RuntimeStorage::Memory(MemoryStorage::new(GAME_DATA)));
     
-    static DISK_IMAGE: StaticCell<AnyDiskImage<MemoryStorage<'static>, StaticDirectorySource<'static>>> = StaticCell::new();
-    let disk_image = DISK_IMAGE.init(AnyDiskImage::VirtualDisk(vdisk));
-
-    // 5. Keyboard (Matrix)
-    // TODO: Initialize keyboard driver
+    static DISK_IMAGE: StaticCell<Mutex<CriticalSectionRawMutex, MyDisk>> = StaticCell::new();
+    let disk_image_mutex = DISK_IMAGE.init(Mutex::new(AnyDiskImage::VirtualDisk(vdisk)));
 
     // Shared ActiveTrack buffer
     static ACTIVE_TRACK: StaticCell<ActiveTrack> = StaticCell::new();
     let track_ptr = ACTIVE_TRACK.init(ActiveTrack::new()) as *mut ActiveTrack;
 
-    // Safety: Core 0 (Emulator) and Core 1 (Manager) share the ActiveTrack buffer.
-    // Core 0 reads/writes it in a cycle-exact loop, while Core 1 updates it during loads.
     let track_for_task = unsafe { &mut *track_ptr };
-    let vdisk_task = VirtualDiskTask::new(disk_image, track_for_task);
+    let vdisk_task = VirtualDiskTask::new(disk_image_mutex, track_for_task);
 
     // --- Spawn Core 1 ---
-    // Core 1 will handle the Manager tasks and Heartbeat
     let menu_task = MainMenuTask::new(
         DisplayWrapper(oled_mutex),
         StatusLedsWrapper(status_leds_mutex),
         IndicatorWrapper(indicator_mutex),
+        StorageWrapper(sd_mutex),
+        disk_image_mutex,
     );
     let pin25 = p.PIN_25;
 
@@ -152,15 +181,11 @@ async fn main(_spawner: Spawner) {
     let track_for_bridge = unsafe { &mut *track_ptr };
     let bridge = HardwareBridge::new(pins, track_for_bridge, &SNOOPER_CONFIG);
 
-    // 1541-II ROM (Stock)
     let rom = include_bytes!("../../../roms/1541-II.251968-03.bin");
     let drive = Emulator::new(*rom, 8);
 
-    // Run Emulator Loop (Cycle-Exact 1 MHz)
     emulator_loop(drive, bridge).await;
 }
-
-// --- IEC Pin Wrapper ---
 
 struct IecPins {
     data_rx: Input<'static>,
@@ -169,8 +194,6 @@ struct IecPins {
     data_tx: Output<'static>,
     clk_tx: Output<'static>,
 }
-
-// --- Hardware Bridge (Core 0) ---
 
 struct HardwareBridge {
     track: &'static mut ActiveTrack,
@@ -204,7 +227,6 @@ impl IecBus for HardwareBridge {
 
     #[inline(always)]
     fn iec_drive(&mut self, state: IecBusState) {
-        // Combinatorial: Drive's output OR Snooper's hijack output
         let should_drive_data = self.config.should_drive_data.load(Ordering::Relaxed);
         
         if state.get_data() || should_drive_data {
@@ -248,15 +270,10 @@ impl HostInterface for HardwareBridge {
     fn sync(&mut self) {
         let host = self.iec_host();
         let config = self.config;
-        
-        // Pass a mutable reference to self.handler via the closure's environment
         let handler = &mut self.handler;
         
         self.snooper.update(host, |event| {
-            // Forward events to Core 1
             let _ = pico1541_manager::EVENT_CHANNEL.try_send(event);
-            
-            // Handle for hijacking on Core 0
             handler.handle(event, |e| {
                  let _ = pico1541_manager::EVENT_CHANNEL.try_send(e);
             });
@@ -273,8 +290,6 @@ impl HostInterface for HardwareBridge {
     }
 }
 
-// --- Embassy Task Wrappers ---
-
 #[embassy_executor::task]
 async fn activity_run(mut task: DriveActivityTask<IndicatorWrapper<CriticalSectionRawMutex>>) {
     task.run().await;
@@ -286,7 +301,7 @@ async fn snooper_run(mut task: SnooperTask) {
 }
 
 #[embassy_executor::task]
-async fn vdisk_run(mut task: VirtualDiskTask<'static, MemoryStorage<'static>, StaticDirectorySource<'static>>) {
+async fn vdisk_run(mut task: VirtualDiskTask<'static, MyStorage, MyDir>) {
     task.run().await;
 }
 
@@ -306,6 +321,8 @@ async fn menu_run(
         DisplayWrapper<CriticalSectionRawMutex>,
         StatusLedsWrapper<CriticalSectionRawMutex>,
         IndicatorWrapper<CriticalSectionRawMutex>,
+        StorageWrapper<MySpiDev, DummyPin, MyDelay>,
+        MyDisk,
     >,
 ) {
     task.run().await;
@@ -328,12 +345,14 @@ fn core1_main(
         DisplayWrapper<CriticalSectionRawMutex>,
         StatusLedsWrapper<CriticalSectionRawMutex>,
         IndicatorWrapper<CriticalSectionRawMutex>,
+        StorageWrapper<MySpiDev, DummyPin, MyDelay>,
+        MyDisk,
     >,
     activity_task: DriveActivityTask<IndicatorWrapper<CriticalSectionRawMutex>>,
     keyboard_task: KeyboardTask<KeyboardInput>,
     display_task: DisplayTask<DisplayWrapper<CriticalSectionRawMutex>>,
     snooper_task: SnooperTask,
-    vdisk_task: VirtualDiskTask<'static, MemoryStorage<'static>, StaticDirectorySource<'static>>,
+    vdisk_task: VirtualDiskTask<'static, MyStorage, MyDir>,
     pin25: Peri<'static, PIN_25>,
 ) -> ! {
     static EXECUTOR: StaticCell<embassy_executor::Executor> = StaticCell::new();
@@ -350,8 +369,6 @@ fn core1_main(
     })
 }
 
-// --- Emulator Loop ---
-
 async fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: HardwareBridge) -> ! {
     let timer = embassy_rp::pac::TIMER;
     let mut last_tick = timer.timelr().read();
@@ -361,11 +378,7 @@ async fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: Hardware
             cortex_m::asm::nop();
         }
         last_tick = timer.timelr().read();
-
-        // One 6502 cycle = 1 microsecond
         drive.tick(&mut bridge);
-
-        // Update snooper once per microsecond, outside the cycle core but in the main loop
         bridge.sync();
     }
 }

@@ -1,5 +1,5 @@
 use core::cmp;
-use embedded_io_async::{Read, Seek, SeekFrom};
+use embedded_io_async::{Read, Seek, SeekFrom, ErrorType};
 
 pub struct MemoryStorage<'a> {
     data: &'a [u8],
@@ -7,6 +7,7 @@ pub struct MemoryStorage<'a> {
 }
 
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DirectoryEntry {
     pub file_type: u8,
     pub filename: [u8; 16],
@@ -45,7 +46,6 @@ pub trait DirectorySource {
                 }
             }
             if match_found {
-                // Check if the rest of entry.filename is padding (0xA0)
                 for &e_byte in entry.filename.iter().skip(filename.len()).take(16 - filename.len()) {
                     if e_byte != 0xA0 {
                         match_found = false;
@@ -109,13 +109,73 @@ impl<'a> DirectorySource for StaticDirectorySource<'a> {
     }
 }
 
+pub trait FileStorage: Read + Seek {}
+impl<T: Read + Seek> FileStorage for T {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Error {
+    Io,
+    NotReady,
+}
+
+impl embedded_io_async::Error for Error {
+    fn kind(&self) -> embedded_io_async::ErrorKind {
+        embedded_io_async::ErrorKind::Other
+    }
+}
+
+impl From<core::convert::Infallible> for Error {
+    fn from(_: core::convert::Infallible) -> Self {
+        Error::Io
+    }
+}
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl core::error::Error for Error {}
+
+pub enum RuntimeStorage<'a, S: FileStorage> {
+    Memory(MemoryStorage<'a>),
+    File(S),
+    None,
+}
+
+impl<'a, S: FileStorage> ErrorType for RuntimeStorage<'a, S> {
+    type Error = Error;
+}
+
+impl<'a, S: FileStorage> Read for RuntimeStorage<'a, S> {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        match self {
+            Self::Memory(s) => s.read(buf).await.map_err(|_| Error::Io),
+            Self::File(s) => s.read(buf).await.map_err(|_| Error::Io),
+            Self::None => Err(Error::NotReady),
+        }
+    }
+}
+
+impl<'a, S: FileStorage> Seek for RuntimeStorage<'a, S> {
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
+        match self {
+            Self::Memory(s) => s.seek(pos).await.map_err(|_| Error::Io),
+            Self::File(s) => s.seek(pos).await.map_err(|_| Error::Io),
+            Self::None => Err(Error::NotReady),
+        }
+    }
+}
+
 impl<'a> MemoryStorage<'a> {
     pub fn new(data: &'a [u8]) -> Self {
         Self { data, pos: 0 }
     }
 }
 
-impl<'a> embedded_io_async::ErrorType for MemoryStorage<'a> {
+impl<'a> ErrorType for MemoryStorage<'a> {
     type Error = core::convert::Infallible;
 }
 

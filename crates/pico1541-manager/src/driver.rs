@@ -1,4 +1,4 @@
-use pico1541_common::Error;
+use pico1541_common::formats::Error;
 
 /// Driver for block-based storage (e.g., SD Card).
 pub trait StorageDriver {
@@ -6,10 +6,24 @@ pub trait StorageDriver {
     async fn write_block(&mut self, track: u8, sector: u8, buf: &[u8]) -> Result<(), Error>;
 }
 
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct FileInfo {
+    pub name: [u8; 13], // 8.3 format + null
+    pub size: u32,
+    pub is_dir: bool,
+}
+
+pub trait FileStorageDriver {
+    async fn list_dir(&mut self, path: &str, callback: impl FnMut(FileInfo)) -> Result<(), Error>;
+    async fn open_file(&mut self, path: &str) -> Result<(), Error>;
+}
+
 /// Driver for the OLED/LCD display.
 pub trait DisplayDriver {
     async fn clear(&mut self);
     async fn print(&mut self, line: u8, text: &str);
+    async fn print_large(&mut self, line: u8, text: &str);
     async fn update(&mut self);
     async fn redraw(&mut self);
     fn request_redraw(&mut self);

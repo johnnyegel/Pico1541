@@ -4,7 +4,7 @@ use embassy_rp::peripherals::I2C0;
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::mutex::Mutex;
 use embedded_graphics::{
-    mono_font::{ascii::FONT_6X10, MonoTextStyleBuilder},
+    mono_font::{ascii::{FONT_6X10, FONT_10X20}, MonoTextStyleBuilder},
     pixelcolor::BinaryColor,
     prelude::*,
     primitives::{PrimitiveStyleBuilder, Rectangle},
@@ -23,6 +23,7 @@ pub struct OledDisplay {
         BufferedGraphicsMode<DisplaySize128x64>,
     >,
     lines: [heapless::String<64>; 6],
+    large_lines: u8,
     selected_line: u8,
     scroll_offset: i32,
     scroll_dir: i32,
@@ -47,6 +48,7 @@ impl OledDisplay {
         Self {
             display,
             lines,
+            large_lines: 0,
             selected_line: 0,
             scroll_offset: 0,
             scroll_dir: 1,
@@ -62,7 +64,9 @@ impl OledDisplay {
 
     pub fn update_scroll(&mut self) {
         let line = &self.lines[self.selected_line as usize];
-        let text_width = line.len() as i32 * 6;
+        let is_large = (self.large_lines >> self.selected_line) & 1 != 0;
+        let char_width = if is_large { 10 } else { 6 };
+        let text_width = line.len() as i32 * char_width;
 
         if text_width > 128 {
             let max_scroll = text_width - 128;
@@ -87,11 +91,18 @@ impl OledDisplay {
         }
     }
 
-    pub fn set_line(&mut self, line: u8, text: &str) {
-        if line < 6 && self.lines[line as usize] != text {
-            self.lines[line as usize].clear();
-            let _ = self.lines[line as usize].push_str(text);
-            self.dirty = true;
+    pub fn set_line(&mut self, line: u8, text: &str, large: bool) {
+        if line < 6 {
+            if self.lines[line as usize] != text || ((self.large_lines >> line) & 1 != 0) != large {
+                self.lines[line as usize].clear();
+                let _ = self.lines[line as usize].push_str(text);
+                if large {
+                    self.large_lines |= 1 << line;
+                } else {
+                    self.large_lines &= !(1 << line);
+                }
+                self.dirty = true;
+            }
         }
     }
 
@@ -99,6 +110,7 @@ impl OledDisplay {
         for line in &mut self.lines {
             line.clear();
         }
+        self.large_lines = 0;
         self.dirty = true;
     }
 
@@ -110,6 +122,7 @@ impl OledDisplay {
         let _ = self.display.clear(BinaryColor::Off);
 
         for i in 0..6 {
+            let is_large = (self.large_lines >> i) & 1 != 0;
             let is_selected = i == self.selected_line as usize;
             let y = (i as i32) * 10 + 2;
 
@@ -130,14 +143,16 @@ impl OledDisplay {
                     .draw(&mut self.display);
             }
 
+            let font = if is_large { &FONT_10X20 } else { &FONT_6X10 };
             let style = MonoTextStyleBuilder::new()
-                .font(&FONT_6X10)
+                .font(font)
                 .text_color(fg_color)
                 .build();
 
             let x_offset = if is_selected { -self.scroll_offset } else { 0 };
+            let y_adj = if is_large { 15 } else { 8 };
 
-            let _ = Text::new(&self.lines[i], Point::new(x_offset, y + 8), style)
+            let _ = Text::new(&self.lines[i], Point::new(x_offset, y + y_adj), style)
                 .draw(&mut self.display);
         }
 
@@ -163,7 +178,11 @@ impl<M: RawMutex + 'static> DisplayDriver for DisplayWrapper<M> {
     }
     async fn print(&mut self, line: u8, text: &str) {
         let mut d = self.0.lock().await;
-        d.set_line(line, text);
+        d.set_line(line, text, false);
+    }
+    async fn print_large(&mut self, line: u8, text: &str) {
+        let mut d = self.0.lock().await;
+        d.set_line(line, text, true);
     }
     async fn update(&mut self) {
         let mut d = self.0.lock().await;

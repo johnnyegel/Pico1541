@@ -7,8 +7,8 @@ build = "build.rs"
 [dependencies]
 # Internal crates
 pico1541-emulator = { path = "../pico1541-emulator" }
-pico1541-manager = { path = "../pico1541-manager" }
-pico1541-common = { path = "../pico1541-common" }
+pico1541-manager = { path = "../pico1541-manager", features = ["defmt"] }
+pico1541-common = { path = "../pico1541-common", features = ["defmt"] }
 
 # Embassy
 embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread", "executor-interrupt"] }
@@ -29,7 +29,11 @@ critical-section = "1.2.0"
 rp-pac = "7.0.0"
 rp2040-boot2 = "0.3.0"
 heapless = "0.9.3"
+embedded-hal = "1.0.0"
 embedded-hal-async = "1.0.0"
+embedded-hal-bus = "0.2.0"
+embedded-io-async = "0.7.0"
+embedded-sdmmc = "0.7.0"
 
 # Graphics & Display
 embedded-graphics = "0.8.1"
