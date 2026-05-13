@@ -9,8 +9,10 @@ use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::i2c::{Config, I2c, InterruptHandler};
-use embassy_rp::peripherals::I2C0;
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use embassy_rp::peripherals::{I2C0, PIN_25};
+use embassy_rp::Peri;
+use embassy_rp::multicore::{Stack};
+use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex};
 use embassy_sync::mutex::Mutex;
 
 use pico1541_common::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus, IecBusState};
@@ -18,7 +20,7 @@ use pico1541_common::snooper::{IecSnooper, IecSnoopByteHandler, SnooperConfig};
 use pico1541_common::formats::{AnyDiskImage, VirtualDiskImage};
 use pico1541_common::storage::{DirectoryEntry, StaticDirectorySource, MemoryStorage};
 use pico1541_emulator::Emulator;
-use pico1541_manager::tasks::{DisplayTask, DriveActivityTask, HardwareTestTask, SnooperTask, VirtualDiskTask};
+use pico1541_manager::tasks::{DriveActivityTask, HardwareTestTask, SnooperTask, VirtualDiskTask};
 use panic_probe as _;
 
 use crate::driver::display::{DisplayWrapper, OledDisplay};
@@ -36,8 +38,11 @@ bind_interrupts!(struct Irqs {
 
 static SNOOPER_CONFIG: SnooperConfig = SnooperConfig::new(8);
 
+// Core 1 Stack
+static mut CORE1_STACK: Stack<4096> = Stack::new();
+
 #[embassy_executor::main]
-async fn main(spawner: Spawner) {
+async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     info!("Pico1541 Starting...");
 
@@ -48,7 +53,7 @@ async fn main(spawner: Spawner) {
     let scl = p.PIN_5;
     let i2c = I2c::new_async(p.I2C0, scl, sda, Irqs, Config::default());
 
-    static OLED: StaticCell<Mutex<NoopRawMutex, OledDisplay>> = StaticCell::new();
+    static OLED: StaticCell<Mutex<CriticalSectionRawMutex, OledDisplay>> = StaticCell::new();
     let mut oled_obj = OledDisplay::new(i2c);
     oled_obj.init().await;
     let oled_mutex = OLED.init(Mutex::new(oled_obj));
@@ -101,15 +106,16 @@ async fn main(spawner: Spawner) {
     let track_for_task = unsafe { &mut *track_ptr };
     let vdisk_task = VirtualDiskTask::new(disk_image, track_for_task);
 
-    // --- Hardware Test Mode (Default Boot) ---
+    // --- Spawn Core 1 ---
+    // Core 1 will handle the Manager tasks and Heartbeat
     let test_task = HardwareTestTask::new(DisplayWrapper(oled_mutex), keyboard, status_leds);
-    spawner.spawn(test_run(test_task).unwrap());
+    let pin25 = p.PIN_25;
 
-    // Spawn other Manager Tasks
-    // spawner.spawn(display_run(display_task).unwrap()); // HardwareTestTask handles display for now
-    spawner.spawn(activity_run(activity_task).unwrap());
-    spawner.spawn(snooper_run(snooper_task).unwrap());
-    spawner.spawn(vdisk_run(vdisk_task).unwrap());
+    unsafe {
+        embassy_rp::multicore::spawn_core1(p.CORE1, &mut CORE1_STACK, move || {
+            core1_main(test_task, activity_task, snooper_task, vdisk_task, pin25);
+        });
+    }
 
     // IEC Pins
     let pins = IecPins {
@@ -248,11 +254,6 @@ impl HostInterface for HardwareBridge {
 // --- Embassy Task Wrappers ---
 
 #[embassy_executor::task]
-async fn display_run(mut task: DisplayTask<DisplayWrapper<NoopRawMutex>>) {
-    task.run().await;
-}
-
-#[embassy_executor::task]
 async fn activity_run(mut task: DriveActivityTask<ActivityIndicator>) {
     task.run().await;
 }
@@ -268,8 +269,39 @@ async fn vdisk_run(mut task: VirtualDiskTask<'static, MemoryStorage<'static>, St
 }
 
 #[embassy_executor::task]
-async fn test_run(mut task: HardwareTestTask<DisplayWrapper<NoopRawMutex>, KeyboardInput, StatusLeds>) {
+async fn test_run(mut task: HardwareTestTask<DisplayWrapper<CriticalSectionRawMutex>, KeyboardInput, StatusLeds>) {
     task.run().await;
+}
+
+#[embassy_executor::task]
+async fn blinky(pin: Peri<'static, PIN_25>) {
+    let mut led = Output::new(pin, Level::Low);
+    info!("Heartbeat blinky task started!");
+    loop {
+        led.set_high();
+        embassy_time::Timer::after_millis(100).await;
+        led.set_low();
+        embassy_time::Timer::after_millis(900).await;
+    }
+}
+
+fn core1_main(
+    test_task: HardwareTestTask<DisplayWrapper<CriticalSectionRawMutex>, KeyboardInput, StatusLeds>,
+    activity_task: DriveActivityTask<ActivityIndicator>,
+    snooper_task: SnooperTask,
+    vdisk_task: VirtualDiskTask<'static, MemoryStorage<'static>, StaticDirectorySource<'static>>,
+    pin25: Peri<'static, PIN_25>,
+) -> ! {
+    static EXECUTOR: StaticCell<embassy_executor::Executor> = StaticCell::new();
+    let executor = EXECUTOR.init(embassy_executor::Executor::new());
+
+    executor.run(|spawner| {
+        spawner.spawn(test_run(test_task).unwrap());
+        spawner.spawn(activity_run(activity_task).unwrap());
+        spawner.spawn(snooper_run(snooper_task).unwrap());
+        spawner.spawn(vdisk_run(vdisk_task).unwrap());
+        spawner.spawn(blinky(pin25).unwrap());
+    })
 }
 
 // --- Emulator Loop ---
