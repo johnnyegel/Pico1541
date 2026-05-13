@@ -1,5 +1,9 @@
 use pico1541_common::formats::Error;
 
+pub mod internal_storage;
+
+pub use internal_storage::InternalStorage;
+
 /// Driver for block-based storage (e.g., SD Card).
 pub trait StorageDriver {
     async fn read_block(&mut self, track: u8, sector: u8, buf: &mut [u8]) -> Result<(), Error>;

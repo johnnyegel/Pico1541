@@ -1,4 +1,4 @@
-use crate::driver::{DisplayDriver, RgbLedDriver, IndicatorDriver, FileStorageDriver, FileInfo};
+use crate::driver::{DisplayDriver, RgbLedDriver, IndicatorDriver, FileStorageDriver, FileInfo, InternalStorage};
 use crate::KEYBOARD_CHANNEL;
 use crate::tasks::menu::Menu;
 use crate::tasks::hardware_test::HardwareTestTask;
@@ -6,12 +6,14 @@ use embassy_time::{Duration, Timer};
 use heapless::{Vec, String};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
+use core::str::FromStr;
 
 pub struct MainMenuTask<D, L, Ind, S, Disk: 'static> {
     display: D,
     leds: L,
     indicator: Ind,
     storage: S,
+    internal: InternalStorage,
     disk_image: &'static Mutex<CriticalSectionRawMutex, Disk>,
 }
 
@@ -24,7 +26,7 @@ where
     Disk: 'static,
 {
     pub fn new(display: D, leds: L, indicator: Ind, storage: S, disk_image: &'static Mutex<CriticalSectionRawMutex, Disk>) -> Self {
-        Self { display, leds, indicator, storage, disk_image }
+        Self { display, leds, indicator, storage, internal: InternalStorage, disk_image }
     }
 
     pub async fn run(&mut self) -> ! {
@@ -36,6 +38,7 @@ where
 
         let mut main_items = Vec::<&'static str, 4>::new();
         let _ = main_items.push("SD Card");
+        let _ = main_items.push("Internal");
         let _ = main_items.push("USB Drive");
         let _ = main_items.push("Settings");
         
@@ -54,7 +57,8 @@ where
             } else if buttons & 0b0100 != 0 {
                 match main_menu.selected_index() {
                     0 => self.sd_card_menu().await, // SD Card
-                    2 => self.settings_menu().await, // Settings
+                    1 => self.internal_menu().await, // Internal Storage
+                    3 => self.settings_menu().await, // Settings
                     _ => {
                         log::info!("Selected: {}", main_menu.selected_item());
                     }
@@ -64,10 +68,25 @@ where
     }
 
     async fn sd_card_menu(&mut self) {
+        self.file_browser_menu("SD Card", false).await;
+    }
+
+    async fn internal_menu(&mut self) {
+        self.file_browser_menu("Internal", true).await;
+    }
+
+    async fn file_browser_menu(&mut self, title: &str, use_internal: bool) {
         let mut file_infos = Vec::<FileInfo, 16>::new();
-        let _ = self.storage.list_dir("/", |info| {
-            let _ = file_infos.push(info);
-        }).await;
+        
+        if use_internal {
+            let _ = self.internal.list_dir("/", |info| {
+                let _ = file_infos.push(info);
+            }).await;
+        } else {
+            let _ = self.storage.list_dir("/", |info| {
+                let _ = file_infos.push(info);
+            }).await;
+        }
 
         let mut items = Vec::<String<16>, 16>::new();
         for info in file_infos.iter() {
@@ -80,10 +99,14 @@ where
             let _ = items.push(s);
         }
 
+        let mut menu_title = String::<32>::from_str("--- ").unwrap();
+        let _ = menu_title.push_str(title);
+        let _ = menu_title.push_str(" ---");
+
         if items.is_empty() {
             let mut empty_items = Vec::<&'static str, 1>::new();
             let _ = empty_items.push("No files found");
-            let menu = Menu::new("--- SD Card ---", empty_items);
+            let menu = Menu::new(menu_title, empty_items);
             self.display.clear().await;
             menu.render(&mut self.display).await;
             loop {
@@ -92,7 +115,7 @@ where
             }
         }
 
-        let mut menu = Menu::new("--- SD Card ---", items);
+        let mut menu = Menu::new(menu_title, items);
 
         loop {
             self.display.clear().await;

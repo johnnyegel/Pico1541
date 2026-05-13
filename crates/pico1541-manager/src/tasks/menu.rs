@@ -2,15 +2,15 @@ use crate::driver::DisplayDriver;
 use heapless::Vec;
 use core::fmt::Display;
 
-pub struct Menu<T, const N: usize> {
-    title: &'static str,
+pub struct Menu<T, const N: usize, Title = &'static str> {
+    title: Title,
     items: Vec<T, N>,
     selected_index: usize,
     scroll_offset: usize,
 }
 
-impl<T: Display + AsRef<str>, const N: usize> Menu<T, N> {
-    pub fn new(title: &'static str, items: Vec<T, N>) -> Self {
+impl<T: Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T, N, Title> {
+    pub fn new(title: Title, items: Vec<T, N>) -> Self {
         Self {
             title,
             items,
@@ -46,7 +46,7 @@ impl<T: Display + AsRef<str>, const N: usize> Menu<T, N> {
     }
 
     pub async fn render<D: DisplayDriver>(&self, display: &mut D) {
-        display.print(0, self.title).await;
+        display.print(0, self.title.as_ref()).await;
         
         for i in 0..3 {
             let item_idx = self.scroll_offset + i;
