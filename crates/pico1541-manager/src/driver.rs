@@ -12,6 +12,8 @@ pub trait DisplayDriver {
     async fn print(&mut self, line: u8, text: &str);
     async fn update(&mut self);
     async fn redraw(&mut self);
+    fn request_redraw(&mut self);
+    fn is_dirty(&self) -> bool;
 }
 
 /// Driver for RGB LED control.

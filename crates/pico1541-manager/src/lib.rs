@@ -27,3 +27,6 @@ pub enum InternalCommand {
 }
 
 pub static CMD_CHANNEL: Channel<CriticalSectionRawMutex, InternalCommand, 8> = Channel::new();
+
+/// Channel for keyboard events (raw bitmask of pressed buttons).
+pub static KEYBOARD_CHANNEL: Channel<CriticalSectionRawMutex, u8, 8> = Channel::new();

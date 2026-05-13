@@ -13,11 +13,14 @@ impl<D: DisplayDriver> DisplayTask<D> {
     pub async fn run(&mut self) -> ! {
         self.display.clear().await;
         self.display.print(0, "Pico1541 Ready").await;
+        self.display.redraw().await;
 
         loop {
-            self.display.update().await;
-            self.display.redraw().await;
-            Timer::after(Duration::from_millis(50)).await;
+            if self.display.is_dirty() {
+                self.display.update().await;
+                self.display.redraw().await;
+            }
+            Timer::after(Duration::from_millis(100)).await;
         }
     }
 }

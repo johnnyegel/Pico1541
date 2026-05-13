@@ -26,6 +26,7 @@ pub struct OledDisplay {
     selected_line: u8,
     scroll_offset: i32,
     scroll_dir: i32,
+    dirty: bool,
 }
 
 impl OledDisplay {
@@ -49,6 +50,7 @@ impl OledDisplay {
             selected_line: 0,
             scroll_offset: 0,
             scroll_dir: 1,
+            dirty: true,
         }
     }
 
@@ -69,6 +71,7 @@ impl OledDisplay {
             if self.scroll_offset >= max_scroll || self.scroll_offset <= 0 {
                 self.scroll_dir = -self.scroll_dir;
             }
+            self.dirty = true;
         } else {
             self.scroll_offset = 0;
         }
@@ -80,13 +83,15 @@ impl OledDisplay {
             self.selected_line = index;
             self.scroll_offset = 0;
             self.scroll_dir = 1;
+            self.dirty = true;
         }
     }
 
     pub fn set_line(&mut self, line: u8, text: &str) {
-        if line < 6 {
+        if line < 6 && self.lines[line as usize] != text {
             self.lines[line as usize].clear();
             let _ = self.lines[line as usize].push_str(text);
+            self.dirty = true;
         }
     }
 
@@ -94,9 +99,14 @@ impl OledDisplay {
         for line in &mut self.lines {
             line.clear();
         }
+        self.dirty = true;
     }
 
     pub fn redraw(&mut self) {
+        if !self.dirty {
+            return;
+        }
+
         let _ = self.display.clear(BinaryColor::Off);
 
         for i in 0..6 {
@@ -132,6 +142,7 @@ impl OledDisplay {
         }
 
         let _ = self.display.flush();
+        self.dirty = false;
     }
 }
 
@@ -161,5 +172,17 @@ impl<M: RawMutex + 'static> DisplayDriver for DisplayWrapper<M> {
     async fn redraw(&mut self) {
         let mut d = self.0.lock().await;
         d.redraw();
+    }
+    fn request_redraw(&mut self) {
+        if let Ok(mut d) = self.0.try_lock() {
+            d.dirty = true;
+        }
+    }
+    fn is_dirty(&self) -> bool {
+        if let Ok(d) = self.0.try_lock() {
+            d.dirty
+        } else {
+            true // Assume dirty if locked to ensure redraw
+        }
     }
 }

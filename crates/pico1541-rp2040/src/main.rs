@@ -20,7 +20,9 @@ use pico1541_common::snooper::{IecSnooper, IecSnoopByteHandler, SnooperConfig};
 use pico1541_common::formats::{AnyDiskImage, VirtualDiskImage};
 use pico1541_common::storage::{DirectoryEntry, StaticDirectorySource, MemoryStorage};
 use pico1541_emulator::Emulator;
-use pico1541_manager::tasks::{DriveActivityTask, HardwareTestTask, SnooperTask, VirtualDiskTask};
+use pico1541_manager::tasks::{
+    DisplayTask, DriveActivityTask, HardwareTestTask, KeyboardTask, SnooperTask, VirtualDiskTask,
+};
 use panic_probe as _;
 
 use crate::driver::display::{DisplayWrapper, OledDisplay};
@@ -74,8 +76,12 @@ async fn main(_spawner: Spawner) {
 
     // 4. Keyboard Matrix
     let keyboard = KeyboardInput::new(p.PIN_6, p.PIN_7, p.PIN_8, p.PIN_9);
+    let keyboard_task = KeyboardTask::new(keyboard);
 
-    // 5. Snooper Task
+    // 5. Display Task
+    let display_task = DisplayTask::new(DisplayWrapper(oled_mutex));
+
+    // 6. Snooper Task
     let snooper_task = SnooperTask::new(8);
 
     // 4. Storage (SD Card - SPI)
@@ -115,14 +121,21 @@ async fn main(_spawner: Spawner) {
     // Core 1 will handle the Manager tasks and Heartbeat
     let test_task = HardwareTestTask::new(
         DisplayWrapper(oled_mutex),
-        keyboard,
         status_leds,
         IndicatorWrapper(indicator_mutex),
     );
     let pin25 = p.PIN_25;
 
     embassy_rp::multicore::spawn_core1(p.CORE1, stack, move || {
-        core1_main(test_task, activity_task, snooper_task, vdisk_task, pin25);
+        core1_main(
+            test_task,
+            activity_task,
+            keyboard_task,
+            display_task,
+            snooper_task,
+            vdisk_task,
+            pin25,
+        );
     });
 
     // IEC Pins
@@ -276,10 +289,19 @@ async fn vdisk_run(mut task: VirtualDiskTask<'static, MemoryStorage<'static>, St
 }
 
 #[embassy_executor::task]
+async fn display_run(mut task: DisplayTask<DisplayWrapper<CriticalSectionRawMutex>>) {
+    task.run().await;
+}
+
+#[embassy_executor::task]
+async fn keyboard_run(mut task: KeyboardTask<KeyboardInput>) {
+    task.run().await;
+}
+
+#[embassy_executor::task]
 async fn test_run(
     mut task: HardwareTestTask<
         DisplayWrapper<CriticalSectionRawMutex>,
-        KeyboardInput,
         StatusLeds,
         IndicatorWrapper<CriticalSectionRawMutex>,
     >,
@@ -302,11 +324,12 @@ async fn blinky(pin: Peri<'static, PIN_25>) {
 fn core1_main(
     test_task: HardwareTestTask<
         DisplayWrapper<CriticalSectionRawMutex>,
-        KeyboardInput,
         StatusLeds,
         IndicatorWrapper<CriticalSectionRawMutex>,
     >,
     activity_task: DriveActivityTask<IndicatorWrapper<CriticalSectionRawMutex>>,
+    keyboard_task: KeyboardTask<KeyboardInput>,
+    display_task: DisplayTask<DisplayWrapper<CriticalSectionRawMutex>>,
     snooper_task: SnooperTask,
     vdisk_task: VirtualDiskTask<'static, MemoryStorage<'static>, StaticDirectorySource<'static>>,
     pin25: Peri<'static, PIN_25>,
@@ -317,6 +340,8 @@ fn core1_main(
     executor.run(|spawner| {
         spawner.spawn(test_run(test_task).unwrap());
         spawner.spawn(activity_run(activity_task).unwrap());
+        spawner.spawn(keyboard_run(keyboard_task).unwrap());
+        spawner.spawn(display_run(display_task).unwrap());
         spawner.spawn(snooper_run(snooper_task).unwrap());
         spawner.spawn(vdisk_run(vdisk_task).unwrap());
         spawner.spawn(blinky(pin25).unwrap());
