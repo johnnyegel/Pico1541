@@ -1,4 +1,11 @@
+# Ignore output and AI instructions
 target/**
 GEMINI.md
 CLAUDE.md
-**/.cargo/*
+
+# 1. Ignore everything inside the local .cargo directory...
+.cargo/*
+
+# 2. ...except for the configuration files!
+!.cargo/config.toml
+!.cargo/config
