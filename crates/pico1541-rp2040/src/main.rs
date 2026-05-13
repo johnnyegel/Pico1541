@@ -21,7 +21,7 @@ use pico1541_common::formats::{AnyDiskImage, VirtualDiskImage};
 use pico1541_common::storage::{DirectoryEntry, StaticDirectorySource, MemoryStorage};
 use pico1541_emulator::Emulator;
 use pico1541_manager::tasks::{
-    DisplayTask, DriveActivityTask, HardwareTestTask, KeyboardTask, SnooperTask, VirtualDiskTask,
+    DisplayTask, DriveActivityTask, KeyboardTask, MainMenuTask, SnooperTask, VirtualDiskTask,
 };
 use panic_probe as _;
 
@@ -71,8 +71,8 @@ async fn main(_spawner: Spawner) {
     let indicator_mutex = INDICATOR.init(Mutex::new(indicator));
     let activity_task = DriveActivityTask::new(IndicatorWrapper(indicator_mutex));
 
-    // 3. RGB Status LEDs
-    let status_leds = StatusLeds::new(p.PIN_26, p.PIN_27, p.PIN_28);
+    // 3. RGB Status LEDs (Reserved for future system status)
+    let _status_leds = StatusLeds::new(p.PIN_26, p.PIN_27, p.PIN_28);
 
     // 4. Keyboard Matrix
     let keyboard = KeyboardInput::new(p.PIN_6, p.PIN_7, p.PIN_8, p.PIN_9);
@@ -119,16 +119,12 @@ async fn main(_spawner: Spawner) {
 
     // --- Spawn Core 1 ---
     // Core 1 will handle the Manager tasks and Heartbeat
-    let test_task = HardwareTestTask::new(
-        DisplayWrapper(oled_mutex),
-        status_leds,
-        IndicatorWrapper(indicator_mutex),
-    );
+    let menu_task = MainMenuTask::new(DisplayWrapper(oled_mutex));
     let pin25 = p.PIN_25;
 
     embassy_rp::multicore::spawn_core1(p.CORE1, stack, move || {
         core1_main(
-            test_task,
+            menu_task,
             activity_task,
             keyboard_task,
             display_task,
@@ -299,13 +295,7 @@ async fn keyboard_run(mut task: KeyboardTask<KeyboardInput>) {
 }
 
 #[embassy_executor::task]
-async fn test_run(
-    mut task: HardwareTestTask<
-        DisplayWrapper<CriticalSectionRawMutex>,
-        StatusLeds,
-        IndicatorWrapper<CriticalSectionRawMutex>,
-    >,
-) {
+async fn menu_run(mut task: MainMenuTask<DisplayWrapper<CriticalSectionRawMutex>>) {
     task.run().await;
 }
 
@@ -322,11 +312,7 @@ async fn blinky(pin: Peri<'static, PIN_25>) {
 }
 
 fn core1_main(
-    test_task: HardwareTestTask<
-        DisplayWrapper<CriticalSectionRawMutex>,
-        StatusLeds,
-        IndicatorWrapper<CriticalSectionRawMutex>,
-    >,
+    menu_task: MainMenuTask<DisplayWrapper<CriticalSectionRawMutex>>,
     activity_task: DriveActivityTask<IndicatorWrapper<CriticalSectionRawMutex>>,
     keyboard_task: KeyboardTask<KeyboardInput>,
     display_task: DisplayTask<DisplayWrapper<CriticalSectionRawMutex>>,
@@ -338,7 +324,7 @@ fn core1_main(
     let executor = EXECUTOR.init(embassy_executor::Executor::new());
 
     executor.run(|spawner| {
-        spawner.spawn(test_run(test_task).unwrap());
+        spawner.spawn(menu_run(menu_task).unwrap());
         spawner.spawn(activity_run(activity_task).unwrap());
         spawner.spawn(keyboard_run(keyboard_task).unwrap());
         spawner.spawn(display_run(display_task).unwrap());
