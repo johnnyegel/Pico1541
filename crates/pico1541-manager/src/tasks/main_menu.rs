@@ -1,6 +1,6 @@
 use crate::driver::{DisplayDriver, RgbLedDriver, IndicatorDriver, FileStorageDriver, FileInfo, InternalStorage};
 use crate::KEYBOARD_CHANNEL;
-use crate::tasks::menu::Menu;
+use crate::tasks::menu::{Menu, MenuEvent};
 use crate::tasks::hardware_test::HardwareTestTask;
 use embassy_time::{Duration, Timer};
 use heapless::{Vec, String};
@@ -45,23 +45,19 @@ where
         let mut main_menu = Menu::new("--- Main Menu ---", main_items);
 
         loop {
-            self.display.clear().await;
-            main_menu.render(&mut self.display).await;
-
-            let buttons = KEYBOARD_CHANNEL.receive().await;
-            
-            if buttons & 0b1000 != 0 {
-                main_menu.move_up();
-            } else if buttons & 0b0010 != 0 {
-                main_menu.move_down();
-            } else if buttons & 0b0100 != 0 {
-                match main_menu.selected_index() {
-                    0 => self.sd_card_menu().await, // SD Card
-                    1 => self.internal_menu().await, // Internal Storage
-                    3 => self.settings_menu().await, // Settings
-                    _ => {
-                        log::info!("Selected: {}", main_menu.selected_item());
+            match main_menu.run(&mut self.display).await {
+                MenuEvent::Selected(idx) => {
+                    match idx {
+                        0 => self.sd_card_menu().await, // SD Card
+                        1 => self.internal_menu().await, // Internal Storage
+                        3 => self.settings_menu().await, // Settings
+                        _ => {
+                            log::info!("Selected: {}", main_menu.selected_item());
+                        }
                     }
+                }
+                MenuEvent::Back => {
+                    // Back in main menu could maybe show a "Shutting down" or just ignore
                 }
             }
         }
@@ -106,42 +102,30 @@ where
         if items.is_empty() {
             let mut empty_items = Vec::<&'static str, 1>::new();
             let _ = empty_items.push("No files found");
-            let menu = Menu::new(menu_title, empty_items);
-            self.display.clear().await;
-            menu.render(&mut self.display).await;
-            loop {
-                let buttons = KEYBOARD_CHANNEL.receive().await;
-                if buttons & 0b0001 != 0 { return; }
-            }
+            let mut menu = Menu::new(menu_title, empty_items);
+            let _ = menu.run(&mut self.display).await;
+            return;
         }
 
         let mut menu = Menu::new(menu_title, items);
 
         loop {
-            self.display.clear().await;
-            menu.render(&mut self.display).await;
-
-            let buttons = KEYBOARD_CHANNEL.receive().await;
-            
-            if buttons & 0b1000 != 0 {
-                menu.move_up();
-            } else if buttons & 0b0010 != 0 {
-                menu.move_down();
-            } else if buttons & 0b0100 != 0 {
-                let selected = &file_infos[menu.selected_index()];
-                if !selected.is_dir {
-                    log::info!("Selected file: {:?}", selected);
-                    self.display.clear().await;
-                    self.display.print(1, "   Mounting...  ").await;
-                    self.display.request_redraw();
-                    
-                    // Actually mounting would happen here.
-                    // For now we just show a message.
-                    Timer::after(Duration::from_secs(1)).await;
-                    return;
+            match menu.run(&mut self.display).await {
+                MenuEvent::Selected(idx) => {
+                    let selected = &file_infos[idx];
+                    if !selected.is_dir {
+                        log::info!("Selected file: {:?}", selected);
+                        self.display.clear().await;
+                        self.display.print(1, "   Mounting...  ").await;
+                        self.display.request_redraw();
+                        
+                        // Actually mounting would happen here.
+                        // For now we just show a message.
+                        Timer::after(Duration::from_secs(1)).await;
+                        return;
+                    }
                 }
-            } else if buttons & 0b0001 != 0 {
-                return;
+                MenuEvent::Back => return,
             }
         }
     }
@@ -155,33 +139,24 @@ where
         let mut menu = Menu::new("--- Settings ---", items);
 
         loop {
-            self.display.clear().await;
-            menu.render(&mut self.display).await;
-
-            let buttons = KEYBOARD_CHANNEL.receive().await;
-            
-            if buttons & 0b1000 != 0 {
-                menu.move_up();
-            } else if buttons & 0b0010 != 0 {
-                menu.move_down();
-            } else if buttons & 0b0100 != 0 {
-                match menu.selected_index() {
-                    2 => {
-                        // Hardware Test
-                        let mut test = HardwareTestTask::new(
-                            self.display.clone(),
-                            self.leds.clone(),
-                            self.indicator.clone(),
-                        );
-                        test.run().await;
-                    }
-                    _ => {
-                        log::info!("Selected setting: {}", menu.selected_item());
+            match menu.run(&mut self.display).await {
+                MenuEvent::Selected(idx) => {
+                    match idx {
+                        2 => {
+                            // Hardware Test
+                            let mut test = HardwareTestTask::new(
+                                self.display.clone(),
+                                self.leds.clone(),
+                                self.indicator.clone(),
+                            );
+                            test.run().await;
+                        }
+                        _ => {
+                            log::info!("Selected setting: {}", menu.selected_item());
+                        }
                     }
                 }
-            } else if buttons & 0b0001 != 0 {
-                // Back to Main Menu
-                return;
+                MenuEvent::Back => return,
             }
         }
     }

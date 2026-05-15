@@ -28,5 +28,22 @@ pub enum InternalCommand {
 
 pub static CMD_CHANNEL: Channel<CriticalSectionRawMutex, InternalCommand, 8> = Channel::new();
 
-/// Channel for keyboard events (raw bitmask of pressed buttons).
-pub static KEYBOARD_CHANNEL: Channel<CriticalSectionRawMutex, u8, 8> = Channel::new();
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Button {
+    Up,
+    Down,
+    Select,
+    Back,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum ButtonEvent {
+    Pressed(Button),
+    Released(Button),
+    Hold(Button),
+}
+
+/// Channel for keyboard events (logical button events).
+pub static KEYBOARD_CHANNEL: Channel<CriticalSectionRawMutex, ButtonEvent, 16> = Channel::new();

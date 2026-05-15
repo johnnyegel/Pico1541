@@ -2,6 +2,7 @@ pub mod display;
 pub mod drive_activity;
 pub mod hardware_test;
 pub mod keyboard;
+pub mod button;
 pub mod menu;
 pub mod main_menu;
 pub mod virtual_dir;

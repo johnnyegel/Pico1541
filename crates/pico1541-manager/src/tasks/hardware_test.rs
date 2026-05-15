@@ -1,5 +1,5 @@
 use crate::driver::{DisplayDriver, RgbLedDriver, IndicatorDriver, ActivityColor};
-use crate::KEYBOARD_CHANNEL;
+use crate::{KEYBOARD_CHANNEL, Button, ButtonEvent};
 use embassy_time::{Duration, Timer, Instant};
 use heapless::String;
 use core::fmt::Write;
@@ -104,19 +104,23 @@ where
                     
                     self.display.request_redraw();
                 }
-                Either::Second(buttons) => {
+                Either::Second(event) => {
                     // Keyboard event
                     let mut status = String::<32>::new();
-                    let _ = write!(status, "Buttons: {:04b}", buttons);
+                    let _ = write!(status, "Ev: {:?}", event);
                     self.display.print(1, &status).await;
                     
                     // Update Back button hold state
-                    if buttons & 0b0001 != 0 {
-                        if back_pressed_since.is_none() {
-                            back_pressed_since = Some(Instant::now());
+                    match event {
+                        ButtonEvent::Pressed(Button::Back) => {
+                            if back_pressed_since.is_none() {
+                                back_pressed_since = Some(Instant::now());
+                            }
                         }
-                    } else {
-                        back_pressed_since = None;
+                        ButtonEvent::Released(Button::Back) => {
+                            back_pressed_since = None;
+                        }
+                        _ => {}
                     }
                     
                     self.display.request_redraw();

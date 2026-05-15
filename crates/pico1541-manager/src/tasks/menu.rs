@@ -1,6 +1,12 @@
 use crate::driver::DisplayDriver;
+use crate::{KEYBOARD_CHANNEL, Button, ButtonEvent};
 use heapless::Vec;
 use core::fmt::Display;
+
+pub enum MenuEvent {
+    Selected(usize),
+    Back,
+}
 
 pub struct Menu<T, const N: usize, Title = &'static str> {
     title: Title,
@@ -64,5 +70,28 @@ impl<T: Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T, N, Titl
             }
         }
         display.request_redraw();
+    }
+
+    pub async fn run<D: DisplayDriver>(&mut self, display: &mut D) -> MenuEvent {
+        loop {
+            display.clear().await;
+            self.render(display).await;
+
+            match KEYBOARD_CHANNEL.receive().await {
+                ButtonEvent::Pressed(Button::Up) | ButtonEvent::Hold(Button::Up) => {
+                    self.move_up();
+                }
+                ButtonEvent::Pressed(Button::Down) | ButtonEvent::Hold(Button::Down) => {
+                    self.move_down();
+                }
+                ButtonEvent::Pressed(Button::Select) => {
+                    return MenuEvent::Selected(self.selected_index);
+                }
+                ButtonEvent::Pressed(Button::Back) => {
+                    return MenuEvent::Back;
+                }
+                _ => {}
+            }
+        }
     }
 }
