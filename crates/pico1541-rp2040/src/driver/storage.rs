@@ -141,7 +141,7 @@ where
     DET: embedded_hal::digital::InputPin + 'static
 {
     async fn is_available(&self) -> bool {
-        if let Ok(storage) = self.0.try_lock() {
+        if let Ok(mut storage) = self.0.try_lock() {
             storage.det_pin.is_low().unwrap_or(false)
         } else {
             false

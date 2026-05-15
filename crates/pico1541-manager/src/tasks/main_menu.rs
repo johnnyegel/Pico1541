@@ -1,5 +1,4 @@
 use crate::driver::{DisplayDriver, RgbLedDriver, IndicatorDriver, FileStorageDriver, FileInfo, InternalStorage};
-use crate::KEYBOARD_CHANNEL;
 use crate::tasks::menu::{Menu, MenuEvent};
 use crate::tasks::hardware_test::HardwareTestTask;
 use embassy_time::{Duration, Timer};
@@ -38,32 +37,46 @@ where
 
         loop {
             let mut main_items = Vec::<String<16>, 4>::new();
-            let mut item_map = Vec::<usize, 4>::new();
-
-            if self.storage.is_available().await {
-                let _ = main_items.push(String::from_str("SD Card").unwrap());
-                let _ = item_map.push(0);
+            
+            // 0. SD Card
+            let mut sd_str = String::<16>::from_str("SD Card").unwrap();
+            let sd_available = self.storage.is_available().await;
+            if !sd_available {
+                let _ = sd_str.push_str(" (X)");
             }
+            let _ = main_items.push(sd_str);
 
-            if self.internal.is_available().await {
-                let _ = main_items.push(String::from_str("Internal").unwrap());
-                let _ = item_map.push(1);
+            // 1. Internal
+            let mut int_str = String::<16>::from_str("Internal").unwrap();
+            let int_available = self.internal.is_available().await;
+            if !int_available {
+                let _ = int_str.push_str(" (X)");
             }
+            let _ = main_items.push(int_str);
 
-            // USB Drive (Future)
-            // let _ = main_items.push(String::from_str("USB Drive").unwrap());
-            // let _ = item_map.push(2);
+            // 2. USB Drive (Not yet supported)
+            let mut usb_str = String::<16>::from_str("USB Drive").unwrap();
+            let _ = usb_str.push_str(" (X)");
+            let _ = main_items.push(usb_str);
 
+            // 3. Settings
             let _ = main_items.push(String::from_str("Settings").unwrap());
-            let _ = item_map.push(3);
             
             let mut main_menu = Menu::new("--- Main Menu ---", main_items);
 
             match main_menu.run(&mut self.display).await {
                 MenuEvent::Selected(idx) => {
-                    match item_map[idx] {
-                        0 => self.sd_card_menu().await, // SD Card
-                        1 => self.internal_menu().await, // Internal Storage
+                    match idx {
+                        0 => {
+                            if sd_available {
+                                self.sd_card_menu().await;
+                            }
+                        }
+                        1 => {
+                            if int_available {
+                                self.internal_menu().await;
+                            }
+                        }
                         3 => self.settings_menu().await, // Settings
                         _ => {
                             log::info!("Selected: {}", main_menu.selected_item());
