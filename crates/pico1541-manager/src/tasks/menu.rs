@@ -45,8 +45,8 @@ impl<T: Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T, N, Titl
     pub fn move_down(&mut self) {
         if self.selected_index < self.items.len() - 1 {
             self.selected_index += 1;
-            if self.selected_index >= self.scroll_offset + 3 {
-                self.scroll_offset = self.selected_index - 2;
+            if self.selected_index >= self.scroll_offset + 5 {
+                self.scroll_offset = self.selected_index - 4;
             }
         }
     }
@@ -54,7 +54,7 @@ impl<T: Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T, N, Titl
     pub async fn render<D: DisplayDriver>(&self, display: &mut D) {
         display.print(0, self.title.as_ref()).await;
         
-        for i in 0..3 {
+        for i in 0..5 {
             let item_idx = self.scroll_offset + i;
             if item_idx < self.items.len() {
                 let prefix = if item_idx == self.selected_index { ">" } else { " " };
