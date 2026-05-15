@@ -20,69 +20,80 @@ impl TimeSource for DummyTimeSource {
     }
 }
 
-pub struct SdStorage<SPI, CS, D> 
+pub struct SdStorage<SPI, CS, D, DET> 
 where 
     SPI: embedded_hal::spi::SpiDevice,
     CS: embedded_hal::digital::OutputPin,
-    D: embedded_hal::delay::DelayNs
+    D: embedded_hal::delay::DelayNs,
+    DET: embedded_hal::digital::InputPin
 {
     pub volume_mgr: VolumeManager<SdCard<SPI, CS, D>, DummyTimeSource>,
+    pub det_pin: DET,
 }
 
-pub struct StorageWrapper<SPI, CS, D>(
-    pub &'static embassy_sync::mutex::Mutex<embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex, SdStorage<SPI, CS, D>>,
+pub struct StorageWrapper<SPI, CS, D, DET>(
+    pub &'static embassy_sync::mutex::Mutex<embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex, SdStorage<SPI, CS, D, DET>>,
 )
 where 
     SPI: embedded_hal::spi::SpiDevice + 'static,
     CS: embedded_hal::digital::OutputPin + 'static,
-    D: embedded_hal::delay::DelayNs + 'static;
+    D: embedded_hal::delay::DelayNs + 'static,
+    DET: embedded_hal::digital::InputPin + 'static;
 
-impl<SPI, CS, D> Clone for StorageWrapper<SPI, CS, D>
+impl<SPI, CS, D, DET> Clone for StorageWrapper<SPI, CS, D, DET>
 where 
     SPI: embedded_hal::spi::SpiDevice + 'static,
     CS: embedded_hal::digital::OutputPin + 'static,
-    D: embedded_hal::delay::DelayNs + 'static
+    D: embedded_hal::delay::DelayNs + 'static,
+    DET: embedded_hal::digital::InputPin + 'static
 {
     fn clone(&self) -> Self {
         Self(self.0)
     }
 }
 
-impl<SPI, CS, D> Copy for StorageWrapper<SPI, CS, D>
+impl<SPI, CS, D, DET> Copy for StorageWrapper<SPI, CS, D, DET>
 where 
     SPI: embedded_hal::spi::SpiDevice + 'static,
     CS: embedded_hal::digital::OutputPin + 'static,
-    D: embedded_hal::delay::DelayNs + 'static
+    D: embedded_hal::delay::DelayNs + 'static,
+    DET: embedded_hal::digital::InputPin + 'static
 {}
 
-pub struct SdFileHandle<SPI, CS, D>
+pub struct SdFileHandle<SPI, CS, D, DET>
 where 
     SPI: embedded_hal::spi::SpiDevice + 'static,
     CS: embedded_hal::digital::OutputPin + 'static,
-    D: embedded_hal::delay::DelayNs + 'static
+    D: embedded_hal::delay::DelayNs + 'static,
+    DET: embedded_hal::digital::InputPin + 'static
 {
-    storage: StorageWrapper<SPI, CS, D>,
+    storage: StorageWrapper<SPI, CS, D, DET>,
     path: String<32>,
     offset: u64,
 }
 
-impl<SPI, CS, D> ErrorType for SdFileHandle<SPI, CS, D>
+impl<SPI, CS, D, DET> ErrorType for SdFileHandle<SPI, CS, D, DET>
 where 
     SPI: embedded_hal::spi::SpiDevice + 'static,
     CS: embedded_hal::digital::OutputPin + 'static,
-    D: embedded_hal::delay::DelayNs + 'static
+    D: embedded_hal::delay::DelayNs + 'static,
+    DET: embedded_hal::digital::InputPin + 'static
 {
     type Error = CommonError;
 }
 
-impl<SPI, CS, D> Read for SdFileHandle<SPI, CS, D>
+impl<SPI, CS, D, DET> Read for SdFileHandle<SPI, CS, D, DET>
 where 
     SPI: embedded_hal::spi::SpiDevice + 'static,
     CS: embedded_hal::digital::OutputPin + 'static,
-    D: embedded_hal::delay::DelayNs + 'static
+    D: embedded_hal::delay::DelayNs + 'static,
+    DET: embedded_hal::digital::InputPin + 'static
 {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         let mut storage = self.storage.0.lock().await;
+        if storage.det_pin.is_high().map_err(|_| CommonError::Io)? {
+            return Err(CommonError::Io);
+        }
         let mut volume = storage.volume_mgr.open_volume(VolumeIdx(0)).map_err(|_| CommonError::Io)?;
         let mut root = volume.open_root_dir().map_err(|_| CommonError::Io)?;
         let filename = ShortFileName::create_from_str(&self.path).map_err(|_| CommonError::Io)?;
@@ -95,11 +106,12 @@ where
     }
 }
 
-impl<SPI, CS, D> Seek for SdFileHandle<SPI, CS, D>
+impl<SPI, CS, D, DET> Seek for SdFileHandle<SPI, CS, D, DET>
 where 
     SPI: embedded_hal::spi::SpiDevice + 'static,
     CS: embedded_hal::digital::OutputPin + 'static,
-    D: embedded_hal::delay::DelayNs + 'static
+    D: embedded_hal::delay::DelayNs + 'static,
+    DET: embedded_hal::digital::InputPin + 'static
 {
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         match pos {
@@ -107,6 +119,9 @@ where
             SeekFrom::Current(n) => self.offset = (self.offset as i64 + n) as u64,
             SeekFrom::End(n) => {
                 let mut storage = self.storage.0.lock().await;
+                if storage.det_pin.is_high().map_err(|_| CommonError::Io)? {
+                    return Err(CommonError::Io);
+                }
                 let mut volume = storage.volume_mgr.open_volume(VolumeIdx(0)).map_err(|_| CommonError::Io)?;
                 let mut root = volume.open_root_dir().map_err(|_| CommonError::Io)?;
                 let filename = ShortFileName::create_from_str(&self.path).map_err(|_| CommonError::Io)?;
@@ -118,14 +133,26 @@ where
     }
 }
 
-impl<SPI, CS, D> FileStorageDriver for StorageWrapper<SPI, CS, D>
+impl<SPI, CS, D, DET> FileStorageDriver for StorageWrapper<SPI, CS, D, DET>
 where 
     SPI: embedded_hal::spi::SpiDevice + 'static,
     CS: embedded_hal::digital::OutputPin + 'static,
-    D: embedded_hal::delay::DelayNs + 'static
+    D: embedded_hal::delay::DelayNs + 'static,
+    DET: embedded_hal::digital::InputPin + 'static
 {
+    async fn is_available(&self) -> bool {
+        if let Ok(storage) = self.0.try_lock() {
+            storage.det_pin.is_low().unwrap_or(false)
+        } else {
+            false
+        }
+    }
+
     async fn list_dir(&mut self, _path: &str, mut callback: impl FnMut(FileInfo)) -> Result<(), ManagerError> {
         let mut storage = self.0.lock().await;
+        if storage.det_pin.is_high().map_err(|_| ManagerError::Io)? {
+            return Err(ManagerError::Io);
+        }
         let mut volume = match storage.volume_mgr.open_volume(VolumeIdx(0)) {
             Ok(v) => v,
             Err(_) => return Err(ManagerError::Io),
@@ -153,13 +180,14 @@ where
     }
 }
 
-impl<SPI, CS, D> StorageWrapper<SPI, CS, D>
+impl<SPI, CS, D, DET> StorageWrapper<SPI, CS, D, DET>
 where 
     SPI: embedded_hal::spi::SpiDevice + 'static,
     CS: embedded_hal::digital::OutputPin + 'static,
-    D: embedded_hal::delay::DelayNs + 'static
+    D: embedded_hal::delay::DelayNs + 'static,
+    DET: embedded_hal::digital::InputPin + 'static
 {
-    pub async fn open_sd_file(&self, path: &str) -> Result<SdFileHandle<SPI, CS, D>, ManagerError> {
+    pub async fn open_sd_file(&self, path: &str) -> Result<SdFileHandle<SPI, CS, D, DET>, ManagerError> {
         let mut p = String::<32>::new();
         p.push_str(path).map_err(|_| ManagerError::Io)?;
         
@@ -171,24 +199,26 @@ where
     }
 }
 
-impl<SPI, CS, D> SdStorage<SPI, CS, D>
+impl<SPI, CS, D, DET> SdStorage<SPI, CS, D, DET>
 where 
     SPI: embedded_hal::spi::SpiDevice,
     CS: embedded_hal::digital::OutputPin,
-    D: embedded_hal::delay::DelayNs
+    D: embedded_hal::delay::DelayNs,
+    DET: embedded_hal::digital::InputPin
 {
-    pub fn new(spi_device: SPI, cs_pin: CS, delayer: D) -> Self {
+    pub fn new(spi_device: SPI, cs_pin: CS, delayer: D, det_pin: DET) -> Self {
         let sdcard = SdCard::new(spi_device, cs_pin, delayer);
         let volume_mgr = VolumeManager::new(sdcard, DummyTimeSource);
-        Self { volume_mgr }
+        Self { volume_mgr, det_pin }
     }
 }
 
-impl<SPI, CS, D> StorageDriver for SdStorage<SPI, CS, D>
+impl<SPI, CS, D, DET> StorageDriver for SdStorage<SPI, CS, D, DET>
 where 
     SPI: embedded_hal::spi::SpiDevice,
     CS: embedded_hal::digital::OutputPin,
-    D: embedded_hal::delay::DelayNs
+    D: embedded_hal::delay::DelayNs,
+    DET: embedded_hal::digital::InputPin
 {
     async fn read_block(&mut self, _track: u8, _sector: u8, _buf: &mut [u8]) -> Result<(), ManagerError> {
         Ok(())

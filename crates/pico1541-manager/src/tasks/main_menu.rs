@@ -36,18 +36,32 @@ where
         self.display.request_redraw();
         Timer::after(Duration::from_secs(2)).await;
 
-        let mut main_items = Vec::<&'static str, 4>::new();
-        let _ = main_items.push("SD Card");
-        let _ = main_items.push("Internal");
-        let _ = main_items.push("USB Drive");
-        let _ = main_items.push("Settings");
-        
-        let mut main_menu = Menu::new("--- Main Menu ---", main_items);
-
         loop {
+            let mut main_items = Vec::<String<16>, 4>::new();
+            let mut item_map = Vec::<usize, 4>::new();
+
+            if self.storage.is_available().await {
+                let _ = main_items.push(String::from_str("SD Card").unwrap());
+                let _ = item_map.push(0);
+            }
+
+            if self.internal.is_available().await {
+                let _ = main_items.push(String::from_str("Internal").unwrap());
+                let _ = item_map.push(1);
+            }
+
+            // USB Drive (Future)
+            // let _ = main_items.push(String::from_str("USB Drive").unwrap());
+            // let _ = item_map.push(2);
+
+            let _ = main_items.push(String::from_str("Settings").unwrap());
+            let _ = item_map.push(3);
+            
+            let mut main_menu = Menu::new("--- Main Menu ---", main_items);
+
             match main_menu.run(&mut self.display).await {
                 MenuEvent::Selected(idx) => {
-                    match idx {
+                    match item_map[idx] {
                         0 => self.sd_card_menu().await, // SD Card
                         1 => self.internal_menu().await, // Internal Storage
                         3 => self.settings_menu().await, // Settings

@@ -50,7 +50,8 @@ type MySpi = Spi<'static, SPI1, embassy_rp::spi::Blocking>;
 type MyCs = Output<'static>;
 type MyDelay = embassy_time::Delay;
 type MySpiDev = ExclusiveDevice<MySpi, MyCs, MyDelay>;
-type MyFile = SdFileHandle<MySpiDev, DummyPin, MyDelay>;
+type MyDet = Input<'static>;
+type MyFile = SdFileHandle<MySpiDev, DummyPin, MyDelay, MyDet>;
 type MyStorage = RuntimeStorage<'static, MyFile>;
 type MyDir = StaticDirectorySource<'static>;
 type MyDisk = AnyDiskImage<MyStorage, MyDir>;
@@ -102,13 +103,14 @@ async fn main(_spawner: Spawner) {
     let miso = p.PIN_12;
     let clk = p.PIN_14;
     let cs = Output::new(p.PIN_13, Level::High);
+    let det = Input::new(p.PIN_11, Pull::Up);
     let mut spi_config = SpiConfig::default();
     spi_config.frequency = 400_000; // Start slow for SD init
     let spi = Spi::new_blocking(p.SPI1, clk, mosi, miso, spi_config);
     let spi_dev = ExclusiveDevice::new(spi, cs, embassy_time::Delay).unwrap();
 
-    static SD_STORAGE: StaticCell<Mutex<CriticalSectionRawMutex, SdStorage<MySpiDev, DummyPin, MyDelay>>> = StaticCell::new();
-    let sd_obj = SdStorage::new(spi_dev, DummyPin, embassy_time::Delay);
+    static SD_STORAGE: StaticCell<Mutex<CriticalSectionRawMutex, SdStorage<MySpiDev, DummyPin, MyDelay, MyDet>>> = StaticCell::new();
+    let sd_obj = SdStorage::new(spi_dev, DummyPin, embassy_time::Delay, det);
     let sd_mutex = SD_STORAGE.init(Mutex::new(sd_obj));
 
     // 5. Keyboard Matrix
@@ -321,7 +323,7 @@ async fn menu_run(
         DisplayWrapper<CriticalSectionRawMutex>,
         StatusLedsWrapper<CriticalSectionRawMutex>,
         IndicatorWrapper<CriticalSectionRawMutex>,
-        StorageWrapper<MySpiDev, DummyPin, MyDelay>,
+        StorageWrapper<MySpiDev, DummyPin, MyDelay, MyDet>,
         MyDisk,
     >,
 ) {
@@ -345,7 +347,7 @@ fn core1_main(
         DisplayWrapper<CriticalSectionRawMutex>,
         StatusLedsWrapper<CriticalSectionRawMutex>,
         IndicatorWrapper<CriticalSectionRawMutex>,
-        StorageWrapper<MySpiDev, DummyPin, MyDelay>,
+        StorageWrapper<MySpiDev, DummyPin, MyDelay, MyDet>,
         MyDisk,
     >,
     activity_task: DriveActivityTask<IndicatorWrapper<CriticalSectionRawMutex>>,

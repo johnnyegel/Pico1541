@@ -23,6 +23,10 @@ pub static INTERNAL_FILES: &[InternalFile] = &[
 pub struct InternalStorage;
 
 impl FileStorageDriver for InternalStorage {
+    async fn is_available(&self) -> bool {
+        true
+    }
+
     async fn list_dir(&mut self, _path: &str, mut callback: impl FnMut(FileInfo)) -> Result<(), Error> {
         for file in INTERNAL_FILES {
             let mut info = FileInfo {

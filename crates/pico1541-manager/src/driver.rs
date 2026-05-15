@@ -19,6 +19,7 @@ pub struct FileInfo {
 }
 
 pub trait FileStorageDriver {
+    async fn is_available(&self) -> bool;
     async fn list_dir(&mut self, path: &str, callback: impl FnMut(FileInfo)) -> Result<(), Error>;
     async fn open_file(&mut self, path: &str) -> Result<(), Error>;
 }
