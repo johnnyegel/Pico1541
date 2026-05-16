@@ -1316,6 +1316,7 @@ dependencies = [
  "heapless 0.9.3",
  "log",
  "pico1541-common",
+ "portable-atomic",
 ]
 
 [[package]]

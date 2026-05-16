@@ -16,9 +16,14 @@ default-members = [
 ]
 
 [profile.release]
-opt-level = 3       # Crucial for 6502 emulation speed
-lto = true          # Link Time Optimization for smaller/faster binaries
+opt-level = 3
+lto = true
+codegen-units = 1
 panic = "abort"
 
 [profile.dev]
+opt-level = 3
 panic = "abort"
+
+[profile.dev.package."*"]
+opt-level = 3

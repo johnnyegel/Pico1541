@@ -23,6 +23,7 @@ pub struct SystemBus<H: HostInterface> {
     pub mechanics: DriveMechanics,
     pub so_active: bool,
     pub device_id: u8,
+    pub cycle_counter: u32,
     _phantom: PhantomData<H>,
 }
 
@@ -39,6 +40,7 @@ impl<H: HostInterface> SystemBus<H> {
             mechanics: DriveMechanics::new(),
             so_active: false,
             device_id,
+            cycle_counter: 0,
             _phantom: PhantomData,
         };
 
@@ -70,8 +72,14 @@ impl<H: HostInterface> SystemBus<H> {
     pub fn tick_cycle(&mut self, hardware: &mut H) {
         hardware.sync();
 
-        if hardware.pop_discard_request() {
-            crate::hle::HleManager::intercept_command(self);
+        // Check for hardware configuration changes every 1024 cycles (~1ms)
+        self.cycle_counter = self.cycle_counter.wrapping_add(1);
+        if (self.cycle_counter & 0x3FF) == 0 {
+            self.device_id = hardware.get_device_id();
+
+            if hardware.pop_discard_request() {
+                crate::hle::HleManager::intercept_command(self);
+            }
         }
 
         let requested_sector = self.ram[0x000C];

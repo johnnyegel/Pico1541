@@ -29,6 +29,18 @@ impl<T: Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T, N, Titl
         self.selected_index
     }
 
+    pub fn set_cursor(&mut self, index: usize) {
+        if index < self.items.len() {
+            self.selected_index = index;
+            // Adjust scroll offset if needed
+            if self.selected_index < self.scroll_offset {
+                self.scroll_offset = self.selected_index;
+            } else if self.selected_index >= self.scroll_offset + 5 {
+                self.scroll_offset = self.selected_index - 4;
+            }
+        }
+    }
+
     pub fn selected_item(&self) -> &T {
         &self.items[self.selected_index]
     }

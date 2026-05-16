@@ -4,11 +4,28 @@ use log::*;
 
 pub struct DriveActivityTask<I: IndicatorDriver> {
     indicator: I,
+    led_on: bool,
+    motor_on: bool,
 }
 
 impl<I: IndicatorDriver> DriveActivityTask<I> {
     pub fn new(indicator: I) -> Self {
-        Self { indicator }
+        Self { 
+            indicator,
+            led_on: false,
+            motor_on: false,
+        }
+    }
+
+    fn update_led(&mut self) {
+        let color = if self.led_on {
+            crate::driver::ActivityColor::Red
+        } else if self.motor_on {
+            crate::driver::ActivityColor::Green
+        } else {
+            crate::driver::ActivityColor::Off
+        };
+        self.indicator.set_activity_led(color);
     }
 
     pub async fn run(&mut self) -> ! {
@@ -16,12 +33,12 @@ impl<I: IndicatorDriver> DriveActivityTask<I> {
             let event = ACTIVITY_CHANNEL.receive().await;
             match event {
                 DriveEvent::LedChanged(active) => {
-                    let color = if active {
-                        crate::driver::ActivityColor::Red
-                    } else {
-                        crate::driver::ActivityColor::Off
-                    };
-                    self.indicator.set_activity_led(color);
+                    self.led_on = active;
+                    self.update_led();
+                }
+                DriveEvent::MotorChanged(active) => {
+                    self.motor_on = active;
+                    self.update_led();
                 }
                 DriveEvent::HeadStepped { new_half_track } => {
                     self.indicator.beep();

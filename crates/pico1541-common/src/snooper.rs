@@ -1,26 +1,37 @@
 
 use crate::interface::{IecBusState, DriveEvent};
-use portable_atomic::{AtomicBool, AtomicU8};
+use portable_atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
 
 pub struct SnooperConfig {
-    pub device_id: u8,
+    pub device_id: AtomicU8,
     pub listen_addr: AtomicU8,
     pub talk_addr: AtomicU8,
     pub hijack_active: AtomicBool,
     pub should_drive_data: AtomicBool,
     pub discard_request: AtomicBool,
+    // Performance metrics (Core 0 -> Core 1)
+    pub emu_speed_khz: AtomicU32,
+    pub emu_jitter_ns: AtomicU32,
 }
 
 impl SnooperConfig {
     pub const fn new(device_id: u8) -> Self {
         Self {
-            device_id,
+            device_id: AtomicU8::new(device_id),
             listen_addr: AtomicU8::new(0x20 | (device_id & 0xF)),
             talk_addr: AtomicU8::new(0x40 | (device_id & 0xF)),
             hijack_active: AtomicBool::new(false),
             should_drive_data: AtomicBool::new(false),
             discard_request: AtomicBool::new(false),
+            emu_speed_khz: AtomicU32::new(0),
+            emu_jitter_ns: AtomicU32::new(0),
         }
+    }
+
+    pub fn update_device_id(&self, device_id: u8) {
+        self.device_id.store(device_id, Ordering::Relaxed);
+        self.listen_addr.store(0x20 | (device_id & 0xF), Ordering::Relaxed);
+        self.talk_addr.store(0x40 | (device_id & 0xF), Ordering::Relaxed);
     }
 }
 

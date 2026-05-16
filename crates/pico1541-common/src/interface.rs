@@ -184,4 +184,9 @@ pub trait HostInterface: IecBus {
     /// Update the IEC addresses (LISTEN and TALK) snooped by the manager.
     /// Usually called by the emulator when it detects a change in drive RAM.
     fn update_iec_addresses(&mut self, _listen: u8, _talk: u8) { }
+
+    /// Returns the current device ID (8-11) configured for the drive.
+    fn get_device_id(&self) -> u8 {
+        8
+    }
 }

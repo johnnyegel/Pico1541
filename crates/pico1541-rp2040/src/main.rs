@@ -156,6 +156,7 @@ async fn main(_spawner: Spawner) {
         IndicatorWrapper(indicator_mutex),
         StorageWrapper(sd_mutex),
         disk_image_mutex,
+        &SNOOPER_CONFIG,
     );
     let pin25 = p.PIN_25;
 
@@ -184,7 +185,8 @@ async fn main(_spawner: Spawner) {
     let bridge = HardwareBridge::new(pins, track_for_bridge, &SNOOPER_CONFIG);
 
     let rom = include_bytes!("../../../roms/1541-II.251968-03.bin");
-    let drive = Emulator::new(*rom, 8);
+    let mut drive = Emulator::new(*rom, 8);
+    drive.reset();
 
     emulator_loop(drive, bridge).await;
 }
@@ -210,7 +212,7 @@ impl HardwareBridge {
         Self {
             track,
             pins,
-            snooper: IecSnooper::new(config.device_id),
+            snooper: IecSnooper::new(config.device_id.load(Ordering::Relaxed)),
             handler: IecSnoopByteHandler::new(),
             config,
         }
@@ -220,27 +222,30 @@ impl HardwareBridge {
 impl IecBus for HardwareBridge {
     #[inline(always)]
     fn iec_host(&self) -> IecBusState {
-        let mut state = IecBusState::default();
-        state.set_data(self.pins.data_rx.is_high());
-        state.set_clk(self.pins.clk_rx.is_high());
-        state.set_atn(self.pins.atn_rx.is_high());
-        state
+        // Direct SIO register read for speed.
+        // GPIO_IN at 0xd0000004
+        let pins = unsafe { core::ptr::read_volatile(0xd0000004 as *const u32) };
+        
+        let data = (pins >> 16) & 1;
+        let clk = (pins >> 17) & 1;
+        let atn = (pins >> 18) & 1;
+        
+        IecBusState(((atn << 2) | (clk << 1) | data) as u8)
     }
 
     #[inline(always)]
     fn iec_drive(&mut self, state: IecBusState) {
         let should_drive_data = self.config.should_drive_data.load(Ordering::Relaxed);
         
-        if state.get_data() || should_drive_data {
-            self.pins.data_tx.set_high();
-        } else {
-            self.pins.data_tx.set_low();
-        }
-
-        if state.get_clk() {
-            self.pins.clk_tx.set_high();
-        } else {
-            self.pins.clk_tx.set_low();
+        // GPIO 19: DATA_TX, 20: CLK_TX
+        let mut mask = 0u32;
+        if state.get_data() || should_drive_data { mask |= 1 << 19; }
+        if state.get_clk() { mask |= 1 << 20; }
+        
+        unsafe {
+            // SIO GPIO_OUT_SET (0x14) and GPIO_OUT_CLR (0x18)
+            core::ptr::write_volatile(0xd0000014 as *mut u32, mask);
+            core::ptr::write_volatile(0xd0000018 as *mut u32, !mask & ((1 << 19) | (1 << 20)));
         }
     }
 }
@@ -269,10 +274,17 @@ impl HostInterface for HardwareBridge {
         self.config.talk_addr.store(talk, Ordering::Relaxed);
     }
 
+    fn get_device_id(&self) -> u8 {
+        self.config.device_id.load(Ordering::Relaxed)
+    }
+
     fn sync(&mut self) {
         let host = self.iec_host();
         let config = self.config;
         let handler = &mut self.handler;
+
+        // Ensure snooper is using the current device ID
+        self.snooper.set_listen_addr(config.listen_addr.load(Ordering::Relaxed));
         
         self.snooper.update(host, |event| {
             let _ = pico1541_manager::EVENT_CHANNEL.try_send(event);
@@ -374,13 +386,46 @@ fn core1_main(
 async fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: HardwareBridge) -> ! {
     let timer = embassy_rp::pac::TIMER;
     let mut last_tick = timer.timelr().read();
+    let mut cycle_counter = 0u32;
+    let mut last_perf_update = last_tick;
+    let mut max_jitter_ticks = 0u32;
 
     loop {
-        while timer.timelr().read() == last_tick {
+        let now = timer.timelr().read();
+        
+        // Target is 1 MHz, so 1 tick per cycle (RP2040 timer is 1MHz)
+        // If we are behind, run multiple cycles back-to-back to catch up.
+        // Cap catch-up to 10 cycles to allow Manager tasks to breathe.
+        let mut caught_up = 0;
+        while now.wrapping_sub(last_tick) > 0 && caught_up < 10 {
+            let cycle_start = timer.timelr().read();
+            last_tick = last_tick.wrapping_add(1);
+            
+            drive.tick(&mut bridge);
+            
+            let cycle_end = timer.timelr().read();
+            let jitter = cycle_end.wrapping_sub(cycle_start);
+            if jitter < 1000 {
+                max_jitter_ticks = max_jitter_ticks.max(jitter);
+            }
+
+            cycle_counter += 1;
+            caught_up += 1;
+        }
+
+        // Update performance metrics every second
+        if now.wrapping_sub(last_perf_update) >= 1_000_000 {
+            bridge.config.emu_speed_khz.store(cycle_counter, Ordering::Relaxed);
+            bridge.config.emu_jitter_ns.store(max_jitter_ticks * 1000, Ordering::Relaxed);
+            
+            cycle_counter = 0;
+            max_jitter_ticks = 0;
+            last_perf_update = now;
+        }
+
+        if caught_up == 0 {
+            // We are ahead or on time, yield slightly
             cortex_m::asm::nop();
         }
-        last_tick = timer.timelr().read();
-        drive.tick(&mut bridge);
-        bridge.sync();
     }
 }

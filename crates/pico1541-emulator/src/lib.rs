@@ -63,7 +63,6 @@ impl<H: HostInterface> Emulator<H> {
     /// peripheral interaction during that cycle.
     pub fn tick(&mut self, hw: &mut H) {
         self.cpu.tick(&mut self.bus, hw);
-        hw.sync();
     }
 
     /// Executes the given number of CPU cycles.
