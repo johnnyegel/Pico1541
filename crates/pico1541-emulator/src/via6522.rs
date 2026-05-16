@@ -230,6 +230,7 @@ impl Via6522 {
     }
 
     /// This method is called on each CPU cycle.
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     pub fn tick_cycle(&mut self) {
         // --- Timer 1 ---

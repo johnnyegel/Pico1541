@@ -65,8 +65,12 @@ impl embedded_hal::digital::OutputPin for DummyPin {
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = embassy_rp::init(Default::default());
-    info!("Pico1541 Starting...");
+    // Configure the system clock to 250 MHz
+    let mut config = embassy_rp::config::Config::default();
+    config.clocks = embassy_rp::clocks::Config::system_freq(250_000_000, 12_000_000);
+    
+    let p = embassy_rp::init(config);
+    info!("Pico1541 Starting at 250MHz...");
 
     let stack = CORE1_STACK.init(Stack::new());
     // --- Hardware Drivers (Core 1 - Manager) ---
@@ -385,6 +389,7 @@ fn core1_main(
     })
 }
 
+#[link_section = ".ramfunc"]
 async fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: HardwareBridge) -> ! {
     let timer = embassy_rp::pac::TIMER;
     let mut last_tick = timer.timelr().read();

@@ -9,45 +9,57 @@ use super::{AddrMicroOp, ExecMicroOp, Instruction};
 // These slices define the bus activity for each 6502 addressing mode.
 
 /// Implied or Accumulator addressing (0 extra cycles).
+#[link_section = ".data"]
 pub static ADDR_NONE: &[AddrMicroOp] = &[];
 /// Immediate addressing (operand fetched during execution).
+#[link_section = ".data"]
 pub static ADDR_IMM: &[AddrMicroOp] = &[];
 /// Zero Page addressing (1 cycle: fetch ZP address).
+#[link_section = ".data"]
 pub static ADDR_ZP: &[AddrMicroOp] = &[AddrMicroOp::FetchAddrLo];
 /// Zero Page,X addressing (2 cycles: fetch address, add X).
+#[link_section = ".data"]
 pub static ADDR_ZPX: &[AddrMicroOp] = &[AddrMicroOp::FetchAddrLo, AddrMicroOp::AddXToZP];
 /// Zero Page,Y addressing (2 cycles: fetch address, add Y).
+#[link_section = ".data"]
 pub static ADDR_ZPY: &[AddrMicroOp] = &[AddrMicroOp::FetchAddrLo, AddrMicroOp::AddYToZP];
 /// Absolute addressing (2 cycles: fetch low, fetch high).
+#[link_section = ".data"]
 pub static ADDR_ABS: &[AddrMicroOp] = &[AddrMicroOp::FetchAddrLo, AddrMicroOp::FetchAddrHi];
 /// Special variant for JMP Abs (2 cycles: fetch low, fetch high and update PC).
+#[link_section = ".data"]
 pub static ADDR_ABS_JMP: &[AddrMicroOp] =
     &[AddrMicroOp::FetchAddrLo, AddrMicroOp::FetchAddrHiAndJump];
 /// Absolute,X addressing for read instructions (3+ cycles: fetch low, fetch high + add X, optional fixup).
+#[link_section = ".data"]
 pub static ADDR_ABSX_READ: &[AddrMicroOp] = &[
     AddrMicroOp::FetchAddrLo,
     AddrMicroOp::AddXToAbs,
     AddrMicroOp::OptionalFixupX,
 ];
 /// Absolute,X addressing for write/RMW instructions (4 cycles: mandatory dummy read/fixup).
+#[link_section = ".data"]
 pub static ADDR_ABSX_WRITE: &[AddrMicroOp] = &[
     AddrMicroOp::FetchAddrLo,
     AddrMicroOp::AddXToAbs,
     AddrMicroOp::MandatoryFixupX,
 ];
 /// Absolute,Y addressing for read instructions (3+ cycles).
+#[link_section = ".data"]
 pub static ADDR_ABSY_READ: &[AddrMicroOp] = &[
     AddrMicroOp::FetchAddrLo,
     AddrMicroOp::AddYToAbs,
     AddrMicroOp::OptionalFixupY,
 ];
 /// Absolute,Y addressing for write/RMW instructions (4 cycles).
+#[link_section = ".data"]
 pub static ADDR_ABSY_WRITE: &[AddrMicroOp] = &[
     AddrMicroOp::FetchAddrLo,
     AddrMicroOp::AddYToAbs,
     AddrMicroOp::MandatoryFixupY,
 ];
 /// Indirect,X addressing (5 cycles).
+#[link_section = ".data"]
 pub static ADDR_INDX: &[AddrMicroOp] = &[
     AddrMicroOp::FetchAddrLo,
     AddrMicroOp::AddXToZP,
@@ -55,6 +67,7 @@ pub static ADDR_INDX: &[AddrMicroOp] = &[
     AddrMicroOp::FetchIndXHi,
 ];
 /// Indirect,Y addressing for read instructions (4+ cycles).
+#[link_section = ".data"]
 pub static ADDR_INDY_READ: &[AddrMicroOp] = &[
     AddrMicroOp::FetchAddrLo,
     AddrMicroOp::FetchIndYLo,
@@ -62,6 +75,7 @@ pub static ADDR_INDY_READ: &[AddrMicroOp] = &[
     AddrMicroOp::OptionalFixupIndY,
 ];
 /// Indirect,Y addressing for write instructions (5 cycles).
+#[link_section = ".data"]
 pub static ADDR_INDY_WRITE: &[AddrMicroOp] = &[
     AddrMicroOp::FetchAddrLo,
     AddrMicroOp::FetchIndYLo,
@@ -70,102 +84,159 @@ pub static ADDR_INDY_WRITE: &[AddrMicroOp] = &[
 ];
 
 // --- Operation Slices ---
+#[link_section = ".data"]
 pub static OP_LDA_IMM: &[ExecMicroOp] = &[ExecMicroOp::FetchImmAndLDA];
+#[link_section = ".data"]
 pub static OP_LDA_MEM: &[ExecMicroOp] = &[ExecMicroOp::ReadEffAndLDA];
+#[link_section = ".data"]
 pub static OP_LDX_IMM: &[ExecMicroOp] = &[ExecMicroOp::FetchImmAndLDX];
+#[link_section = ".data"]
 pub static OP_LDX_MEM: &[ExecMicroOp] = &[ExecMicroOp::ReadEffAndLDX];
+#[link_section = ".data"]
 pub static OP_LDY_IMM: &[ExecMicroOp] = &[ExecMicroOp::FetchImmAndLDY];
+#[link_section = ".data"]
 pub static OP_LDY_MEM: &[ExecMicroOp] = &[ExecMicroOp::ReadEffAndLDY];
 
+#[link_section = ".data"]
 pub static OP_STA_MEM: &[ExecMicroOp] = &[ExecMicroOp::WriteEffA];
+#[link_section = ".data"]
 pub static OP_STX_MEM: &[ExecMicroOp] = &[ExecMicroOp::WriteEffX];
+#[link_section = ".data"]
 pub static OP_STY_MEM: &[ExecMicroOp] = &[ExecMicroOp::WriteEffY];
 
+#[link_section = ".data"]
 pub static OP_ADC_IMM: &[ExecMicroOp] = &[ExecMicroOp::FetchImmAndADC];
+#[link_section = ".data"]
 pub static OP_ADC_MEM: &[ExecMicroOp] = &[ExecMicroOp::ReadEffAndADC];
+#[link_section = ".data"]
 pub static OP_SBC_IMM: &[ExecMicroOp] = &[ExecMicroOp::FetchImmAndSBC];
+#[link_section = ".data"]
 pub static OP_SBC_MEM: &[ExecMicroOp] = &[ExecMicroOp::ReadEffAndSBC];
+#[link_section = ".data"]
 pub static OP_AND_IMM: &[ExecMicroOp] = &[ExecMicroOp::FetchImmAndAND];
+#[link_section = ".data"]
 pub static OP_AND_MEM: &[ExecMicroOp] = &[ExecMicroOp::ReadEffAndAND];
+#[link_section = ".data"]
 pub static OP_ORA_IMM: &[ExecMicroOp] = &[ExecMicroOp::FetchImmAndORA];
+#[link_section = ".data"]
 pub static OP_ORA_MEM: &[ExecMicroOp] = &[ExecMicroOp::ReadEffAndORA];
+#[link_section = ".data"]
 pub static OP_EOR_IMM: &[ExecMicroOp] = &[ExecMicroOp::FetchImmAndEOR];
+#[link_section = ".data"]
 pub static OP_EOR_MEM: &[ExecMicroOp] = &[ExecMicroOp::ReadEffAndEOR];
 
+#[link_section = ".data"]
 pub static OP_CMP_IMM: &[ExecMicroOp] = &[ExecMicroOp::FetchImmAndCMP];
+#[link_section = ".data"]
 pub static OP_CMP_MEM: &[ExecMicroOp] = &[ExecMicroOp::ReadEffAndCMP];
+#[link_section = ".data"]
 pub static OP_CPX_IMM: &[ExecMicroOp] = &[ExecMicroOp::FetchImmAndCPX];
+#[link_section = ".data"]
 pub static OP_CPX_MEM: &[ExecMicroOp] = &[ExecMicroOp::ReadEffAndCPX];
+#[link_section = ".data"]
 pub static OP_CPY_IMM: &[ExecMicroOp] = &[ExecMicroOp::FetchImmAndCPY];
+#[link_section = ".data"]
 pub static OP_CPY_MEM: &[ExecMicroOp] = &[ExecMicroOp::ReadEffAndCPY];
 
+#[link_section = ".data"]
 pub static OP_BIT_MEM: &[ExecMicroOp] = &[ExecMicroOp::ReadEffAndBIT];
 
+#[link_section = ".data"]
 pub static OP_ASL_ACC: &[ExecMicroOp] = &[ExecMicroOp::DummyReadPC, ExecMicroOp::AccASL];
+#[link_section = ".data"]
 pub static OP_ASL_MEM: &[ExecMicroOp] = &[
     ExecMicroOp::ReadEffToData,
     ExecMicroOp::WriteDataBack,
     ExecMicroOp::ASLWrite,
 ];
+#[link_section = ".data"]
 pub static OP_LSR_ACC: &[ExecMicroOp] = &[ExecMicroOp::DummyReadPC, ExecMicroOp::AccLSR];
+#[link_section = ".data"]
 pub static OP_LSR_MEM: &[ExecMicroOp] = &[
     ExecMicroOp::ReadEffToData,
     ExecMicroOp::WriteDataBack,
     ExecMicroOp::LSRWrite,
 ];
+#[link_section = ".data"]
 pub static OP_ROL_ACC: &[ExecMicroOp] = &[ExecMicroOp::DummyReadPC, ExecMicroOp::AccROL];
+#[link_section = ".data"]
 pub static OP_ROL_MEM: &[ExecMicroOp] = &[
     ExecMicroOp::ReadEffToData,
     ExecMicroOp::WriteDataBack,
     ExecMicroOp::ROLWrite,
 ];
+#[link_section = ".data"]
 pub static OP_ROR_ACC: &[ExecMicroOp] = &[ExecMicroOp::DummyReadPC, ExecMicroOp::AccROR];
+#[link_section = ".data"]
 pub static OP_ROR_MEM: &[ExecMicroOp] = &[
     ExecMicroOp::ReadEffToData,
     ExecMicroOp::WriteDataBack,
     ExecMicroOp::RORWrite,
 ];
 
+#[link_section = ".data"]
 pub static OP_INC_MEM: &[ExecMicroOp] = &[
     ExecMicroOp::ReadEffToData,
     ExecMicroOp::WriteDataBack,
     ExecMicroOp::INCWrite,
 ];
+#[link_section = ".data"]
 pub static OP_DEC_MEM: &[ExecMicroOp] = &[
     ExecMicroOp::ReadEffToData,
     ExecMicroOp::WriteDataBack,
     ExecMicroOp::DECWrite,
 ];
 
+#[link_section = ".data"]
 pub static OP_TAX: &[ExecMicroOp] = &[ExecMicroOp::TAX];
+#[link_section = ".data"]
 pub static OP_TXA: &[ExecMicroOp] = &[ExecMicroOp::TXA];
+#[link_section = ".data"]
 pub static OP_TAY: &[ExecMicroOp] = &[ExecMicroOp::TAY];
+#[link_section = ".data"]
 pub static OP_TYA: &[ExecMicroOp] = &[ExecMicroOp::TYA];
+#[link_section = ".data"]
 pub static OP_TSX: &[ExecMicroOp] = &[ExecMicroOp::TSX];
+#[link_section = ".data"]
 pub static OP_TXS: &[ExecMicroOp] = &[ExecMicroOp::TXS];
 
+#[link_section = ".data"]
 pub static OP_INX: &[ExecMicroOp] = &[ExecMicroOp::INX];
+#[link_section = ".data"]
 pub static OP_DEX: &[ExecMicroOp] = &[ExecMicroOp::DEX];
+#[link_section = ".data"]
 pub static OP_INY: &[ExecMicroOp] = &[ExecMicroOp::INY];
+#[link_section = ".data"]
 pub static OP_DEY: &[ExecMicroOp] = &[ExecMicroOp::DEY];
 
+#[link_section = ".data"]
 pub static OP_CLC: &[ExecMicroOp] = &[ExecMicroOp::CLC];
+#[link_section = ".data"]
 pub static OP_SEC: &[ExecMicroOp] = &[ExecMicroOp::SEC];
+#[link_section = ".data"]
 pub static OP_CLI: &[ExecMicroOp] = &[ExecMicroOp::CLI];
+#[link_section = ".data"]
 pub static OP_SEI: &[ExecMicroOp] = &[ExecMicroOp::SEI];
+#[link_section = ".data"]
 pub static OP_CLV: &[ExecMicroOp] = &[ExecMicroOp::CLV];
+#[link_section = ".data"]
 pub static OP_CLD: &[ExecMicroOp] = &[ExecMicroOp::CLD];
+#[link_section = ".data"]
 pub static OP_SED: &[ExecMicroOp] = &[ExecMicroOp::SED];
 
+#[link_section = ".data"]
 pub static OP_JMP_ABS: &[ExecMicroOp] = &[];
+#[link_section = ".data"]
 pub static OP_JMP_IND: &[ExecMicroOp] = &[ExecMicroOp::JumpIndCycle4, ExecMicroOp::JumpIndCycle5];
 
+#[link_section = ".data"]
 pub static OP_BRANCH: &[ExecMicroOp] = &[
     ExecMicroOp::BranchCycle2,
     ExecMicroOp::BranchCycle3,
     ExecMicroOp::BranchCycle4,
 ];
 
+#[link_section = ".data"]
 pub static OP_JSR: &[ExecMicroOp] = &[
     ExecMicroOp::JsrCycle2,
     ExecMicroOp::JsrCycle3,
@@ -174,6 +245,7 @@ pub static OP_JSR: &[ExecMicroOp] = &[
     ExecMicroOp::JsrCycle6,
 ];
 
+#[link_section = ".data"]
 pub static OP_RTS: &[ExecMicroOp] = &[
     ExecMicroOp::RtsCycle2,
     ExecMicroOp::RtsCycle3,
@@ -182,6 +254,7 @@ pub static OP_RTS: &[ExecMicroOp] = &[
     ExecMicroOp::RtsCycle6,
 ];
 
+#[link_section = ".data"]
 pub static OP_RTI: &[ExecMicroOp] = &[
     ExecMicroOp::RtiCycle2,
     ExecMicroOp::RtiCycle3,
@@ -190,6 +263,7 @@ pub static OP_RTI: &[ExecMicroOp] = &[
     ExecMicroOp::RtiCycle6,
 ];
 
+#[link_section = ".data"]
 pub static OP_BRK: &[ExecMicroOp] = &[
     ExecMicroOp::BrkCycle2,
     ExecMicroOp::BrkCycle3,
@@ -199,22 +273,29 @@ pub static OP_BRK: &[ExecMicroOp] = &[
     ExecMicroOp::BrkCycle7,
 ];
 
+#[link_section = ".data"]
 pub static OP_PHA: &[ExecMicroOp] = &[ExecMicroOp::DummyReadPC, ExecMicroOp::PushA];
+#[link_section = ".data"]
 pub static OP_PHP: &[ExecMicroOp] = &[ExecMicroOp::DummyReadPC, ExecMicroOp::PushP];
+#[link_section = ".data"]
 pub static OP_PLA: &[ExecMicroOp] = &[
     ExecMicroOp::DummyReadPC,
     ExecMicroOp::DummyReadStack,
     ExecMicroOp::PullA,
 ];
+#[link_section = ".data"]
 pub static OP_PLP: &[ExecMicroOp] = &[
     ExecMicroOp::DummyReadPC,
     ExecMicroOp::DummyReadStack,
     ExecMicroOp::PullP,
 ];
 
+#[link_section = ".data"]
 pub static OP_NOP: &[ExecMicroOp] = &[ExecMicroOp::DummyReadPC];
 
+#[link_section = ".data"]
 pub static OP_NONE: &[ExecMicroOp] = &[];
+#[link_section = ".data"]
 pub static OP_UNIMPL: &[ExecMicroOp] = &[ExecMicroOp::Unimplemented];
 
 const fn init_table() -> [Instruction; 256] {
@@ -883,4 +964,5 @@ const fn init_table() -> [Instruction; 256] {
     table
 }
 
+#[link_section = ".data"]
 pub static INSTRUCTION_TABLE: [Instruction; 256] = init_table();

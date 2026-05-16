@@ -126,6 +126,7 @@ impl CPU {
     /// `bus` provides memory access; `ctx` is threaded through every bus read/write
     /// so that the caller can own external state (e.g. a hardware interface) without
     /// embedding it inside the bus.
+    #[link_section = ".ramfunc"]
     pub fn tick<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) {
         if bus.so_pending() {
             self.set_flag(6, true);
@@ -208,6 +209,7 @@ impl CPU {
         }
     }
 
+    #[link_section = ".ramfunc"]
     fn tick_fetch<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) {
         if bus.nmi_pending() {
             self.state = CycleState::Interrupt;
@@ -240,6 +242,7 @@ impl CPU {
         self.step_index = 0;
     }
 
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     fn tick_addr<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) {
         let current_slice = self.active_addr;
@@ -281,6 +284,7 @@ impl CPU {
         }
     }
 
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     fn tick_operation<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) {
         let current_slice = self.active_exec;
@@ -308,6 +312,7 @@ impl CPU {
         self.state = CycleState::FetchOpcode;
     }
 
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     fn execute_addr_uop<B: Bus>(&mut self, uop: AddrMicroOp, bus: &mut B, ctx: &mut B::Ctx) {
         match uop {
@@ -390,6 +395,7 @@ impl CPU {
         }
     }
 
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     fn execute_exec_uop<B: Bus>(&mut self, uop: ExecMicroOp, bus: &mut B, ctx: &mut B::Ctx) {
         match uop {

@@ -69,6 +69,8 @@ impl<H: HostInterface> SystemBus<H> {
         self.so_active = false;
     }
 
+    #[link_section = ".ramfunc"]
+    #[inline(always)]
     pub fn tick_cycle(&mut self, hardware: &mut H) {
         // Resolve the Host IecBusState once per cycle
         let host_iec = hardware.iec_host();
@@ -155,14 +157,16 @@ impl<H: HostInterface> SystemBus<H> {
 impl<H: HostInterface> Bus for SystemBus<H> {
     type Ctx = H;
 
+    #[link_section = ".ramfunc"]
     fn read(&mut self, addr: u16, ctx: &mut H) -> u8 {
         self.tick_cycle(ctx);
+        if addr >= 0x8000 {
+            return self.rom[(addr & 0x3FFF) as usize];
+        }
         match addr {
-            0x0000..=0x17FF => self.ram[(addr as usize) % RAM_SIZE],
+            0x0000..=0x17FF => self.ram[(addr as usize) & (RAM_SIZE - 1)],
             0x1800..=0x1BFF => self.via1.read(addr),
             0x1C00..=0x1FFF => self.via2.read(addr),
-            0x8000..=0xBFFF => self.rom[(addr - 0x8000) as usize],
-            0xC000..=0xFFFF => self.rom[(addr - 0xC000) as usize],
             _ => {
                 emu_warn!("Unmapped Read: Addr=${:04X}", addr);
                 0
@@ -170,15 +174,17 @@ impl<H: HostInterface> Bus for SystemBus<H> {
         }
     }
 
+    #[link_section = ".ramfunc"]
     fn write(&mut self, addr: u16, value: u8, ctx: &mut H) {
         self.tick_cycle(ctx);
-        match addr {
-            0x0000..=0x17FF => {
-                self.ram[(addr as usize) % RAM_SIZE] = value;
-                if addr == 0x0077 || addr == 0x0078 {
-                    ctx.update_iec_addresses(self.ram[0x0077], self.ram[0x0078]);
-                }
+        if addr < 0x1800 {
+            self.ram[(addr as usize) & (RAM_SIZE - 1)] = value;
+            if addr == 0x0077 || addr == 0x0078 {
+                ctx.update_iec_addresses(self.ram[0x0077], self.ram[0x0078]);
             }
+            return;
+        }
+        match addr {
             0x1800..=0x1BFF => self.via1.write(addr, value),
             0x1C00..=0x1FFF => self.via2.write(addr, value),
             0x8000..=0xFFFF => {}

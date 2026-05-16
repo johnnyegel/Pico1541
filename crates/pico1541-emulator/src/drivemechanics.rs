@@ -78,6 +78,7 @@ impl DriveMechanics {
 
     /// Progresses the drive mechanics by one CPU cycle.
     /// Returns true if a new byte is ready to be processed by the CPU, and the SO pin should be set
+    #[link_section = ".ramfunc"]
     pub fn tick<H: HostInterface>(&mut self, hardware: &mut H, via2: &mut Via6522, requested_sector: u8) -> bool {
         // :: Update the drive state and issue events if there are changes
         let is_motor_on = self.update_state(via2, hardware);
