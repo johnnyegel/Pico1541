@@ -67,7 +67,7 @@ impl embedded_hal::digital::OutputPin for DummyPin {
 async fn main(_spawner: Spawner) {
     // Configure the system clock to 250 MHz
     let mut config = embassy_rp::config::Config::default();
-    config.clocks = embassy_rp::clocks::Config::system_freq(250_000_000, 12_000_000);
+    config.clocks = embassy_rp::clocks::ClockConfig::system_freq(250_000_000).unwrap();
     
     let p = embassy_rp::init(config);
     info!("Pico1541 Starting at 250MHz...");
@@ -225,64 +225,68 @@ impl HardwareBridge {
 }
 
 impl IecBus for HardwareBridge {
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     fn iec_host(&self) -> IecBusState {
         // Direct SIO register read for speed.
         // GPIO_IN at 0xd0000004
         let pins = unsafe { core::ptr::read_volatile(0xd0000004 as *const u32) };
-        
-        let data = (pins >> 16) & 1;
-        let clk = (pins >> 17) & 1;
-        let atn = (pins >> 18) & 1;
-        
-        IecBusState(((atn << 2) | (clk << 1) | data) as u8)
+        // GPIO 16 (DATA), 17 (CLK), 18 (ATN) are contiguous.
+        IecBusState(((pins >> 16) & 0x07) as u8)
     }
 
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     fn iec_drive(&mut self, state: IecBusState) {
         let should_drive_data = self.config.should_drive_data.load(Ordering::Relaxed);
         
-        // GPIO 19: DATA_TX, 20: CLK_TX
-        let mut mask = 0u32;
-        if state.get_data() || should_drive_data { mask |= 1 << 19; }
-        if state.get_clk() { mask |= 1 << 20; }
+        // GPIO 19: DATA_TX (bit 0), 20: CLK_TX (bit 1)
+        let mut mask = (state.0 as u32 & 0x03) << 19;
+        if should_drive_data { mask |= 1 << 19; }
         
         unsafe {
             // SIO GPIO_OUT_SET (0x14) and GPIO_OUT_CLR (0x18)
             core::ptr::write_volatile(0xd0000014 as *mut u32, mask);
-            core::ptr::write_volatile(0xd0000018 as *mut u32, !mask & ((1 << 19) | (1 << 20)));
+            core::ptr::write_volatile(0xd0000018 as *mut u32, !mask & (0x03 << 19));
         }
     }
 }
 
 impl HostInterface for HardwareBridge {
+    #[link_section = ".ramfunc"]
     fn get_active_track(&mut self) -> &mut ActiveTrack {
         self.track
     }
 
+    #[link_section = ".ramfunc"]
     fn send_event(&mut self, event: DriveEvent) {
         if pico1541_manager::EVENT_CHANNEL.try_send(event).is_err() {
             // Channel full
         }
     }
 
+    #[link_section = ".ramfunc"]
     fn is_hijacked(&self) -> bool {
         self.config.hijack_active.load(Ordering::Relaxed)
     }
 
+    #[link_section = ".ramfunc"]
     fn pop_discard_request(&mut self) -> bool {
         self.config.discard_request.swap(false, Ordering::Relaxed)
     }
 
+    #[link_section = ".ramfunc"]
     fn update_iec_addresses(&mut self, listen: u8, talk: u8) {
         self.config.listen_addr.store(listen, Ordering::Relaxed);
         self.config.talk_addr.store(talk, Ordering::Relaxed);
     }
 
+    #[link_section = ".ramfunc"]
     fn get_device_id(&self) -> u8 {
         self.config.device_id.load(Ordering::Relaxed)
     }
 
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     fn sync(&mut self, host: IecBusState) {
         let config = self.config;
@@ -395,13 +399,22 @@ async fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: Hardware
     let mut last_tick = timer.timelr().read();
     let mut cycle_counter = 0u32;
     let mut last_perf_update = last_tick;
+    let mut peak_jitter = 0u32;
 
     loop {
         let now = timer.timelr().read();
         
+        // Correctly handle wrap-around and ahead-of-time by casting to i32
+        let jitter = now.wrapping_sub(last_tick) as i32;
+        if jitter > 0 && jitter < 1_000_000 {
+            if jitter as u32 > peak_jitter {
+                peak_jitter = jitter as u32;
+            }
+        }
+
         let mut caught_up = 0;
         // Increase catch-up limit to 100 for better throughput if behind
-        while now.wrapping_sub(last_tick) > 0 && caught_up < 100 {
+        while (now.wrapping_sub(last_tick) as i32) > 0 && caught_up < 100 {
             last_tick = last_tick.wrapping_add(1);
             drive.tick(&mut bridge);
             cycle_counter += 1;
@@ -411,8 +424,10 @@ async fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: Hardware
         // Update performance metrics every second
         if now.wrapping_sub(last_perf_update) >= 1_000_000 {
             bridge.config.emu_speed_khz.store(cycle_counter, Ordering::Relaxed);
+            bridge.config.emu_jitter_ns.store(peak_jitter * 1000, Ordering::Relaxed);
             
             cycle_counter = 0;
+            peak_jitter = 0;
             last_perf_update = now;
         }
 

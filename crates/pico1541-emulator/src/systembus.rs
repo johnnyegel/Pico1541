@@ -123,7 +123,8 @@ impl<H: HostInterface> SystemBus<H> {
         hardware.iec_drive(drive_iec);
     }
 
-    #[inline]
+    #[link_section = ".ramfunc"]
+    #[inline(always)]
     fn drive_iec_state(&self, host_iec: &IecBusState) -> IecBusState {
         // Get the drive ATNA bit, and align it to bit 2 for the IecBusState bitmask.
         let atna = (self.via1.orb & self.via1.ddrb & 0x10) >> 2;
@@ -139,7 +140,8 @@ impl<H: HostInterface> SystemBus<H> {
         IecBusState(clk_bit | data_bit | hw_atn_ack)
     }
 
-    #[inline]
+    #[link_section = ".ramfunc"]
+    #[inline(always)]
     fn host_iec_to_via(&self, host_iec: &IecBusState) -> u8 {
         // Map the host IEC state to the VIA1 input bits for PB0, PB2, and PB7.
         let data = host_iec.0 & IecBusState::DATA_BIT; // PB0 = DATA_IN
@@ -194,10 +196,20 @@ impl<H: HostInterface> Bus for SystemBus<H> {
         }
     }
 
+    #[link_section = ".ramfunc"]
+    #[inline(always)]
     fn irq_pending(&self) -> bool {
         self.via1.irq || self.via2.irq
     }
 
+    #[link_section = ".ramfunc"]
+    #[inline(always)]
+    fn nmi_pending(&self) -> bool {
+        false
+    }
+
+    #[link_section = ".ramfunc"]
+    #[inline(always)]
     fn so_pending(&self) -> bool {
         self.so_active
     }

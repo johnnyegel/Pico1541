@@ -1,17 +1,15 @@
-
 use crate::interface::{IecBusState, DriveEvent};
-use portable_atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
+use portable_atomic::{AtomicU8, Ordering, AtomicBool};
 
 pub struct SnooperConfig {
     pub device_id: AtomicU8,
     pub listen_addr: AtomicU8,
     pub talk_addr: AtomicU8,
     pub hijack_active: AtomicBool,
-    pub should_drive_data: AtomicBool,
     pub discard_request: AtomicBool,
-    // Performance metrics (Core 0 -> Core 1)
-    pub emu_speed_khz: AtomicU32,
-    pub emu_jitter_ns: AtomicU32,
+    pub should_drive_data: AtomicBool,
+    pub emu_speed_khz: portable_atomic::AtomicU32,
+    pub emu_jitter_ns: portable_atomic::AtomicU32,
 }
 
 impl SnooperConfig {
@@ -21,10 +19,10 @@ impl SnooperConfig {
             listen_addr: AtomicU8::new(0x20 | (device_id & 0xF)),
             talk_addr: AtomicU8::new(0x40 | (device_id & 0xF)),
             hijack_active: AtomicBool::new(false),
-            should_drive_data: AtomicBool::new(false),
             discard_request: AtomicBool::new(false),
-            emu_speed_khz: AtomicU32::new(0),
-            emu_jitter_ns: AtomicU32::new(0),
+            should_drive_data: AtomicBool::new(false),
+            emu_speed_khz: portable_atomic::AtomicU32::new(0),
+            emu_jitter_ns: portable_atomic::AtomicU32::new(0),
         }
     }
 
@@ -43,13 +41,15 @@ struct IecBusEdge {
 
 impl IecBusEdge {
     /// Returns true if the clock line has an edge matching the expected level.
-    #[inline]
+    #[link_section = ".ramfunc"]
+    #[inline(always)]
     pub fn is_clk(&self, expect: bool) -> bool {
         self.delta.get_clk() && self.state.get_clk() == expect
     }
 
     /// Returns true if the data line has an edge matching the expected level.
-    #[inline]
+    #[link_section = ".ramfunc"]
+    #[inline(always)]
     pub fn is_data(&self, expect: bool) -> bool {
         self.delta.get_data() && self.state.get_data() == expect
     }
@@ -98,6 +98,8 @@ impl IecSnooper {
         self.listen_addr = listen_address;
     }
 
+    #[link_section = ".ramfunc"]
+    #[inline(always)]
     pub fn update<F: FnMut(DriveEvent)>(&mut self, iec_state: IecBusState, mut dispatch: F) {
         // Detect edge changed and return early if no change
         let delta = iec_state.delta(&self.last_iec);
@@ -113,7 +115,6 @@ impl IecSnooper {
         if delta.get_atn() {
             // -> Yes, then reset to IDLE
             self.state = SnooperState::Idle;
-            log::trace!("[Snooper] ATN changed to {}, returning to IDLE", iec_state.get_atn());
             return;
         }
 
@@ -123,7 +124,6 @@ impl IecSnooper {
                 if edge.is_data(false) {
                     self.state = SnooperState::Ready;
                     self.is_eoi = false;
-                    log::trace!("[Snooper] Detected start condition (CLK released, DATA released)");
                 }
             }
             SnooperState::Ready => {
@@ -134,13 +134,11 @@ impl IecSnooper {
                     self.bit_count = 0;
                     self.current_byte = 0;
                     self.is_atn = iec_state.get_atn();
-                    log::trace!("[Snooper] Detected CLK asserted, ATN={}, entering RECEIVING state", self.is_atn);
                 }
                 // :? Is data released without clock change?
                 else if edge.is_data(false) {
                     // -> Yes, We have an EOI
                     self.is_eoi = true;
-                    log::trace!("[Snooper] Detected DATA released in Ready. EOI detected.");
                 }
             }
             SnooperState::Receiving => {
@@ -150,7 +148,6 @@ impl IecSnooper {
                     let bit = if !iec_state.get_data() { 1 } else { 0 };
                     self.current_byte |= bit << self.bit_count;
                     self.bit_count += 1;
-                    log::trace!("[Snooper] Captured bit {}: {} (DATA={})", self.bit_count - 1, bit, iec_state.get_data());
 
                     // :? Full byte received?
                     if self.bit_count == 8 {
@@ -165,27 +162,23 @@ impl IecSnooper {
                 if edge.is_data(true) {
                     // On data assert, we go back to idle
                     self.state = SnooperState::Idle;
-                    log::trace!("[Snooper] Detected ACK (DATA asserted), returning to IDLE");
                 }
             }
         }
     }
 
+    #[link_section = ".ramfunc"]
     fn dispatch_byte<F: FnMut(DriveEvent)>(&mut self, byte: u8, atn: bool, eoi: bool, dispatch: &mut F) {
-        log::trace!("[Snooper] Decoded byte: 0x{:02X}, ATN: {}, EOI: {}", byte, atn, eoi);
-
         // :? Is this an ATN byte?
         if atn {
             // -> Yes :? Are we already listening?
             if self.is_listening {
                 self.secondary_address = byte;
-                log::trace!("[Snooper] Received secondary address byte: 0x{:02X}", byte);
                 dispatch(DriveEvent::IecSnoopSecondaryAddress(byte));
             }
             else if byte == self.listen_addr {
                 // -> No, but this byte is the listen address, so we should start listening
                 self.is_listening = true;
-                log::trace!("[Snooper] Device addressed with byte: 0x{:02X}, entering listening mode", byte);
             }
             return;
         }
@@ -197,11 +190,9 @@ impl IecSnooper {
         }
 
         // E -> Yes, then this is a data byte we should capture
-        log::trace!("[Snooper] Received data byte: 0x{:02X} while listening, EOI={}", byte, eoi);
         dispatch(DriveEvent::IecSnoopByteReceived(byte, eoi));
 
         if eoi {
-            log::trace!("[Snooper] EOI detected on byte: 0x{:02X}. Stop listening.", byte);
             self.is_listening = false;
         }
     }
@@ -210,7 +201,8 @@ impl IecSnooper {
 pub struct IecSnoopByteHandler {
     buffer: [u8; 32],
     pos: usize,
-    command_detected: bool,
+    secondary_address: u8,
+    hijack_active: bool,
     eoi_received: bool,
 }
 
@@ -219,7 +211,8 @@ impl IecSnoopByteHandler {
         Self {
             buffer: [0; 32],
             pos: 0,
-            command_detected: false,
+            secondary_address: 0,
+            hijack_active: false,
             eoi_received: false,
         }
     }
@@ -232,32 +225,36 @@ impl Default for IecSnoopByteHandler {
 }
 
 impl IecSnoopByteHandler {
+    #[link_section = ".ramfunc"]
     pub fn handle(&mut self, event: DriveEvent, mut dispatch: impl FnMut(DriveEvent)) {
         match event {
             DriveEvent::IecSnoopSecondaryAddress(sa) => {
                 self.pos = 0;
-                self.command_detected = false;
+                self.secondary_address = sa;
+                self.hijack_active = false;
                 self.eoi_received = false;
-                // Secondary address 0xF0..0xFF are for commands or specific channels
-                if (0x60..=0x6F).contains(&sa) {
-                    // This is an OPEN command on channel sa & 0x0F
-                }
             }
             DriveEvent::IecSnoopByteReceived(byte, eoi) => {
                 if self.pos < self.buffer.len() {
                     self.buffer[self.pos] = byte;
                     self.pos += 1;
-
-                    if self.pos >= 3 && &self.buffer[0..3] == b"CD:" {
-                        self.command_detected = true;
-                    }
                 }
+
+                // Check for hijack condition: starts with "CD:"
+                if self.pos >= 3 && &self.buffer[0..3] == b"CD:" {
+                    self.hijack_active = true;
+                }
+
                 if eoi {
                     self.eoi_received = true;
-                    let mut data = [0u8; 32];
-                    let len = self.pos.min(32);
-                    data[..len].copy_from_slice(&self.buffer[..len]);
-                    dispatch(DriveEvent::IecCommand { data, len: len as u8 });
+                    // Emit IecCommand if it's on the command channel (SA 15) or hijacked
+                    let sa = self.secondary_address & 0x0F;
+                    if sa == 15 || self.hijack_active {
+                        let mut data = [0u8; 32];
+                        let len = self.pos.min(32);
+                        data[..len].copy_from_slice(&self.buffer[..len]);
+                        dispatch(DriveEvent::IecCommand { data, len: len as u8 });
+                    }
                 }
             }
             _ => {}
@@ -265,11 +262,11 @@ impl IecSnoopByteHandler {
     }
 
     pub fn is_hijacked(&self) -> bool {
-        self.command_detected
+        self.hijack_active
     }
 
     pub fn should_discard(&self) -> bool {
-        self.command_detected && self.eoi_received
+        self.hijack_active && self.eoi_received
     }
 
     pub fn get_command(&self) -> Option<&str> {

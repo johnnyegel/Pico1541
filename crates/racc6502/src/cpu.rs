@@ -127,6 +127,7 @@ impl CPU {
     /// so that the caller can own external state (e.g. a hardware interface) without
     /// embedding it inside the bus.
     #[link_section = ".ramfunc"]
+    #[inline(always)]
     pub fn tick<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) {
         if bus.so_pending() {
             self.set_flag(6, true);
@@ -141,6 +142,8 @@ impl CPU {
         }
     }
 
+    #[link_section = ".ramfunc"]
+    #[inline(always)]
     fn tick_reset<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) {
         match self.step_index {
             0..=2 => {
@@ -165,6 +168,8 @@ impl CPU {
         }
     }
 
+    #[link_section = ".ramfunc"]
+    #[inline(always)]
     fn tick_interrupt<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) {
         match self.step_index {
             0 => {
@@ -210,6 +215,7 @@ impl CPU {
     }
 
     #[link_section = ".ramfunc"]
+    #[inline(always)]
     fn tick_fetch<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) {
         if bus.nmi_pending() {
             self.state = CycleState::Interrupt;
@@ -308,6 +314,8 @@ impl CPU {
         }
     }
 
+    #[link_section = ".ramfunc"]
+    #[inline(always)]
     fn finish_instruction(&mut self) {
         self.state = CycleState::FetchOpcode;
     }
@@ -848,6 +856,7 @@ impl CPU {
         }
     }
 
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     fn fetch_imm<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) -> u8 {
         let val = bus.read(self.pc, ctx);
@@ -855,11 +864,13 @@ impl CPU {
         val
     }
 
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     fn update_zn(&mut self, val: u8) {
         self.p = (self.p & !0x82) | (if val == 0 { 0x02 } else { 0 }) | (val & 0x80);
     }
 
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     fn set_flag(&mut self, bit: u8, val: bool) {
         if val {
@@ -869,16 +880,20 @@ impl CPU {
         }
     }
 
+    #[link_section = ".ramfunc"]
+    #[inline(always)]
     fn get_flag(&self, bit: u8) -> bool {
         (self.p & (1 << bit)) != 0
     }
 
+    #[link_section = ".ramfunc"]
     fn do_compare(&mut self, reg: u8, val: u8) {
         let (res, borrow) = reg.overflowing_sub(val);
         self.set_flag(0, !borrow);
         self.update_zn(res);
     }
 
+    #[link_section = ".ramfunc"]
     fn do_adc(&mut self, val: u8) {
         let a = self.a as u16;
         let b = val as u16;
@@ -908,6 +923,7 @@ impl CPU {
         }
     }
 
+    #[link_section = ".ramfunc"]
     fn do_sbc(&mut self, val: u8) {
         let a = self.a as i16;
         let b = val as i16;
@@ -936,6 +952,7 @@ impl CPU {
         }
     }
 
+    #[link_section = ".ramfunc"]
     fn do_bit(&mut self, val: u8) {
         self.set_flag(1, (self.a & val) == 0);
         self.set_flag(7, (val & 0x80) != 0);

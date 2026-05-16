@@ -81,16 +81,15 @@ impl DriveMechanics {
     #[link_section = ".ramfunc"]
     pub fn tick<H: HostInterface>(&mut self, hardware: &mut H, via2: &mut Via6522, requested_sector: u8) -> bool {
         // :: Update the drive state and issue events if there are changes
-        let is_motor_on = self.update_state(via2, hardware);
-
-        // :? Is the motor off?
-        if !is_motor_on {
-            return false;
+        let full_state = via2.orb & (MASK_HARDWARE_STATE | MASK_SPEED_ZONE);
+        if full_state != self.last_state {
+            self.update_state_slow(full_state, hardware);
         }
 
-        // Get the active track from hardware
-        let track = hardware.get_active_track();
-        track.current_byte_idx = self.track_byte_pos_ix as u16;
+        // :? Is the motor off?
+        if (full_state & MASK_MOTOR) == 0 {
+            return false;
+        }
 
         // :? Did the byte-cycle counter reach the limit?
         self.byte_cycle_counter += 1;
@@ -100,6 +99,10 @@ impl DriveMechanics {
 
         // E-> Yes, reset and process incoming byte
         self.byte_cycle_counter = 0;
+
+        // Get the active track from hardware
+        let track = hardware.get_active_track();
+        track.current_byte_idx = self.track_byte_pos_ix as u16;
 
         // Advance the track position
         let gcr_pos = self.resolve_track_byte_position(track, requested_sector);
@@ -168,6 +171,7 @@ impl DriveMechanics {
     // ========== Internal helper functions ==================================================
 
     /// Updates the track current position, and returns the position in the buffer
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     fn resolve_track_byte_position(&mut self, track: &ActiveTrack, requested_sector: u8) -> Option<usize> {
         let layout = if self.halftrack_head_pos == track.half_track as i8 {
@@ -235,18 +239,11 @@ impl DriveMechanics {
     }
 
     /// Updates the drive mechanics state, and issues events accordingly.
-    /// Returns the current motor state
-    #[inline(always)]
-    fn update_state(&mut self, via2: &mut Via6522, hardware: &mut impl HostInterface) -> bool {
-        // Catch state changes on the relevant bits of VIA2 Port B
-        let full_state = via2.orb & (MASK_HARDWARE_STATE | MASK_SPEED_ZONE);
-
+    #[link_section = ".ramfunc"]
+    #[inline(never)]
+    fn update_state_slow(&mut self, full_state: u8, hardware: &mut impl HostInterface) {
         let last_state = self.last_state;
-        let changed = self.last_state ^ full_state;
-        if changed == 0 {
-            return full_state & MASK_MOTOR != 0;
-        }
-
+        let changed = last_state ^ full_state;
         self.last_state = full_state;
 
         // Check motor state change
@@ -310,7 +307,5 @@ impl DriveMechanics {
                 hardware.send_event(DriveEvent::HeadStepped { new_half_track: self.halftrack_head_pos as u8} );
             }
         }
-
-        full_state & MASK_MOTOR != 0
     }
 }

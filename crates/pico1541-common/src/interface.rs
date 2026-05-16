@@ -53,19 +53,27 @@ impl IecBusState {
     }
 
     /// Returns true if DATA line is asserted
+    #[link_section = ".ramfunc"]
+    #[inline(always)]
     pub fn get_data(&self) -> bool {
         self.0 & 0b001 != 0
     }
     /// Returns true if CLK line is asserted
+    #[link_section = ".ramfunc"]
+    #[inline(always)]
     pub fn get_clk(&self) -> bool {
         self.0 & 0b010 != 0
     }
     /// Returns true if ATN line is asserted
+    #[link_section = ".ramfunc"]
+    #[inline(always)]
     pub fn get_atn(&self) -> bool {
         self.0 & 0b100 != 0
     }
 
     // Set the data bit
+    #[link_section = ".ramfunc"]
+    #[inline(always)]
     pub fn set_data(&mut self, asserted: bool) {
         if asserted {
             self.0 |= Self::DATA_BIT;
@@ -75,6 +83,8 @@ impl IecBusState {
     }
 
     /// Set the clk bit
+    #[link_section = ".ramfunc"]
+    #[inline(always)]
     pub fn set_clk(&mut self, asserted: bool) {
          if asserted {
             self.0 |= Self::CLK_BIT;
@@ -84,6 +94,8 @@ impl IecBusState {
     }
 
     // Set the atn bit
+    #[link_section = ".ramfunc"]
+    #[inline(always)]
     pub fn set_atn(&mut self, asserted: bool) {
          if asserted {
             self.0 |= Self::ATN_BIT;
@@ -102,6 +114,8 @@ impl IecBusState {
 
     /// Returns the difference between this state and the last state resuling in any edge changes being asserted.
     /// Returns a bitmask indicating which lines have changed (aka edge detection)
+    #[link_section = ".ramfunc"]
+    #[inline(always)]
     pub fn delta(&self, last_state: &IecBusState) -> IecBusState {
         IecBusState(self.0 ^ last_state.0)
     }

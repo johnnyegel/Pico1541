@@ -61,6 +61,8 @@ impl<H: HostInterface> Emulator<H> {
 
     /// Executes exactly one CPU clock cycle, passing `hw` to the bus for all
     /// peripheral interaction during that cycle.
+    #[link_section = ".ramfunc"]
+    #[inline(always)]
     pub fn tick(&mut self, hw: &mut H) {
         self.cpu.tick(&mut self.bus, hw);
     }

@@ -205,12 +205,12 @@ where
             let speed_khz = self.config.emu_speed_khz.load(Ordering::Relaxed);
             let jitter_ns = self.config.emu_jitter_ns.load(Ordering::Relaxed);
 
-            let mut s_speed = String::<16>::new();
+            let mut s_speed = String::<32>::new();
             let _ = core::fmt::write(&mut s_speed, format_args!("Speed: {:>4} kHz", speed_khz));
             self.display.print(2, &s_speed).await;
 
-            let mut s_jitter = String::<16>::new();
-            let _ = core::fmt::write(&mut s_jitter, format_args!("Jitter: {:>4} ns", jitter_ns));
+            let mut s_jitter = String::<32>::new();
+            let _ = core::fmt::write(&mut s_jitter, format_args!("Jitter: {:>8} ns", jitter_ns));
             self.display.print(3, &s_jitter).await;
 
             self.display.print(5, " [Back] ").await;
