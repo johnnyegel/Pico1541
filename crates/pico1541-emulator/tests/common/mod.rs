@@ -221,7 +221,7 @@ impl HostInterface for TestBridge {
         self.snooper.set_listen_addr(listen);
     }
 
-    fn sync(&mut self) {
+    fn sync(&mut self, _host: IecBusState) {
         self.total_cycles += 1;
         if let Some(mut hook) = self.sync_hook.take() {
             let track = self.get_active_track();

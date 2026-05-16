@@ -17,7 +17,7 @@ impl HostInterface for TestHardware {
     fn get_active_track(&mut self) -> &mut ActiveTrack { &mut self.track }
     fn send_event(&mut self, _: DriveEvent) {}
     fn is_hijacked(&self) -> bool { self.hijacked }
-    fn sync(&mut self) { self.cycles += 1; }
+    fn sync(&mut self, _: IecBusState) { self.cycles += 1; }
 }
 
 #[test]

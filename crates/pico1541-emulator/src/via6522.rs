@@ -230,11 +230,12 @@ impl Via6522 {
     }
 
     /// This method is called on each CPU cycle.
+    #[inline(always)]
     pub fn tick_cycle(&mut self) {
         // --- Timer 1 ---
-        let (next_t1c, overflow) = self.t1c.overflowing_sub(1);
-        if overflow {
-            if self.t1_active {
+        if self.t1_active {
+            let (next_t1c, overflow) = self.t1c.overflowing_sub(1);
+            if overflow {
                 self.ifr |= 0x40;
                 self.t1_pb7 = !self.t1_pb7;
                 if (self.acr & 0x40) != 0 {
@@ -245,21 +246,17 @@ impl Via6522 {
                 }
                 self.update_irq();
             } else {
-                self.t1c = 0xFFFF;
+                self.t1c = next_t1c;
             }
-        } else {
-            self.t1c = next_t1c;
         }
 
         // --- Timer 2 ---
-        if (self.acr & 0x20) == 0 {
+        if self.t2_active && (self.acr & 0x20) == 0 {
             let (next_t2c, overflow) = self.t2c.overflowing_sub(1);
             if overflow {
-                if self.t2_active {
-                    self.ifr |= 0x20;
-                    self.t2_active = false;
-                    self.update_irq();
-                }
+                self.ifr |= 0x20;
+                self.t2_active = false;
+                self.update_irq();
                 self.t2c = 0xFFFF;
             } else {
                 self.t2c = next_t2c;

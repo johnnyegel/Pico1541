@@ -179,7 +179,7 @@ pub trait HostInterface: IecBus {
     }
 
     /// synchronization point called every cycle.
-    fn sync(&mut self) {}
+    fn sync(&mut self, _host: IecBusState) {}
 
     /// Update the IEC addresses (LISTEN and TALK) snooped by the manager.
     /// Usually called by the emulator when it detects a change in drive RAM.

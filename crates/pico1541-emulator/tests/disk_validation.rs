@@ -38,7 +38,7 @@ impl HostInterface for MockHardware {
         false
     }
     fn update_iec_addresses(&mut self, _listen: u8, _talk: u8) {}
-    fn sync(&mut self) {}
+    fn sync(&mut self, _: IecBusState) {}
 }
 
 #[test]

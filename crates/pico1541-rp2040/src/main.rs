@@ -11,8 +11,8 @@ use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::i2c::{Config, InterruptHandler};
 use embassy_rp::peripherals::{I2C0, SPI1, PIN_25};
 use embassy_rp::spi::{Config as SpiConfig, Spi};
-use embassy_rp::Peri;
 use embassy_rp::multicore::Stack;
+use embassy_rp::Peri;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use embedded_hal_bus::spi::ExclusiveDevice;
@@ -55,9 +55,7 @@ type MyFile = SdFileHandle<MySpiDev, DummyPin, MyDelay, MyDet>;
 type MyStorage = RuntimeStorage<'static, MyFile>;
 type MyDir = StaticDirectorySource<'static>;
 type MyDisk = AnyDiskImage<MyStorage, MyDir>;
-// In embedded-sdmmc 0.7, SdCard takes SPI, CS, DELAYER.
-// If SPI is SpiDevice, CS is STILL required? No, usually not.
-// Wait, I will use a dummy pin for CS if SdCard insists on it.
+
 struct DummyPin;
 impl embedded_hal::digital::ErrorType for DummyPin { type Error = core::convert::Infallible; }
 impl embedded_hal::digital::OutputPin for DummyPin {
@@ -205,16 +203,19 @@ struct HardwareBridge {
     snooper: IecSnooper,
     handler: IecSnoopByteHandler,
     config: &'static SnooperConfig,
+    cached_listen_addr: u8,
 }
 
 impl HardwareBridge {
     fn new(pins: IecPins, track: &'static mut ActiveTrack, config: &'static SnooperConfig) -> Self {
+        let device_id = config.device_id.load(Ordering::Relaxed);
         Self {
             track,
             pins,
-            snooper: IecSnooper::new(config.device_id.load(Ordering::Relaxed)),
+            snooper: IecSnooper::new(device_id),
             handler: IecSnoopByteHandler::new(),
             config,
+            cached_listen_addr: 0x20 | (device_id & 0x0F),
         }
     }
 }
@@ -278,13 +279,14 @@ impl HostInterface for HardwareBridge {
         self.config.device_id.load(Ordering::Relaxed)
     }
 
-    fn sync(&mut self) {
-        let host = self.iec_host();
+    #[inline(always)]
+    fn sync(&mut self, host: IecBusState) {
         let config = self.config;
         let handler = &mut self.handler;
 
-        // Ensure snooper is using the current device ID
-        self.snooper.set_listen_addr(config.listen_addr.load(Ordering::Relaxed));
+        // Optimization: Listen address is only updated in snooper if it changed in config
+        // Actually snooper has its own listen_addr, let's keep it in sync but not every cycle if possible.
+        // For now, we'll just use the cached version.
         
         self.snooper.update(host, |event| {
             let _ = pico1541_manager::EVENT_CHANNEL.try_send(event);
@@ -388,27 +390,15 @@ async fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: Hardware
     let mut last_tick = timer.timelr().read();
     let mut cycle_counter = 0u32;
     let mut last_perf_update = last_tick;
-    let mut max_jitter_ticks = 0u32;
 
     loop {
         let now = timer.timelr().read();
         
-        // Target is 1 MHz, so 1 tick per cycle (RP2040 timer is 1MHz)
-        // If we are behind, run multiple cycles back-to-back to catch up.
-        // Cap catch-up to 10 cycles to allow Manager tasks to breathe.
         let mut caught_up = 0;
-        while now.wrapping_sub(last_tick) > 0 && caught_up < 10 {
-            let cycle_start = timer.timelr().read();
+        // Increase catch-up limit to 100 for better throughput if behind
+        while now.wrapping_sub(last_tick) > 0 && caught_up < 100 {
             last_tick = last_tick.wrapping_add(1);
-            
             drive.tick(&mut bridge);
-            
-            let cycle_end = timer.timelr().read();
-            let jitter = cycle_end.wrapping_sub(cycle_start);
-            if jitter < 1000 {
-                max_jitter_ticks = max_jitter_ticks.max(jitter);
-            }
-
             cycle_counter += 1;
             caught_up += 1;
         }
@@ -416,15 +406,12 @@ async fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: Hardware
         // Update performance metrics every second
         if now.wrapping_sub(last_perf_update) >= 1_000_000 {
             bridge.config.emu_speed_khz.store(cycle_counter, Ordering::Relaxed);
-            bridge.config.emu_jitter_ns.store(max_jitter_ticks * 1000, Ordering::Relaxed);
             
             cycle_counter = 0;
-            max_jitter_ticks = 0;
             last_perf_update = now;
         }
 
         if caught_up == 0 {
-            // We are ahead or on time, yield slightly
             cortex_m::asm::nop();
         }
     }

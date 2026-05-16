@@ -70,7 +70,11 @@ impl<H: HostInterface> SystemBus<H> {
     }
 
     pub fn tick_cycle(&mut self, hardware: &mut H) {
-        hardware.sync();
+        // Resolve the Host IecBusState once per cycle
+        let host_iec = hardware.iec_host();
+        
+        // Pass the host state to sync
+        hardware.sync(host_iec);
 
         // Check for hardware configuration changes every 1024 cycles (~1ms)
         self.cycle_counter = self.cycle_counter.wrapping_add(1);
@@ -90,9 +94,6 @@ impl<H: HostInterface> SystemBus<H> {
         }
         */
         self.so_active = self.mechanics.tick(hardware, &mut self.via2, requested_sector);
-
-        // Reslove the Host IecBusState
-        let host_iec = hardware.iec_host();
 
         // Update VIA1's input register B with host IEC state
         self.via1.in_b = self.host_iec_to_via(&host_iec);
@@ -235,6 +236,7 @@ mod tests {
             &mut self.track
         }
         fn send_event(&mut self, _: DriveEvent) {}
+        fn sync(&mut self, _: IecBusState) {}
     }
     #[test]
     fn test_ram_read_write() {
