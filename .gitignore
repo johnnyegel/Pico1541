@@ -4,7 +4,7 @@ GEMINI.md
 CLAUDE.md
 
 # 1. Ignore everything inside the local .cargo directory...
-.cargo/*
+.cargo/**
 
 # 2. ...except for the configuration files!
 !.cargo/config.toml

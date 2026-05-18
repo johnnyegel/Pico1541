@@ -64,6 +64,7 @@ impl<H: HostInterface> Emulator<H> {
     #[link_section = ".ramfunc"]
     #[inline(always)]
     pub fn tick(&mut self, hw: &mut H) {
+        self.bus.tick_cycle(hw);
         self.cpu.tick(&mut self.bus, hw);
     }
 

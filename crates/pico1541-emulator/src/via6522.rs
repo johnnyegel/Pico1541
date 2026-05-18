@@ -8,66 +8,37 @@ use racc6502::bus::MemoryMonitor;
 
 #[derive(Clone, Copy, Default)]
 pub struct Via6522 {
-    /// Output Register B
     pub orb: u8,
-    /// Output Register A
     pub ora: u8,
-    /// Data Direction Register B
     pub ddrb: u8,
-    /// Data Direction Register A
     pub ddra: u8,
-
-    /// Timer 1 Counter
     pub t1c: u16,
-    /// Timer 1 Latch
     pub t1l: u16,
-    /// Timer 1 is running
-    pub t1_active: bool,
-    /// Timer 1 has timed out (for PB7 square wave)
     pub t1_pb7: bool,
-
-    /// Timer 2 Counter
     pub t2c: u16,
-    /// Timer 2 Latch (low byte for writes)
     pub t2l: u8,
-    /// Timer 2 is running
-    pub t2_active: bool,
-
-    /// Shift Register
     pub sr: u8,
-    /// Auxiliary Control Register
     pub acr: u8,
-    /// Peripheral Control Register
     pub pcr: u8,
-    /// Interrupt Flag Register
     pub ifr: u8,
-    /// Interrupt Enable Register
     pub ier: u8,
-
-    /// Input Port A
     pub in_a: u8,
-    /// Input Port B
     pub in_b: u8,
-
-    /// IRQ output state
     pub irq: bool,
-
-    // Latched values for Port A/B (ACR control)
     latch_a: u8,
     latch_b: u8,
-
-    // Internal state for edge detection
     last_ca1: bool,
     last_cb1: bool,
     last_ca2: bool,
     last_cb2: bool,
-
-    // Shift register state
     sr_count: u8,
-    sr_active: bool,
+    active_mask: u8,
 }
 
 impl Via6522 {
+    pub const T1_ACTIVE: u8 = 0x01;
+    pub const T2_ACTIVE: u8 = 0x02;
+    pub const SR_ACTIVE: u8 = 0x04;
     pub fn new() -> Self {
         Self {
             ier: 0x00,
@@ -172,7 +143,7 @@ impl Via6522 {
                 // T1C-H (starts T1)
                 self.t1l = (self.t1l & 0x00FF) | ((value as u16) << 8);
                 self.t1c = self.t1l;
-                self.t1_active = true;
+                self.active_mask |= Self::T1_ACTIVE;
                 self.ifr &= !0x40; // Clear T1 interrupt flag
                 self.update_irq();
             }
@@ -187,7 +158,7 @@ impl Via6522 {
             0x09 => {
                 // T2C-H (starts T2)
                 self.t2c = ((value as u16) << 8) | (self.t2l as u16);
-                self.t2_active = true;
+                self.active_mask |= Self::T2_ACTIVE;
                 self.ifr &= !0x20; // Clear T2 interrupt flag
                 self.update_irq();
             }
@@ -197,7 +168,7 @@ impl Via6522 {
                 self.ifr &= !0x04; // Clear SR interrupt flag
                 self.update_irq();
                 if (self.acr & 0x1C) != 0 {
-                    self.sr_active = true;
+                    self.active_mask |= Self::SR_ACTIVE;
                     self.sr_count = 8;
                 }
             }
@@ -239,7 +210,7 @@ impl Via6522 {
     #[link_section = ".ramfunc"]
     #[inline(always)]
     pub fn any_active(&self) -> bool {
-        self.t1_active || self.t2_active || self.sr_active
+        self.active_mask != 0
     }
 
     /// This method is called on each CPU cycle.
@@ -247,7 +218,7 @@ impl Via6522 {
     #[inline(always)]
     pub fn tick_cycle(&mut self) {
         // --- Timer 1 ---
-        if self.t1_active {
+        if (self.active_mask & Self::T1_ACTIVE) != 0 {
             let (next_t1c, overflow) = self.t1c.overflowing_sub(1);
             if overflow {
                 self.ifr |= 0x40;
@@ -255,7 +226,7 @@ impl Via6522 {
                 if (self.acr & 0x40) != 0 {
                     self.t1c = self.t1l;
                 } else {
-                    self.t1_active = false;
+                    self.active_mask &= !Self::T1_ACTIVE;
                     self.t1c = 0xFFFF;
                 }
                 self.update_irq();
@@ -265,11 +236,11 @@ impl Via6522 {
         }
 
         // --- Timer 2 ---
-        if self.t2_active && (self.acr & 0x20) == 0 {
+        if (self.active_mask & Self::T2_ACTIVE) != 0 && (self.acr & 0x20) == 0 {
             let (next_t2c, overflow) = self.t2c.overflowing_sub(1);
             if overflow {
                 self.ifr |= 0x20;
-                self.t2_active = false;
+                self.active_mask &= !Self::T2_ACTIVE;
                 self.update_irq();
                 self.t2c = 0xFFFF;
             } else {
@@ -278,12 +249,12 @@ impl Via6522 {
         }
 
         // --- Shift Register (Simplified) ---
-        if self.sr_active {
+        if (self.active_mask & Self::SR_ACTIVE) != 0 {
             if self.sr_count > 0 {
                 self.sr_count -= 1;
             } else {
                 self.ifr |= 0x04;
-                self.sr_active = false;
+                self.active_mask &= !Self::SR_ACTIVE;
                 self.update_irq();
             }
         }
