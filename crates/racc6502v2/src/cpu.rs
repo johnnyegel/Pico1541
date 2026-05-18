@@ -280,31 +280,31 @@ impl CPU {
 
             // --- Shifts/Rotates ---
             (ASL_ACC, 1) => self.asl_acc_c1(bus, ctx), (ASL_ZP, 1) => self.ld_zp_c1(bus, ctx), (ASL_ZP, 2) => self.rmw_zp_c2(bus, ctx), (ASL_ZP, 3) => self.rmw_zp_c3(bus, ctx), (ASL_ZP, 4) => self.asl_zp_c4(bus, ctx),
-            (ASL_ZPX, 1) => self.ld_zp_c1(bus, ctx), (ASL_ZPX, 2) => self.ld_zpx_c2(bus, ctx), (ASL_ZPX, 3) => self.rmw_zp_c3(bus, ctx), (ASL_ZPX, 4) => self.rmw_zp_c4(bus, ctx), (ASL_ZPX, 5) => self.asl_zp_c5(bus, ctx),
+            (ASL_ZPX, 1) => self.ld_zp_c1(bus, ctx), (ASL_ZPX, 2) => self.ld_zpx_c2(bus, ctx), (ASL_ZPX, 3) => self.rmw_zp_c3_read(bus, ctx), (ASL_ZPX, 4) => self.rmw_zp_c4(bus, ctx), (ASL_ZPX, 5) => self.asl_zp_c5(bus, ctx),
             (ASL_ABS, 1) => self.ld_abs_c1(bus, ctx), (ASL_ABS, 2) => self.ld_abs_c2(bus, ctx), (ASL_ABS, 3) => self.rmw_abs_c3(bus, ctx), (ASL_ABS, 4) => self.rmw_abs_c4(bus, ctx), (ASL_ABS, 5) => self.asl_abs_c5(bus, ctx),
-            (ASL_ABSX, 1) => self.ld_abs_c1(bus, ctx), (ASL_ABSX, 2) => self.ld_absx_write_c2(bus, ctx), (ASL_ABSX, 3) => self.rmw_abs_c4(bus, ctx), (ASL_ABSX, 4) => self.rmw_abs_c5(bus, ctx), (ASL_ABSX, 5) => self.asl_abs_c6(bus, ctx),
+            (ASL_ABSX, 1) => self.ld_abs_c1(bus, ctx), (ASL_ABSX, 2) => self.ld_absx_write_c2(bus, ctx), (ASL_ABSX, 3) => self.rmw_abs_c3(bus, ctx), (ASL_ABSX, 4) => self.rmw_abs_c4(bus, ctx), (ASL_ABSX, 5) => self.rmw_abs_c5(bus, ctx), (ASL_ABSX, 6) => self.asl_abs_c6(bus, ctx),
             (LSR_ACC, 1) => self.lsr_acc_c1(bus, ctx), (LSR_ZP, 1) => self.ld_zp_c1(bus, ctx), (LSR_ZP, 2) => self.rmw_zp_c2(bus, ctx), (LSR_ZP, 3) => self.rmw_zp_c3(bus, ctx), (LSR_ZP, 4) => self.lsr_zp_c4(bus, ctx),
-            (LSR_ZPX, 1) => self.ld_zp_c1(bus, ctx), (LSR_ZPX, 2) => self.ld_zpx_c2(bus, ctx), (LSR_ZPX, 3) => self.rmw_zp_c3(bus, ctx), (LSR_ZPX, 4) => self.rmw_zp_c4(bus, ctx), (LSR_ZPX, 5) => self.lsr_zp_c5(bus, ctx),
+            (LSR_ZPX, 1) => self.ld_zp_c1(bus, ctx), (LSR_ZPX, 2) => self.ld_zpx_c2(bus, ctx), (LSR_ZPX, 3) => self.rmw_zp_c3_read(bus, ctx), (LSR_ZPX, 4) => self.rmw_zp_c4(bus, ctx), (LSR_ZPX, 5) => self.lsr_zp_c5(bus, ctx),
             (LSR_ABS, 1) => self.ld_abs_c1(bus, ctx), (LSR_ABS, 2) => self.ld_abs_c2(bus, ctx), (LSR_ABS, 3) => self.rmw_abs_c3(bus, ctx), (LSR_ABS, 4) => self.rmw_abs_c4(bus, ctx), (LSR_ABS, 5) => self.lsr_abs_c5(bus, ctx),
-            (LSR_ABSX, 1) => self.ld_abs_c1(bus, ctx), (LSR_ABSX, 2) => self.ld_absx_write_c2(bus, ctx), (LSR_ABSX, 3) => self.rmw_abs_c4(bus, ctx), (LSR_ABSX, 4) => self.rmw_abs_c5(bus, ctx), (LSR_ABSX, 5) => self.lsr_abs_c6(bus, ctx),
+            (LSR_ABSX, 1) => self.ld_abs_c1(bus, ctx), (LSR_ABSX, 2) => self.ld_absx_write_c2(bus, ctx), (LSR_ABSX, 3) => self.rmw_abs_c3(bus, ctx), (LSR_ABSX, 4) => self.rmw_abs_c4(bus, ctx), (LSR_ABSX, 5) => self.rmw_abs_c5(bus, ctx), (LSR_ABSX, 6) => self.lsr_abs_c6(bus, ctx),
             (ROL_ACC, 1) => self.rol_acc_c1(bus, ctx), (ROL_ZP, 1) => self.ld_zp_c1(bus, ctx), (ROL_ZP, 2) => self.rmw_zp_c2(bus, ctx), (ROL_ZP, 3) => self.rmw_zp_c3(bus, ctx), (ROL_ZP, 4) => self.rol_zp_c4(bus, ctx),
-            (ROL_ZPX, 1) => self.ld_zp_c1(bus, ctx), (ROL_ZPX, 2) => self.ld_zpx_c2(bus, ctx), (ROL_ZPX, 3) => self.rmw_zp_c3(bus, ctx), (ROL_ZPX, 4) => self.rmw_zp_c4(bus, ctx), (ROL_ZPX, 5) => self.rol_zp_c5(bus, ctx),
+            (ROL_ZPX, 1) => self.ld_zp_c1(bus, ctx), (ROL_ZPX, 2) => self.ld_zpx_c2(bus, ctx), (ROL_ZPX, 3) => self.rmw_zp_c3_read(bus, ctx), (ROL_ZPX, 4) => self.rmw_zp_c4(bus, ctx), (ROL_ZPX, 5) => self.rol_zp_c5(bus, ctx),
             (ROL_ABS, 1) => self.ld_abs_c1(bus, ctx), (ROL_ABS, 2) => self.ld_abs_c2(bus, ctx), (ROL_ABS, 3) => self.rmw_abs_c3(bus, ctx), (ROL_ABS, 4) => self.rmw_abs_c4(bus, ctx), (ROL_ABS, 5) => self.rol_abs_c5(bus, ctx),
-            (ROL_ABSX, 1) => self.ld_abs_c1(bus, ctx), (ROL_ABSX, 2) => self.ld_absx_write_c2(bus, ctx), (ROL_ABSX, 3) => self.rmw_abs_c4(bus, ctx), (ROL_ABSX, 4) => self.rmw_abs_c5(bus, ctx), (ROL_ABSX, 5) => self.rol_abs_c6(bus, ctx),
+            (ROL_ABSX, 1) => self.ld_abs_c1(bus, ctx), (ROL_ABSX, 2) => self.ld_absx_write_c2(bus, ctx), (ROL_ABSX, 3) => self.rmw_abs_c3(bus, ctx), (ROL_ABSX, 4) => self.rmw_abs_c4(bus, ctx), (ROL_ABSX, 5) => self.rmw_abs_c5(bus, ctx), (ROL_ABSX, 6) => self.rol_abs_c6(bus, ctx),
             (ROR_ACC, 1) => self.ror_acc_c1(bus, ctx), (ROR_ZP, 1) => self.ld_zp_c1(bus, ctx), (ROR_ZP, 2) => self.rmw_zp_c2(bus, ctx), (ROR_ZP, 3) => self.rmw_zp_c3(bus, ctx), (ROR_ZP, 4) => self.ror_zp_c4(bus, ctx),
-            (ROR_ZPX, 1) => self.ld_zp_c1(bus, ctx), (ROR_ZPX, 2) => self.ld_zpx_c2(bus, ctx), (ROR_ZPX, 3) => self.rmw_zp_c3(bus, ctx), (ROR_ZPX, 4) => self.rmw_zp_c4(bus, ctx), (ROR_ZPX, 5) => self.ror_zp_c5(bus, ctx),
+            (ROR_ZPX, 1) => self.ld_zp_c1(bus, ctx), (ROR_ZPX, 2) => self.ld_zpx_c2(bus, ctx), (ROR_ZPX, 3) => self.rmw_zp_c3_read(bus, ctx), (ROR_ZPX, 4) => self.rmw_zp_c4(bus, ctx), (ROR_ZPX, 5) => self.ror_zp_c5(bus, ctx),
             (ROR_ABS, 1) => self.ld_abs_c1(bus, ctx), (ROR_ABS, 2) => self.ld_abs_c2(bus, ctx), (ROR_ABS, 3) => self.rmw_abs_c3(bus, ctx), (ROR_ABS, 4) => self.rmw_abs_c4(bus, ctx), (ROR_ABS, 5) => self.ror_abs_c5(bus, ctx),
-            (ROR_ABSX, 1) => self.ld_abs_c1(bus, ctx), (ROR_ABSX, 2) => self.ld_absx_write_c2(bus, ctx), (ROR_ABSX, 3) => self.rmw_abs_c4(bus, ctx), (ROR_ABSX, 4) => self.rmw_abs_c5(bus, ctx), (ROR_ABSX, 5) => self.ror_abs_c6(bus, ctx),
+            (ROR_ABSX, 1) => self.ld_abs_c1(bus, ctx), (ROR_ABSX, 2) => self.ld_absx_write_c2(bus, ctx), (ROR_ABSX, 3) => self.rmw_abs_c3(bus, ctx), (ROR_ABSX, 4) => self.rmw_abs_c4(bus, ctx), (ROR_ABSX, 5) => self.rmw_abs_c5(bus, ctx), (ROR_ABSX, 6) => self.ror_abs_c6(bus, ctx),
 
             // --- Increment/Decrement (Batch 4) ---
             (INC_ZP, 1) => self.ld_zp_c1(bus, ctx), (INC_ZP, 2) => self.rmw_zp_c2(bus, ctx), (INC_ZP, 3) => self.rmw_zp_c3(bus, ctx), (INC_ZP, 4) => self.inc_zp_c4(bus, ctx),
-            (INC_ZPX, 1) => self.ld_zp_c1(bus, ctx), (INC_ZPX, 2) => self.ld_zpx_c2(bus, ctx), (INC_ZPX, 3) => self.rmw_zp_c3(bus, ctx), (INC_ZPX, 4) => self.rmw_zp_c4(bus, ctx), (INC_ZPX, 5) => self.inc_zp_c5(bus, ctx),
+            (INC_ZPX, 1) => self.ld_zp_c1(bus, ctx), (INC_ZPX, 2) => self.ld_zpx_c2(bus, ctx), (INC_ZPX, 3) => self.rmw_zp_c3_read(bus, ctx), (INC_ZPX, 4) => self.rmw_zp_c4(bus, ctx), (INC_ZPX, 5) => self.inc_zp_c5(bus, ctx),
             (INC_ABS, 1) => self.ld_abs_c1(bus, ctx), (INC_ABS, 2) => self.ld_abs_c2(bus, ctx), (INC_ABS, 3) => self.rmw_abs_c3(bus, ctx), (INC_ABS, 4) => self.rmw_abs_c4(bus, ctx), (INC_ABS, 5) => self.inc_abs_c5(bus, ctx),
-            (INC_ABSX, 1) => self.ld_abs_c1(bus, ctx), (INC_ABSX, 2) => self.ld_absx_write_c2(bus, ctx), (INC_ABSX, 3) => self.rmw_abs_c4(bus, ctx), (INC_ABSX, 4) => self.rmw_abs_c5(bus, ctx), (INC_ABSX, 5) => self.inc_abs_c6(bus, ctx),
+            (INC_ABSX, 1) => self.ld_abs_c1(bus, ctx), (INC_ABSX, 2) => self.ld_absx_write_c2(bus, ctx), (INC_ABSX, 3) => self.rmw_abs_c3(bus, ctx), (INC_ABSX, 4) => self.rmw_abs_c4(bus, ctx), (INC_ABSX, 5) => self.rmw_abs_c5(bus, ctx), (INC_ABSX, 6) => self.inc_abs_c6(bus, ctx),
             (DEC_ZP, 1) => self.ld_zp_c1(bus, ctx), (DEC_ZP, 2) => self.rmw_zp_c2(bus, ctx), (DEC_ZP, 3) => self.rmw_zp_c3(bus, ctx), (DEC_ZP, 4) => self.dec_zp_c4(bus, ctx),
-            (DEC_ZPX, 1) => self.ld_zp_c1(bus, ctx), (DEC_ZPX, 2) => self.ld_zpx_c2(bus, ctx), (DEC_ZPX, 3) => self.rmw_zp_c3(bus, ctx), (DEC_ZPX, 4) => self.rmw_zp_c4(bus, ctx), (DEC_ZPX, 5) => self.dec_zp_c5(bus, ctx),
+            (DEC_ZPX, 1) => self.ld_zp_c1(bus, ctx), (DEC_ZPX, 2) => self.ld_zpx_c2(bus, ctx), (DEC_ZPX, 3) => self.rmw_zp_c3_read(bus, ctx), (DEC_ZPX, 4) => self.rmw_zp_c4(bus, ctx), (DEC_ZPX, 5) => self.dec_zp_c5(bus, ctx),
             (DEC_ABS, 1) => self.ld_abs_c1(bus, ctx), (DEC_ABS, 2) => self.ld_abs_c2(bus, ctx), (DEC_ABS, 3) => self.rmw_abs_c3(bus, ctx), (DEC_ABS, 4) => self.rmw_abs_c4(bus, ctx), (DEC_ABS, 5) => self.dec_abs_c5(bus, ctx),
-            (DEC_ABSX, 1) => self.ld_abs_c1(bus, ctx), (DEC_ABSX, 2) => self.ld_absx_write_c2(bus, ctx), (DEC_ABSX, 3) => self.rmw_abs_c4(bus, ctx), (DEC_ABSX, 4) => self.rmw_abs_c5(bus, ctx), (DEC_ABSX, 5) => self.dec_abs_c6(bus, ctx),
+            (DEC_ABSX, 1) => self.ld_abs_c1(bus, ctx), (DEC_ABSX, 2) => self.ld_absx_write_c2(bus, ctx), (DEC_ABSX, 3) => self.rmw_abs_c3(bus, ctx), (DEC_ABSX, 4) => self.rmw_abs_c4(bus, ctx), (DEC_ABSX, 5) => self.rmw_abs_c5(bus, ctx), (DEC_ABSX, 6) => self.dec_abs_c6(bus, ctx),
             (INX, 1) => self.inx_c1(bus, ctx), (INY, 1) => self.iny_c1(bus, ctx), (DEX, 1) => self.dex_c1(bus, ctx), (DEY, 1) => self.dey_c1(bus, ctx),
 
             // --- Jumps/Calls (Batch 5) ---
@@ -347,20 +347,21 @@ impl CPU {
     #[inline(always)] fn ld_zpy_c2<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { bus.read(self.effective_addr, ctx); self.effective_addr = (self.effective_addr + self.y as u16) & 0xFF; self.cycle = 3; }
     #[inline(always)] fn ld_abs_c1<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { self.effective_addr = bus.read(self.pc, ctx) as u16; self.pc = self.pc.wrapping_add(1); self.cycle = 2; }
     #[inline(always)] fn ld_abs_c2<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { let hi = bus.read(self.pc, ctx) as u16; self.effective_addr |= hi << 8; self.pc = self.pc.wrapping_add(1); self.cycle = 3; }
-    #[inline(always)] fn ld_absx_c2<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { let hi = bus.read(self.pc, ctx) as u16; self.pc = self.pc.wrapping_add(1); let lo = self.effective_addr; self.effective_addr = lo.wrapping_add(self.x as u16) | (hi << 8); self.page_crossed = (lo + self.x as u16) > 0xFF; self.cycle = 3; }
-    #[inline(always)] fn ld_absy_c2<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { let hi = bus.read(self.pc, ctx) as u16; self.pc = self.pc.wrapping_add(1); let lo = self.effective_addr; self.effective_addr = lo.wrapping_add(self.y as u16) | (hi << 8); self.page_crossed = (lo + self.y as u16) > 0xFF; self.cycle = 3; }
+    #[inline(always)] fn ld_absx_c2<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { let hi = bus.read(self.pc, ctx) as u16; self.pc = self.pc.wrapping_add(1); let lo = self.effective_addr; self.effective_addr = (hi << 8).wrapping_add(lo).wrapping_add(self.x as u16); self.page_crossed = (lo + self.x as u16) > 0xFF; self.cycle = 3; }
+    #[inline(always)] fn ld_absy_c2<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { let hi = bus.read(self.pc, ctx) as u16; self.pc = self.pc.wrapping_add(1); let lo = self.effective_addr; self.effective_addr = (hi << 8).wrapping_add(lo).wrapping_add(self.y as u16); self.page_crossed = (lo + self.y as u16) > 0xFF; self.cycle = 3; }
     #[inline(always)] fn ld_absx_write_c2<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { let hi = bus.read(self.pc, ctx) as u16; self.pc = self.pc.wrapping_add(1); let lo = self.effective_addr; bus.read((lo.wrapping_add(self.x as u16) & 0xFF) | (hi << 8), ctx); self.effective_addr = lo.wrapping_add(self.x as u16).wrapping_add(hi << 8); self.cycle = 3; }
     #[inline(always)] fn ld_absy_write_c2<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { let hi = bus.read(self.pc, ctx) as u16; self.pc = self.pc.wrapping_add(1); let lo = self.effective_addr; bus.read((lo.wrapping_add(self.y as u16) & 0xFF) | (hi << 8), ctx); self.effective_addr = lo.wrapping_add(self.y as u16).wrapping_add(hi << 8); self.cycle = 3; }
     #[inline(always)] fn ld_indx_c2<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { bus.read(self.effective_addr, ctx); self.temp_addr = (self.effective_addr + self.x as u16) & 0xFF; self.cycle = 3; }
     #[inline(always)] fn ld_indx_c3<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { self.data_bus = bus.read(self.temp_addr, ctx); self.cycle = 4; }
     #[inline(always)] fn ld_indx_c4<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { let hi = bus.read((self.temp_addr + 1) & 0xFF, ctx) as u16; self.effective_addr = self.data_bus as u16 | (hi << 8); self.cycle = 5; }
     #[inline(always)] fn ld_indy_c2<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { self.temp_addr = bus.read(self.effective_addr, ctx) as u16; self.cycle = 3; }
-    #[inline(always)] fn ld_indy_c3<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { let hi = bus.read((self.effective_addr + 1) & 0xFF, ctx) as u16; let lo = self.temp_addr; self.effective_addr = lo.wrapping_add(self.y as u16) | (hi << 8); self.page_crossed = (lo + self.y as u16) > 0xFF; self.cycle = 4; }
+    #[inline(always)] fn ld_indy_c3<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { let hi = bus.read((self.effective_addr + 1) & 0xFF, ctx) as u16; let lo = self.temp_addr; self.effective_addr = (hi << 8).wrapping_add(lo).wrapping_add(self.y as u16); self.page_crossed = (lo + self.y as u16) > 0xFF; self.cycle = 4; }
     #[inline(always)] fn ld_indy_write_c3<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { let hi = bus.read((self.effective_addr + 1) & 0xFF, ctx) as u16; let lo = self.temp_addr; bus.read((lo.wrapping_add(self.y as u16) & 0xFF) | (hi << 8), ctx); self.effective_addr = lo.wrapping_add(self.y as u16).wrapping_add(hi << 8); self.cycle = 4; }
 
     // RMW Common
     #[inline(always)] fn rmw_zp_c2<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { self.data_bus = bus.read(self.effective_addr, ctx); self.cycle = 3; }
     #[inline(always)] fn rmw_zp_c3<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { bus.write(self.effective_addr, self.data_bus, ctx); self.cycle = 4; }
+    #[inline(always)] fn rmw_zp_c3_read<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { self.data_bus = bus.read(self.effective_addr, ctx); self.cycle = 4; }
     #[inline(always)] fn rmw_zp_c4<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { bus.write(self.effective_addr, self.data_bus, ctx); self.cycle = 5; }
     #[inline(always)] fn rmw_abs_c3<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { self.data_bus = bus.read(self.effective_addr, ctx); self.cycle = 4; }
     #[inline(always)] fn rmw_abs_c4<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { bus.write(self.effective_addr, self.data_bus, ctx); self.cycle = 5; }
@@ -575,8 +576,56 @@ impl CPU {
     #[inline(always)] fn brk_c3<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { bus.write(0x0100 | (self.s as u16), (self.pc & 0xFF) as u8, ctx); self.s = self.s.wrapping_sub(1); self.cycle = 4; }
     #[inline(always)] fn brk_c4<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { bus.write(0x0100 | (self.s as u16), self.p | 0x30, ctx); self.s = self.s.wrapping_sub(1); self.p |= 0x04; self.cycle = 5; }
     fn set_nz(&mut self, v: u8) { self.p = (self.p & !0x82) | (if v == 0 { 0x02 } else { 0 }) | (if v & 0x80 != 0 { 0x80 } else { 0 }); }
-    fn adc(&mut self, v: u8) { let c = if self.p & 0x01 != 0 { 1 } else { 0 }; let (r1, c1) = self.a.overflowing_add(v); let (r2, c2) = r1.overflowing_add(c); let r = r2; let o = ((self.a ^ r) & (v ^ r) & 0x80) != 0; self.p = (self.p & !0xED) | (if o { 0x40 } else { 0 }) | (if c1 || c2 { 0x01 } else { 0 }) | (if r == 0 { 0x02 } else { 0 }) | (if r & 0x80 != 0 { 0x80 } else { 0 }); self.a = r; }
-    fn sbc(&mut self, v: u8) { self.adc(!v); }
+    fn adc(&mut self, v: u8) {
+        if self.p & 0x08 != 0 {
+            let a = self.a;
+            let b = v;
+            let c = self.p & 0x01;
+            let mut low = (a & 0x0F) + (b & 0x0F) + c;
+            if low > 9 { low += 6; }
+            let mut high = (a >> 4) + (b >> 4) + (if low > 15 { 1 } else { 0 });
+            let al = a as u16; let bl = b as u16; let cl = c as u16;
+            let res_bin = al + bl + cl;
+            self.p &= !0xC3;
+            if ((al ^ res_bin) & (bl ^ res_bin) & 0x80) != 0 { self.p |= 0x40; }
+            if (res_bin & 0x80) != 0 { self.p |= 0x80; }
+            if (res_bin as u8) == 0 { self.p |= 0x02; }
+            if high > 9 { high += 6; }
+            if high > 15 { self.p |= 0x01; }
+            self.a = ((low & 0x0F) | ((high & 0x0F) << 4)) as u8;
+        } else {
+            let a = self.a as u16; let b = v as u16; let c = (self.p & 0x01) as u16;
+            let res = a + b + c;
+            self.p &= !0xC3;
+            if res > 0xFF { self.p |= 0x01; }
+            let r = res as u8;
+            if r == 0 { self.p |= 0x02; }
+            if (r & 0x80) != 0 { self.p |= 0x80; }
+            if ((a ^ res) & (b ^ res) & 0x80) != 0 { self.p |= 0x40; }
+            self.a = r;
+        }
+    }
+    fn sbc(&mut self, v: u8) {
+        if self.p & 0x08 != 0 {
+            let a = self.a;
+            let b = v;
+            let c = self.p & 0x01;
+            let mut low = (a & 0x0F) as i32 - (b & 0x0F) as i32 - (1 - c as i32);
+            let mut high = (a >> 4) as i32 - (b >> 4) as i32 - (if low < 0 { 1 } else { 0 });
+            let al = a as u16; let bl = (!b) as u16; let cl = c as u16;
+            let res_bin = al + bl + cl;
+            self.p &= !0xC3;
+            if res_bin > 0xFF { self.p |= 0x01; }
+            if (res_bin as u8) == 0 { self.p |= 0x02; }
+            if (res_bin & 0x80) != 0 { self.p |= 0x80; }
+            if ((al ^ res_bin) & (bl ^ res_bin) & 0x80) != 0 { self.p |= 0x40; }
+            if low < 0 { low -= 6; }
+            if high < 0 { high -= 6; }
+            self.a = ((low & 0x0F) | ((high & 0x0F) << 4)) as u8;
+        } else {
+            self.adc(!v);
+        }
+    }
     fn cmp(&mut self, reg: u8, v: u8) { let (r, c) = reg.overflowing_sub(v); self.p = (self.p & !0x83) | (if !c { 0x01 } else { 0 }) | (if r == 0 { 0x02 } else { 0 }) | (if r & 0x80 != 0 { 0x80 } else { 0 }); }
     fn bit(&mut self, v: u8) { self.p = (self.p & !0xC2) | (if self.a & v == 0 { 0x02 } else { 0 }) | (v & 0xC0); }
     fn unimplemented<B: Bus>(&mut self, _bus: &mut B, _ctx: &mut B::Ctx) { self.cycle = 0; }
