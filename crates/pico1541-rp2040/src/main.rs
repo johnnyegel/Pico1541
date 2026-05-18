@@ -227,7 +227,6 @@ struct HardwareBridge {
     snooper: IecSnooper,
     handler: IecSnoopByteHandler,
     config: &'static SnooperConfig,
-    cached_listen_addr: u8,
 }
 
 impl HardwareBridge {
@@ -239,7 +238,6 @@ impl HardwareBridge {
             snooper: IecSnooper::new(device_id),
             handler: IecSnoopByteHandler::new(),
             config,
-            cached_listen_addr: 0x20 | (device_id & 0x0F),
         }
     }
 }
@@ -250,72 +248,80 @@ impl IecBus for HardwareBridge {
     fn iec_host(&self) -> IecBusState {
         // Direct SIO register read for speed.
         // GPIO_IN at 0xd0000004
+        // Pins 16, 17, 18 are DATA, CLK, ATN
         let pins = unsafe { core::ptr::read_volatile(0xd0000004 as *const u32) };
-        // GPIO 16 (DATA), 17 (CLK), 18 (ATN) are contiguous.
         IecBusState(((pins >> 16) & 0x07) as u8)
     }
 
     #[link_section = ".ramfunc"]
     #[inline(always)]
     fn iec_drive(&mut self, state: IecBusState) {
-        let should_drive_data = self.config.should_drive_data.load(Ordering::Relaxed);
-        
         // GPIO 19: DATA_TX (bit 0), 20: CLK_TX (bit 1)
         let mut mask = (state.0 as u32 & 0x03) << 19;
-        if should_drive_data { mask |= 1 << 19; }
+        
+        // Use a logical bitwise op instead of an if-branch for should_drive_data.
+        // This is safe because Relaxed load is just an ldr instruction on RP2040.
+        let hijack_force = (self.config.should_drive_data.load(Ordering::Relaxed) as u32) << 19;
+        mask |= hijack_force;
         
         unsafe {
             // SIO GPIO_OUT_SET (0x14) and GPIO_OUT_CLR (0x18)
-            core::ptr::write_volatile(0xd0000014 as *mut u32, mask);
-            core::ptr::write_volatile(0xd0000018 as *mut u32, !mask & (0x03 << 19));
+            const SIO_SET: *mut u32 = 0xd0000014 as *mut u32;
+            const SIO_CLR: *mut u32 = 0xd0000018 as *mut u32;
+            const DATA_CLK_MASK: u32 = 0x03 << 19;
+            
+            core::ptr::write_volatile(SIO_SET, mask);
+            core::ptr::write_volatile(SIO_CLR, !mask & DATA_CLK_MASK);
         }
     }
 }
 
 impl HostInterface for HardwareBridge {
     #[link_section = ".ramfunc"]
+    #[inline(always)]
     fn get_active_track(&mut self) -> &mut ActiveTrack {
         self.track
     }
 
     #[link_section = ".ramfunc"]
+    #[inline(always)]
     fn send_event(&mut self, event: DriveEvent) {
-        if pico1541_manager::EVENT_CHANNEL.try_send(event).is_err() {
-            // Channel full
-        }
+        // try_send is non-blocking and safe for Core 0.
+        let _ = pico1541_manager::EVENT_CHANNEL.try_send(event);
     }
 
     #[link_section = ".ramfunc"]
+    #[inline(always)]
     fn is_hijacked(&self) -> bool {
         self.config.hijack_active.load(Ordering::Relaxed)
     }
 
     #[link_section = ".ramfunc"]
+    #[inline(always)]
     fn pop_discard_request(&mut self) -> bool {
         self.config.discard_request.swap(false, Ordering::Relaxed)
     }
 
     #[link_section = ".ramfunc"]
+    #[inline(always)]
     fn update_iec_addresses(&mut self, listen: u8, talk: u8) {
         self.config.listen_addr.store(listen, Ordering::Relaxed);
         self.config.talk_addr.store(talk, Ordering::Relaxed);
     }
 
     #[link_section = ".ramfunc"]
+    #[inline(always)]
     fn get_device_id(&self) -> u8 {
         self.config.device_id.load(Ordering::Relaxed)
     }
 
     #[link_section = ".ramfunc"]
     #[inline(always)]
-    fn sync(&mut self, _host: IecBusState) {
-        /*
+    fn sync(&mut self, host: IecBusState) {
+        // The snooper is only updated if something changed on the bus.
+        // This call is fast in the "no change" case inside the snooper itself.
         let config = self.config;
         let handler = &mut self.handler;
-
-        // Optimization: Listen address is only updated in snooper if it changed in config
-        // Actually snooper has its own listen_addr, let's keep it in sync but not every cycle if possible.
-        // For now, we'll just use the cached version.
         
         self.snooper.update(host, |event| {
             let _ = pico1541_manager::EVENT_CHANNEL.try_send(event);
@@ -332,7 +338,6 @@ impl HostInterface for HardwareBridge {
                 config.should_drive_data.store(false, Ordering::Relaxed);
             }
         });
-        */
     }
 }
 

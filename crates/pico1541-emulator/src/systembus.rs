@@ -121,6 +121,9 @@ impl<H: HostInterface> SystemBus<H> {
             self.last_host_iec = host_iec;
             // ATN change affects physical IEC output (XOR logic)
             self.update_physical_iec(hardware);
+
+            // Notify hardware of the bus state change (e.g. for snooping)
+            hardware.sync(host_iec);
         }
 
         // Check for hardware configuration changes every 1024 cycles (~1ms)
