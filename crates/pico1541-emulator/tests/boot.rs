@@ -6,7 +6,7 @@ mod common;
 
 #[test]
 fn test_drive_boot() {
-    let (mut drive, mut bridge) = common::setup_drive(true, 8, None);
+    let (mut drive, mut bridge) = common::setup_drive(true, 8);
 
     let mut cycles = 0;
     while cycles < 5_000_000 {
@@ -25,7 +25,7 @@ fn test_drive_boot() {
 
 #[test]
 fn test_drive_boot_behavior() {
-    let (_, bridge) = common::setup_drive(true, 8, None);
+    let (_, bridge) = common::setup_drive(true, 8);
 
     // Filter events to check for Motor ON and Head Step
     let motor_on_events = bridge
@@ -40,7 +40,7 @@ fn test_drive_boot_behavior() {
 
 #[test]
 fn test_dir_no_disk() {
-    let (mut drive, mut bridge) = common::setup_drive(true, 8, None);
+    let (mut drive, mut bridge) = common::setup_drive(true, 8);
 
     block_on(async {
         {
@@ -141,7 +141,7 @@ fn test_dir_listing_virtual() {
     let mut vdir = VirtualDiskImage::<pico1541_common::storage::MemoryStorage<'static>, TestSource>::new(source);
     vdir.set_id([0x31, 0x31]);
 
-    let (mut drive, mut bridge) = common::setup_drive(true, 8, None);
+    let (mut drive, mut bridge) = common::setup_drive(true, 8);
 
     log::info!("Waiting for drive to reach idle loop...");
     let mut timeout = 0;
@@ -220,7 +220,7 @@ fn test_dir_listing_virtual() {
 
 #[test]
 fn test_dir_listing_g64() {
-    let (mut drive, mut bridge) = common::setup_drive(true, 8, None);
+    let (mut drive, mut bridge) = common::setup_drive(true, 8);
 
     bridge.mount_g64("tests/data/test.g64");
 

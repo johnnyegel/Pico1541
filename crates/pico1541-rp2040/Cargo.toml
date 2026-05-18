@@ -10,6 +10,12 @@ pico1541-emulator = { path = "../pico1541-emulator" }
 pico1541-manager = { path = "../pico1541-manager", features = ["defmt"] }
 pico1541-common = { path = "../pico1541-common", features = ["defmt"] }
 
+#[profile.release]
+#opt-level = 3
+#lto = true
+#codegen-units = 1
+#panic = "abort"
+
 # Embassy
 embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread", "executor-interrupt"] }
 embassy-rp = { version = "0.10.0", features = ["defmt", "time-driver", "critical-section-impl", "rp2040", "unstable-pac"] }

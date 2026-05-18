@@ -5,7 +5,7 @@ use pico1541_common::storage::DummySource;
 
 #[test]
 fn test_virtual_disk_skeleton_orientation() {
-    let (mut drive, mut bridge) = setup_drive(true, 8, None);
+    let (mut drive, mut bridge) = setup_drive(true, 8);
 
     // Mount VirtualDiskImage
     let disk = VirtualDiskImage::<pico1541_common::storage::MemoryStorage<'static>, DummySource>::new(DummySource);
@@ -67,7 +67,7 @@ fn test_virtual_disk_skeleton_orientation() {
 
 #[test]
 fn test_virtual_disk_stridden_warp() {
-    let (mut drive, mut bridge) = setup_drive(true, 8, None);
+    let (mut drive, mut bridge) = setup_drive(true, 8);
 
     let disk = VirtualDiskImage::<pico1541_common::storage::MemoryStorage<'static>, DummySource>::new(DummySource);
     let mut runner = DiskRunner {
@@ -117,7 +117,7 @@ fn test_virtual_disk_stridden_warp() {
 
 #[test]
 fn test_virtual_disk_load_interception() {
-    let (mut drive, mut bridge) = setup_drive(false, 8, None);
+    let (mut drive, mut bridge) = setup_drive(false, 8);
 
     // Perform manual reset
     reset_drive(&mut drive, &mut bridge);

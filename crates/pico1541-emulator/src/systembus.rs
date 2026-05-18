@@ -1,10 +1,10 @@
 use crate::drivemechanics::DriveMechanics;
 use crate::via6522::Via6522;
+#[cfg(feature = "debug")]
+use crate::MemoryMonitor;
 use pico1541_common::interface::{HostInterface, IecBusState};
 use core::marker::PhantomData;
-use racc6502::bus::Bus;
-#[cfg(feature = "debug")]
-use racc6502::bus::MemoryMonitor;
+use racc6502v2::Bus;
 
 const RAM_SIZE: usize = 0x0800; // 2KB
 const ROM_SIZE: usize = 0x4000; // 16KB

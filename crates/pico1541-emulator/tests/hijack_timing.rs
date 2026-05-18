@@ -1,6 +1,6 @@
 use pico1541_common::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus, IecBusState};
 use pico1541_emulator::systembus::SystemBus;
-use racc6502::cpu::CPU;
+use racc6502v2::cpu::CPU;
 
 struct TestHardware {
     track: ActiveTrack,

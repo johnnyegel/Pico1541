@@ -8,7 +8,6 @@ use pico1541_common::snooper::{IecSnooper, IecSnoopByteHandler};
 use pico1541_common::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus};
 use pico1541_emulator::Emulator;
 use pollster::block_on;
-use racc6502::cpu::DebugHook;
 
 const ROM_BYTES: &[u8] = include_bytes!("../../../../roms/1541-II.251968-03.bin");
 
@@ -19,7 +18,6 @@ pub const IDLE_HIGH: u16 = 0xEC9B;
 pub fn setup_drive(
     reset: bool,
     device_id: u8,
-    debug_hook: Option<DebugHook>,
 ) -> (Emulator<TestBridge>, TestBridge) {
     let _ = env_logger::builder()
         .is_test(true)
@@ -31,10 +29,6 @@ pub fn setup_drive(
 
     let mut drive = Emulator::<TestBridge>::new(rom, device_id);
     let mut bridge = TestBridge::new(device_id);
-
-    if let Some(hook) = debug_hook {
-        drive.cpu.debug_hook = Some(hook);
-    }
 
     log::info!(
         "Drive setup complete (device ID {}, reset={})",

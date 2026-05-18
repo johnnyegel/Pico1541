@@ -7,7 +7,7 @@ use pollster::block_on;
 
 #[test]
 fn test_iec_atn_handshake() {
-    let (mut drive, mut bridge) = common::setup_drive(true, 8, None);
+    let (mut drive, mut bridge) = common::setup_drive(true, 8);
 
     assert!(
         !bridge.drive_iec.get_data(),
@@ -31,7 +31,7 @@ fn test_iec_atn_handshake() {
 
 #[test]
 fn test_iec_read_status() {
-    let (mut drive, mut bridge) = common::setup_drive(true, 8, None);
+    let (mut drive, mut bridge) = common::setup_drive(true, 8);
 
     // Clear boot status
     let mut status1_vec = Vec::new();
@@ -83,7 +83,7 @@ fn test_iec_read_status() {
 
 #[test]
 fn test_command_snoop() {
-    let (mut drive, mut bridge) = common::setup_drive(true, 8, None);
+    let (mut drive, mut bridge) = common::setup_drive(true, 8);
 
     // 1. Send "M-R" exactly like a DIR command
     block_on(async {
@@ -114,7 +114,7 @@ fn test_command_snoop() {
 
 #[test]
 fn test_hijack_command_snoop() {
-    let (mut drive, mut bridge) = common::setup_drive(true, 8, None);
+    let (mut drive, mut bridge) = common::setup_drive(true, 8);
 
     // Clear boot status
     block_on(async {
@@ -189,7 +189,7 @@ fn test_hijack_command_snoop() {
 
 #[test]
 fn test_iec_load_command() {
-    let (mut drive, mut bridge) = common::setup_drive(true, 8, None);
+    let (mut drive, mut bridge) = common::setup_drive(true, 8);
 
     block_on(async {
         let mut bus = common::IecTestBridge {

@@ -30,8 +30,15 @@ pub mod systembus;
 pub mod via6522;
 
 use pico1541_common::interface::HostInterface;
-use racc6502::cpu::{CycleState, CPU};
+use racc6502v2::CPU;
 use systembus::SystemBus;
+
+/// Trait for peeking and poking at memory/registers without side effects.
+#[cfg(feature = "debug")]
+pub trait MemoryMonitor {
+    fn peek(&self, addr: u16) -> u8;
+    fn poke(&mut self, addr: u16, value: u8);
+}
 
 /// The MOS 1541 Drive Emulator.
 ///
@@ -79,7 +86,7 @@ impl<H: HostInterface> Emulator<H> {
     pub fn step(&mut self, hw: &mut H) {
         loop {
             self.tick(hw);
-            if self.cpu.state == CycleState::FetchOpcode && self.cpu.step_index == 0 {
+            if self.cpu.cycle == 0 {
                 break;
             }
         }
