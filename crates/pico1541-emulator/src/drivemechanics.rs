@@ -79,15 +79,10 @@ impl DriveMechanics {
     /// Progresses the drive mechanics by one CPU cycle.
     /// Returns true if a new byte is ready to be processed by the CPU, and the SO pin should be set
     #[link_section = ".ramfunc"]
+    #[inline(always)]
     pub fn tick<H: HostInterface>(&mut self, hardware: &mut H, via2: &mut Via6522, requested_sector: u8) -> bool {
-        // :: Update the drive state and issue events if there are changes
-        let full_state = via2.orb & (MASK_HARDWARE_STATE | MASK_SPEED_ZONE);
-        if full_state != self.last_state {
-            self.update_state_slow(full_state, hardware);
-        }
-
-        // :? Is the motor off?
-        if (full_state & MASK_MOTOR) == 0 {
+        // :? Is the motor off? (PB2)
+        if (self.last_state & MASK_MOTOR) == 0 {
             return false;
         }
 
@@ -99,7 +94,12 @@ impl DriveMechanics {
 
         // E-> Yes, reset and process incoming byte
         self.byte_cycle_counter = 0;
+        self.tick_slow(hardware, via2, requested_sector)
+    }
 
+    #[link_section = ".ramfunc"]
+    #[inline(never)]
+    fn tick_slow<H: HostInterface>(&mut self, hardware: &mut H, via2: &mut Via6522, requested_sector: u8) -> bool {
         // Get the active track from hardware
         let track = hardware.get_active_track();
         track.current_byte_idx = self.track_byte_pos_ix as u16;
@@ -147,6 +147,15 @@ impl DriveMechanics {
         }   
 
         false
+    }
+
+    /// Updates the drive mechanics state based on VIA2 Port B outputs.
+    #[link_section = ".ramfunc"]
+    pub fn update_state<H: HostInterface>(&mut self, orb: u8, ddrb: u8, hardware: &mut H) {
+        let full_state = orb & ddrb & (MASK_HARDWARE_STATE | MASK_SPEED_ZONE);
+        if full_state != self.last_state {
+            self.update_state_slow(full_state, hardware);
+        }
     }
 
     pub fn half_track(&self) -> u8 {
@@ -257,11 +266,6 @@ impl DriveMechanics {
         }
 
         // Check speed zone changes (VIA2 Port B bits 6-5)
-        // Inverted mapping confirmed by 1541-II ROM traces:
-        // %11 (3) = 32 cycles (Zone 0)
-        // %10 (2) = 30 cycles (Zone 1)
-        // %01 (1) = 28 cycles (Zone 2)
-        // %00 (0) = 26 cycles (Zone 3)
         let is_speed_zone_changed = changed & MASK_SPEED_ZONE != 0;
         if is_speed_zone_changed {
             let new_speed_zone = (full_state & MASK_SPEED_ZONE) >> SHIFT_SPEED_ZONE;
@@ -272,7 +276,6 @@ impl DriveMechanics {
                 0 => CYCLES_ZONE_3, 
                 _ => CYCLES_ZONE_0,
             };
-            // Reset counter to ensure clean timing after switch
             self.byte_cycle_counter = 0;
         }
 
@@ -281,12 +284,8 @@ impl DriveMechanics {
         if is_track_step {
             let last_phase = last_state & MASK_STEP;
             let new_phase = full_state & MASK_STEP;
-
             let delta = (new_phase.wrapping_sub(last_phase) & MASK_STEP) as i8;
             
-            // Stepper Direction Inverted based on 1541-II ROM traces:
-            // Delta 1 (00->01) is OUT (towards Track 1)
-            // Delta 3 (01->00) is IN (towards Track 35)
             let last_half_track_pos = self.halftrack_head_pos;
             let step = match delta {
                 1 => 1,  // Step IN
@@ -294,16 +293,10 @@ impl DriveMechanics {
                 _ => 0,
             };
 
-            // Move the physical head, and clap it to the min and max physical half-track
             self.halftrack_head_pos = (last_half_track_pos + step)
                     .clamp(MIN_HALF_TRACK, MAX_HALF_TRACK);
 
-            emu_debug!("Head stepped [phase: {} -> {}, delta: {}] to Half-Track position: {} -> {}", 
-                    last_phase, new_phase, delta, last_half_track_pos, self.halftrack_head_pos);
-
-            // :? Is the head position within the actual readable track range?
             if self.halftrack_head_pos >= 0 && self.halftrack_head_pos <= MAX_HALF_TRACK {
-                // -> Yes, then issue the event
                 hardware.send_event(DriveEvent::HeadStepped { new_half_track: self.halftrack_head_pos as u8} );
             }
         }

@@ -197,7 +197,8 @@ impl Via6522 {
     #[link_section = ".ramfunc"]
     #[inline(always)]
     fn update_irq(&mut self) {
-        if (self.ifr & self.ier & 0x7F) != 0 {
+        let pending = self.ifr & self.ier & 0x7F;
+        if pending != 0 {
             self.ifr |= 0x80;
             self.irq = true;
         } else {

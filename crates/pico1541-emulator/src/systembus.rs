@@ -81,46 +81,18 @@ impl<H: HostInterface> SystemBus<H> {
 
     #[link_section = ".ramfunc"]
     #[inline(always)]
-    fn update_drive_iec_base(&mut self) {
+    fn update_drive_iec_base(&mut self, hardware: &mut H) {
         let orb_ddr = self.via1.orb & self.via1.ddrb;
         let atna = (orb_ddr & 0x10) >> 2;
         let data_bit = (orb_ddr & 0x02) >> 1;
         let clk_bit = (orb_ddr & 0x08) >> 2;
         self.drive_iec_base = clk_bit | data_bit | atna;
+        self.update_physical_iec(hardware);
     }
 
     #[link_section = ".ramfunc"]
     #[inline(always)]
-    pub fn tick_cycle(&mut self, hardware: &mut H) {
-        // Resolve the Host IecBusState once per cycle
-        let host_iec = hardware.iec_host();
-        
-        // Check for hardware configuration changes every 1024 cycles (~1ms)
-        self.cycle_counter = self.cycle_counter.wrapping_add(1);
-        if (self.cycle_counter & 0x3FF) == 0 {
-            self.device_id = hardware.get_device_id();
-            self.device_id_pb_bits = (self.device_id & 0x03) << 5;
-
-            if hardware.pop_discard_request() {
-                crate::hle::HleManager::intercept_command(self);
-            }
-        }
-
-        // Update VIA1's input register B and CA1 if the host state changed
-        if host_iec != self.last_host_iec {
-            self.via1.in_b = self.host_iec_to_via(&host_iec);
-            self.via1.set_ca1(host_iec.get_atn());
-            self.last_host_iec = host_iec;
-        }
-
-        // Execute the VIA cycles only if active
-        if self.via1.any_active() {
-            self.via1.tick_cycle();
-        }
-        if self.via2.any_active() {
-            self.via2.tick_cycle();
-        }
-
+    fn update_physical_iec(&mut self, hardware: &mut H) {
         // Resolve the IEC lines from the drive.
         let host_atn_bit = (self.last_host_iec.0 & IecBusState::ATN_BIT) >> 2;
         let mut drive_iec = IecBusState(self.drive_iec_base ^ host_atn_bit);
@@ -134,6 +106,45 @@ impl<H: HostInterface> SystemBus<H> {
             hardware.iec_drive(drive_iec);
             self.last_drive_iec = drive_iec;
         }
+    }
+
+    #[link_section = ".ramfunc"]
+    #[inline(always)]
+    pub fn tick_cycle(&mut self, hardware: &mut H) {
+        // Resolve the Host IecBusState once per cycle
+        let host_iec = hardware.iec_host();
+        
+        // Update VIA1's input register B and CA1 if the host state changed
+        if host_iec != self.last_host_iec {
+            self.via1.in_b = self.host_iec_to_via(&host_iec);
+            self.via1.set_ca1(host_iec.get_atn());
+            self.last_host_iec = host_iec;
+            // ATN change affects physical IEC output (XOR logic)
+            self.update_physical_iec(hardware);
+        }
+
+        // Check for hardware configuration changes every 1024 cycles (~1ms)
+        self.cycle_counter = self.cycle_counter.wrapping_add(1);
+        if (self.cycle_counter & 0x3FF) == 0 {
+            self.device_id = hardware.get_device_id();
+            self.device_id_pb_bits = (self.device_id & 0x03) << 5;
+
+            if hardware.pop_discard_request() {
+                crate::hle::HleManager::intercept_command(self);
+                self.update_physical_iec(hardware);
+            }
+        }
+
+        // Execute the VIA cycles only if active
+        if self.via1.any_active() {
+            self.via1.tick_cycle();
+        }
+        if self.via2.any_active() {
+            self.via2.tick_cycle();
+        }
+
+        // Progress the drive mechanics and update SO pin status
+        self.so_active = self.mechanics.tick(hardware, &mut self.via2, 0);
     }
 
     #[link_section = ".ramfunc"]
@@ -158,11 +169,10 @@ impl<H: HostInterface> Bus for SystemBus<H> {
         if addr >= 0x8000 {
             return unsafe { *self.rom.get_unchecked((addr & 0x3FFF) as usize) };
         }
-        if addr < 0x0800 {
-            return unsafe { *self.ram.get_unchecked(addr as usize) };
+        if addr < 0x1800 {
+            return unsafe { *self.ram.get_unchecked((addr as usize) & (RAM_SIZE - 1)) };
         }
         match addr {
-            0x0800..=0x17FF => unsafe { *self.ram.get_unchecked((addr as usize) & (RAM_SIZE - 1)) },
             0x1800..=0x1BFF => self.via1.read(addr),
             0x1C00..=0x1FFF => self.via2.read(addr),
             _ => 0,
@@ -172,28 +182,31 @@ impl<H: HostInterface> Bus for SystemBus<H> {
     #[link_section = ".ramfunc"]
     #[inline(always)]
     fn write(&mut self, addr: u16, value: u8, ctx: &mut H) {
-        if addr < 0x0800 {
-            unsafe { *self.ram.get_unchecked_mut(addr as usize) = value };
+        if addr < 0x1800 {
+            unsafe { *self.ram.get_unchecked_mut((addr as usize) & (RAM_SIZE - 1)) = value };
+            if addr == 0x0077 || addr == 0x0078 {
+                ctx.update_iec_addresses(self.ram[0x0077], self.ram[0x0078]);
+            }
             return;
         }
         if addr >= 0x8000 {
             return;
         }
         match addr {
-            0x0800..=0x17FF => {
-                unsafe { *self.ram.get_unchecked_mut((addr as usize) & (RAM_SIZE - 1)) = value };
-                if addr == 0x0077 || addr == 0x0078 {
-                    ctx.update_iec_addresses(self.ram[0x0077], self.ram[0x0078]);
-                }
-            }
             0x1800..=0x1BFF => {
                 self.via1.write(addr, value);
                 let reg = (addr & 0x0F) as usize;
                 if reg == 0x00 || reg == 0x02 {
-                    self.update_drive_iec_base();
+                    self.update_drive_iec_base(ctx);
                 }
             }
-            0x1C00..=0x1FFF => self.via2.write(addr, value),
+            0x1C00..=0x1FFF => {
+                self.via2.write(addr, value);
+                let reg = (addr & 0x0F) as usize;
+                if reg == 0x00 || reg == 0x02 {
+                    self.mechanics.update_state(self.via2.orb, self.via2.ddrb, ctx);
+                }
+            }
             _ => {}
         }
     }
