@@ -22,7 +22,7 @@ pub const IEC_UNTALK: u8 = 0x5F;
 
 pub const DELAY_POLL_US: u32 = 10;
 pub const DELAY_RELEASE_US: u32 = 20;
-pub const DELAY_DATA_US: u32 = 60;
+pub const DELAY_DATA_US: u32 = 40;
 pub const DELAY_EOI_TIMEOUT_US: u32 = 200;
 pub const DELAY_ACK_TIMEOUT_US: u32 = 10_000_000;
 pub const DELAY_HOLD_TIMEOUT_US: u32 = 10_000_000;
@@ -103,27 +103,35 @@ impl<'a, B: IecComHostBus> IecTransaction<'a, B> {
         self.bus.set_atn(true);
 
         // Short delay after asserting ATN
-        self.bus.delay_us(DELAY_POLL_US).await;
-
-        // Assert the CLK line to get into the send start state
-        self.bus.set_clk(true);
+        self.bus.delay_us(DELAY_DATA_US).await;
 
         log::debug!("ATN asserted, waiting for drive to acknowledge with DATA low...");
 
         // Drive must assert DATA within 1ms to acknowledge ATN
         self.bus.wait_for_data(true, DELAY_ACK_TIMEOUT_US).await?;
 
-        // We are now in data send state
+        // We are now in data send state. CLK should remain released (false) 
+        // until send() is called, which will then pull it low to start the byte.
+        self.bus.set_clk(false);
+        self.bus.delay_us(DELAY_DATA_US).await;
+
         Ok(self)
     }
 
     /// Releases ATN and waits a short turnaround delay.
     pub async fn atn_release(self) -> Result<Self, IecError> {
-        // Wait the release timeout before and after ATN release!
+        self.bus.trace_state("atn_release:start");
+
+        // Wait the release timeout before ATN release
         self.bus.delay_us(DELAY_RELEASE_US).await;
         self.bus.set_atn(false);
+        
+        log::debug!("ATN released, waiting for drive to release DATA...");
+        // The drive MUST release DATA as an acknowledgment of ATN release.
+        self.bus.wait_for_data(false, DELAY_ACK_TIMEOUT_US).await?;
+
         self.bus.delay_us(DELAY_RELEASE_US).await;
-        log::debug!("ATN released");
+        log::debug!("ATN release complete");
         self.bus.trace_state("atn_release:done");
         Ok(self)
     }
@@ -145,10 +153,10 @@ impl<'a, B: IecComHostBus> IecTransaction<'a, B> {
 
     /// Sends a single byte over the IEC bus.
     pub async fn send(self, byte: u8) -> Result<Self, IecError> {
-        // Release the clock line to indicate we are ready to send
-        self.bus.set_clk(false);
-
         log::debug!("Ready to send byte 0x{:02X} over IEC, waiting for ACK.", byte);
+
+        // Release CLK to allow drive to exit previous state
+        self.bus.set_clk(false);
 
         // Wait for Listener to release DATA (Ready to Receive).
         // NOTE! Hold delay is infinite, but we wait max 5 seconds as the drive should never take more.
@@ -181,6 +189,9 @@ impl<'a, B: IecComHostBus> IecTransaction<'a, B> {
 
         // 4. Wait for Acknowledge (DATA Low from drive)
         self.bus.wait_for_data(true, DELAY_ACK_TIMEOUT_US).await?;
+
+        // Release CLK to allow drive to proceed
+        self.bus.set_clk(false);
 
         // Wait 100 us after ACK to ensure drive has time to process the byte
         log::debug!("Byte 0x{:02X} sent, received ACK from drive", byte);

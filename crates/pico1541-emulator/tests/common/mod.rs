@@ -229,12 +229,13 @@ impl HostInterface for TestBridge {
             self.sync_hook = Some(hook);
         }
 
-        // Update the snooper using combined physical state (Host + Drive)
-        let combined_state = self.host_iec.combine(&self.drive_iec);
         let mut events = Vec::new();
-        self.snooper.update(combined_state, |event| {
+        /*
+        // Update the snooper using ONLY host physical state (Mandate: Snooper must only observe host lines)
+        self.snooper.update(host, |event| {
             events.push(event);
         });
+        */
 
         for event in events {
             self.events.push(event);
@@ -244,15 +245,16 @@ impl HostInterface for TestBridge {
             for e in extra_events {
                 self.events.push(e);
                 // Also check if any extra event triggers hijack/discard
-                if matches!(e, DriveEvent::IecCommand { .. }) {
-                     // In the test bridge, we might want to do something here,
-                     // but for now just having it in self.events is enough.
+                if let DriveEvent::IecCommand { data, len } = e {
+                     let cmd = String::from_utf8_lossy(&data[..len as usize]);
+                     log::info!("[SnooperCommand] {:?}", cmd);
                 }
             }
             
             // Once "CD:" is detected, we "yank the cable" by hijacking the bus
             // and requesting a discard of the command buffer.
             if self.snoop_handler.is_hijacked() && !self.discard_request {
+                log::info!("[SnoopHandler] Hijack requested!");
                 self.discard_request = true;
             }
         }

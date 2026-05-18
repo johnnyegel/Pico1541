@@ -83,26 +83,46 @@ impl<H: HostInterface> SystemBus<H> {
     #[inline(always)]
     fn update_drive_iec_base(&mut self, hardware: &mut H) {
         let orb_ddr = self.via1.orb & self.via1.ddrb;
-        let atna = (orb_ddr & 0x10) >> 2;
-        let data_bit = (orb_ddr & 0x02) >> 1;
-        let clk_bit = (orb_ddr & 0x08) >> 2;
-        self.drive_iec_base = clk_bit | data_bit | atna;
+        log::trace!("[VIA1_IEC] ORB={:02X}, DDRB={:02X}, res={:02X}", self.via1.orb, self.via1.ddrb, orb_ddr);
+        // PB1: DATA OUT, PB3: CLK OUT, PB4: ATNA
+        let data_bit = (orb_ddr & 0x02) != 0;
+        let clk_bit = (orb_ddr & 0x08) != 0;
+        let atna_bit = (orb_ddr & 0x10) != 0;
+
+        let mut base = 0u8;
+        if data_bit { base |= 0x01; }
+        if clk_bit { base |= 0x02; }
+        if atna_bit { base |= 0x04; }
+        self.drive_iec_base = base;
         self.update_physical_iec(hardware);
     }
 
     #[link_section = ".ramfunc"]
     #[inline(always)]
     fn update_physical_iec(&mut self, hardware: &mut H) {
-        // Resolve the IEC lines from the drive.
-        let host_atn_bit = (self.last_host_iec.0 & IecBusState::ATN_BIT) >> 2;
-        let mut drive_iec = IecBusState(self.drive_iec_base ^ host_atn_bit);
+        // IEC logic in 1541-II:
+        // Physical DATA = DATA_OUT (PB1) OR (ATNA (PB4) XOR ATN_IN (Host ATN))
+        // Physical CLK = CLK_OUT (PB3)
+        let host_atn = self.last_host_iec.get_atn();
+        let pb_data = (self.drive_iec_base & 0x01) != 0;
+        let pb_clk = (self.drive_iec_base & 0x02) != 0;
+        let pb_atna = (self.drive_iec_base & 0x04) != 0;
+
+        let physical_data = pb_data | (pb_atna ^ host_atn);
+        let physical_clk = pb_clk;
+
+        let mut drive_iec = IecBusState::default();
+        drive_iec.set_data(physical_data);
+        drive_iec.set_clk(physical_clk);
 
         if hardware.is_hijacked() {
+            log::trace!("[SystemBus] Hijacked! Suppressing drive outputs.");
             drive_iec = IecBusState::default();
         }
 
         // Set the IEC drive lines only if they changed
         if drive_iec != self.last_drive_iec {
+            log::trace!("[PhysicalDriveIEC] {} -> {}", self.last_drive_iec, drive_iec);
             hardware.iec_drive(drive_iec);
             self.last_drive_iec = drive_iec;
         }

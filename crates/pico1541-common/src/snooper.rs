@@ -125,24 +125,23 @@ impl IecSnooper {
         // Start of data: CLK edge release, DATA asserted
         match self.state {
             SnooperState::Idle => {
-                if edge.is_data(false) {
+                if edge.is_clk(true) {
                     self.state = SnooperState::Ready;
                     self.is_eoi = false;
+                    self.is_atn = iec_state.get_atn();
                 }
             }
             SnooperState::Ready => {
-                // :? Is the Clock asserted?
-                if edge.is_clk(true) {
-                    // -> Yes, the we are in the receiving state
+                if edge.is_clk(false) {
                     self.state = SnooperState::Receiving;
                     self.bit_count = 0;
                     self.current_byte = 0;
-                    self.is_atn = iec_state.get_atn();
-                }
-                // :? Is data released without clock change?
-                else if edge.is_data(false) {
-                    // -> Yes, We have an EOI
-                    self.is_eoi = true;
+                    
+                    // Capture the first bit (Bit 0)
+                    let bit = if !iec_state.get_data() { 1 } else { 0 };
+                    log::debug!("[Snooper] Bit 0: {}", bit);
+                    self.current_byte |= bit << self.bit_count;
+                    self.bit_count += 1;
                 }
             }
             SnooperState::Receiving => {
@@ -150,6 +149,7 @@ impl IecSnooper {
                 if edge.is_clk(false) {
                     // On clock release, capture the bit value
                     let bit = if !iec_state.get_data() { 1 } else { 0 };
+                    log::debug!("[Snooper] Bit {}: {}", self.bit_count, bit);
                     self.current_byte |= bit << self.bit_count;
                     self.bit_count += 1;
 
@@ -157,22 +157,19 @@ impl IecSnooper {
                     if self.bit_count == 8 {
                         // -> Yes, process the byte
                         self.dispatch_byte(self.current_byte, self.is_atn, self.is_eoi, &mut dispatch);
-                        self.state = SnooperState::Ack;
+                        self.state = SnooperState::Idle;
                     }
                 }
             }
             SnooperState::Ack => {
-                // Handle ack state logic
-                if edge.is_data(true) {
-                    // On data assert, we go back to idle
-                    self.state = SnooperState::Idle;
-                }
+                self.state = SnooperState::Idle;
             }
         }
     }
 
     #[link_section = ".ramfunc"]
     fn dispatch_byte<F: FnMut(DriveEvent)>(&mut self, byte: u8, atn: bool, eoi: bool, dispatch: &mut F) {
+        log::debug!("[Snooper] Received byte 0x{:02X} (ATN={}, EOI={})", byte, atn, eoi);
         // :? Is this an ATN byte?
         if atn {
             // -> Yes :? Are we already listening?
