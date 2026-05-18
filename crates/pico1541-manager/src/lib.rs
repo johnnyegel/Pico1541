@@ -1,4 +1,4 @@
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 #![allow(async_fn_in_trait)]
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;

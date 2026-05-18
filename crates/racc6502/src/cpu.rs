@@ -4,9 +4,6 @@ use crate::instructions::{
     nmos6502::INSTRUCTION_TABLE,
 };
 
-#[cfg(feature = "debug")]
-use crate::CPU;
-
 /// The high-level state of the 6502 execution cycle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CycleState {
@@ -17,7 +14,6 @@ pub enum CycleState {
     Operation,
 }
 
-/// A hook called at the end of every instruction (the "Sync" point).
 #[cfg(feature = "debug")]
 pub type DebugHook = fn(&CPU, *mut core::ffi::c_void);
 

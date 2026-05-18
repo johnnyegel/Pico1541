@@ -432,13 +432,13 @@ mod tests {
         via.write(0x0E, 0xC0);
         via.write(0x04, 0x0A);
         via.write(0x05, 0x00);
-        assert!(via.t1_active);
+        assert!(via.active_mask & Via6522::T1_ACTIVE != 0);
         for _ in 0..11 {
             via.tick_cycle();
         }
         assert!(via.ifr & 0x40 != 0);
         assert!(via.irq);
-        assert!(!via.t1_active);
+        assert!(via.active_mask & Via6522::T1_ACTIVE == 0);
     }
 
     #[test]
