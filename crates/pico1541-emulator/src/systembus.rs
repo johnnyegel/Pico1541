@@ -24,6 +24,10 @@ pub struct SystemBus<H: HostInterface> {
     pub so_active: bool,
     pub device_id: u8,
     pub cycle_counter: u32,
+    device_id_pb_bits: u8,
+    drive_iec_base: u8,
+    last_host_iec: IecBusState,
+    last_drive_iec: IecBusState,
     _phantom: PhantomData<H>,
 }
 
@@ -41,6 +45,10 @@ impl<H: HostInterface> SystemBus<H> {
             so_active: false,
             device_id,
             cycle_counter: 0,
+            device_id_pb_bits: (device_id & 0x03) << 5,
+            drive_iec_base: 0,
+            last_host_iec: IecBusState::default(),
+            last_drive_iec: IecBusState::default(),
             _phantom: PhantomData,
         };
 
@@ -67,6 +75,18 @@ impl<H: HostInterface> SystemBus<H> {
         self.via2.reset();
         self.mechanics.reset();
         self.so_active = false;
+        self.device_id_pb_bits = (self.device_id & 0x03) << 5;
+        self.drive_iec_base = 0;
+    }
+
+    #[link_section = ".ramfunc"]
+    #[inline(always)]
+    fn update_drive_iec_base(&mut self) {
+        let orb_ddr = self.via1.orb & self.via1.ddrb;
+        let atna = (orb_ddr & 0x10) >> 2;
+        let data_bit = (orb_ddr & 0x02) >> 1;
+        let clk_bit = (orb_ddr & 0x08) >> 2;
+        self.drive_iec_base = clk_bit | data_bit | atna;
     }
 
     #[link_section = ".ramfunc"]
@@ -75,69 +95,45 @@ impl<H: HostInterface> SystemBus<H> {
         // Resolve the Host IecBusState once per cycle
         let host_iec = hardware.iec_host();
         
-        // Pass the host state to sync
-        hardware.sync(host_iec);
-
         // Check for hardware configuration changes every 1024 cycles (~1ms)
         self.cycle_counter = self.cycle_counter.wrapping_add(1);
         if (self.cycle_counter & 0x3FF) == 0 {
             self.device_id = hardware.get_device_id();
+            self.device_id_pb_bits = (self.device_id & 0x03) << 5;
 
             if hardware.pop_discard_request() {
                 crate::hle::HleManager::intercept_command(self);
             }
         }
 
-        let requested_sector = self.ram[0x000C];
-        /*
-        let track = hardware.get_active_track();
-        if !matches!(track.layout, pico1541_common::formats::TrackLayout::Void) {
-            emu_debug!("Tick: PC=${:04X}, Sector={}, Layout={:?}", self.pc(), requested_sector, track.layout);
-        }
-        */
-        self.so_active = self.mechanics.tick(hardware, &mut self.via2, requested_sector);
-
-        // Update VIA1's input register B with host IEC state
-        self.via1.in_b = self.host_iec_to_via(&host_iec);
-        // CA1: fires on positive edge of ATN assertion.
-        // host_atn=true (Asserted/LOW wire) -> 7406 output HIGH.
-        self.via1.set_ca1(host_iec.get_atn());
-
-        // Execute the VIA cycles, so we get the actual output given the input state
-        self.via1.tick_cycle();
-        self.via2.tick_cycle();
-
-        if self.via1.irq || self.via2.irq {
-            // emu_debug!("IRQ Pending: VIA1={:02X}, VIA2={:02X}", self.via1.ifr, self.via2.ifr);
+        // Update VIA1's input register B and CA1 if the host state changed
+        if host_iec != self.last_host_iec {
+            self.via1.in_b = self.host_iec_to_via(&host_iec);
+            self.via1.set_ca1(host_iec.get_atn());
+            self.last_host_iec = host_iec;
         }
 
-        // Resolve the IEC lines from the drive. ATN is set to ATNA (PB4) 
-        let mut drive_iec = self.drive_iec_state(&host_iec);
+        // Execute the VIA cycles only if active
+        if self.via1.any_active() {
+            self.via1.tick_cycle();
+        }
+        if self.via2.any_active() {
+            self.via2.tick_cycle();
+        }
+
+        // Resolve the IEC lines from the drive.
+        let host_atn_bit = (self.last_host_iec.0 & IecBusState::ATN_BIT) >> 2;
+        let mut drive_iec = IecBusState(self.drive_iec_base ^ host_atn_bit);
 
         if hardware.is_hijacked() {
-            // "Yank the cable" from the host's perspective: the drive stops pulling any lines.
             drive_iec = IecBusState::default();
         }
 
-        // Set the IEC drive lines
-        hardware.iec_drive(drive_iec);
-    }
-
-    #[link_section = ".ramfunc"]
-    #[inline(always)]
-    fn drive_iec_state(&self, host_iec: &IecBusState) -> IecBusState {
-        // Get the drive ATNA bit, and align it to bit 2 for the IecBusState bitmask.
-        let atna = (self.via1.orb & self.via1.ddrb & 0x10) >> 2;
-        // XOR with the host ATN to get the hardware ATN acknowledge state, 
-        // which is what the drive actually puts on the DATA line.
-        let hw_atn_ack = ((host_iec.0 & IecBusState::ATN_BIT) ^ atna) >> 2;
-
-        // Get the clock and data bits from VIA1 and align them to bits 0 and 1 for the IecBusState bitmask.
-        let data_bit = (self.via1.orb & self.via1.ddrb & 0x02) >> 1;
-        let clk_bit = (self.via1.orb & self.via1.ddrb & 0x08) >> 2;
-
-        // Or the bits together to get the combined drive state for the IecBusState bitmask.
-        IecBusState(clk_bit | data_bit | hw_atn_ack)
+        // Set the IEC drive lines only if they changed
+        if drive_iec != self.last_drive_iec {
+            hardware.iec_drive(drive_iec);
+            self.last_drive_iec = drive_iec;
+        }
     }
 
     #[link_section = ".ramfunc"]
@@ -148,11 +144,8 @@ impl<H: HostInterface> SystemBus<H> {
         let clk = (host_iec.0 & IecBusState::CLK_BIT) << 1; // PB2 = CLK_IN
         let atn = (host_iec.0 & IecBusState::ATN_BIT) << 5; // PB7 = ATN_IN
 
-        // Shift the drive ID bits into PB5/PB6 and combine with the host IEC bits.
-        let device_id_bits = (self.device_id & 0x03) << 5;
-
-        // Or all together to get the full PB input value for VIA1.
-        device_id_bits | atn | clk | data
+        // Or all together with cached device ID bits to get the full PB input value for VIA1.
+        self.device_id_pb_bits | atn | clk | data
     }
 }
 
@@ -160,13 +153,17 @@ impl<H: HostInterface> Bus for SystemBus<H> {
     type Ctx = H;
 
     #[link_section = ".ramfunc"]
+    #[inline(always)]
     fn read(&mut self, addr: u16, ctx: &mut H) -> u8 {
         self.tick_cycle(ctx);
         if addr >= 0x8000 {
-            return self.rom[(addr & 0x3FFF) as usize];
+            return unsafe { *self.rom.get_unchecked((addr & 0x3FFF) as usize) };
+        }
+        if addr < 0x0800 {
+            return unsafe { *self.ram.get_unchecked(addr as usize) };
         }
         match addr {
-            0x0000..=0x17FF => self.ram[(addr as usize) & (RAM_SIZE - 1)],
+            0x0800..=0x17FF => self.ram[(addr as usize) & (RAM_SIZE - 1)],
             0x1800..=0x1BFF => self.via1.read(addr),
             0x1C00..=0x1FFF => self.via2.read(addr),
             _ => {
@@ -177,19 +174,28 @@ impl<H: HostInterface> Bus for SystemBus<H> {
     }
 
     #[link_section = ".ramfunc"]
+    #[inline(always)]
     fn write(&mut self, addr: u16, value: u8, ctx: &mut H) {
         self.tick_cycle(ctx);
-        if addr < 0x1800 {
-            self.ram[(addr as usize) & (RAM_SIZE - 1)] = value;
-            if addr == 0x0077 || addr == 0x0078 {
-                ctx.update_iec_addresses(self.ram[0x0077], self.ram[0x0078]);
-            }
+        if addr < 0x0800 {
+            unsafe { *self.ram.get_unchecked_mut(addr as usize) = value };
+            return;
+        }
+        if addr >= 0x8000 {
             return;
         }
         match addr {
-            0x1800..=0x1BFF => self.via1.write(addr, value),
+            0x0800..=0x17FF => {
+                self.ram[(addr as usize) & (RAM_SIZE - 1)] = value;
+                if addr == 0x0077 || addr == 0x0078 {
+                    ctx.update_iec_addresses(self.ram[0x0077], self.ram[0x0078]);
+                }
+            }
+            0x1800..=0x1BFF => {
+                self.via1.write(addr, value);
+                self.update_drive_iec_base();
+            }
             0x1C00..=0x1FFF => self.via2.write(addr, value),
-            0x8000..=0xFFFF => {}
             _ => {
                 emu_warn!("Unmapped Write: Addr=${:04X}, Val=${:02X}", addr, value);
             }

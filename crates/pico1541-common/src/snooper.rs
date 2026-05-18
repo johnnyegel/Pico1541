@@ -10,6 +10,8 @@ pub struct SnooperConfig {
     pub should_drive_data: AtomicBool,
     pub emu_speed_khz: portable_atomic::AtomicU32,
     pub emu_jitter_ns: portable_atomic::AtomicU32,
+    pub diag_old_tick: portable_atomic::AtomicU32,
+    pub diag_startup_ticks: portable_atomic::AtomicU32,
 }
 
 impl SnooperConfig {
@@ -23,6 +25,8 @@ impl SnooperConfig {
             should_drive_data: AtomicBool::new(false),
             emu_speed_khz: portable_atomic::AtomicU32::new(0),
             emu_jitter_ns: portable_atomic::AtomicU32::new(0),
+            diag_old_tick: portable_atomic::AtomicU32::new(0),
+            diag_startup_ticks: portable_atomic::AtomicU32::new(0),
         }
     }
 

@@ -65,6 +65,9 @@ pub struct CPU {
     /// The hardware vector to jump to after the current interrupt sequence.
     pub pending_vector: u16,
 
+    /// The current instruction being executed.
+    pub current_instruction: &'static crate::instructions::Instruction,
+
     /// An optional hook called at the end of every instruction.
     #[cfg(feature = "debug")]
     pub debug_hook: Option<DebugHook>,
@@ -96,6 +99,7 @@ impl CPU {
             temp_data: 0,
             page_crossed: false,
             pending_vector: 0,
+            current_instruction: &INSTRUCTION_TABLE[0],
             #[cfg(feature = "debug")]
             debug_hook: None,
             #[cfg(feature = "debug")]
@@ -235,9 +239,9 @@ impl CPU {
         self.ir = bus.read(self.pc, ctx);
         self.pc = self.pc.wrapping_add(1);
 
-        let instruction = &INSTRUCTION_TABLE[self.ir as usize];
-        self.active_addr = instruction.addr;
-        self.active_exec = instruction.exec;
+        self.current_instruction = &INSTRUCTION_TABLE[self.ir as usize];
+        self.active_addr = self.current_instruction.addr;
+        self.active_exec = self.current_instruction.exec;
 
         #[cfg(feature = "debug")]
         if let Some(hook) = self.debug_hook {
@@ -260,24 +264,22 @@ impl CPU {
             return;
         }
 
-        if self.step_index < current_slice.len() {
-            let uop = current_slice[self.step_index];
-            if (uop == AddrMicroOp::OptionalFixupX
-                || uop == AddrMicroOp::OptionalFixupY
-                || uop == AddrMicroOp::OptionalFixupIndY)
-                && !self.page_crossed
-            {
-                self.step_index += 1;
-                if self.step_index >= current_slice.len() {
-                    self.state = CycleState::Operation;
-                    self.step_index = 0;
-                    self.tick_operation(bus, ctx);
-                    return;
-                }
-            } else {
-                self.execute_addr_uop(uop, bus, ctx);
-                self.step_index += 1;
+        let uop = unsafe { *current_slice.get_unchecked(self.step_index) };
+        if (uop == AddrMicroOp::OptionalFixupX
+            || uop == AddrMicroOp::OptionalFixupY
+            || uop == AddrMicroOp::OptionalFixupIndY)
+            && !self.page_crossed
+        {
+            self.step_index += 1;
+            if self.step_index >= current_slice.len() {
+                self.state = CycleState::Operation;
+                self.step_index = 0;
+                self.tick_operation(bus, ctx);
+                return;
             }
+        } else {
+            self.execute_addr_uop(uop, bus, ctx);
+            self.step_index += 1;
         }
 
         if self.step_index >= current_slice.len() {
@@ -302,11 +304,9 @@ impl CPU {
             return;
         }
 
-        if self.step_index < current_slice.len() {
-            let uop = current_slice[self.step_index];
-            self.execute_exec_uop(uop, bus, ctx);
-            self.step_index += 1;
-        }
+        let uop = unsafe { *current_slice.get_unchecked(self.step_index) };
+        self.execute_exec_uop(uop, bus, ctx);
+        self.step_index += 1;
 
         if self.step_index >= current_slice.len() {
             self.finish_instruction();
@@ -867,7 +867,11 @@ impl CPU {
     #[link_section = ".ramfunc"]
     #[inline(always)]
     fn update_zn(&mut self, val: u8) {
-        self.p = (self.p & !0x82) | (if val == 0 { 0x02 } else { 0 }) | (val & 0x80);
+        self.p &= !0x82;
+        self.p |= val & 0x80;
+        if val == 0 {
+            self.p |= 0x02;
+        }
     }
 
     #[link_section = ".ramfunc"]

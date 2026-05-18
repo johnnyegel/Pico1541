@@ -202,17 +202,21 @@ where
             self.display.clear().await;
             self.display.print(0, "--- Monitor ---").await;
 
-            let speed_khz = self.config.emu_speed_khz.load(Ordering::Relaxed);
-            let jitter_ns = self.config.emu_jitter_ns.load(Ordering::Relaxed);
+            let speed_hz = self.config.emu_speed_khz.load(Ordering::Relaxed);
+            let idle_cnt = self.config.emu_jitter_ns.load(Ordering::Relaxed);
+            let diag_old = self.config.diag_old_tick.load(Ordering::Relaxed);
+            let diag_startup = self.config.diag_startup_ticks.load(Ordering::Relaxed);
 
             let mut s_speed = String::<32>::new();
-            let _ = core::fmt::write(&mut s_speed, format_args!("Speed: {:>4} kHz", speed_khz));
+            let _ = core::fmt::write(&mut s_speed, format_args!("Speed: {} Hz", speed_hz));
             self.display.print(2, &s_speed).await;
 
             let mut s_jitter = String::<32>::new();
-            let _ = core::fmt::write(&mut s_jitter, format_args!("Jitter: {:>8} ns", jitter_ns));
+            let _ = core::fmt::write(&mut s_jitter, format_args!("IdleCnt: {}", idle_cnt));
             self.display.print(3, &s_jitter).await;
-
+            let mut s_diag1 = String::<32>::new();
+            let _ = core::fmt::write(&mut s_diag1, format_args!("OTick:{} Start:{}", diag_old, diag_startup));
+            self.display.print(4, &s_diag1).await;
             self.display.print(5, " [Back] ").await;
             self.display.request_redraw();
 

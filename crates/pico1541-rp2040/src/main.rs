@@ -3,8 +3,9 @@
 
 mod driver;
 
-use defmt::*;
+use defmt::{info, error, debug, warn, Format};
 use defmt_rtt as _;
+
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
@@ -71,9 +72,28 @@ async fn main(_spawner: Spawner) {
     
     let p = embassy_rp::init(config);
     info!("Pico1541 Starting at 250MHz...");
+// Force RP2040 Timer to 1us ticks (12 cycles of 12MHz clk_ref)
+let (old_val, new_val) = unsafe {
+    let timer_tick_reg = 0x4005802c as *mut u32;
+    let old = core::ptr::read_volatile(timer_tick_reg);
+    // Set to 12 cycles per tick and ENABLE bit (1 << 9 | 12 = 524)
+    core::ptr::write_volatile(timer_tick_reg, (1 << 9) | 12);
+    let new = core::ptr::read_volatile(timer_tick_reg);
+    (old, new)
+};
+
+// Timer speed verification
+let t1 = embassy_rp::pac::TIMER.timelr().read();
+cortex_m::asm::delay(10_000_000); 
+let t2 = embassy_rp::pac::TIMER.timelr().read();
+let startup_ticks = t2.wrapping_sub(t1);
+
+SNOOPER_CONFIG.diag_old_tick.store(old_val, Ordering::Relaxed);
+SNOOPER_CONFIG.diag_startup_ticks.store(startup_ticks, Ordering::Relaxed);
+info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_ticks);
+
 
     let stack = CORE1_STACK.init(Stack::new());
-    // --- Hardware Drivers (Core 1 - Manager) ---
 
     // 1. OLED Display (I2C)
     let sda = p.PIN_4;
@@ -288,7 +308,8 @@ impl HostInterface for HardwareBridge {
 
     #[link_section = ".ramfunc"]
     #[inline(always)]
-    fn sync(&mut self, host: IecBusState) {
+    fn sync(&mut self, _host: IecBusState) {
+        /*
         let config = self.config;
         let handler = &mut self.handler;
 
@@ -311,6 +332,7 @@ impl HostInterface for HardwareBridge {
                 config.should_drive_data.store(false, Ordering::Relaxed);
             }
         });
+        */
     }
 }
 
@@ -399,21 +421,12 @@ async fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: Hardware
     let mut last_tick = timer.timelr().read();
     let mut cycle_counter = 0u32;
     let mut last_perf_update = last_tick;
-    let mut peak_jitter = 0u32;
+    let mut idle_counter = 0u32;
 
     loop {
         let now = timer.timelr().read();
         
-        // Correctly handle wrap-around and ahead-of-time by casting to i32
-        let jitter = now.wrapping_sub(last_tick) as i32;
-        if jitter > 0 && jitter < 1_000_000 {
-            if jitter as u32 > peak_jitter {
-                peak_jitter = jitter as u32;
-            }
-        }
-
         let mut caught_up = 0;
-        // Increase catch-up limit to 100 for better throughput if behind
         while (now.wrapping_sub(last_tick) as i32) > 0 && caught_up < 100 {
             last_tick = last_tick.wrapping_add(1);
             drive.tick(&mut bridge);
@@ -424,14 +437,15 @@ async fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: Hardware
         // Update performance metrics every second
         if now.wrapping_sub(last_perf_update) >= 1_000_000 {
             bridge.config.emu_speed_khz.store(cycle_counter, Ordering::Relaxed);
-            bridge.config.emu_jitter_ns.store(peak_jitter * 1000, Ordering::Relaxed);
+            bridge.config.emu_jitter_ns.store(idle_counter, Ordering::Relaxed);
             
             cycle_counter = 0;
-            peak_jitter = 0;
+            idle_counter = 0;
             last_perf_update = now;
         }
 
         if caught_up == 0 {
+            idle_counter = idle_counter.wrapping_add(1);
             cortex_m::asm::nop();
         }
     }

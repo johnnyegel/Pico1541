@@ -238,10 +238,14 @@ impl Via6522 {
     /// This method is called on each CPU cycle.
     #[link_section = ".ramfunc"]
     #[inline(always)]
+    pub fn any_active(&self) -> bool {
+        self.t1_active || self.t2_active || self.sr_active
+    }
+
+    /// This method is called on each CPU cycle.
+    #[link_section = ".ramfunc"]
+    #[inline(always)]
     pub fn tick_cycle(&mut self) {
-        if !self.t1_active && !self.t2_active && !self.sr_active {
-            return;
-        }
         // --- Timer 1 ---
         if self.t1_active {
             let (next_t1c, overflow) = self.t1c.overflowing_sub(1);
