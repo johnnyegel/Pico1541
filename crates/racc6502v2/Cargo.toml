@@ -1,0 +1,10 @@
+[package]
+name = "racc6502v2"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# No dependencies for now, keep it pure no_std
+
+[features]
+debug = []

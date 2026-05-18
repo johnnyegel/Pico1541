@@ -2,6 +2,7 @@
 members = [
     "crates/pico1541-common",
     "crates/racc6502",
+    "crates/racc6502v2",
     "crates/pico1541-manager",
     "crates/pico1541-emulator",
     "crates/pico1541-rp2040"
