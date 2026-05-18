@@ -268,13 +268,13 @@ impl CPU {
             ExecMicroOp::WriteEffY => { bus.write(self.effective_addr, self.y, ctx); }
             ExecMicroOp::ReadEffToData => { self.data_bus = bus.read(self.effective_addr, ctx); }
             ExecMicroOp::WriteDataBack => { bus.write(self.effective_addr, self.data_bus, ctx); }
-            ExecMicroOp::ASLWrite => { let (val, c) = self.data_bus.overflowing_shl(1); self.data_bus = val; self.set_flag(0, c); self.update_zn(self.data_bus); }
-            ExecMicroOp::LSRWrite => { let c = (self.data_bus & 0x01) != 0; self.data_bus >>= 1; self.set_flag(0, c); self.update_zn(self.data_bus); }
-            ExecMicroOp::ROLWrite => { let c = (self.data_bus & 0x80) != 0; self.data_bus = (self.data_bus << 1) | (self.get_flag(0) as u8); self.set_flag(0, c); self.update_zn(self.data_bus); }
-            ExecMicroOp::RORWrite => { let c = (self.data_bus & 0x01) != 0; self.data_bus = (self.data_bus >> 1) | ((self.get_flag(0) as u8) << 7); self.set_flag(0, c); self.update_zn(self.data_bus); }
-            ExecMicroOp::INCWrite => { self.data_bus = self.data_bus.wrapping_add(1); self.update_zn(self.data_bus); }
-            ExecMicroOp::DECWrite => { self.data_bus = self.data_bus.wrapping_sub(1); self.update_zn(self.data_bus); }
-            ExecMicroOp::AccASL => { let (val, c) = self.a.overflowing_shl(1); self.a = val; self.set_flag(0, c); self.update_zn(self.a); }
+            ExecMicroOp::ASLWrite => { let c = (self.data_bus & 0x80) != 0; self.data_bus <<= 1; self.set_flag(0, c); self.update_zn(self.data_bus); bus.write(self.effective_addr, self.data_bus, ctx); }
+            ExecMicroOp::LSRWrite => { let c = (self.data_bus & 0x01) != 0; self.data_bus >>= 1; self.set_flag(0, c); self.update_zn(self.data_bus); bus.write(self.effective_addr, self.data_bus, ctx); }
+            ExecMicroOp::ROLWrite => { let c = (self.data_bus & 0x80) != 0; self.data_bus = (self.data_bus << 1) | (self.get_flag(0) as u8); self.set_flag(0, c); self.update_zn(self.data_bus); bus.write(self.effective_addr, self.data_bus, ctx); }
+            ExecMicroOp::RORWrite => { let c = (self.data_bus & 0x01) != 0; self.data_bus = (self.data_bus >> 1) | ((self.get_flag(0) as u8) << 7); self.set_flag(0, c); self.update_zn(self.data_bus); bus.write(self.effective_addr, self.data_bus, ctx); }
+            ExecMicroOp::INCWrite => { self.data_bus = self.data_bus.wrapping_add(1); self.update_zn(self.data_bus); bus.write(self.effective_addr, self.data_bus, ctx); }
+            ExecMicroOp::DECWrite => { self.data_bus = self.data_bus.wrapping_sub(1); self.update_zn(self.data_bus); bus.write(self.effective_addr, self.data_bus, ctx); }
+            ExecMicroOp::AccASL => { let c = (self.a & 0x80) != 0; self.a <<= 1; self.set_flag(0, c); self.update_zn(self.a); }
             ExecMicroOp::AccLSR => { let c = (self.a & 0x01) != 0; self.a >>= 1; self.set_flag(0, c); self.update_zn(self.a); }
             ExecMicroOp::AccROL => { let c = (self.a & 0x80) != 0; self.a = (self.a << 1) | (self.get_flag(0) as u8); self.set_flag(0, c); self.update_zn(self.a); }
             ExecMicroOp::AccROR => { let c = (self.a & 0x01) != 0; self.a = (self.a >> 1) | ((self.get_flag(0) as u8) << 7); self.set_flag(0, c); self.update_zn(self.a); }
@@ -349,11 +349,43 @@ impl CPU {
     pub fn set_flag(&mut self, bit: u8, val: bool) { if val { self.p |= 1 << bit; } else { self.p &= !(1 << bit); } }
 
     fn do_adc(&mut self, val: u8) {
-        let a = self.a as u16; let v = val as u16; let c = self.get_flag(0) as u16;
-        let res = a + v + c; self.set_flag(0, res > 0xFF); self.set_flag(6, ((a ^ res) & (v ^ res) & 0x80) != 0);
-        self.a = res as u8; self.update_zn(self.a);
+        if (self.p & 0x08) != 0 {
+            let mut low = (self.a & 0x0F) as i32 + (val & 0x0F) as i32 + self.get_flag(0) as i32;
+            let mut high = (self.a >> 4) as i32 + (val >> 4) as i32 + if low > 9 { 1 } else { 0 };
+            if low > 9 { low += 6; }
+            
+            let a = self.a as u16; let v = val as u16; let c = self.get_flag(0) as u16;
+            let res = a + v + c;
+            self.set_flag(6, ((a ^ res) & (v ^ res) & 0x80) != 0);
+            
+            if high > 9 { high += 6; }
+            self.set_flag(0, high > 15);
+            self.a = ((low & 0x0F) | ((high & 0x0F) << 4)) as u8;
+            self.update_zn(self.a);
+        } else {
+            let a = self.a as u16; let v = val as u16; let c = self.get_flag(0) as u16;
+            let res = a + v + c; self.set_flag(0, res > 0xFF); self.set_flag(6, ((a ^ res) & (v ^ res) & 0x80) != 0);
+            self.a = res as u8; self.update_zn(self.a);
+        }
     }
-    fn do_sbc(&mut self, val: u8) { self.do_adc(!val); }
+    fn do_sbc(&mut self, val: u8) {
+        if (self.p & 0x08) != 0 {
+            let mut low = (self.a & 0x0F) as i32 - (val & 0x0F) as i32 - (1 - self.get_flag(0) as i32);
+            let mut high = (self.a >> 4) as i32 - (val >> 4) as i32 - if low < 0 { 1 } else { 0 };
+            if low < 0 { low -= 6; }
+            
+            let a = self.a as u16; let v = (!val) as u16; let c = self.get_flag(0) as u16;
+            let res = a + v + c;
+            self.set_flag(0, res > 0xFF);
+            self.set_flag(6, ((a ^ res) & (v ^ res) & 0x80) != 0);
+            
+            if high < 0 { high -= 6; }
+            self.a = ((low & 0x0F) | ((high & 0x0F) << 4)) as u8;
+            self.update_zn(self.a);
+        } else {
+            self.do_adc(!val);
+        }
+    }
     fn do_bit(&mut self, val: u8) { self.set_flag(1, (self.a & val) == 0); self.p = (self.p & 0x3F) | (val & 0xC0); }
     fn do_cmp(&mut self, reg: u8, val: u8) { let (res, c) = reg.overflowing_sub(val); self.set_flag(0, !c); self.update_zn(res); }
 }
