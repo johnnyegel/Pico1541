@@ -42,22 +42,22 @@ where
         let mut cursor = 0;
         loop {
             let mut main_items = Vec::<String<16>, 4>::new();
-            
-            // 0. SD Card
-            let mut sd_str = String::<16>::from_str("SD Card").unwrap();
-            let sd_available = self.storage.is_available().await;
-            if !sd_available {
-                let _ = sd_str.push_str(" (X)");
-            }
-            let _ = main_items.push(sd_str);
 
-            // 1. Internal
+            // 0. Internal
             let mut int_str = String::<16>::from_str("Internal").unwrap();
             let int_available = self.internal.is_available().await;
             if !int_available {
                 let _ = int_str.push_str(" (X)");
             }
             let _ = main_items.push(int_str);
+
+            // 1. SD Card
+            let mut sd_str = String::<16>::from_str("SD Card").unwrap();
+            let sd_available = self.storage.is_available().await;
+            if !sd_available {
+                let _ = sd_str.push_str(" (X)");
+            }
+            let _ = main_items.push(sd_str);
 
             // 2. USB Drive (Not yet supported)
             let mut usb_str = String::<16>::from_str("USB Drive").unwrap();
