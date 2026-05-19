@@ -181,24 +181,13 @@ where
 }
 
 impl<SPI, CS, D, DET> StorageWrapper<SPI, CS, D, DET>
-where 
+where
     SPI: embedded_hal::spi::SpiDevice + 'static,
     CS: embedded_hal::digital::OutputPin + 'static,
     D: embedded_hal::delay::DelayNs + 'static,
     DET: embedded_hal::digital::InputPin + 'static
 {
-    pub async fn open_sd_file(&self, path: &str) -> Result<SdFileHandle<SPI, CS, D, DET>, ManagerError> {
-        let mut p = String::<32>::new();
-        p.push_str(path).map_err(|_| ManagerError::Io)?;
-        
-        Ok(SdFileHandle {
-            storage: *self,
-            path: p,
-            offset: 0,
-        })
-    }
 }
-
 impl<SPI, CS, D, DET> SdStorage<SPI, CS, D, DET>
 where 
     SPI: embedded_hal::spi::SpiDevice,

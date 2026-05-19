@@ -50,13 +50,6 @@ impl IecBusEdge {
     pub fn is_clk(&self, expect: bool) -> bool {
         self.delta.get_clk() && self.state.get_clk() == expect
     }
-
-    /// Returns true if the data line has an edge matching the expected level.
-    #[link_section = ".ramfunc"]
-    #[inline(always)]
-    pub fn is_data(&self, expect: bool) -> bool {
-        self.delta.get_data() && self.state.get_data() == expect
-    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]

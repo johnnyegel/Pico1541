@@ -16,7 +16,7 @@ pub struct MainMenuTask<D, L, Ind, S, Disk: 'static> {
     indicator: Ind,
     storage: S,
     internal: InternalStorage,
-    disk_image: &'static Mutex<CriticalSectionRawMutex, Disk>,
+    _disk_image: &'static Mutex<CriticalSectionRawMutex, Disk>,
     config: &'static SnooperConfig,
 }
 
@@ -29,7 +29,7 @@ where
     Disk: 'static,
 {
     pub fn new(display: D, leds: L, indicator: Ind, storage: S, disk_image: &'static Mutex<CriticalSectionRawMutex, Disk>, config: &'static SnooperConfig) -> Self {
-        Self { display, leds, indicator, storage, internal: InternalStorage, disk_image, config }
+        Self { display, leds, indicator, storage, internal: InternalStorage, _disk_image: disk_image, config }
     }
 
     pub async fn run(&mut self) -> ! {

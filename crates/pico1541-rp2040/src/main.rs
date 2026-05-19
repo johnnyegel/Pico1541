@@ -3,7 +3,7 @@
 
 mod driver;
 
-use defmt::{info, error, debug, warn, Format};
+use defmt::info;
 use defmt_rtt as _;
 
 use embassy_executor::Spawner;
@@ -196,11 +196,11 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
 
     // IEC Pins
     let pins = IecPins {
-        data_rx: Input::new(p.PIN_16, Pull::None),
-        clk_rx: Input::new(p.PIN_17, Pull::None),
-        atn_rx: Input::new(p.PIN_18, Pull::None),
-        data_tx: Output::new(p.PIN_19, Level::Low),
-        clk_tx: Output::new(p.PIN_20, Level::Low),
+        _data_rx: Input::new(p.PIN_16, Pull::None),
+        _clk_rx: Input::new(p.PIN_17, Pull::None),
+        _atn_rx: Input::new(p.PIN_18, Pull::None),
+        _data_tx: Output::new(p.PIN_19, Level::Low),
+        _clk_tx: Output::new(p.PIN_20, Level::Low),
     };
 
     let track_for_bridge = unsafe { &mut *track_ptr };
@@ -214,16 +214,16 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
 }
 
 struct IecPins {
-    data_rx: Input<'static>,
-    clk_rx: Input<'static>,
-    atn_rx: Input<'static>,
-    data_tx: Output<'static>,
-    clk_tx: Output<'static>,
+    _data_rx: Input<'static>,
+    _clk_rx: Input<'static>,
+    _atn_rx: Input<'static>,
+    _data_tx: Output<'static>,
+    _clk_tx: Output<'static>,
 }
 
 struct HardwareBridge {
     track: &'static mut ActiveTrack,
-    pins: IecPins,
+    _pins: IecPins,
     snooper: IecSnooper,
     handler: IecSnoopByteHandler,
     config: &'static SnooperConfig,
@@ -234,7 +234,7 @@ impl HardwareBridge {
         let device_id = config.device_id.load(Ordering::Relaxed);
         Self {
             track,
-            pins,
+            _pins: pins,
             snooper: IecSnooper::new(device_id),
             handler: IecSnoopByteHandler::new(),
             config,
