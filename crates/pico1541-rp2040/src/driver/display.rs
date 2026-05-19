@@ -124,6 +124,8 @@ impl OledDisplay {
         for i in 0..6 {
             let is_large = (self.large_lines >> i) & 1 != 0;
             let is_selected = i == self.selected_line as usize;
+            let is_header = i == 0;
+
             let y = (i as i32) * 10 + 2;
 
             let bg_color = if is_selected {
@@ -152,7 +154,12 @@ impl OledDisplay {
             let x_offset = if is_selected { -self.scroll_offset } else { 0 };
             let y_adj = if is_large { 15 } else { 8 };
 
-            let _ = Text::new(&self.lines[i], Point::new(x_offset, y + y_adj), style)
+            let mut text_y = y + y_adj;
+            if is_header {
+                text_y -= 2;
+            }
+
+            let _ = Text::new(&self.lines[i], Point::new(x_offset, text_y), style)
                 .draw(&mut self.display);
         }
 
