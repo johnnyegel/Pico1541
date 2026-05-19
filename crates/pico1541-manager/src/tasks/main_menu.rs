@@ -35,9 +35,9 @@ where
     pub async fn run(&mut self) -> ! {
         // 1. Boot Screen
         self.display.clear().await;
-        self.display.print_large(1, " Pico1541 ").await; 
+        self.display.print_large(2, "  Pico1541").await; 
         self.display.request_redraw();
-        Timer::after(Duration::from_secs(2)).await;
+        Timer::after(Duration::from_millis(1500)).await;
 
         let mut cursor = 0;
         loop {
