@@ -23,15 +23,15 @@ pub struct SystemBus<H: HostInterface> {
     pub mechanics: DriveMechanics,
     pub so_active: bool,
     pub device_id: u8,
-    pub cycle_counter: u32,
+    cycle_counter: u32,
     device_id_pb_bits: u8,
     drive_iec_base: u8,
     last_host_iec: IecBusState,
     last_drive_iec: IecBusState,
     _phantom: PhantomData<H>,
-}
+    }
 
-impl<H: HostInterface> SystemBus<H> {
+    impl<H: HostInterface> SystemBus<H> {
     pub fn new(rom: [u8; ROM_SIZE], device_id: u8) -> Self {
         // :: Intialize VIA1
         let mut via1 = Via6522::new();
@@ -54,7 +54,7 @@ impl<H: HostInterface> SystemBus<H> {
 
         // Set up the VIA1 initial state
         via1.in_a = 0x0;
-        via1.in_b = systembus.host_iec_to_via(&IecBusState::default());
+        via1.in_b = systembus.calculate_combined_via_in_b(&IecBusState::default());
 
         systembus
     }
@@ -83,7 +83,7 @@ impl<H: HostInterface> SystemBus<H> {
     #[inline(always)]
     fn update_drive_iec_base(&mut self, hardware: &mut H) {
         let orb_ddr = self.via1.orb & self.via1.ddrb;
-        log::trace!("[VIA1_IEC] ORB={:02X}, DDRB={:02X}, res={:02X}", self.via1.orb, self.via1.ddrb, orb_ddr);
+        
         // PB1: DATA OUT, PB3: CLK OUT, PB4: ATNA
         let data_bit = (orb_ddr & 0x02) != 0;
         let clk_bit = (orb_ddr & 0x08) != 0;
@@ -93,6 +93,7 @@ impl<H: HostInterface> SystemBus<H> {
         if data_bit { base |= 0x01; }
         if clk_bit { base |= 0x02; }
         if atna_bit { base |= 0x04; }
+
         self.drive_iec_base = base;
         self.update_physical_iec(hardware);
     }
@@ -100,31 +101,28 @@ impl<H: HostInterface> SystemBus<H> {
     #[link_section = ".ramfunc"]
     #[inline(always)]
     fn update_physical_iec(&mut self, hardware: &mut H) {
-        // IEC logic in 1541-II:
-        // Physical DATA = DATA_OUT (PB1) OR (ATNA (PB4) XOR ATN_IN (Host ATN))
-        // Physical CLK = CLK_OUT (PB3)
         let host_atn = self.last_host_iec.get_atn();
+
         let pb_data = (self.drive_iec_base & 0x01) != 0;
         let pb_clk = (self.drive_iec_base & 0x02) != 0;
         let pb_atna = (self.drive_iec_base & 0x04) != 0;
 
-        let physical_data = pb_data | (pb_atna ^ host_atn);
-        let physical_clk = pb_clk;
+        // Map ONLY host lines to VIA inputs (Signal Isolation Mandate)
+        self.via1.in_b = self.calculate_combined_via_in_b(&self.last_host_iec);
 
-        let mut drive_iec = IecBusState::default();
-        drive_iec.set_data(physical_data);
-        drive_iec.set_clk(physical_clk);
+        // Calculate what the drive asserts on the bus
+        let mut drive_combined_iec = IecBusState::default();
+        drive_combined_iec.set_data(pb_data | (pb_atna ^ host_atn));
+        drive_combined_iec.set_clk(pb_clk);
 
         if hardware.is_hijacked() {
-            log::trace!("[SystemBus] Hijacked! Suppressing drive outputs.");
-            drive_iec = IecBusState::default();
+            drive_combined_iec = IecBusState::default();
         }
 
         // Set the IEC drive lines only if they changed
-        if drive_iec != self.last_drive_iec {
-            log::trace!("[PhysicalDriveIEC] {} -> {}", self.last_drive_iec, drive_iec);
-            hardware.iec_drive(drive_iec);
-            self.last_drive_iec = drive_iec;
+        if drive_combined_iec != self.last_drive_iec {
+            hardware.iec_drive(drive_combined_iec);
+            self.last_drive_iec = drive_combined_iec;
         }
     }
 
@@ -134,15 +132,15 @@ impl<H: HostInterface> SystemBus<H> {
         // Resolve the Host IecBusState once per cycle
         let host_iec = hardware.iec_host();
         
-        // Update VIA1's input register B and CA1 if the host state changed
+        // Update physical bus and VIA inputs if host OR drive changed
+        // Actually, we update it every cycle for simplicity if we don't know when drive changed.
+        // But we know drive only changes on VIA writes.
         if host_iec != self.last_host_iec {
-            self.via1.in_b = self.host_iec_to_via(&host_iec);
-            self.via1.set_ca1(host_iec.get_atn());
             self.last_host_iec = host_iec;
-            // ATN change affects physical IEC output (XOR logic)
+            self.via1.set_ca1(host_iec.get_atn());
             self.update_physical_iec(hardware);
 
-            // Notify hardware of the bus state change (e.g. for snooping)
+            // Notify hardware of the host bus state change (e.g. for snooping)
             hardware.sync(host_iec);
         }
 
@@ -172,11 +170,11 @@ impl<H: HostInterface> SystemBus<H> {
 
     #[link_section = ".ramfunc"]
     #[inline(always)]
-    fn host_iec_to_via(&self, host_iec: &IecBusState) -> u8 {
-        // Map the host IEC state to the VIA1 input bits for PB0, PB2, and PB7.
-        let data = host_iec.0 & IecBusState::DATA_BIT; // PB0 = DATA_IN
-        let clk = (host_iec.0 & IecBusState::CLK_BIT) << 1; // PB2 = CLK_IN
-        let atn = (host_iec.0 & IecBusState::ATN_BIT) << 5; // PB7 = ATN_IN
+    fn calculate_combined_via_in_b(&self, combined_iec: &IecBusState) -> u8 {
+        // Map the combined IEC state to the VIA1 input bits for PB0, PB2, and PB7.
+        let data = combined_iec.0 & IecBusState::DATA_BIT; // PB0 = DATA_IN
+        let clk = (combined_iec.0 & IecBusState::CLK_BIT) << 1; // PB2 = CLK_IN
+        let atn = (combined_iec.0 & IecBusState::ATN_BIT) << 5; // PB7 = ATN_IN
 
         // Or all together with cached device ID bits to get the full PB input value for VIA1.
         self.device_id_pb_bits | atn | clk | data
@@ -217,15 +215,15 @@ impl<H: HostInterface> Bus for SystemBus<H> {
         }
         match addr {
             0x1800..=0x1BFF => {
-                self.via1.write(addr, value);
                 let reg = (addr & 0x0F) as usize;
+                self.via1.write(addr, value);
                 if reg == 0x00 || reg == 0x02 {
                     self.update_drive_iec_base(ctx);
                 }
             }
             0x1C00..=0x1FFF => {
-                self.via2.write(addr, value);
                 let reg = (addr & 0x0F) as usize;
+                self.via2.write(addr, value);
                 if reg == 0x00 || reg == 0x02 {
                     self.mechanics.update_state(self.via2.orb, self.via2.ddrb, ctx);
                 }

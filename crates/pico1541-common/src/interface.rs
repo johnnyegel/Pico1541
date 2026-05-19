@@ -203,4 +203,9 @@ pub trait HostInterface: IecBus {
     fn get_device_id(&self) -> u8 {
         8
     }
+
+    /// Returns the current PC of the CPU (for debugging)
+    fn get_pc(&self) -> u16 {
+        0
+    }
 }

@@ -64,7 +64,7 @@ enum SnooperState {
     Idle,
     Ready,
     Receiving,
-    Ack,
+    WaitTurnaround,
 } 
 
 /// Implements a snooper that monitors the IEC bus lines and decodes commands sent to the drive
@@ -157,12 +157,14 @@ impl IecSnooper {
                     if self.bit_count == 8 {
                         // -> Yes, process the byte
                         self.dispatch_byte(self.current_byte, self.is_atn, self.is_eoi, &mut dispatch);
-                        self.state = SnooperState::Idle;
+                        self.state = SnooperState::WaitTurnaround;
                     }
                 }
             }
-            SnooperState::Ack => {
-                self.state = SnooperState::Idle;
+            SnooperState::WaitTurnaround => {
+                if edge.is_clk(false) {
+                    self.state = SnooperState::Idle;
+                }
             }
         }
     }
@@ -172,14 +174,17 @@ impl IecSnooper {
         log::debug!("[Snooper] Received byte 0x{:02X} (ATN={}, EOI={})", byte, atn, eoi);
         // :? Is this an ATN byte?
         if atn {
-            // -> Yes :? Are we already listening?
-            if self.is_listening {
-                self.secondary_address = byte;
-                dispatch(DriveEvent::IecSnoopSecondaryAddress(byte));
-            }
-            else if byte == self.listen_addr {
-                // -> No, but this byte is the listen address, so we should start listening
+            // :? Is it a secondary address (0x60..0x7F)?
+            if (byte & 0xE0) == 0x60 {
+                if self.is_listening {
+                    self.secondary_address = byte;
+                    dispatch(DriveEvent::IecSnoopSecondaryAddress(byte));
+                }
+            } else if byte == self.listen_addr {
+                // -> No, but this byte is our listen address, so we should start listening
                 self.is_listening = true;
+            } else if byte == 0x3F { // UNLISTEN
+                self.is_listening = false;
             }
             return;
         }

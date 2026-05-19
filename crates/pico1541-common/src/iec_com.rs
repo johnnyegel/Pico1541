@@ -46,6 +46,7 @@ pub trait IecComHostBus {
 
     async fn wait_for_clk(&mut self, assert: bool, timeout_us: u32) -> Result<(), IecError> {
         let mut elapsed = 0;
+        self.trace_state(if assert { "wait_clk:assert" } else { "wait_clk:release" });
         while self.get_clk() != assert {
             if elapsed >= timeout_us {
                 self.trace_state("wait_clk:timeout");
@@ -66,6 +67,7 @@ pub trait IecComHostBus {
 
     async fn wait_for_data(&mut self, assert: bool, timeout_us: u32) -> Result<(), IecError> {
         let mut elapsed = 0;
+        self.trace_state(if assert { "wait_data:assert" } else { "wait_data:release" });
         while self.get_data() != assert {
             if elapsed >= timeout_us {
                 self.trace_state("wait_data:timeout");

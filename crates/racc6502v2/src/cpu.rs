@@ -337,7 +337,9 @@ impl CPU {
     fn fetch_opcode<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) {
         if let Some(int) = self.pending_interrupt { match int { Interrupt::Reset => self.opcode = OP_RESET, Interrupt::Nmi => self.opcode = OP_NMI, Interrupt::Irq => self.opcode = OP_IRQ, } self.pending_interrupt = None; bus.read(self.pc, ctx); self.cycle = 1; return; }
         if bus.nmi_pending() { self.opcode = OP_NMI; bus.read(self.pc, ctx); self.cycle = 1; return; }
-        if bus.irq_pending() && (self.p & 0x04) == 0 { self.opcode = OP_IRQ; bus.read(self.pc, ctx); self.cycle = 1; return; }
+        if bus.irq_pending() && (self.p & 0x04) == 0 {
+            self.opcode = OP_IRQ; bus.read(self.pc, ctx); self.cycle = 1; return;
+        }
         self.opcode = bus.read(self.pc, ctx) as u16; self.pc = self.pc.wrapping_add(1); self.cycle = 1;
     } */
 
@@ -553,7 +555,9 @@ impl CPU {
     fn fetch_opcode<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) {
         if let Some(int) = self.pending_interrupt { match int { Interrupt::Reset => self.opcode = OP_RESET, Interrupt::Nmi => self.opcode = OP_NMI, Interrupt::Irq => self.opcode = OP_IRQ, } self.pending_interrupt = None; bus.read(self.pc, ctx); self.cycle = 1; return; }
         if bus.nmi_pending() { self.opcode = OP_NMI; bus.read(self.pc, ctx); self.cycle = 1; return; }
-        if bus.irq_pending() && (self.p & 0x04) == 0 { self.opcode = OP_IRQ; bus.read(self.pc, ctx); self.cycle = 1; return; }
+        if bus.irq_pending() && (self.p & 0x04) == 0 {
+            self.opcode = OP_IRQ; bus.read(self.pc, ctx); self.cycle = 1; return;
+        }
         self.opcode = bus.read(self.pc, ctx) as u16; self.pc = self.pc.wrapping_add(1); self.cycle = 1;
     }
     #[inline(always)] fn branch_c1<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, taken: bool) { let offset = bus.read(self.pc, ctx) as i8; self.pc = self.pc.wrapping_add(1); if taken { self.temp_addr = self.pc.wrapping_add(offset as u16); self.page_crossed = (self.pc & 0xFF00) != (self.temp_addr & 0xFF00); self.cycle = 2; } else { self.cycle = 0; } }

@@ -47,11 +47,17 @@ pub fn reset_drive(drive: &mut Emulator<TestBridge>, bridge: &mut TestBridge) {
     bridge.reset();
     drive.reset();
 
-    // Boot: Wait for idle loop
+    // Boot: Wait for idle loop to be stable
+    let mut stable_cycles = 0;
     for _ in 0..10_000_000 {
         drive.tick(bridge);
         if drive.pc() >= IDLE_LOW && drive.pc() <= IDLE_HIGH {
-            return;
+            stable_cycles += 1;
+            if stable_cycles > 100 {
+                return;
+            }
+        } else {
+            stable_cycles = 0;
         }
     }
 
@@ -215,7 +221,7 @@ impl HostInterface for TestBridge {
         self.snooper.set_listen_addr(listen);
     }
 
-    fn sync(&mut self, _host: IecBusState) {
+    fn sync(&mut self, host: IecBusState) {
         self.total_cycles += 1;
         if let Some(mut hook) = self.sync_hook.take() {
             let track = self.get_active_track();
@@ -224,12 +230,10 @@ impl HostInterface for TestBridge {
         }
 
         let mut events = Vec::new();
-        /*
         // Update the snooper using ONLY host physical state (Mandate: Snooper must only observe host lines)
         self.snooper.update(host, |event| {
             events.push(event);
         });
-        */
 
         for event in events {
             self.events.push(event);
