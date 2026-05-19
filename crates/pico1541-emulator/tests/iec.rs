@@ -103,13 +103,18 @@ fn test_command_snoop() {
     })
     .unwrap();
 
+    let mut snooped_command = None;
     let mut handler = pico1541_common::snooper::IecSnoopByteHandler::new();
     for event in bridge.events {
-        handler.handle(event, |_| {});
+        handler.handle(event, |e| {
+            if let pico1541_common::interface::DriveEvent::IecCommand { data, len } = e {
+                snooped_command = Some(String::from_utf8_lossy(&data[..len as usize]).to_string());
+            }
+        });
     }
 
-    log::info!("Snooped command: {:?}", handler.get_command());
-    assert_eq!(handler.get_command(), Some("M-R\x00\x02"));
+    log::info!("Snooped command: {:?}", snooped_command);
+    assert_eq!(snooped_command, Some("M-R\x00\x02".to_string()));
 }
 
 #[test]

@@ -55,7 +55,6 @@ impl IecBusEdge {
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum SnooperState {
     Idle,
-    Ready,
     Receiving,
     WaitTurnaround,
 } 
@@ -111,6 +110,10 @@ impl IecSnooper {
         // :? Is this an ATN edge?
         if delta.get_atn() {
             // -> Yes, then reset to IDLE
+            if iec_state.get_atn() && self.is_listening {
+                // DATA phase ended by host pulling ATN low
+                dispatch(DriveEvent::IecSnoopEndOfTransaction);
+            }
             self.state = SnooperState::Idle;
             return;
         }
@@ -118,31 +121,24 @@ impl IecSnooper {
         // Start of data: CLK edge release, DATA asserted
         match self.state {
             SnooperState::Idle => {
+                // Talker pulls CLK low (True) to signal start of a byte transfer
                 if edge.is_clk(true) {
-                    self.state = SnooperState::Ready;
-                    self.is_eoi = false;
+                    // NOTE! EOI detection requires timing (200us pause) or seeing drive lines.
+                    // Since we only see host lines and have no timer here, we rely on 
+                    // ATN/UNLISTEN transitions to finalize commands.
+                    self.is_eoi = false; 
                     self.is_atn = iec_state.get_atn();
-                }
-            }
-            SnooperState::Ready => {
-                if edge.is_clk(false) {
+                    
                     self.state = SnooperState::Receiving;
                     self.bit_count = 0;
                     self.current_byte = 0;
-                    
-                    // Capture the first bit (Bit 0)
-                    let bit = if !iec_state.get_data() { 1 } else { 0 };
-                    log::debug!("[Snooper] Bit 0: {}", bit);
-                    self.current_byte |= bit << self.bit_count;
-                    self.bit_count += 1;
                 }
             }
             SnooperState::Receiving => {
-                // Handle receiving state logic
+                // Bits are valid on the rising edge of CLK (Release/False)
                 if edge.is_clk(false) {
-                    // On clock release, capture the bit value
+                    // Capture the bit value (inverted logic: Released=1, Asserted=0)
                     let bit = if !iec_state.get_data() { 1 } else { 0 };
-                    log::debug!("[Snooper] Bit {}: {}", self.bit_count, bit);
                     self.current_byte |= bit << self.bit_count;
                     self.bit_count += 1;
 
@@ -155,7 +151,9 @@ impl IecSnooper {
                 }
             }
             SnooperState::WaitTurnaround => {
-                if edge.is_clk(false) {
+                // After 8 bits, the talker pulls CLK low again (True) to wait for ACK.
+                // We wait for this falling edge before going back to Idle.
+                if edge.is_clk(true) {
                     self.state = SnooperState::Idle;
                 }
             }
@@ -177,6 +175,9 @@ impl IecSnooper {
                 // -> No, but this byte is our listen address, so we should start listening
                 self.is_listening = true;
             } else if byte == 0x3F { // UNLISTEN
+                if self.is_listening {
+                    dispatch(DriveEvent::IecSnoopEndOfTransaction);
+                }
                 self.is_listening = false;
             }
             return;
@@ -245,18 +246,28 @@ impl IecSnoopByteHandler {
                 }
 
                 if eoi {
-                    self.eoi_received = true;
-                    // Emit IecCommand if it's on the command channel (SA 15) or hijacked
-                    let sa = self.secondary_address & 0x0F;
-                    if sa == 15 || self.hijack_active {
-                        let mut data = [0u8; 32];
-                        let len = self.pos.min(32);
-                        data[..len].copy_from_slice(&self.buffer[..len]);
-                        dispatch(DriveEvent::IecCommand { data, len: len as u8 });
-                    }
+                    self.finish_command(&mut dispatch);
                 }
             }
+            DriveEvent::IecSnoopEndOfTransaction => {
+                self.finish_command(&mut dispatch);
+            }
             _ => {}
+        }
+    }
+
+    fn finish_command(&mut self, mut dispatch: impl FnMut(DriveEvent)) {
+        if self.pos > 0 {
+            // Emit IecCommand if it's on the command channel (SA 15) or hijacked
+            let sa = self.secondary_address & 0x0F;
+            if sa == 15 || self.hijack_active {
+                let mut data = [0u8; 32];
+                let len = self.pos.min(32);
+                data[..len].copy_from_slice(&self.buffer[..len]);
+                dispatch(DriveEvent::IecCommand { data, len: len as u8 });
+            }
+            self.pos = 0; // Clear for next command
+            self.eoi_received = true;
         }
     }
 

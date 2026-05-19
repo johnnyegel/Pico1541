@@ -139,10 +139,10 @@ pub struct SystemBus<H: HostInterface> {
             self.last_host_iec = host_iec;
             self.via1.set_ca1(host_iec.get_atn());
             self.update_physical_iec(hardware);
-
-            // Notify hardware of the host bus state change (e.g. for snooping)
-            hardware.sync(host_iec);
         }
+
+        // Notify hardware of the host bus state change every cycle
+        hardware.sync(host_iec);
 
         // Check for hardware configuration changes every 1024 cycles (~1ms)
         self.cycle_counter = self.cycle_counter.wrapping_add(1);
@@ -165,7 +165,8 @@ pub struct SystemBus<H: HostInterface> {
         }
 
         // Progress the drive mechanics and update SO pin status
-        self.so_active = self.mechanics.tick(hardware, &mut self.via2, 0);
+        let requested_sector = self.ram[0x000C];
+        self.so_active = self.mechanics.tick(hardware, &mut self.via2, requested_sector);
     }
 
     #[link_section = ".ramfunc"]

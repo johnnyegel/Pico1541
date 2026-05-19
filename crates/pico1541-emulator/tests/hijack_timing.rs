@@ -1,6 +1,4 @@
 use pico1541_common::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus, IecBusState};
-use pico1541_emulator::systembus::SystemBus;
-use racc6502v2::cpu::CPU;
 
 struct TestHardware {
     track: ActiveTrack,
@@ -27,12 +25,12 @@ fn test_hijack_latency() {
         cycles: 0,
         hijacked: false,
     };
-    let mut bus = SystemBus::<TestHardware>::new([0; 0x4000], 8);
-    let mut cpu = CPU::new();
+    let drive_rom = [0u8; 16384];
+    let mut drive = pico1541_emulator::Emulator::new(drive_rom, 8);
     
     // 1. Run for some cycles
     for _ in 0..100 {
-        cpu.tick(&mut bus, &mut hw);
+        drive.tick(&mut hw);
     }
     let initial_cycles = hw.cycles;
     
@@ -40,8 +38,7 @@ fn test_hijack_latency() {
     hw.hijacked = true;
     
     // 3. Verify that the next tick reflects the hijack in its internal logic
-    // SystemBus::tick_cycle checks hardware.is_hijacked()
-    cpu.tick(&mut bus, &mut hw);
+    drive.tick(&mut hw);
     
     let latency = hw.cycles - initial_cycles;
     assert_eq!(latency, 1, "Hijack must be detected within 1 clock cycle");

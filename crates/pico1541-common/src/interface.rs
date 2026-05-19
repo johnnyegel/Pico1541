@@ -148,6 +148,8 @@ pub enum DriveEvent {
         data: [u8; 32],
         len: u8,
     },
+    /// The Snooper has detected the end of a transaction (e.g. UNLISTEN or ATN assertion)
+    IecSnoopEndOfTransaction,
 }
 
 /// Open-drain IEC serial bus interface (Emulator side).
