@@ -191,6 +191,7 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
             snooper_task,
             vdisk_task,
             pin25,
+            &SNOOPER_CONFIG,
         );
     });
 
@@ -210,7 +211,7 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
     let mut drive = Emulator::new(*rom, 8);
     drive.reset();
 
-    emulator_loop(drive, bridge).await;
+    emulator_loop(drive, bridge);
 }
 
 struct IecPins {
@@ -391,6 +392,35 @@ async fn blinky(pin: Peri<'static, PIN_25>) {
     }
 }
 
+#[embassy_executor::task]
+async fn core1_load_run(config: &'static SnooperConfig) {
+    let mut iterations = 0u32;
+    let mut last_time = embassy_time::Instant::now();
+    
+    loop {
+        iterations += 1;
+        // Yield to let other tasks run, but don't do it every microsecond!
+        // Using a longer delay significantly reduces context switching overhead.
+        embassy_time::Timer::after_millis(10).await;
+        
+        let now = embassy_time::Instant::now();
+        let elapsed = now.duration_since(last_time).as_millis();
+        if elapsed >= 1000 {
+            let old_avg = config.core1_avg_raw.load(Ordering::Relaxed);
+            let new_avg = if old_avg == 0 { iterations } else { (iterations + old_avg * 3) / 4 };
+            config.core1_avg_raw.store(new_avg, Ordering::Relaxed);
+
+            let max_raw = config.core1_max_raw.load(Ordering::Relaxed);
+            if iterations > max_raw {
+                config.core1_max_raw.store(iterations, Ordering::Relaxed);
+            }
+            
+            iterations = 0;
+            last_time = now;
+        }
+    }
+}
+
 fn core1_main(
     menu_task: MainMenuTask<
         DisplayWrapper<CriticalSectionRawMutex>,
@@ -405,6 +435,7 @@ fn core1_main(
     snooper_task: SnooperTask,
     vdisk_task: VirtualDiskTask<'static, MyStorage, MyDir>,
     pin25: Peri<'static, PIN_25>,
+    config: &'static SnooperConfig,
 ) -> ! {
     static EXECUTOR: StaticCell<embassy_executor::Executor> = StaticCell::new();
     let executor = EXECUTOR.init(embassy_executor::Executor::new());
@@ -417,11 +448,12 @@ fn core1_main(
         spawner.spawn(snooper_run(snooper_task).unwrap());
         spawner.spawn(vdisk_run(vdisk_task).unwrap());
         spawner.spawn(blinky(pin25).unwrap());
+        spawner.spawn(core1_load_run(config).unwrap());
     })
 }
 
 #[link_section = ".ramfunc"]
-async fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: HardwareBridge) -> ! {
+fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: HardwareBridge) -> ! {
     let timer = embassy_rp::pac::TIMER;
     let mut last_tick = timer.timelr().read();
     let mut cycle_counter = 0u32;
@@ -441,8 +473,19 @@ async fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: Hardware
 
         // Update performance metrics every second
         if now.wrapping_sub(last_perf_update) >= 1_000_000 {
-            bridge.config.emu_speed_khz.store(cycle_counter, Ordering::Relaxed);
-            bridge.config.emu_jitter_ns.store(idle_counter, Ordering::Relaxed);
+            let config = bridge.config;
+            let old_avg = config.core0_avg_raw.load(Ordering::Relaxed);
+            // EMA on the idle counter, not the cycle counter!
+            let new_avg = if old_avg == 0 { idle_counter } else { (idle_counter + old_avg * 3) / 4 };
+            
+            config.emu_speed_hz.store(cycle_counter, Ordering::Relaxed);
+            config.core0_avg_raw.store(new_avg, Ordering::Relaxed);
+
+            // Calibrate max idle capacity
+            let max_raw = config.core0_max_raw.load(Ordering::Relaxed);
+            if idle_counter > max_raw {
+                config.core0_max_raw.store(idle_counter, Ordering::Relaxed);
+            }
             
             cycle_counter = 0;
             idle_counter = 0;

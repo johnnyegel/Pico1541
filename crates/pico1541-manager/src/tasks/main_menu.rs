@@ -200,24 +200,43 @@ where
     async fn monitor_page(&mut self) {
         loop {
             self.display.clear().await;
-            self.display.print(0, "--- Monitor ---").await;
+            self.display.print(0, "-- System Monitor --").await;
 
-            let speed_hz = self.config.emu_speed_khz.load(Ordering::Relaxed);
-            let idle_cnt = self.config.emu_jitter_ns.load(Ordering::Relaxed);
-            let diag_old = self.config.diag_old_tick.load(Ordering::Relaxed);
-            let diag_startup = self.config.diag_startup_ticks.load(Ordering::Relaxed);
+            let speed_hz = self.config.emu_speed_hz.load(Ordering::Relaxed);
+            let c0_avg = self.config.core0_avg_raw.load(Ordering::Relaxed);
+            let c0_max = self.config.core0_max_raw.load(Ordering::Relaxed);
+            let c1_avg = self.config.core1_avg_raw.load(Ordering::Relaxed);
+            let c1_max = self.config.core1_max_raw.load(Ordering::Relaxed);
 
             let mut s_speed = String::<32>::new();
-            let _ = core::fmt::write(&mut s_speed, format_args!("Speed: {} Hz", speed_hz));
+            if speed_hz >= 1_000_000 {
+                let mhz_int = speed_hz / 1_000_000;
+                let mhz_frac = (speed_hz % 1_000_000) / 10_000;
+                let _ = core::fmt::write(&mut s_speed, format_args!("CPU Speed: {}.{:02} MHz", mhz_int, mhz_frac));
+            } else {
+                let _ = core::fmt::write(&mut s_speed, format_args!("CPU Speed: {} Hz", speed_hz));
+            }
             self.display.print(2, &s_speed).await;
 
-            let mut s_jitter = String::<32>::new();
-            let _ = core::fmt::write(&mut s_jitter, format_args!("IdleCnt: {}", idle_cnt));
-            self.display.print(3, &s_jitter).await;
-            let mut s_diag1 = String::<32>::new();
-            let _ = core::fmt::write(&mut s_diag1, format_args!("OTick:{} Start:{}", diag_old, diag_startup));
-            self.display.print(4, &s_diag1).await;
-            self.display.print(5, " [Back] ").await;
+            let c0_load = if c0_max > 0 {
+                100u32.saturating_sub((c0_avg * 100) / c0_max)
+            } else {
+                0
+            };
+            let mut s_c0 = String::<32>::new();
+            let _ = core::fmt::write(&mut s_c0, format_args!("Core 0 Load: {}%", c0_load));
+            self.display.print(3, &s_c0).await;
+
+            let c1_load = if c1_max > 0 {
+                100u32.saturating_sub((c1_avg * 100) / c1_max)
+            } else {
+                0
+            };
+            let mut s_c1 = String::<32>::new();
+            let _ = core::fmt::write(&mut s_c1, format_args!("Core 1 Load: {}%", c1_load));
+            self.display.print(4, &s_c1).await;
+
+            self.display.print(6, " [Back] ").await;
             self.display.request_redraw();
 
             // Refresh every 500ms or on button press
