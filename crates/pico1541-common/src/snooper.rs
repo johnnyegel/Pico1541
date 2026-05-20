@@ -210,6 +210,7 @@ pub struct IecSnoopByteHandler {
     secondary_address: u8,
     hijack_active: bool,
     eoi_received: bool,
+    cmd_len: usize,
 }
 
 impl IecSnoopByteHandler {
@@ -220,6 +221,7 @@ impl IecSnoopByteHandler {
             secondary_address: 0,
             hijack_active: false,
             eoi_received: false,
+            cmd_len: 0,
         }
     }
 }
@@ -236,6 +238,7 @@ impl IecSnoopByteHandler {
         match event {
             DriveEvent::IecSnoopSecondaryAddress(sa) => {
                 self.pos = 0;
+                self.cmd_len = 0;
                 self.secondary_address = sa;
                 self.hijack_active = false;
                 self.eoi_received = false;
@@ -272,6 +275,7 @@ impl IecSnoopByteHandler {
                 data[..len].copy_from_slice(&self.buffer[..len]);
                 dispatch(DriveEvent::IecCommand { data, len: len as u8 });
             }
+            self.cmd_len = self.pos;
             self.pos = 0; // Clear for next command
             self.eoi_received = true;
         }
@@ -286,8 +290,9 @@ impl IecSnoopByteHandler {
     }
 
     pub fn get_command(&self) -> Option<&str> {
-        if self.pos > 0 {
-            core::str::from_utf8(&self.buffer[..self.pos]).ok()
+        let len = if self.pos > 0 { self.pos } else { self.cmd_len };
+        if len > 0 {
+            core::str::from_utf8(&self.buffer[..len]).ok()
         } else {
             None
         }

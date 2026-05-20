@@ -6,6 +6,7 @@ use core::fmt::Display;
 pub enum MenuEvent {
     Selected(usize),
     Back,
+    Home,
 }
 
 pub struct Menu<T, const N: usize, Title = &'static str> {
@@ -101,6 +102,9 @@ impl<T: Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T, N, Titl
                 }
                 ButtonEvent::Pressed(Button::Back) => {
                     return MenuEvent::Back;
+                }
+                ButtonEvent::LongPress(Button::Back) => {
+                    return MenuEvent::Home;
                 }
                 _ => {}
             }

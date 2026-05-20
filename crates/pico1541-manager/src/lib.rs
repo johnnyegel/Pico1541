@@ -43,6 +43,7 @@ pub enum ButtonEvent {
     Pressed(Button),
     Released(Button),
     Hold(Button),
+    LongPress(Button),
 }
 
 /// Channel for keyboard events (logical button events).

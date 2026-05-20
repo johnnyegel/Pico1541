@@ -1,4 +1,4 @@
-use embedded_sdmmc::{SdCard, TimeSource, Timestamp, VolumeManager, VolumeIdx, Mode, ShortFileName};
+use embedded_sdmmc::{SdCard, TimeSource, Timestamp, VolumeManager, VolumeIdx, Mode, ShortFileName, Directory};
 use pico1541_manager::driver::{StorageDriver, FileStorageDriver, FileInfo};
 use pico1541_common::formats::Error as ManagerError;
 use pico1541_common::storage::Error as CommonError;
@@ -68,7 +68,7 @@ where
     DET: embedded_hal::digital::InputPin + 'static
 {
     storage: StorageWrapper<SPI, CS, D, DET>,
-    path: String<32>,
+    path: String<128>,
     offset: u64,
 }
 
@@ -94,15 +94,26 @@ where
         if storage.det_pin.is_high().map_err(|_| CommonError::Io)? {
             return Err(CommonError::Io);
         }
-        let mut volume = storage.volume_mgr.open_volume(VolumeIdx(0)).map_err(|_| CommonError::Io)?;
-        let mut root = volume.open_root_dir().map_err(|_| CommonError::Io)?;
-        let filename = ShortFileName::create_from_str(&self.path).map_err(|_| CommonError::Io)?;
-        let mut file = root.open_file_in_dir(filename, Mode::ReadOnly).map_err(|_| CommonError::Io)?;
         
-        file.seek_from_start(self.offset as u32).map_err(|_| CommonError::Io)?;
-        let n = file.read(buf).map_err(|_| CommonError::Io)?;
-        self.offset = file.offset() as u64;
-        Ok(n)
+        let (parent_path, filename_str) = if let Some(idx) = self.path.rfind('/') {
+            (&self.path[..idx], &self.path[idx + 1..])
+        } else {
+            ("", self.path.as_str())
+        };
+        
+        let offset = self.offset;
+        let mut read_len = 0;
+        
+        with_dir_path_common(&mut *storage, parent_path, |dir| {
+            let filename = ShortFileName::create_from_str(filename_str).map_err(|_| CommonError::Io)?;
+            let mut file = dir.open_file_in_dir(filename, Mode::ReadOnly).map_err(|_| CommonError::Io)?;
+            file.seek_from_start(offset as u32).map_err(|_| CommonError::Io)?;
+            read_len = file.read(buf).map_err(|_| CommonError::Io)?;
+            Ok(())
+        })?;
+        
+        self.offset += read_len as u64;
+        Ok(read_len)
     }
 }
 
@@ -122,11 +133,22 @@ where
                 if storage.det_pin.is_high().map_err(|_| CommonError::Io)? {
                     return Err(CommonError::Io);
                 }
-                let mut volume = storage.volume_mgr.open_volume(VolumeIdx(0)).map_err(|_| CommonError::Io)?;
-                let mut root = volume.open_root_dir().map_err(|_| CommonError::Io)?;
-                let filename = ShortFileName::create_from_str(&self.path).map_err(|_| CommonError::Io)?;
-                let file = root.open_file_in_dir(filename, Mode::ReadOnly).map_err(|_| CommonError::Io)?;
-                self.offset = (file.length() as i64 + n) as u64;
+                
+                let (parent_path, filename_str) = if let Some(idx) = self.path.rfind('/') {
+                    (&self.path[..idx], &self.path[idx + 1..])
+                } else {
+                    ("", self.path.as_str())
+                };
+                
+                let mut len = 0;
+                with_dir_path_common(&mut *storage, parent_path, |dir| {
+                    let filename = ShortFileName::create_from_str(filename_str).map_err(|_| CommonError::Io)?;
+                    let file = dir.open_file_in_dir(filename, Mode::ReadOnly).map_err(|_| CommonError::Io)?;
+                    len = file.length() as i64;
+                    Ok(())
+                })?;
+                
+                self.offset = (len + n) as u64;
             }
         }
         Ok(self.offset)
@@ -153,26 +175,20 @@ where
         if storage.det_pin.is_high().map_err(|_| ManagerError::Io)? {
             return Err(ManagerError::Io);
         }
-        let mut volume = match storage.volume_mgr.open_volume(VolumeIdx(0)) {
-            Ok(v) => v,
-            Err(_) => return Err(ManagerError::Io),
-        };
-        let mut root = match volume.open_root_dir() {
-            Ok(r) => r,
-            Err(_) => return Err(ManagerError::Io),
-        };
-        let _ = root.iterate_dir(|entry| {
-            let mut info = FileInfo {
-                name: [0; 13],
-                size: entry.size,
-                is_dir: entry.attributes.is_directory(),
-            };
-            let name_bytes = entry.name.base_name();
-            let len = name_bytes.len().min(8);
-            info.name[..len].copy_from_slice(name_bytes);
-            callback(info);
-        });
-        Ok(())
+        
+        with_dir_path(&mut *storage, _path, |dir| {
+            let _ = dir.iterate_dir(|entry| {
+                let mut info = FileInfo {
+                    name: [0; 13],
+                    size: entry.size,
+                    is_dir: entry.attributes.is_directory(),
+                };
+                let mut writer = WrapperWriter::new(&mut info.name);
+                let _ = core::fmt::write(&mut writer, format_args!("{}", entry.name));
+                callback(info);
+            });
+            Ok(())
+        })
     }
 
     async fn open_file(&mut self, _path: &str) -> Result<(), ManagerError> {
@@ -215,4 +231,104 @@ where
     async fn write_block(&mut self, _track: u8, _sector: u8, _buf: &[u8]) -> Result<(), ManagerError> {
         Ok(())
     }
+}
+
+struct WrapperWriter<'a> {
+    buf: &'a mut [u8],
+    pos: usize,
+}
+
+impl<'a> WrapperWriter<'a> {
+    fn new(buf: &'a mut [u8]) -> Self {
+        Self { buf, pos: 0 }
+    }
+}
+
+impl<'a> core::fmt::Write for WrapperWriter<'a> {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        let bytes = s.as_bytes();
+        let rem = self.buf.len().saturating_sub(self.pos);
+        let len = bytes.len().min(rem);
+        self.buf[self.pos..self.pos + len].copy_from_slice(&bytes[..len]);
+        self.pos += len;
+        Ok(())
+    }
+}
+
+fn with_dir_path<SPI, CS, D, DET, R>(
+    storage: &mut SdStorage<SPI, CS, D, DET>,
+    path: &str,
+    f: impl FnOnce(&mut Directory<'_, SdCard<SPI, CS, D>, DummyTimeSource, 4, 4, 1>) -> Result<R, ManagerError>
+) -> Result<R, ManagerError>
+where 
+    SPI: embedded_hal::spi::SpiDevice + 'static,
+    CS: embedded_hal::digital::OutputPin + 'static,
+    D: embedded_hal::delay::DelayNs + 'static,
+    DET: embedded_hal::digital::InputPin + 'static
+{
+    let mut volume = storage.volume_mgr.open_volume(VolumeIdx(0)).map_err(|_| ManagerError::Io)?;
+    let root = volume.open_root_dir().map_err(|_| ManagerError::Io)?;
+    
+    fn recurse<SPI, CS, D, DET, R>(
+        mut dir: Directory<'_, SdCard<SPI, CS, D>, DummyTimeSource, 4, 4, 1>,
+        mut segments: core::str::Split<'_, char>,
+        f: impl FnOnce(&mut Directory<'_, SdCard<SPI, CS, D>, DummyTimeSource, 4, 4, 1>) -> Result<R, ManagerError>
+    ) -> Result<R, ManagerError>
+    where
+        SPI: embedded_hal::spi::SpiDevice + 'static,
+        CS: embedded_hal::digital::OutputPin + 'static,
+        D: embedded_hal::delay::DelayNs + 'static
+    {
+        if let Some(segment) = segments.next() {
+            if segment.is_empty() {
+                recurse::<SPI, CS, D, DET, R>(dir, segments, f)
+            } else {
+                let sub = dir.open_dir(segment).map_err(|_| ManagerError::Io)?;
+                recurse::<SPI, CS, D, DET, R>(sub, segments, f)
+            }
+        } else {
+            f(&mut dir)
+        }
+    }
+    
+    recurse::<SPI, CS, D, DET, R>(root, path.split('/'), f)
+}
+
+fn with_dir_path_common<SPI, CS, D, DET, R>(
+    storage: &mut SdStorage<SPI, CS, D, DET>,
+    path: &str,
+    f: impl FnOnce(&mut Directory<'_, SdCard<SPI, CS, D>, DummyTimeSource, 4, 4, 1>) -> Result<R, CommonError>
+) -> Result<R, CommonError>
+where 
+    SPI: embedded_hal::spi::SpiDevice + 'static,
+    CS: embedded_hal::digital::OutputPin + 'static,
+    D: embedded_hal::delay::DelayNs + 'static,
+    DET: embedded_hal::digital::InputPin + 'static
+{
+    let mut volume = storage.volume_mgr.open_volume(VolumeIdx(0)).map_err(|_| CommonError::Io)?;
+    let root = volume.open_root_dir().map_err(|_| CommonError::Io)?;
+    
+    fn recurse<SPI, CS, D, DET, R>(
+        mut dir: Directory<'_, SdCard<SPI, CS, D>, DummyTimeSource, 4, 4, 1>,
+        mut segments: core::str::Split<'_, char>,
+        f: impl FnOnce(&mut Directory<'_, SdCard<SPI, CS, D>, DummyTimeSource, 4, 4, 1>) -> Result<R, CommonError>
+    ) -> Result<R, CommonError>
+    where
+        SPI: embedded_hal::spi::SpiDevice + 'static,
+        CS: embedded_hal::digital::OutputPin + 'static,
+        D: embedded_hal::delay::DelayNs + 'static
+    {
+        if let Some(segment) = segments.next() {
+            if segment.is_empty() {
+                recurse::<SPI, CS, D, DET, R>(dir, segments, f)
+            } else {
+                let sub = dir.open_dir(segment).map_err(|_| CommonError::Io)?;
+                recurse::<SPI, CS, D, DET, R>(sub, segments, f)
+            }
+        } else {
+            f(&mut dir)
+        }
+    }
+    
+    recurse::<SPI, CS, D, DET, R>(root, path.split('/'), f)
 }

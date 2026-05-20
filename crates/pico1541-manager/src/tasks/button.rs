@@ -37,6 +37,8 @@ impl ButtonManager {
                 // 500ms at 20ms intervals = 25
                 if self.hold_counters[i] == 25 {
                     callback(ButtonEvent::Hold(button));
+                } else if self.hold_counters[i] == 75 {
+                    callback(ButtonEvent::LongPress(button));
                 } else if self.hold_counters[i] > 25 && (self.hold_counters[i] - 25) % 5 == 0 {
                     // Repeat every 100ms
                     callback(ButtonEvent::Hold(button));
