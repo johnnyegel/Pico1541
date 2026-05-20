@@ -11,4 +11,5 @@ pub mod storage;
 pub use formats::{AnyDiskImage, D64Image, DiskImage, Error, G64Image};
 pub use iec_com::{IecComHostBus, IecCommander, IecError, IecTransaction};
 pub use interface::{ActiveTrack, DriveEvent, HostInterface, IecBus};
-pub use storage::MemoryStorage;
+pub use storage::{MemoryStorage, VectorDirectorySource};
+

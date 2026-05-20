@@ -109,6 +109,44 @@ impl<'a> DirectorySource for StaticDirectorySource<'a> {
     }
 }
 
+pub struct VectorDirectorySource<const N: usize> {
+    name: [u8; 16],
+    entries: heapless::Vec<DirectoryEntry, N>,
+    index: usize,
+}
+
+impl<const N: usize> VectorDirectorySource<N> {
+    pub fn new(name: &[u8], entries: heapless::Vec<DirectoryEntry, N>) -> Self {
+        let mut n = [0xA0; 16];
+        let len = name.len().min(16);
+        n[..len].copy_from_slice(&name[..len]);
+        Self {
+            name: n,
+            entries,
+            index: 0,
+        }
+    }
+}
+
+impl<const N: usize> DirectorySource for VectorDirectorySource<N> {
+    fn name(&self) -> &[u8; 16] {
+        &self.name
+    }
+    fn next_entry(&mut self) -> Option<DirectoryEntry> {
+        if self.index < self.entries.len() {
+            let entry = self.entries[self.index];
+            self.index += 1;
+            Some(entry)
+        } else {
+            None
+        }
+    }
+    fn rewind(&mut self) {
+        self.index = 0;
+    }
+}
+
+
 pub trait FileStorage: Read + Seek {}
 impl<T: Read + Seek> FileStorage for T {}
 

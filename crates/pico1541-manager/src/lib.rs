@@ -12,7 +12,8 @@ pub use driver::{ActivityColor, DisplayDriver, IndicatorDriver, InputDriver, Rgb
 // Disk format code lives in pico1541-common; re-exported here for API compatibility.
 pub use pico1541_common::gcr;
 pub use pico1541_common::interface::{ActiveTrack, DriveEvent};
-pub use pico1541_common::{AnyDiskImage, D64Image, DiskImage, Error, G64Image, MemoryStorage};
+pub use pico1541_common::{AnyDiskImage, D64Image, DiskImage, Error, G64Image, MemoryStorage, VectorDirectorySource};
+
 
 use embedded_io_async::{Read, Seek};
 use pico1541_common::storage::DirectorySource;

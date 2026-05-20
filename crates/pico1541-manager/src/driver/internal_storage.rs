@@ -23,6 +23,8 @@ pub static INTERNAL_FILES: &[InternalFile] = &[
 pub struct InternalStorage;
 
 impl FileStorageDriver for InternalStorage {
+    type File = pico1541_common::storage::MemoryStorage<'static>;
+
     async fn is_available(&self) -> bool {
         true
     }
@@ -43,6 +45,10 @@ impl FileStorageDriver for InternalStorage {
 
     async fn open_file(&mut self, _path: &str) -> Result<(), Error> {
         Ok(())
+    }
+
+    fn open_file_handle(&self, _path: &str) -> Self::File {
+        pico1541_common::storage::MemoryStorage::new(&[])
     }
 }
 

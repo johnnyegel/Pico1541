@@ -20,8 +20,8 @@ use embedded_hal_bus::spi::ExclusiveDevice;
 
 use pico1541_common::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus, IecBusState};
 use pico1541_common::snooper::{IecSnooper, IecSnoopByteHandler, SnooperConfig};
-use pico1541_common::formats::{AnyDiskImage, VirtualDiskImage};
-use pico1541_common::storage::{DirectoryEntry, StaticDirectorySource, MemoryStorage, RuntimeStorage};
+use pico1541_common::formats::AnyDiskImage;
+use pico1541_common::storage::{VectorDirectorySource, MemoryStorage, RuntimeStorage};
 use pico1541_emulator::Emulator;
 use pico1541_manager::tasks::{
     DisplayTask, DriveActivityTask, KeyboardTask, MainMenuTask, SnooperTask, VirtualDiskTask,
@@ -44,8 +44,10 @@ bind_interrupts!(struct Irqs {
 
 static SNOOPER_CONFIG: SnooperConfig = SnooperConfig::new(8);
 
+static CURRENT_DIR: Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)> = Mutex::new((heapless::String::new(), false));
+
 // Core 1 Stack
-static CORE1_STACK: StaticCell<Stack<4096>> = StaticCell::new();
+static CORE1_STACK: StaticCell<Stack<16384>> = StaticCell::new();
 
 type MySpi = Spi<'static, SPI1, embassy_rp::spi::Blocking>;
 type MyCs = Output<'static>;
@@ -54,7 +56,7 @@ type MySpiDev = ExclusiveDevice<MySpi, MyCs, MyDelay>;
 type MyDet = Input<'static>;
 type MyFile = SdFileHandle<MySpiDev, DummyPin, MyDelay, MyDet>;
 type MyStorage = RuntimeStorage<'static, MyFile>;
-type MyDir = StaticDirectorySource<'static>;
+type MyDir = VectorDirectorySource<32>;
 type MyDisk = AnyDiskImage<MyStorage, MyDir>;
 
 struct DummyPin;
@@ -145,31 +147,20 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
     // 7. Snooper Task
     let snooper_task = SnooperTask::new(8);
 
-    // 8. Storage (Virtual Disk for fallback)
-    static DIR_ENTRIES: [DirectoryEntry; 1] = [
-        DirectoryEntry {
-            file_type: 0x82,
-            filename: [b'G', b'A', b'M', b'E', 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0, 0xA0],
-            first_track: 1,
-            first_sector: 0,
-            block_size: 10,
-        },
-    ];
-    let dir_source = StaticDirectorySource::new(b"VIRTUAL DISK", &DIR_ENTRIES);
-    let mut vdisk = VirtualDiskImage::new(dir_source);
-    
-    static GAME_DATA: &[u8] = include_bytes!("../../../crates/pico1541-emulator/tests/data/game.prg");
-    vdisk.file_storage = Some(RuntimeStorage::Memory(MemoryStorage::new(GAME_DATA)));
-    
-    static DISK_IMAGE: StaticCell<Mutex<CriticalSectionRawMutex, MyDisk>> = StaticCell::new();
-    let disk_image_mutex = DISK_IMAGE.init(Mutex::new(AnyDiskImage::VirtualDisk(vdisk)));
+    // 8. Storage (Starts unmounted)
+    static DISK_IMAGE: StaticCell<Mutex<CriticalSectionRawMutex, Option<MyDisk>>> = StaticCell::new();
+    let disk_image_mutex = DISK_IMAGE.init(Mutex::new(None));
 
     // Shared ActiveTrack buffer
     static ACTIVE_TRACK: StaticCell<ActiveTrack> = StaticCell::new();
     let track_ptr = ACTIVE_TRACK.init(ActiveTrack::new()) as *mut ActiveTrack;
 
     let track_for_task = unsafe { &mut *track_ptr };
-    let vdisk_task = VirtualDiskTask::new(disk_image_mutex, track_for_task);
+    let vdisk_task = VirtualDiskTask::new(
+        disk_image_mutex,
+        track_for_task,
+        MyOpener { storage: StorageWrapper(sd_mutex) },
+    );
 
     // --- Spawn Core 1 ---
     let menu_task = MainMenuTask::new(
@@ -178,6 +169,7 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
         IndicatorWrapper(indicator_mutex),
         StorageWrapper(sd_mutex),
         disk_image_mutex,
+        &CURRENT_DIR,
         &SNOOPER_CONFIG,
     );
     let pin25 = p.PIN_25;
@@ -352,8 +344,46 @@ async fn snooper_run(mut task: SnooperTask) {
     task.run().await;
 }
 
+struct MyOpener {
+    storage: StorageWrapper<MySpiDev, DummyPin, MyDelay, MyDet>,
+}
+
+impl pico1541_manager::tasks::virtual_dir::FileOpener for MyOpener {
+    type FileStorage = MyStorage;
+
+    async fn open_file(&self, name: &str) -> Result<Self::FileStorage, pico1541_common::formats::Error> {
+        let (dir_path, use_internal) = {
+            let guard = CURRENT_DIR.lock().await;
+            (guard.0.clone(), guard.1)
+        };
+        
+        let mut full_path = heapless::String::<128>::new();
+        if dir_path == "/" || dir_path.is_empty() {
+            let _ = full_path.push_str("/");
+            let _ = full_path.push_str(name);
+        } else {
+            let _ = full_path.push_str(&dir_path);
+            let _ = full_path.push_str("/");
+            let _ = full_path.push_str(name);
+        }
+        
+        if use_internal {
+            for file in pico1541_manager::driver::internal_storage::INTERNAL_FILES {
+                if file.name.eq_ignore_ascii_case(name) {
+                    return Ok(RuntimeStorage::Memory(MemoryStorage::new(file.data)));
+                }
+            }
+            Err(pico1541_common::formats::Error::Io)
+        } else {
+            use pico1541_manager::driver::FileStorageDriver;
+            let file_handle = self.storage.open_file_handle(full_path.as_str());
+            Ok(RuntimeStorage::File(file_handle))
+        }
+    }
+}
+
 #[embassy_executor::task]
-async fn vdisk_run(mut task: VirtualDiskTask<'static, MyStorage, MyDir>) {
+async fn vdisk_run(mut task: VirtualDiskTask<'static, MyStorage, MyDir, MyOpener>) {
     task.run().await;
 }
 
@@ -374,7 +404,7 @@ async fn menu_run(
         StatusLedsWrapper<CriticalSectionRawMutex>,
         IndicatorWrapper<CriticalSectionRawMutex>,
         StorageWrapper<MySpiDev, DummyPin, MyDelay, MyDet>,
-        MyDisk,
+        MyFile,
     >,
 ) {
     task.run().await;
@@ -427,13 +457,13 @@ fn core1_main(
         StatusLedsWrapper<CriticalSectionRawMutex>,
         IndicatorWrapper<CriticalSectionRawMutex>,
         StorageWrapper<MySpiDev, DummyPin, MyDelay, MyDet>,
-        MyDisk,
+        MyFile,
     >,
     activity_task: DriveActivityTask<IndicatorWrapper<CriticalSectionRawMutex>>,
     keyboard_task: KeyboardTask<KeyboardInput>,
     display_task: DisplayTask<DisplayWrapper<CriticalSectionRawMutex>>,
     snooper_task: SnooperTask,
-    vdisk_task: VirtualDiskTask<'static, MyStorage, MyDir>,
+    vdisk_task: VirtualDiskTask<'static, MyStorage, MyDir, MyOpener>,
     pin25: Peri<'static, PIN_25>,
     config: &'static SnooperConfig,
 ) -> ! {

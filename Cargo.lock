@@ -1282,6 +1282,7 @@ dependencies = [
  "defmt",
  "embedded-io-async",
  "env_logger",
+ "heapless 0.9.3",
  "log",
  "pollster",
  "portable-atomic",

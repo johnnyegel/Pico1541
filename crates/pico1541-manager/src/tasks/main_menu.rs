@@ -43,28 +43,40 @@ fn join_path(current: &str, sub: &str) -> String<128> {
     new_path
 }
 
-pub struct MainMenuTask<D, L, Ind, S, Disk: 'static> {
+pub struct MainMenuTask<D, L, Ind, S, File>
+where
+    File: embedded_io_async::Read + embedded_io_async::Seek + 'static,
+{
     display: D,
     leds: L,
     indicator: Ind,
     storage: S,
     internal: InternalStorage,
-    _disk_image: &'static Mutex<CriticalSectionRawMutex, Disk>,
+    _disk_image: &'static Mutex<CriticalSectionRawMutex, Option<pico1541_common::AnyDiskImage<pico1541_common::storage::RuntimeStorage<'static, File>, pico1541_common::storage::VectorDirectorySource<32>>>>,
+    current_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
     config: &'static SnooperConfig,
     sd_path: String<128>,
     internal_path: String<128>,
     usb_path: String<128>,
 }
 
-impl<D, L, Ind, S, Disk> MainMenuTask<D, L, Ind, S, Disk>
+impl<D, L, Ind, S, File> MainMenuTask<D, L, Ind, S, File>
 where
     D: DisplayDriver + Clone,
     L: RgbLedDriver + Clone,
     Ind: IndicatorDriver + Clone,
-    S: FileStorageDriver + Clone,
-    Disk: 'static,
+    S: FileStorageDriver<File = File> + Clone,
+    File: embedded_io_async::Read + embedded_io_async::Seek + 'static,
 {
-    pub fn new(display: D, leds: L, indicator: Ind, storage: S, disk_image: &'static Mutex<CriticalSectionRawMutex, Disk>, config: &'static SnooperConfig) -> Self {
+    pub fn new(
+        display: D,
+        leds: L,
+        indicator: Ind,
+        storage: S,
+        disk_image: &'static Mutex<CriticalSectionRawMutex, Option<pico1541_common::AnyDiskImage<pico1541_common::storage::RuntimeStorage<'static, File>, pico1541_common::storage::VectorDirectorySource<32>>>>,
+        current_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
+        config: &'static SnooperConfig,
+    ) -> Self {
         Self {
             display,
             leds,
@@ -72,6 +84,7 @@ where
             storage,
             internal: InternalStorage,
             _disk_image: disk_image,
+            current_dir,
             config,
             sd_path: String::from_str("/").unwrap(),
             internal_path: String::from_str("/").unwrap(),
@@ -79,9 +92,74 @@ where
         }
     }
 
+    fn create_directory_entry(&self, name: &[u8], is_dir: bool, size: u32) -> pico1541_common::storage::DirectoryEntry {
+        let mut filename = [0xA0; 16];
+        let mut len = 0;
+        for &b in name.iter() {
+            if b == 0 || len >= 16 {
+                break;
+            }
+            let c = if b >= b'a' && b <= b'z' {
+                b - b'a' + b'A'
+            } else {
+                b
+            };
+            filename[len] = c;
+            len += 1;
+        }
+        
+        let file_type = if is_dir {
+            0x81
+        } else {
+            0x82
+        };
+        
+        pico1541_common::storage::DirectoryEntry {
+            file_type,
+            filename,
+            first_track: 1,
+            first_sector: 0,
+            block_size: ((size + 253) / 254) as u16,
+        }
+    }
+
+    async fn show_mounted_file_screen(&mut self, filename: &str) {
+        let mut items = Vec::<String<16>, 2>::new();
+        let _ = items.push(String::from_str("Unmount").unwrap());
+        
+        let mut title = String::<32>::new();
+        let _ = title.push_str(filename);
+        
+        loop {
+            let mut menu = Menu::new(&title, items.clone());
+            match menu.run(&mut self.display).await {
+                MenuEvent::Selected(0) | MenuEvent::Back | MenuEvent::Home => {
+                    let mut disk = self._disk_image.lock().await;
+                    *disk = None;
+                    self.leds.set_status(StatusLedMode::Unmounted);
+                    break;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn internal_menu_file_data(&self, filename: &str) -> Option<&'static crate::driver::internal_storage::InternalFile> {
+        for file in crate::driver::internal_storage::INTERNAL_FILES {
+            if file.name.eq_ignore_ascii_case(filename) {
+                return Some(file);
+            }
+        }
+        None
+    }
+
     pub async fn run(&mut self) -> ! {
-        // Initialize the status LED to the default startup mode (VirtualDisk)
-        self.leds.set_status(StatusLedMode::VirtualDisk);
+        // Initialize the status LED to the default startup mode (Unmounted - Red)
+        self.leds.set_status(StatusLedMode::Unmounted);
+        {
+            let mut disk = self._disk_image.lock().await;
+            *disk = None;
+        }
 
         // 1. Boot Screen
         self.display.clear().await;
@@ -202,6 +280,42 @@ where
                 return false;
             }
 
+            // Build directory entries for the virtual disk & construct it
+            let mut entries = Vec::<pico1541_common::storage::DirectoryEntry, 32>::new();
+            for info in file_infos.iter() {
+                let mut name_len = 0;
+                while name_len < info.name.len() && info.name[name_len] != 0 {
+                    name_len += 1;
+                }
+                let entry = self.create_directory_entry(&info.name[..name_len], info.is_dir, info.size);
+                let _ = entries.push(entry);
+            }
+
+            let path_str = current_path.as_str();
+            let dir_name = if path_str == "/" {
+                if use_internal { "INTERNAL" } else { "SD CARD" }
+            } else {
+                if let Some(idx) = path_str.rfind('/') {
+                    &path_str[idx + 1..]
+                } else {
+                    path_str
+                }
+            };
+
+            let dir_source = pico1541_common::storage::VectorDirectorySource::new(dir_name.as_bytes(), entries);
+            let vdisk = pico1541_common::formats::VirtualDiskImage::new(dir_source);
+
+            {
+                let mut disk_lock = self._disk_image.lock().await;
+                *disk_lock = Some(pico1541_common::formats::AnyDiskImage::VirtualDisk(vdisk));
+            }
+            {
+                let mut current_dir_guard = self.current_dir.lock().await;
+                current_dir_guard.0 = current_path.clone();
+                current_dir_guard.1 = use_internal;
+            }
+            self.leds.set_status(StatusLedMode::VirtualDisk);
+
             let mut items = Vec::<String<16>, 16>::new();
             for info in file_infos.iter() {
                 let mut s = String::<16>::new();
@@ -213,9 +327,8 @@ where
                 let _ = items.push(s);
             }
 
-            let mut menu_title = String::<32>::from_str("--- ").unwrap();
-            let _ = menu_title.push_str(title);
-            let _ = menu_title.push_str(" ---");
+            let mut menu_title = String::<32>::new();
+            let _ = menu_title.push_str(dir_name);
 
             if items.is_empty() {
                 let mut empty_items = Vec::<&'static str, 1>::new();
@@ -231,6 +344,9 @@ where
                             &mut self.usb_path
                         };
                         if current_path_mut.as_str() == "/" {
+                            let mut disk = self._disk_image.lock().await;
+                            *disk = None;
+                            self.leds.set_status(StatusLedMode::Unmounted);
                             return false;
                         } else {
                             let parent = parent_dir(current_path_mut.as_str());
@@ -239,7 +355,12 @@ where
                             continue;
                         }
                     }
-                    MenuEvent::Home => return true,
+                    MenuEvent::Home => {
+                        let mut disk = self._disk_image.lock().await;
+                        *disk = None;
+                        self.leds.set_status(StatusLedMode::Unmounted);
+                        return true;
+                    }
                     _ => {}
                 }
                 return false;
@@ -287,13 +408,98 @@ where
                             let _ = full_path.push_str(filename);
                         }
 
-                        if use_internal {
-                            let _ = self.internal.open_file(full_path.as_str()).await;
+                        let is_d64 = filename.ends_with(".d64") || filename.ends_with(".D64");
+                        let is_g64 = filename.ends_with(".g64") || filename.ends_with(".G64");
+
+                        if is_d64 {
+                            if use_internal {
+                                if let Some(file) = self.internal_menu_file_data(filename) {
+                                    let runtime_storage = pico1541_common::storage::RuntimeStorage::Memory(
+                                        pico1541_common::storage::MemoryStorage::new(file.data)
+                                    );
+                                    let d64 = pico1541_common::formats::D64Image::new(runtime_storage);
+                                    {
+                                        let mut disk = self._disk_image.lock().await;
+                                        *disk = Some(pico1541_common::formats::AnyDiskImage::D64(d64));
+                                    }
+                                    self.leds.set_status(StatusLedMode::NonAccurateDisk);
+                                    self.show_mounted_file_screen(filename).await;
+                                }
+                            } else {
+                                let file_handle = self.storage.open_file_handle(full_path.as_str());
+                                let runtime_storage = pico1541_common::storage::RuntimeStorage::File(file_handle);
+                                let d64 = pico1541_common::formats::D64Image::new(runtime_storage);
+                                {
+                                    let mut disk = self._disk_image.lock().await;
+                                    *disk = Some(pico1541_common::formats::AnyDiskImage::D64(d64));
+                                }
+                                self.leds.set_status(StatusLedMode::NonAccurateDisk);
+                                self.show_mounted_file_screen(filename).await;
+                            }
+                        } else if is_g64 {
+                            if use_internal {
+                                if let Some(file) = self.internal_menu_file_data(filename) {
+                                    let runtime_storage = pico1541_common::storage::RuntimeStorage::Memory(
+                                        pico1541_common::storage::MemoryStorage::new(file.data)
+                                    );
+                                    let g64 = pico1541_common::formats::G64Image::new(runtime_storage);
+                                    {
+                                        let mut disk = self._disk_image.lock().await;
+                                        *disk = Some(pico1541_common::formats::AnyDiskImage::G64(g64));
+                                    }
+                                    self.leds.set_status(StatusLedMode::AccurateDisk);
+                                    self.show_mounted_file_screen(filename).await;
+                                }
+                            } else {
+                                let file_handle = self.storage.open_file_handle(full_path.as_str());
+                                let runtime_storage = pico1541_common::storage::RuntimeStorage::File(file_handle);
+                                let g64 = pico1541_common::formats::G64Image::new(runtime_storage);
+                                {
+                                    let mut disk = self._disk_image.lock().await;
+                                    *disk = Some(pico1541_common::formats::AnyDiskImage::G64(g64));
+                                }
+                                self.leds.set_status(StatusLedMode::AccurateDisk);
+                                self.show_mounted_file_screen(filename).await;
+                            }
                         } else {
-                            let _ = self.storage.open_file(full_path.as_str()).await;
+                            let mut name_len = 0;
+                            while name_len < selected.name.len() && selected.name[name_len] != 0 {
+                                name_len += 1;
+                            }
+                            let entry = self.create_directory_entry(&selected.name[..name_len], false, selected.size);
+                            let mut entries = Vec::<pico1541_common::storage::DirectoryEntry, 32>::new();
+                            let _ = entries.push(entry);
+
+                            let dir_source = pico1541_common::storage::VectorDirectorySource::new(filename.as_bytes(), entries);
+                            let mut vdisk = pico1541_common::formats::VirtualDiskImage::new(dir_source);
+
+                            if use_internal {
+                                if let Some(file) = self.internal_menu_file_data(filename) {
+                                    let runtime_storage = pico1541_common::storage::RuntimeStorage::Memory(
+                                        pico1541_common::storage::MemoryStorage::new(file.data)
+                                    );
+                                    vdisk.file_storage = Some(runtime_storage);
+                                    vdisk.set_shortcut_entry(Some(entry));
+                                    {
+                                        let mut disk = self._disk_image.lock().await;
+                                        *disk = Some(pico1541_common::formats::AnyDiskImage::VirtualDisk(vdisk));
+                                    }
+                                    self.leds.set_status(StatusLedMode::VirtualDisk);
+                                    self.show_mounted_file_screen(filename).await;
+                                }
+                            } else {
+                                let file_handle = self.storage.open_file_handle(full_path.as_str());
+                                let runtime_storage = pico1541_common::storage::RuntimeStorage::File(file_handle);
+                                vdisk.file_storage = Some(runtime_storage);
+                                vdisk.set_shortcut_entry(Some(entry));
+                                {
+                                    let mut disk = self._disk_image.lock().await;
+                                    *disk = Some(pico1541_common::formats::AnyDiskImage::VirtualDisk(vdisk));
+                                }
+                                self.leds.set_status(StatusLedMode::VirtualDisk);
+                                self.show_mounted_file_screen(filename).await;
+                            }
                         }
-                        Timer::after(Duration::from_secs(1)).await;
-                        return false;
                     }
                 }
                 MenuEvent::Back => {
@@ -305,6 +511,9 @@ where
                         &mut self.usb_path
                     };
                     if current_path_mut.as_str() == "/" {
+                        let mut disk = self._disk_image.lock().await;
+                        *disk = None;
+                        self.leds.set_status(StatusLedMode::Unmounted);
                         return false;
                     } else {
                         let parent = parent_dir(current_path_mut.as_str());
@@ -312,7 +521,12 @@ where
                         cursor = 0;
                     }
                 }
-                MenuEvent::Home => return true,
+                MenuEvent::Home => {
+                    let mut disk = self._disk_image.lock().await;
+                    *disk = None;
+                    self.leds.set_status(StatusLedMode::Unmounted);
+                    return true;
+                }
             }
         }
     }

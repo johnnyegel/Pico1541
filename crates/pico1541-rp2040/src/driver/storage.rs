@@ -162,6 +162,8 @@ where
     D: embedded_hal::delay::DelayNs + 'static,
     DET: embedded_hal::digital::InputPin + 'static
 {
+    type File = SdFileHandle<SPI, CS, D, DET>;
+
     async fn is_available(&self) -> bool {
         if let Ok(mut storage) = self.0.try_lock() {
             storage.det_pin.is_low().unwrap_or(false)
@@ -193,6 +195,15 @@ where
 
     async fn open_file(&mut self, _path: &str) -> Result<(), ManagerError> {
         Ok(())
+    }
+
+    fn open_file_handle(&self, path: &str) -> Self::File {
+        use core::str::FromStr;
+        SdFileHandle {
+            storage: *self,
+            path: String::from_str(path).unwrap_or_default(),
+            offset: 0,
+        }
     }
 }
 

@@ -19,9 +19,13 @@ pub struct FileInfo {
 }
 
 pub trait FileStorageDriver {
+    type File: embedded_io_async::Read + embedded_io_async::Seek + 'static;
+
     async fn is_available(&self) -> bool;
     async fn list_dir(&mut self, path: &str, callback: impl FnMut(FileInfo)) -> Result<(), Error>;
     async fn open_file(&mut self, path: &str) -> Result<(), Error>;
+
+    fn open_file_handle(&self, path: &str) -> Self::File;
 }
 
 /// Driver for the OLED/LCD display.
