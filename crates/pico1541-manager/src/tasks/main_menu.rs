@@ -1,4 +1,4 @@
-use crate::driver::{DisplayDriver, RgbLedDriver, IndicatorDriver, FileStorageDriver, FileInfo, InternalStorage};
+use crate::driver::{DisplayDriver, RgbLedDriver, StatusLedMode, IndicatorDriver, FileStorageDriver, FileInfo, InternalStorage};
 use crate::tasks::menu::{Menu, MenuEvent};
 use crate::tasks::hardware_test::HardwareTestTask;
 use crate::{Button, ButtonEvent};
@@ -80,6 +80,9 @@ where
     }
 
     pub async fn run(&mut self) -> ! {
+        // Initialize the status LED to the default startup mode (VirtualDisk)
+        self.leds.set_status(StatusLedMode::VirtualDisk);
+
         // 1. Boot Screen
         self.display.clear().await;
         self.display.print_large(2, "  Pico1541").await; 

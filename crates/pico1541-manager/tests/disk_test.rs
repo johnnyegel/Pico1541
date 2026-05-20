@@ -47,3 +47,35 @@ fn test_gcr_encoding() {
 
     assert_eq!(data, decoded);
 }
+
+#[test]
+fn test_get_status_mode() {
+    use pico1541_manager::{get_status_mode, StatusLedMode, AnyDiskImage, MemoryStorage, D64Image, G64Image};
+    use pico1541_common::formats::VirtualDiskImage;
+    use pico1541_common::storage::StaticDirectorySource;
+
+    // 1. None (Unmounted)
+    assert_eq!(
+        get_status_mode::<MemoryStorage, StaticDirectorySource>(None),
+        StatusLedMode::Unmounted
+    );
+
+    // 2. VirtualDisk
+    let dir_source = StaticDirectorySource::new(b"TEST", &[]);
+    let vdisk = VirtualDiskImage::new(dir_source);
+    let disk: AnyDiskImage<MemoryStorage, StaticDirectorySource> = AnyDiskImage::VirtualDisk(vdisk);
+    assert_eq!(get_status_mode(Some(&disk)), StatusLedMode::VirtualDisk);
+
+    // 3. D64 (Non-accurate)
+    let d64_data = [0u8; 174848];
+    let d64 = D64Image::new(MemoryStorage::new(&d64_data));
+    let disk: AnyDiskImage<MemoryStorage, StaticDirectorySource> = AnyDiskImage::D64(d64);
+    assert_eq!(get_status_mode(Some(&disk)), StatusLedMode::NonAccurateDisk);
+
+    // 4. G64 (Accurate)
+    let g64_data = [0u8; 100];
+    let g64 = G64Image::new(MemoryStorage::new(&g64_data));
+    let disk: AnyDiskImage<MemoryStorage, StaticDirectorySource> = AnyDiskImage::G64(g64);
+    assert_eq!(get_status_mode(Some(&disk)), StatusLedMode::AccurateDisk);
+}
+

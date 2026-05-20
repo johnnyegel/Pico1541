@@ -7,12 +7,27 @@ use embassy_sync::channel::Channel;
 pub mod driver;
 pub mod tasks;
 
-pub use driver::{ActivityColor, DisplayDriver, IndicatorDriver, InputDriver, RgbLedDriver, StorageDriver};
+pub use driver::{ActivityColor, DisplayDriver, IndicatorDriver, InputDriver, RgbLedDriver, StatusLedMode, StorageDriver};
 
 // Disk format code lives in pico1541-common; re-exported here for API compatibility.
 pub use pico1541_common::gcr;
 pub use pico1541_common::interface::{ActiveTrack, DriveEvent};
 pub use pico1541_common::{AnyDiskImage, D64Image, DiskImage, Error, G64Image, MemoryStorage};
+
+use embedded_io_async::{Read, Seek};
+use pico1541_common::storage::DirectorySource;
+
+/// Maps a mounted disk image to the corresponding status LED mode.
+pub fn get_status_mode<S: Read + Seek, D: DirectorySource>(
+    disk: Option<&AnyDiskImage<S, D>>,
+) -> StatusLedMode {
+    match disk {
+        None => StatusLedMode::Unmounted,
+        Some(AnyDiskImage::VirtualDisk(_)) => StatusLedMode::VirtualDisk,
+        Some(AnyDiskImage::D64(_)) => StatusLedMode::NonAccurateDisk,
+        Some(AnyDiskImage::G64(_)) => StatusLedMode::AccurateDisk,
+    }
+}
 
 /// Inter-core communication channel for events from Emulator to Manager.
 pub static EVENT_CHANNEL: Channel<CriticalSectionRawMutex, DriveEvent, 64> = Channel::new();

@@ -1,6 +1,6 @@
 use embassy_rp::gpio::{Level, Output, Pin};
 use embassy_rp::Peri;
-use pico1541_manager::driver::RgbLedDriver;
+use pico1541_manager::driver::{RgbLedDriver, StatusLedMode};
 
 /// Driver for the RGB Status/Power LED (GPIO 26, 27, 28).
 pub struct StatusLeds {
@@ -31,6 +31,16 @@ impl RgbLedDriver for StatusLeds {
         self.blue
             .set_level(if b { Level::High } else { Level::Low });
     }
+
+    fn set_status(&mut self, mode: StatusLedMode) {
+        let (r, g, b) = match mode {
+            StatusLedMode::Unmounted => (true, false, false),      // Red
+            StatusLedMode::VirtualDisk => (false, false, true),    // Blue
+            StatusLedMode::NonAccurateDisk => (true, true, false),  // Yellow (Red + Green)
+            StatusLedMode::AccurateDisk => (false, true, false),   // Green
+        };
+        self.set_color(r, g, b);
+    }
 }
 
 pub struct StatusLedsWrapper<M: embassy_sync::blocking_mutex::raw::RawMutex + 'static>(
@@ -49,6 +59,12 @@ impl<M: embassy_sync::blocking_mutex::raw::RawMutex + 'static> RgbLedDriver for 
     fn set_color(&mut self, red: bool, green: bool, blue: bool) {
         if let Ok(mut l) = self.0.try_lock() {
             l.set_color(red, green, blue);
+        }
+    }
+
+    fn set_status(&mut self, mode: StatusLedMode) {
+        if let Ok(mut l) = self.0.try_lock() {
+            l.set_status(mode);
         }
     }
 }

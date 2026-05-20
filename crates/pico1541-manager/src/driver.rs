@@ -35,9 +35,33 @@ pub trait DisplayDriver {
     fn is_dirty(&self) -> bool;
 }
 
+/// Status LED mode representing the disk mounting state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StatusLedMode {
+    /// Nothing is mounted.
+    Unmounted,
+    /// A virtual image (aka directory) is mounted.
+    VirtualDisk,
+    /// A non-accurate disk image (e.g. D64) is mounted.
+    NonAccurateDisk,
+    /// An accurate disk image (e.g. G64) is mounted.
+    AccurateDisk,
+}
+
 /// Driver for RGB LED control.
 pub trait RgbLedDriver {
     fn set_color(&mut self, r: bool, g: bool, b: bool);
+    fn set_status(&mut self, mode: StatusLedMode);
+}
+
+impl<T: RgbLedDriver + ?Sized> RgbLedDriver for &mut T {
+    fn set_color(&mut self, r: bool, g: bool, b: bool) {
+        (**self).set_color(r, g, b);
+    }
+
+    fn set_status(&mut self, mode: StatusLedMode) {
+        (**self).set_status(mode);
+    }
 }
 
 /// Driver for keyboard/button input.
