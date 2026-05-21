@@ -34,14 +34,14 @@ impl ButtonManager {
                 self.hold_counters[i] = 0;
             } else if bit == 1 && last_bit == 1 {
                 self.hold_counters[i] = self.hold_counters[i].saturating_add(1);
-                // 500ms at 20ms intervals = 25
-                if self.hold_counters[i] == 25 {
+                // 300ms at 10ms intervals = 30
+                if self.hold_counters[i] == 30 {
                     callback(ButtonEvent::Hold(button));
-                } else if self.hold_counters[i] == 75 {
-                    callback(ButtonEvent::LongPress(button));
-                } else if self.hold_counters[i] > 25 && (self.hold_counters[i] - 25) % 5 == 0 {
-                    // Repeat every 100ms
-                    callback(ButtonEvent::Hold(button));
+                } else if self.hold_counters[i] > 30 {
+                    let repeat_ticks = 3; // 30ms repeat
+                    if (self.hold_counters[i] - 30) % repeat_ticks == 0 {
+                        callback(ButtonEvent::Hold(button));
+                    }
                 }
             }
         }

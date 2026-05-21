@@ -26,6 +26,10 @@ pub trait FileStorageDriver {
     async fn open_file(&mut self, path: &str) -> Result<(), Error>;
 
     fn open_file_handle(&self, path: &str) -> Self::File;
+
+    fn volume_label(&self) -> Option<heapless::String<11>> {
+        None
+    }
 }
 
 /// Driver for the OLED/LCD display.

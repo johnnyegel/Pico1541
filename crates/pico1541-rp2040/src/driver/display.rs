@@ -70,10 +70,14 @@ impl OledDisplay {
 
         if text_width > 128 {
             let max_scroll = text_width - 128;
-            self.scroll_offset += self.scroll_dir;
+            self.scroll_offset += self.scroll_dir * 2;
 
-            if self.scroll_offset >= max_scroll || self.scroll_offset <= 0 {
-                self.scroll_dir = -self.scroll_dir;
+            if self.scroll_offset >= max_scroll {
+                self.scroll_offset = max_scroll;
+                self.scroll_dir = -1;
+            } else if self.scroll_offset <= 0 {
+                self.scroll_offset = 0;
+                self.scroll_dir = 1;
             }
             self.dirty = true;
         } else {
@@ -128,30 +132,30 @@ impl OledDisplay {
 
             let y = (i as i32) * 10 + 2;
 
-            let bg_color = if is_selected {
+            let bg_color = if is_header {
                 BinaryColor::On
             } else {
                 BinaryColor::Off
             };
-            let fg_color = if is_selected {
+            let fg_color = if is_header {
                 BinaryColor::Off
             } else {
                 BinaryColor::On
             };
 
-            if is_selected {
+            if is_header {
                 let _ = Rectangle::new(Point::new(0, y - 2), Size::new(128, 11))
                     .into_styled(PrimitiveStyleBuilder::new().fill_color(bg_color).build())
                     .draw(&mut self.display);
             }
 
             let font = if is_large { &FONT_10X20 } else { &FONT_6X10 };
+            let char_width = if is_large { 10 } else { 6 };
             let style = MonoTextStyleBuilder::new()
                 .font(font)
                 .text_color(fg_color)
                 .build();
 
-            let x_offset = if is_selected { -self.scroll_offset } else { 0 };
             let y_adj = if is_large { 15 } else { 8 };
 
             let mut text_y = y + y_adj;
@@ -159,8 +163,20 @@ impl OledDisplay {
                 text_y -= 2;
             }
 
-            let _ = Text::new(&self.lines[i], Point::new(x_offset, text_y), style)
-                .draw(&mut self.display);
+            let text = &self.lines[i];
+            if is_selected && text.len() >= 2 && text.is_char_boundary(2) {
+                let (prefix, rest) = text.split_at(2);
+                let _ = Text::new(prefix, Point::new(0, text_y), style)
+                    .draw(&mut self.display);
+                
+                let rest_x = 2 * char_width - self.scroll_offset;
+                let _ = Text::new(rest, Point::new(rest_x, text_y), style)
+                    .draw(&mut self.display);
+            } else {
+                let x_offset = if is_selected { -self.scroll_offset } else { 0 };
+                let _ = Text::new(text, Point::new(x_offset, text_y), style)
+                    .draw(&mut self.display);
+            }
         }
 
         let _ = self.display.flush();

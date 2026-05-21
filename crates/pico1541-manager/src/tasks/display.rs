@@ -20,7 +20,7 @@ impl<D: DisplayDriver> DisplayTask<D> {
                 self.display.update().await;
                 self.display.redraw().await;
             }
-            Timer::after(Duration::from_millis(100)).await;
+            Timer::after(Duration::from_millis(50)).await;
         }
     }
 }

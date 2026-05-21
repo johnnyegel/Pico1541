@@ -292,8 +292,16 @@ where
             }
 
             let path_str = current_path.as_str();
+            let mut dir_name_buf = String::<32>::new();
             let dir_name = if path_str == "/" {
-                if use_internal { "INTERNAL" } else { "SD CARD" }
+                if use_internal {
+                    "INTERNAL"
+                } else if let Some(label) = self.storage.volume_label() {
+                    let _ = dir_name_buf.push_str(label.as_str());
+                    dir_name_buf.as_str()
+                } else {
+                    "SD CARD"
+                }
             } else {
                 if let Some(idx) = path_str.rfind('/') {
                     &path_str[idx + 1..]
@@ -328,7 +336,15 @@ where
             }
 
             let mut menu_title = String::<32>::new();
-            let _ = menu_title.push_str(dir_name);
+            if path_str == "/" && !use_internal {
+                if let Some(label) = self.storage.volume_label() {
+                    let _ = core::fmt::write(&mut menu_title, format_args!("SD: {}", label.as_str()));
+                } else {
+                    let _ = menu_title.push_str("SD CARD");
+                }
+            } else {
+                let _ = menu_title.push_str(dir_name);
+            }
 
             if items.is_empty() {
                 let mut empty_items = Vec::<&'static str, 1>::new();
@@ -573,6 +589,7 @@ where
     }
 
     async fn monitor_page(&mut self) -> bool {
+        let mut back_hold_count = 0;
         loop {
             self.display.clear().await;
             self.display.print(0, "-- System Monitor --").await;
@@ -618,8 +635,20 @@ where
                 embassy_time::Duration::from_millis(500),
                 crate::KEYBOARD_CHANNEL.receive()
             ).await {
-                Ok(ButtonEvent::Pressed(Button::Back)) => return false,
-                Ok(ButtonEvent::LongPress(Button::Back)) => return true,
+                Ok(ButtonEvent::Pressed(Button::Back)) => {
+                    back_hold_count = 0;
+                }
+                Ok(ButtonEvent::Hold(Button::Back)) => {
+                    back_hold_count += 1;
+                    if back_hold_count >= 24 {
+                        return true;
+                    }
+                }
+                Ok(ButtonEvent::Released(Button::Back)) => {
+                    if back_hold_count < 24 {
+                        return false;
+                    }
+                }
                 _ => {}
             }
         }

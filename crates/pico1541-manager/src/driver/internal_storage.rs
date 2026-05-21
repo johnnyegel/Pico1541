@@ -31,6 +31,9 @@ impl FileStorageDriver for InternalStorage {
 
     async fn list_dir(&mut self, _path: &str, mut callback: impl FnMut(FileInfo)) -> Result<(), Error> {
         for file in INTERNAL_FILES {
+            if file.name.starts_with('.') {
+                continue;
+            }
             let mut info = FileInfo {
                 name: [0; 64],
                 size: file.data.len() as u32,

@@ -28,6 +28,7 @@ where
 {
     pub volume_mgr: VolumeManager<SdCard<SPI, D>, DummyTimeSource>,
     pub det_pin: DET,
+    pub volume_label: Option<heapless::String<11>>,
 }
 
 pub struct StorageWrapper<SPI, D, DET>(
@@ -76,6 +77,44 @@ where
     type Error = CommonError;
 }
 
+fn find_file_in_dir<SPI, D>(
+    dir: &mut Directory<'_, SdCard<SPI, D>, DummyTimeSource, 4, 4, 1>,
+    filename_str: &str,
+) -> Result<ShortFileName, CommonError>
+where
+    SPI: embedded_hal::spi::SpiDevice + 'static,
+    D: embedded_hal::delay::DelayNs + 'static,
+{
+    let mut found_sfn = None;
+    let mut lfn_store = [0u8; 256];
+    let mut lfn_buffer = LfnBuffer::new(&mut lfn_store);
+
+    let _ = dir.iterate_dir_lfn(&mut lfn_buffer, |entry, lfn| {
+        if !entry.attributes.is_directory() {
+            let mut sfn_buf = [0u8; 13];
+            let mut writer = WrapperWriter::new(&mut sfn_buf);
+            let _ = core::fmt::write(&mut writer, format_args!("{}", entry.name));
+            let sfn_matches = if let Ok(sfn_str) = core::str::from_utf8(&sfn_buf) {
+                sfn_str.trim_matches('\0').eq_ignore_ascii_case(filename_str)
+            } else {
+                false
+            };
+
+            let name_matches = sfn_matches || if let Some(lfn_str) = lfn {
+                lfn_str.eq_ignore_ascii_case(filename_str)
+            } else {
+                false
+            };
+
+            if name_matches {
+                found_sfn = Some(entry.name.clone());
+            }
+        }
+    });
+
+    found_sfn.ok_or(CommonError::Io)
+}
+
 impl<SPI, D, DET> Read for SdFileHandle<SPI, D, DET>
 where 
     SPI: embedded_hal::spi::SpiDevice + 'static,
@@ -98,7 +137,7 @@ where
         let mut read_len = 0;
         
         with_dir_path_common(&mut *storage, parent_path, |dir| {
-            let filename = ShortFileName::create_from_str(filename_str).map_err(|_| CommonError::Io)?;
+            let filename = find_file_in_dir(dir, filename_str)?;
             let file = dir.open_file_in_dir(filename, Mode::ReadOnly).map_err(|_| CommonError::Io)?;
             file.seek_from_start(offset as u32).map_err(|_| CommonError::Io)?;
             read_len = file.read(buf).map_err(|_| CommonError::Io)?;
@@ -134,7 +173,7 @@ where
                 
                 let mut len = 0;
                 with_dir_path_common(&mut *storage, parent_path, |dir| {
-                    let filename = ShortFileName::create_from_str(filename_str).map_err(|_| CommonError::Io)?;
+                    let filename = find_file_in_dir(dir, filename_str)?;
                     let file = dir.open_file_in_dir(filename, Mode::ReadOnly).map_err(|_| CommonError::Io)?;
                     len = file.length() as i64;
                     Ok(())
@@ -169,10 +208,29 @@ where
             return Err(ManagerError::Io);
         }
         
-        with_dir_path(&mut *storage, _path, |dir| {
+        if _path == "/" {
+            storage.volume_label = None;
+        }
+        
+        let mut found_volume_label = None;
+        
+        let res = with_dir_path(&mut *storage, _path, |dir| {
             let mut lfn_store = [0u8; 256];
             let mut lfn_buffer = LfnBuffer::new(&mut lfn_store);
             let _ = dir.iterate_dir_lfn(&mut lfn_buffer, |entry, lfn| {
+                if entry.attributes.is_volume() {
+                    let mut label_buf = [0u8; 12];
+                    let mut writer = WrapperWriter::new(&mut label_buf);
+                    let _ = core::fmt::write(&mut writer, format_args!("{}", entry.name));
+                    if let Ok(label_str) = core::str::from_utf8(&label_buf) {
+                        let trimmed = label_str.trim_matches('\0').trim();
+                        let mut label = heapless::String::new();
+                        let _ = label.push_str(trimmed);
+                        found_volume_label = Some(label);
+                    }
+                    return;
+                }
+
                 let mut info = FileInfo {
                     name: [0; 64],
                     size: entry.size,
@@ -184,10 +242,23 @@ where
                 } else {
                     let _ = core::fmt::write(&mut writer, format_args!("{}", entry.name));
                 }
+
+                let name_len = info.name.iter().position(|&c| c == 0).unwrap_or(info.name.len());
+                if let Ok(name_str) = core::str::from_utf8(&info.name[..name_len]) {
+                    if name_str.starts_with('.') {
+                        return;
+                    }
+                }
+
                 callback(info);
             });
             Ok(())
-        })
+        });
+        
+        if res.is_ok() && found_volume_label.is_some() {
+            storage.volume_label = found_volume_label;
+        }
+        res
     }
 
     async fn open_file(&mut self, _path: &str) -> Result<(), ManagerError> {
@@ -200,6 +271,14 @@ where
             storage: *self,
             path: String::from_str(path).unwrap_or_default(),
             offset: 0,
+        }
+    }
+
+    fn volume_label(&self) -> Option<heapless::String<11>> {
+        if let Ok(storage) = self.0.try_lock() {
+            storage.volume_label.clone()
+        } else {
+            None
         }
     }
 }
@@ -220,7 +299,7 @@ where
     pub fn new(spi_device: SPI, delayer: D, det_pin: DET) -> Self {
         let sdcard = SdCard::new(spi_device, delayer);
         let volume_mgr = VolumeManager::new(sdcard, DummyTimeSource);
-        Self { volume_mgr, det_pin }
+        Self { volume_mgr, det_pin, volume_label: None }
     }
 }
 
@@ -286,8 +365,39 @@ where
             if segment.is_empty() {
                 recurse::<SPI, D, DET, R>(dir, segments, f)
             } else {
-                let sub = dir.open_dir(segment).map_err(|_| ManagerError::Io)?;
-                recurse::<SPI, D, DET, R>(sub, segments, f)
+                let mut found_sfn = None;
+                let mut lfn_store = [0u8; 256];
+                let mut lfn_buffer = LfnBuffer::new(&mut lfn_store);
+                
+                let _ = dir.iterate_dir_lfn(&mut lfn_buffer, |entry, lfn| {
+                    if entry.attributes.is_directory() {
+                        let mut sfn_buf = [0u8; 13];
+                        let mut writer = WrapperWriter::new(&mut sfn_buf);
+                        let _ = core::fmt::write(&mut writer, format_args!("{}", entry.name));
+                        let sfn_matches = if let Ok(sfn_str) = core::str::from_utf8(&sfn_buf) {
+                            sfn_str.trim_matches('\0').eq_ignore_ascii_case(segment)
+                        } else {
+                            false
+                        };
+
+                        let name_matches = sfn_matches || if let Some(lfn_str) = lfn {
+                            lfn_str.eq_ignore_ascii_case(segment)
+                        } else {
+                            false
+                        };
+
+                        if name_matches {
+                            found_sfn = Some(entry.name.clone());
+                        }
+                    }
+                });
+
+                if let Some(sfn) = found_sfn {
+                    let sub = dir.open_dir(sfn).map_err(|_| ManagerError::Io)?;
+                    recurse::<SPI, D, DET, R>(sub, segments, f)
+                } else {
+                    Err(ManagerError::Io)
+                }
             }
         } else {
             f(&mut dir)
@@ -323,8 +433,39 @@ where
             if segment.is_empty() {
                 recurse::<SPI, D, DET, R>(dir, segments, f)
             } else {
-                let sub = dir.open_dir(segment).map_err(|_| CommonError::Io)?;
-                recurse::<SPI, D, DET, R>(sub, segments, f)
+                let mut found_sfn = None;
+                let mut lfn_store = [0u8; 256];
+                let mut lfn_buffer = LfnBuffer::new(&mut lfn_store);
+                
+                let _ = dir.iterate_dir_lfn(&mut lfn_buffer, |entry, lfn| {
+                    if entry.attributes.is_directory() {
+                        let mut sfn_buf = [0u8; 13];
+                        let mut writer = WrapperWriter::new(&mut sfn_buf);
+                        let _ = core::fmt::write(&mut writer, format_args!("{}", entry.name));
+                        let sfn_matches = if let Ok(sfn_str) = core::str::from_utf8(&sfn_buf) {
+                            sfn_str.trim_matches('\0').eq_ignore_ascii_case(segment)
+                        } else {
+                            false
+                        };
+
+                        let name_matches = sfn_matches || if let Some(lfn_str) = lfn {
+                            lfn_str.eq_ignore_ascii_case(segment)
+                        } else {
+                            false
+                        };
+
+                        if name_matches {
+                            found_sfn = Some(entry.name.clone());
+                        }
+                    }
+                });
+
+                if let Some(sfn) = found_sfn {
+                    let sub = dir.open_dir(sfn).map_err(|_| CommonError::Io)?;
+                    recurse::<SPI, D, DET, R>(sub, segments, f)
+                } else {
+                    Err(CommonError::Io)
+                }
             }
         } else {
             f(&mut dir)

@@ -22,7 +22,7 @@ impl<I: InputDriver> KeyboardTask<I> {
             self.manager.update(current_state, |event| {
                 let _ = KEYBOARD_CHANNEL.try_send(event);
             });
-            Timer::after(Duration::from_millis(20)).await;
+            Timer::after(Duration::from_millis(10)).await;
         }
     }
 }
