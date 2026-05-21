@@ -20,30 +20,27 @@ impl TimeSource for DummyTimeSource {
     }
 }
 
-pub struct SdStorage<SPI, CS, D, DET> 
+pub struct SdStorage<SPI, D, DET> 
 where 
     SPI: embedded_hal::spi::SpiDevice,
-    CS: embedded_hal::digital::OutputPin,
     D: embedded_hal::delay::DelayNs,
     DET: embedded_hal::digital::InputPin
 {
-    pub volume_mgr: VolumeManager<SdCard<SPI, CS, D>, DummyTimeSource>,
+    pub volume_mgr: VolumeManager<SdCard<SPI, D>, DummyTimeSource>,
     pub det_pin: DET,
 }
 
-pub struct StorageWrapper<SPI, CS, D, DET>(
-    pub &'static embassy_sync::mutex::Mutex<embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex, SdStorage<SPI, CS, D, DET>>,
+pub struct StorageWrapper<SPI, D, DET>(
+    pub &'static embassy_sync::mutex::Mutex<embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex, SdStorage<SPI, D, DET>>,
 )
 where 
     SPI: embedded_hal::spi::SpiDevice + 'static,
-    CS: embedded_hal::digital::OutputPin + 'static,
     D: embedded_hal::delay::DelayNs + 'static,
     DET: embedded_hal::digital::InputPin + 'static;
 
-impl<SPI, CS, D, DET> Clone for StorageWrapper<SPI, CS, D, DET>
+impl<SPI, D, DET> Clone for StorageWrapper<SPI, D, DET>
 where 
     SPI: embedded_hal::spi::SpiDevice + 'static,
-    CS: embedded_hal::digital::OutputPin + 'static,
     D: embedded_hal::delay::DelayNs + 'static,
     DET: embedded_hal::digital::InputPin + 'static
 {
@@ -52,40 +49,36 @@ where
     }
 }
 
-impl<SPI, CS, D, DET> Copy for StorageWrapper<SPI, CS, D, DET>
+impl<SPI, D, DET> Copy for StorageWrapper<SPI, D, DET>
 where 
     SPI: embedded_hal::spi::SpiDevice + 'static,
-    CS: embedded_hal::digital::OutputPin + 'static,
     D: embedded_hal::delay::DelayNs + 'static,
     DET: embedded_hal::digital::InputPin + 'static
 {}
 
-pub struct SdFileHandle<SPI, CS, D, DET>
+pub struct SdFileHandle<SPI, D, DET>
 where 
     SPI: embedded_hal::spi::SpiDevice + 'static,
-    CS: embedded_hal::digital::OutputPin + 'static,
     D: embedded_hal::delay::DelayNs + 'static,
     DET: embedded_hal::digital::InputPin + 'static
 {
-    storage: StorageWrapper<SPI, CS, D, DET>,
+    storage: StorageWrapper<SPI, D, DET>,
     path: String<128>,
     offset: u64,
 }
 
-impl<SPI, CS, D, DET> ErrorType for SdFileHandle<SPI, CS, D, DET>
+impl<SPI, D, DET> ErrorType for SdFileHandle<SPI, D, DET>
 where 
     SPI: embedded_hal::spi::SpiDevice + 'static,
-    CS: embedded_hal::digital::OutputPin + 'static,
     D: embedded_hal::delay::DelayNs + 'static,
     DET: embedded_hal::digital::InputPin + 'static
 {
     type Error = CommonError;
 }
 
-impl<SPI, CS, D, DET> Read for SdFileHandle<SPI, CS, D, DET>
+impl<SPI, D, DET> Read for SdFileHandle<SPI, D, DET>
 where 
     SPI: embedded_hal::spi::SpiDevice + 'static,
-    CS: embedded_hal::digital::OutputPin + 'static,
     D: embedded_hal::delay::DelayNs + 'static,
     DET: embedded_hal::digital::InputPin + 'static
 {
@@ -106,7 +99,7 @@ where
         
         with_dir_path_common(&mut *storage, parent_path, |dir| {
             let filename = ShortFileName::create_from_str(filename_str).map_err(|_| CommonError::Io)?;
-            let mut file = dir.open_file_in_dir(filename, Mode::ReadOnly).map_err(|_| CommonError::Io)?;
+            let file = dir.open_file_in_dir(filename, Mode::ReadOnly).map_err(|_| CommonError::Io)?;
             file.seek_from_start(offset as u32).map_err(|_| CommonError::Io)?;
             read_len = file.read(buf).map_err(|_| CommonError::Io)?;
             Ok(())
@@ -117,10 +110,9 @@ where
     }
 }
 
-impl<SPI, CS, D, DET> Seek for SdFileHandle<SPI, CS, D, DET>
+impl<SPI, D, DET> Seek for SdFileHandle<SPI, D, DET>
 where 
     SPI: embedded_hal::spi::SpiDevice + 'static,
-    CS: embedded_hal::digital::OutputPin + 'static,
     D: embedded_hal::delay::DelayNs + 'static,
     DET: embedded_hal::digital::InputPin + 'static
 {
@@ -155,14 +147,13 @@ where
     }
 }
 
-impl<SPI, CS, D, DET> FileStorageDriver for StorageWrapper<SPI, CS, D, DET>
+impl<SPI, D, DET> FileStorageDriver for StorageWrapper<SPI, D, DET>
 where 
     SPI: embedded_hal::spi::SpiDevice + 'static,
-    CS: embedded_hal::digital::OutputPin + 'static,
     D: embedded_hal::delay::DelayNs + 'static,
     DET: embedded_hal::digital::InputPin + 'static
 {
-    type File = SdFileHandle<SPI, CS, D, DET>;
+    type File = SdFileHandle<SPI, D, DET>;
 
     async fn is_available(&self) -> bool {
         if let Ok(mut storage) = self.0.try_lock() {
@@ -207,32 +198,29 @@ where
     }
 }
 
-impl<SPI, CS, D, DET> StorageWrapper<SPI, CS, D, DET>
+impl<SPI, D, DET> StorageWrapper<SPI, D, DET>
 where
     SPI: embedded_hal::spi::SpiDevice + 'static,
-    CS: embedded_hal::digital::OutputPin + 'static,
     D: embedded_hal::delay::DelayNs + 'static,
     DET: embedded_hal::digital::InputPin + 'static
 {
 }
-impl<SPI, CS, D, DET> SdStorage<SPI, CS, D, DET>
+impl<SPI, D, DET> SdStorage<SPI, D, DET>
 where 
     SPI: embedded_hal::spi::SpiDevice,
-    CS: embedded_hal::digital::OutputPin,
     D: embedded_hal::delay::DelayNs,
     DET: embedded_hal::digital::InputPin
 {
-    pub fn new(spi_device: SPI, cs_pin: CS, delayer: D, det_pin: DET) -> Self {
-        let sdcard = SdCard::new(spi_device, cs_pin, delayer);
+    pub fn new(spi_device: SPI, delayer: D, det_pin: DET) -> Self {
+        let sdcard = SdCard::new(spi_device, delayer);
         let volume_mgr = VolumeManager::new(sdcard, DummyTimeSource);
         Self { volume_mgr, det_pin }
     }
 }
 
-impl<SPI, CS, D, DET> StorageDriver for SdStorage<SPI, CS, D, DET>
+impl<SPI, D, DET> StorageDriver for SdStorage<SPI, D, DET>
 where 
     SPI: embedded_hal::spi::SpiDevice,
-    CS: embedded_hal::digital::OutputPin,
     D: embedded_hal::delay::DelayNs,
     DET: embedded_hal::digital::InputPin
 {
@@ -266,80 +254,76 @@ impl<'a> core::fmt::Write for WrapperWriter<'a> {
     }
 }
 
-fn with_dir_path<SPI, CS, D, DET, R>(
-    storage: &mut SdStorage<SPI, CS, D, DET>,
+fn with_dir_path<SPI, D, DET, R>(
+    storage: &mut SdStorage<SPI, D, DET>,
     path: &str,
-    f: impl FnOnce(&mut Directory<'_, SdCard<SPI, CS, D>, DummyTimeSource, 4, 4, 1>) -> Result<R, ManagerError>
+    f: impl FnOnce(&mut Directory<'_, SdCard<SPI, D>, DummyTimeSource, 4, 4, 1>) -> Result<R, ManagerError>
 ) -> Result<R, ManagerError>
 where 
     SPI: embedded_hal::spi::SpiDevice + 'static,
-    CS: embedded_hal::digital::OutputPin + 'static,
     D: embedded_hal::delay::DelayNs + 'static,
     DET: embedded_hal::digital::InputPin + 'static
 {
-    let mut volume = storage.volume_mgr.open_volume(VolumeIdx(0)).map_err(|_| ManagerError::Io)?;
+    let volume = storage.volume_mgr.open_volume(VolumeIdx(0)).map_err(|_| ManagerError::Io)?;
     let root = volume.open_root_dir().map_err(|_| ManagerError::Io)?;
     
-    fn recurse<SPI, CS, D, DET, R>(
-        mut dir: Directory<'_, SdCard<SPI, CS, D>, DummyTimeSource, 4, 4, 1>,
+    fn recurse<SPI, D, DET, R>(
+        mut dir: Directory<'_, SdCard<SPI, D>, DummyTimeSource, 4, 4, 1>,
         mut segments: core::str::Split<'_, char>,
-        f: impl FnOnce(&mut Directory<'_, SdCard<SPI, CS, D>, DummyTimeSource, 4, 4, 1>) -> Result<R, ManagerError>
+        f: impl FnOnce(&mut Directory<'_, SdCard<SPI, D>, DummyTimeSource, 4, 4, 1>) -> Result<R, ManagerError>
     ) -> Result<R, ManagerError>
     where
         SPI: embedded_hal::spi::SpiDevice + 'static,
-        CS: embedded_hal::digital::OutputPin + 'static,
         D: embedded_hal::delay::DelayNs + 'static
     {
         if let Some(segment) = segments.next() {
             if segment.is_empty() {
-                recurse::<SPI, CS, D, DET, R>(dir, segments, f)
+                recurse::<SPI, D, DET, R>(dir, segments, f)
             } else {
                 let sub = dir.open_dir(segment).map_err(|_| ManagerError::Io)?;
-                recurse::<SPI, CS, D, DET, R>(sub, segments, f)
+                recurse::<SPI, D, DET, R>(sub, segments, f)
             }
         } else {
             f(&mut dir)
         }
     }
     
-    recurse::<SPI, CS, D, DET, R>(root, path.split('/'), f)
+    recurse::<SPI, D, DET, R>(root, path.split('/'), f)
 }
 
-fn with_dir_path_common<SPI, CS, D, DET, R>(
-    storage: &mut SdStorage<SPI, CS, D, DET>,
+fn with_dir_path_common<SPI, D, DET, R>(
+    storage: &mut SdStorage<SPI, D, DET>,
     path: &str,
-    f: impl FnOnce(&mut Directory<'_, SdCard<SPI, CS, D>, DummyTimeSource, 4, 4, 1>) -> Result<R, CommonError>
+    f: impl FnOnce(&mut Directory<'_, SdCard<SPI, D>, DummyTimeSource, 4, 4, 1>) -> Result<R, CommonError>
 ) -> Result<R, CommonError>
 where 
     SPI: embedded_hal::spi::SpiDevice + 'static,
-    CS: embedded_hal::digital::OutputPin + 'static,
     D: embedded_hal::delay::DelayNs + 'static,
     DET: embedded_hal::digital::InputPin + 'static
 {
-    let mut volume = storage.volume_mgr.open_volume(VolumeIdx(0)).map_err(|_| CommonError::Io)?;
+    let volume = storage.volume_mgr.open_volume(VolumeIdx(0)).map_err(|_| CommonError::Io)?;
     let root = volume.open_root_dir().map_err(|_| CommonError::Io)?;
     
-    fn recurse<SPI, CS, D, DET, R>(
-        mut dir: Directory<'_, SdCard<SPI, CS, D>, DummyTimeSource, 4, 4, 1>,
+    fn recurse<SPI, D, DET, R>(
+        mut dir: Directory<'_, SdCard<SPI, D>, DummyTimeSource, 4, 4, 1>,
         mut segments: core::str::Split<'_, char>,
-        f: impl FnOnce(&mut Directory<'_, SdCard<SPI, CS, D>, DummyTimeSource, 4, 4, 1>) -> Result<R, CommonError>
+        f: impl FnOnce(&mut Directory<'_, SdCard<SPI, D>, DummyTimeSource, 4, 4, 1>) -> Result<R, CommonError>
     ) -> Result<R, CommonError>
     where
         SPI: embedded_hal::spi::SpiDevice + 'static,
-        CS: embedded_hal::digital::OutputPin + 'static,
         D: embedded_hal::delay::DelayNs + 'static
     {
         if let Some(segment) = segments.next() {
             if segment.is_empty() {
-                recurse::<SPI, CS, D, DET, R>(dir, segments, f)
+                recurse::<SPI, D, DET, R>(dir, segments, f)
             } else {
                 let sub = dir.open_dir(segment).map_err(|_| CommonError::Io)?;
-                recurse::<SPI, CS, D, DET, R>(sub, segments, f)
+                recurse::<SPI, D, DET, R>(sub, segments, f)
             }
         } else {
             f(&mut dir)
         }
     }
     
-    recurse::<SPI, CS, D, DET, R>(root, path.split('/'), f)
+    recurse::<SPI, D, DET, R>(root, path.split('/'), f)
 }

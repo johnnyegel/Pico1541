@@ -54,17 +54,10 @@ type MyCs = Output<'static>;
 type MyDelay = embassy_time::Delay;
 type MySpiDev = ExclusiveDevice<MySpi, MyCs, MyDelay>;
 type MyDet = Input<'static>;
-type MyFile = SdFileHandle<MySpiDev, DummyPin, MyDelay, MyDet>;
+type MyFile = SdFileHandle<MySpiDev, MyDelay, MyDet>;
 type MyStorage = RuntimeStorage<'static, MyFile>;
 type MyDir = VectorDirectorySource<32>;
 type MyDisk = AnyDiskImage<MyStorage, MyDir>;
-
-struct DummyPin;
-impl embedded_hal::digital::ErrorType for DummyPin { type Error = core::convert::Infallible; }
-impl embedded_hal::digital::OutputPin for DummyPin {
-    fn set_low(&mut self) -> Result<(), Self::Error> { Ok(()) }
-    fn set_high(&mut self) -> Result<(), Self::Error> { Ok(()) }
-}
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -133,8 +126,8 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
     let spi = Spi::new_blocking(p.SPI1, clk, mosi, miso, spi_config);
     let spi_dev = ExclusiveDevice::new(spi, cs, embassy_time::Delay).unwrap();
 
-    static SD_STORAGE: StaticCell<Mutex<CriticalSectionRawMutex, SdStorage<MySpiDev, DummyPin, MyDelay, MyDet>>> = StaticCell::new();
-    let sd_obj = SdStorage::new(spi_dev, DummyPin, embassy_time::Delay, det);
+    static SD_STORAGE: StaticCell<Mutex<CriticalSectionRawMutex, SdStorage<MySpiDev, MyDelay, MyDet>>> = StaticCell::new();
+    let sd_obj = SdStorage::new(spi_dev, embassy_time::Delay, det);
     let sd_mutex = SD_STORAGE.init(Mutex::new(sd_obj));
 
     // 5. Keyboard Matrix
@@ -345,7 +338,7 @@ async fn snooper_run(mut task: SnooperTask) {
 }
 
 struct MyOpener {
-    storage: StorageWrapper<MySpiDev, DummyPin, MyDelay, MyDet>,
+    storage: StorageWrapper<MySpiDev, MyDelay, MyDet>,
 }
 
 impl pico1541_manager::tasks::virtual_dir::FileOpener for MyOpener {
@@ -403,7 +396,7 @@ async fn menu_run(
         DisplayWrapper<CriticalSectionRawMutex>,
         StatusLedsWrapper<CriticalSectionRawMutex>,
         IndicatorWrapper<CriticalSectionRawMutex>,
-        StorageWrapper<MySpiDev, DummyPin, MyDelay, MyDet>,
+        StorageWrapper<MySpiDev, MyDelay, MyDet>,
         MyFile,
     >,
 ) {
@@ -456,7 +449,7 @@ fn core1_main(
         DisplayWrapper<CriticalSectionRawMutex>,
         StatusLedsWrapper<CriticalSectionRawMutex>,
         IndicatorWrapper<CriticalSectionRawMutex>,
-        StorageWrapper<MySpiDev, DummyPin, MyDelay, MyDet>,
+        StorageWrapper<MySpiDev, MyDelay, MyDet>,
         MyFile,
     >,
     activity_task: DriveActivityTask<IndicatorWrapper<CriticalSectionRawMutex>>,
