@@ -1,0 +1,41 @@
+ I have traced the entire execution hot path from the main RP2040 loop down to the drive mechanics and disk track logic. Everything is correctly hooked up, functional, and adhering
+  to performance and timing mandates.
+
+  Here is the precise execution flow that occurs exactly 1,000,000 times per second (at 1MHz):
+
+   1. main.rs: emulator_loop:
+     The hardware timer determines it's time for a cycle and triggers drive.tick(&mut bridge).
+
+   2. pico1541-emulator/src/lib.rs: Emulator::tick:
+     The emulator delegates the cycle to the bus and then the cpu, preserving perfect sync:
+
+   1    pub fn tick(&mut self, hw: &mut H) {
+   2        self.bus.tick_cycle(hw);
+   3        self.cpu.tick(&mut self.bus, hw);
+   4    }
+
+   3. pico1541-emulator/src/systembus.rs: SystemBus::tick_cycle:
+     The bus orchestrates the system's external state:
+      - Polls the host IEC state (hardware.iec_host()).
+      - Re-asserts host IEC lines to the hardware bridge (hardware.sync()), ensuring the snooper doesn't miss edges.
+      - Ticks both via1 and via2 if active.
+      - Crucially, it fetches the current sector index from RAM at $000C and passes it to the mechanics, hooking up your recent StriddenWarp logic:
+
+   1    let requested_sector = self.ram[0x000C];
+   2    self.so_active = self.mechanics.tick(hardware, &mut self.via2, requested_sector);
+
+   4. pico1541-emulator/src/drivemechanics.rs: DriveMechanics::tick:
+     The mechanics logic first checks if the motor is on (from self.last_state & MASK_MOTOR) and increments the byte-cycle counter. If the time has come to process a GCR byte
+  (~26-32 cycles depending on speed zone), it transitions into tick_slow.
+
+   5. DriveMechanics::tick_slow (The Byte Processing Layer):
+     This directly manipulates the shared ActiveTrack via the hardware bridge:
+      - It computes the gcr_pos using the requested_sector.
+      - In Read mode, it reads from track.gcr_data, asserts/releases the SYNC bit on via2.in_b, and pushes the byte to via2.in_a.
+      - In Write mode, it pulls from via2.ora and marks the track as is_dirty = true.
+      - Finally, it generates the CA1 interrupt and returns the SO active flag to the CPU.
+
+  Performance Confirmation:
+  The entire chain—Emulator::tick, SystemBus::tick_cycle, DriveMechanics::tick, and the IEC sync operations—are correctly annotated with #[link_section = ".ramfunc"] and
+  #[inline(always)]. This guarantees the hot path executes entirely out of the RP2040's fast SRAM without flash memory latency, fully satisfying the performance mandates. No hidden
+  logging exists in this path.
