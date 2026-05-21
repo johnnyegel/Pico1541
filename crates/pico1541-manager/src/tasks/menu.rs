@@ -67,13 +67,16 @@ impl<T: Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T, N, Titl
     pub async fn render<D: DisplayDriver>(&self, display: &mut D) {
         display.print(0, self.title.as_ref()).await;
         
+        let screen_selected_line = (self.selected_index - self.scroll_offset + 1) as u8;
+        display.set_selected_line(screen_selected_line);
+        
         for i in 0..5 {
             let item_idx = self.scroll_offset + i;
             if item_idx < self.items.len() {
                 let prefix = if item_idx == self.selected_index { ">" } else { " " };
-                let mut line_buf = [0u8; 16];
+                let mut line_buf = [0u8; 64];
                 let item_str = self.items[item_idx].as_ref();
-                let len = item_str.len().min(15);
+                let len = item_str.len().min(63);
                 line_buf[0] = prefix.as_bytes()[0];
                 line_buf[1..1+len].copy_from_slice(&item_str.as_bytes()[..len]);
                 

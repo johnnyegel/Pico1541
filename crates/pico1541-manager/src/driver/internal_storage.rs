@@ -32,11 +32,11 @@ impl FileStorageDriver for InternalStorage {
     async fn list_dir(&mut self, _path: &str, mut callback: impl FnMut(FileInfo)) -> Result<(), Error> {
         for file in INTERNAL_FILES {
             let mut info = FileInfo {
-                name: [0; 13],
+                name: [0; 64],
                 size: file.data.len() as u32,
                 is_dir: false,
             };
-            let len = file.name.len().min(12);
+            let len = file.name.len().min(63);
             info.name[..len].copy_from_slice(&file.name.as_bytes()[..len]);
             callback(info);
         }

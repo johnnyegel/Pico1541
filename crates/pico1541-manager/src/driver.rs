@@ -13,7 +13,7 @@ pub trait StorageDriver {
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FileInfo {
-    pub name: [u8; 13], // 8.3 format + null
+    pub name: [u8; 64], // support long file names up to 63 chars + null
     pub size: u32,
     pub is_dir: bool,
 }
@@ -37,6 +37,7 @@ pub trait DisplayDriver {
     async fn redraw(&mut self);
     fn request_redraw(&mut self);
     fn is_dirty(&self) -> bool;
+    fn set_selected_line(&mut self, _line: u8) {}
 }
 
 /// Status LED mode representing the disk mounting state.

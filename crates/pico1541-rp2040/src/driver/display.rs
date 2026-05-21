@@ -206,9 +206,21 @@ impl<M: RawMutex + 'static> DisplayDriver for DisplayWrapper<M> {
     }
     fn is_dirty(&self) -> bool {
         if let Ok(d) = self.0.try_lock() {
-            d.dirty
+            if d.dirty {
+                return true;
+            }
+            let line = &d.lines[d.selected_line as usize];
+            let is_large = (d.large_lines >> d.selected_line) & 1 != 0;
+            let char_width = if is_large { 10 } else { 6 };
+            let text_width = line.len() as i32 * char_width;
+            text_width > 128
         } else {
             true // Assume dirty if locked to ensure redraw
+        }
+    }
+    fn set_selected_line(&mut self, line: u8) {
+        if let Ok(mut d) = self.0.try_lock() {
+            d.set_selection(line);
         }
     }
 }

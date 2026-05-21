@@ -316,9 +316,9 @@ where
             }
             self.leds.set_status(StatusLedMode::VirtualDisk);
 
-            let mut items = Vec::<String<16>, 16>::new();
+            let mut items = Vec::<String<64>, 16>::new();
             for info in file_infos.iter() {
-                let mut s = String::<16>::new();
+                let mut s = String::<64>::new();
                 let name_str = core::str::from_utf8(&info.name).unwrap_or("???");
                 let _ = s.push_str(name_str.trim_matches('\0'));
                 if info.is_dir {

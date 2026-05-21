@@ -1,4 +1,4 @@
-use embedded_sdmmc::{SdCard, TimeSource, Timestamp, VolumeManager, VolumeIdx, Mode, ShortFileName, Directory};
+use embedded_sdmmc::{SdCard, TimeSource, Timestamp, VolumeManager, VolumeIdx, Mode, ShortFileName, Directory, LfnBuffer};
 use pico1541_manager::driver::{StorageDriver, FileStorageDriver, FileInfo};
 use pico1541_common::formats::Error as ManagerError;
 use pico1541_common::storage::Error as CommonError;
@@ -170,14 +170,20 @@ where
         }
         
         with_dir_path(&mut *storage, _path, |dir| {
-            let _ = dir.iterate_dir(|entry| {
+            let mut lfn_store = [0u8; 256];
+            let mut lfn_buffer = LfnBuffer::new(&mut lfn_store);
+            let _ = dir.iterate_dir_lfn(&mut lfn_buffer, |entry, lfn| {
                 let mut info = FileInfo {
-                    name: [0; 13],
+                    name: [0; 64],
                     size: entry.size,
                     is_dir: entry.attributes.is_directory(),
                 };
                 let mut writer = WrapperWriter::new(&mut info.name);
-                let _ = core::fmt::write(&mut writer, format_args!("{}", entry.name));
+                if let Some(lfn_str) = lfn {
+                    let _ = core::fmt::write(&mut writer, format_args!("{}", lfn_str));
+                } else {
+                    let _ = core::fmt::write(&mut writer, format_args!("{}", entry.name));
+                }
                 callback(info);
             });
             Ok(())
