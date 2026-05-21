@@ -8,6 +8,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use core::str::FromStr;
 use pico1541_common::snooper::SnooperConfig;
+use pico1541_common::storage::PagedDirectorySourceTrait;
 use portable_atomic::Ordering;
 
 fn parent_dir(path: &str) -> &str {
@@ -52,7 +53,7 @@ where
     indicator: Ind,
     storage: S,
     internal: InternalStorage,
-    _disk_image: &'static Mutex<CriticalSectionRawMutex, Option<pico1541_common::AnyDiskImage<pico1541_common::storage::RuntimeStorage<'static, File>, pico1541_common::storage::VectorDirectorySource<32>>>>,
+    _disk_image: &'static Mutex<CriticalSectionRawMutex, Option<pico1541_common::AnyDiskImage<pico1541_common::storage::RuntimeStorage<'static, File>, pico1541_common::storage::PagedDirectorySource<48>>>>,
     current_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
     config: &'static SnooperConfig,
     sd_path: String<128>,
@@ -73,7 +74,7 @@ where
         leds: L,
         indicator: Ind,
         storage: S,
-        disk_image: &'static Mutex<CriticalSectionRawMutex, Option<pico1541_common::AnyDiskImage<pico1541_common::storage::RuntimeStorage<'static, File>, pico1541_common::storage::VectorDirectorySource<32>>>>,
+        disk_image: &'static Mutex<CriticalSectionRawMutex, Option<pico1541_common::AnyDiskImage<pico1541_common::storage::RuntimeStorage<'static, File>, pico1541_common::storage::PagedDirectorySource<48>>>>,
         current_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
         config: &'static SnooperConfig,
     ) -> Self {
@@ -216,7 +217,7 @@ where
                             let _ = self.settings_menu().await;
                         }
                         _ => {
-                            log::info!("Selected: {}", main_menu.selected_item());
+                            log::info!("Selected: {:?}", main_menu.selected_item());
                         }
                     }
                 }
@@ -226,6 +227,7 @@ where
                 MenuEvent::Home => {
                     // Home in main menu does nothing
                 }
+                MenuEvent::LoadBlock(_) => {}
             }
         }
     }
@@ -249,47 +251,33 @@ where
                 &self.usb_path
             };
 
-            let mut file_infos = Vec::<FileInfo, 16>::new();
-            
-            let list_res = if use_internal {
-                self.internal.list_dir(current_path.as_str(), |info| {
-                    let _ = file_infos.push(info);
-                }).await
+            let count_res = if use_internal {
+                self.internal.count_dir_entries(current_path.as_str()).await
             } else {
-                self.storage.list_dir(current_path.as_str(), |info| {
-                    let _ = file_infos.push(info);
-                }).await
+                self.storage.count_dir_entries(current_path.as_str()).await
             };
 
-            if let Err(e) = list_res {
-                log::error!("Error listing dir: {:?}", e);
-                // Reset path on error
-                let current_path_mut = if use_internal {
-                    &mut self.internal_path
-                } else if title == "SD Card" {
-                    &mut self.sd_path
-                } else {
-                    &mut self.usb_path
-                };
-                *current_path_mut = String::from_str("/").unwrap();
+            let total_count = match count_res {
+                Ok(c) => c,
+                Err(e) => {
+                    log::error!("Error listing/counting dir: {:?}", e);
+                    // Reset path on error
+                    let current_path_mut = if use_internal {
+                        &mut self.internal_path
+                    } else if title == "SD Card" {
+                        &mut self.sd_path
+                    } else {
+                        &mut self.usb_path
+                    };
+                    *current_path_mut = String::from_str("/").unwrap();
 
-                self.display.clear().await;
-                self.display.print(1, "  Read Error!").await;
-                self.display.request_redraw();
-                Timer::after(Duration::from_secs(2)).await;
-                return false;
-            }
-
-            // Build directory entries for the virtual disk & construct it
-            let mut entries = Vec::<pico1541_common::storage::DirectoryEntry, 32>::new();
-            for info in file_infos.iter() {
-                let mut name_len = 0;
-                while name_len < info.name.len() && info.name[name_len] != 0 {
-                    name_len += 1;
+                    self.display.clear().await;
+                    self.display.print(1, "  Read Error!").await;
+                    self.display.request_redraw();
+                    Timer::after(Duration::from_secs(2)).await;
+                    return false;
                 }
-                let entry = self.create_directory_entry(&info.name[..name_len], info.is_dir, info.size);
-                let _ = entries.push(entry);
-            }
+            };
 
             let path_str = current_path.as_str();
             let mut dir_name_buf = String::<32>::new();
@@ -310,7 +298,33 @@ where
                 }
             };
 
-            let dir_source = pico1541_common::storage::VectorDirectorySource::new(dir_name.as_bytes(), entries);
+            // Build directory entries for the virtual disk & construct it using PagedDirectorySource
+            let mut dir_source = pico1541_common::storage::PagedDirectorySource::new(dir_name.as_bytes(), total_count);
+            let total_blocks = (total_count + 15) / 16;
+            for tb in 0..total_blocks.min(3) {
+                let mut block_infos = Vec::<FileInfo, 16>::new();
+                if use_internal {
+                    let _ = self.internal.list_dir_range(current_path.as_str(), tb * 16, 16, |info| {
+                        let _ = block_infos.push(info);
+                    }).await;
+                } else {
+                    let _ = self.storage.list_dir_range(current_path.as_str(), tb * 16, 16, |info| {
+                        let _ = block_infos.push(info);
+                    }).await;
+                }
+                
+                let mut block_entries = Vec::<pico1541_common::storage::DirectoryEntry, 16>::new();
+                for info in block_infos.iter() {
+                    let mut name_len = 0;
+                    while name_len < info.name.len() && info.name[name_len] != 0 {
+                        name_len += 1;
+                    }
+                    let entry = self.create_directory_entry(&info.name[..name_len], info.is_dir, info.size);
+                    let _ = block_entries.push(entry);
+                }
+                dir_source.set_block(tb, &block_entries);
+            }
+
             let vdisk = pico1541_common::formats::VirtualDiskImage::new(dir_source);
 
             {
@@ -324,17 +338,6 @@ where
             }
             self.leds.set_status(StatusLedMode::VirtualDisk);
 
-            let mut items = Vec::<String<64>, 16>::new();
-            for info in file_infos.iter() {
-                let mut s = String::<64>::new();
-                let name_str = core::str::from_utf8(&info.name).unwrap_or("???");
-                let _ = s.push_str(name_str.trim_matches('\0'));
-                if info.is_dir {
-                    let _ = s.push_str("/");
-                }
-                let _ = items.push(s);
-            }
-
             let mut menu_title = String::<32>::new();
             if path_str == "/" && !use_internal {
                 if let Some(label) = self.storage.volume_label() {
@@ -346,7 +349,7 @@ where
                 let _ = menu_title.push_str(dir_name);
             }
 
-            if items.is_empty() {
+            if total_count == 0 {
                 let mut empty_items = Vec::<&'static str, 1>::new();
                 let _ = empty_items.push("No files found");
                 let mut menu = Menu::new(menu_title, empty_items);
@@ -382,12 +385,125 @@ where
                 return false;
             }
 
-            let mut menu = Menu::new(menu_title, items);
-            menu.set_cursor(cursor.min(file_infos.len() - 1));
+            let mut menu = Menu::<String<64>, 48, _>::new_paged(menu_title, total_count);
+            
+            // Load initial block(s)
+            let total_blocks = (total_count + 15) / 16;
+            for block_idx in 0..total_blocks.min(3) {
+                let mut block_infos = Vec::<FileInfo, 16>::new();
+                let fetch_res = if use_internal {
+                    self.internal.list_dir_range(current_path.as_str(), block_idx * 16, 16, |info| {
+                        let _ = block_infos.push(info);
+                    }).await
+                } else {
+                    self.storage.list_dir_range(current_path.as_str(), block_idx * 16, 16, |info| {
+                        let _ = block_infos.push(info);
+                    }).await
+                };
+                
+                if fetch_res.is_ok() {
+                    let mut block_strings = Vec::<String<64>, 16>::new();
+                    for info in block_infos.iter() {
+                        let mut s = String::<64>::new();
+                        let name_str = core::str::from_utf8(&info.name).unwrap_or("???");
+                        let _ = s.push_str(name_str.trim_matches('\0'));
+                        if info.is_dir {
+                            let _ = s.push_str("/");
+                        }
+                        let _ = block_strings.push(s);
+                    }
+                    menu.set_block(block_idx, &block_strings);
+                }
+            }
 
-            match menu.run(&mut self.display).await {
+            // Ensure cursor block is loaded
+            loop {
+                if let Some(tb) = menu.set_cursor(cursor.min(total_count - 1)) {
+                    let mut block_infos = Vec::<FileInfo, 16>::new();
+                    let fetch_res = if use_internal {
+                        self.internal.list_dir_range(current_path.as_str(), tb * 16, 16, |info| {
+                            let _ = block_infos.push(info);
+                        }).await
+                    } else {
+                        self.storage.list_dir_range(current_path.as_str(), tb * 16, 16, |info| {
+                            let _ = block_infos.push(info);
+                        }).await
+                    };
+                    
+                    if fetch_res.is_ok() {
+                        let mut block_strings = Vec::<String<64>, 16>::new();
+                        for info in block_infos.iter() {
+                            let mut s = String::<64>::new();
+                            let name_str = core::str::from_utf8(&info.name).unwrap_or("???");
+                            let _ = s.push_str(name_str.trim_matches('\0'));
+                            if info.is_dir {
+                                let _ = s.push_str("/");
+                            }
+                            let _ = block_strings.push(s);
+                        }
+                        menu.set_block(tb, &block_strings);
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+
+            let event = loop {
+                match menu.run(&mut self.display).await {
+                    MenuEvent::LoadBlock(tb) => {
+                        let mut block_infos = Vec::<FileInfo, 16>::new();
+                        let fetch_res = if use_internal {
+                            self.internal.list_dir_range(current_path.as_str(), tb * 16, 16, |info| {
+                                let _ = block_infos.push(info);
+                            }).await
+                        } else {
+                            self.storage.list_dir_range(current_path.as_str(), tb * 16, 16, |info| {
+                                let _ = block_infos.push(info);
+                            }).await
+                        };
+                        
+                        if fetch_res.is_ok() {
+                            let mut block_strings = Vec::<String<64>, 16>::new();
+                            for info in block_infos.iter() {
+                                let mut s = String::<64>::new();
+                                let name_str = core::str::from_utf8(&info.name).unwrap_or("???");
+                                let _ = s.push_str(name_str.trim_matches('\0'));
+                                if info.is_dir {
+                                    let _ = s.push_str("/");
+                                }
+                                let _ = block_strings.push(s);
+                            }
+                            menu.set_block(tb, &block_strings);
+                        }
+                    }
+                    other => break other,
+                }
+            };
+
+            cursor = menu.selected_index();
+
+            match event {
+                MenuEvent::LoadBlock(_) => {}
                 MenuEvent::Selected(idx) => {
-                    let selected = &file_infos[idx];
+                    let mut selected_infos = Vec::<FileInfo, 1>::new();
+                    let fetch_res = if use_internal {
+                        self.internal.list_dir_range(current_path.as_str(), idx, 1, |info| {
+                            let _ = selected_infos.push(info);
+                        }).await
+                    } else {
+                        self.storage.list_dir_range(current_path.as_str(), idx, 1, |info| {
+                            let _ = selected_infos.push(info);
+                        }).await
+                    };
+                    
+                    if fetch_res.is_err() || selected_infos.is_empty() {
+                        log::error!("Failed to fetch selected item at index {}", idx);
+                        cursor = 0;
+                        continue;
+                    }
+                    let selected = selected_infos[0];
                     if selected.is_dir {
                         let dirname = core::str::from_utf8(&selected.name).unwrap_or("???").trim_matches('\0');
                         let current_path_mut = if use_internal {
@@ -483,10 +599,11 @@ where
                                 name_len += 1;
                             }
                             let entry = self.create_directory_entry(&selected.name[..name_len], false, selected.size);
-                            let mut entries = Vec::<pico1541_common::storage::DirectoryEntry, 32>::new();
-                            let _ = entries.push(entry);
+                            let mut dir_source = pico1541_common::storage::PagedDirectorySource::new(filename.as_bytes(), 1);
+                            let mut block_entries = Vec::<pico1541_common::storage::DirectoryEntry, 16>::new();
+                            let _ = block_entries.push(entry);
+                            dir_source.set_block(0, &block_entries);
 
-                            let dir_source = pico1541_common::storage::VectorDirectorySource::new(filename.as_bytes(), entries);
                             let mut vdisk = pico1541_common::formats::VirtualDiskImage::new(dir_source);
 
                             if use_internal {
@@ -578,12 +695,13 @@ where
                             test.run().await;
                         }
                         _ => {
-                            log::info!("Selected setting: {}", menu.selected_item());
+                            log::info!("Selected setting: {:?}", menu.selected_item());
                         }
                     }
                 }
                 MenuEvent::Back => return false,
                 MenuEvent::Home => return true,
+                MenuEvent::LoadBlock(_) => {}
             }
         }
     }
@@ -682,6 +800,7 @@ where
                 }
                 MenuEvent::Back => return false,
                 MenuEvent::Home => return true,
+                MenuEvent::LoadBlock(_) => {}
             }
         }
     }

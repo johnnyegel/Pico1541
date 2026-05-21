@@ -261,6 +261,136 @@ where
         res
     }
 
+    async fn count_dir_entries(&mut self, path: &str) -> Result<usize, ManagerError> {
+        let mut storage = self.0.lock().await;
+        if storage.det_pin.is_high().map_err(|_| ManagerError::Io)? {
+            return Err(ManagerError::Io);
+        }
+        
+        if path == "/" {
+            storage.volume_label = None;
+        }
+        
+        let mut count = 0;
+        let mut found_volume_label = None;
+        
+        let res = with_dir_path(&mut *storage, path, |dir| {
+            let mut lfn_store = [0u8; 256];
+            let mut lfn_buffer = LfnBuffer::new(&mut lfn_store);
+            let _ = dir.iterate_dir_lfn(&mut lfn_buffer, |entry, lfn| {
+                if entry.attributes.is_volume() {
+                    let mut label_buf = [0u8; 12];
+                    let mut writer = WrapperWriter::new(&mut label_buf);
+                    let _ = core::fmt::write(&mut writer, format_args!("{}", entry.name));
+                    if let Ok(label_str) = core::str::from_utf8(&label_buf) {
+                        let trimmed = label_str.trim_matches('\0').trim();
+                        let mut label = heapless::String::new();
+                        let _ = label.push_str(trimmed);
+                        found_volume_label = Some(label);
+                    }
+                    return;
+                }
+
+                let mut info = FileInfo {
+                    name: [0; 64],
+                    size: entry.size,
+                    is_dir: entry.attributes.is_directory(),
+                };
+                let mut writer = WrapperWriter::new(&mut info.name);
+                if let Some(lfn_str) = lfn {
+                    let _ = core::fmt::write(&mut writer, format_args!("{}", lfn_str));
+                } else {
+                    let _ = core::fmt::write(&mut writer, format_args!("{}", entry.name));
+                }
+
+                let name_len = info.name.iter().position(|&c| c == 0).unwrap_or(info.name.len());
+                if let Ok(name_str) = core::str::from_utf8(&info.name[..name_len]) {
+                    if name_str.starts_with('.') {
+                        return;
+                    }
+                }
+
+                count += 1;
+            });
+            Ok(())
+        });
+        
+        if res.is_ok() && found_volume_label.is_some() {
+            storage.volume_label = found_volume_label;
+        }
+        res.map(|_| count)
+    }
+
+    async fn list_dir_range(
+        &mut self,
+        path: &str,
+        start_index: usize,
+        count: usize,
+        mut callback: impl FnMut(FileInfo),
+    ) -> Result<(), ManagerError> {
+        let mut storage = self.0.lock().await;
+        if storage.det_pin.is_high().map_err(|_| ManagerError::Io)? {
+            return Err(ManagerError::Io);
+        }
+        
+        if path == "/" {
+            storage.volume_label = None;
+        }
+        
+        let mut current_idx = 0;
+        let mut found_volume_label = None;
+        
+        let res = with_dir_path(&mut *storage, path, |dir| {
+            let mut lfn_store = [0u8; 256];
+            let mut lfn_buffer = LfnBuffer::new(&mut lfn_store);
+            let _ = dir.iterate_dir_lfn(&mut lfn_buffer, |entry, lfn| {
+                if entry.attributes.is_volume() {
+                    let mut label_buf = [0u8; 12];
+                    let mut writer = WrapperWriter::new(&mut label_buf);
+                    let _ = core::fmt::write(&mut writer, format_args!("{}", entry.name));
+                    if let Ok(label_str) = core::str::from_utf8(&label_buf) {
+                        let trimmed = label_str.trim_matches('\0').trim();
+                        let mut label = heapless::String::new();
+                        let _ = label.push_str(trimmed);
+                        found_volume_label = Some(label);
+                    }
+                    return;
+                }
+
+                let mut info = FileInfo {
+                    name: [0; 64],
+                    size: entry.size,
+                    is_dir: entry.attributes.is_directory(),
+                };
+                let mut writer = WrapperWriter::new(&mut info.name);
+                if let Some(lfn_str) = lfn {
+                    let _ = core::fmt::write(&mut writer, format_args!("{}", lfn_str));
+                } else {
+                    let _ = core::fmt::write(&mut writer, format_args!("{}", entry.name));
+                }
+
+                let name_len = info.name.iter().position(|&c| c == 0).unwrap_or(info.name.len());
+                if let Ok(name_str) = core::str::from_utf8(&info.name[..name_len]) {
+                    if name_str.starts_with('.') {
+                        return;
+                    }
+                }
+
+                if current_idx >= start_index && current_idx < start_index + count {
+                    callback(info);
+                }
+                
+                current_idx += 1;
+            });
+            Ok(())
+        });
+        
+        if res.is_ok() && found_volume_label.is_some() {
+            storage.volume_label = found_volume_label;
+        }
+        res
+    }
+
     async fn open_file(&mut self, _path: &str) -> Result<(), ManagerError> {
         Ok(())
     }

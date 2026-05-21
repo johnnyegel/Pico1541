@@ -17,7 +17,6 @@ pub struct FileInfo {
     pub size: u32,
     pub is_dir: bool,
 }
-
 pub trait FileStorageDriver {
     type File: embedded_io_async::Read + embedded_io_async::Seek + 'static;
 
@@ -30,9 +29,29 @@ pub trait FileStorageDriver {
     fn volume_label(&self) -> Option<heapless::String<11>> {
         None
     }
-}
 
-/// Driver for the OLED/LCD display.
+    async fn count_dir_entries(&mut self, path: &str) -> Result<usize, Error> {
+        let mut count = 0;
+        self.list_dir(path, |_| count += 1).await?;
+        Ok(count)
+    }
+
+    async fn list_dir_range(
+        &mut self,
+        path: &str,
+        start_index: usize,
+        count: usize,
+        mut callback: impl FnMut(FileInfo),
+    ) -> Result<(), Error> {
+        let mut idx = 0;
+        self.list_dir(path, |info| {
+            if idx >= start_index && idx < start_index + count {
+                callback(info);
+            }
+            idx += 1;
+        }).await
+    }
+}/// Driver for the OLED/LCD display.
 pub trait DisplayDriver {
     async fn clear(&mut self);
     async fn print(&mut self, line: u8, text: &str);

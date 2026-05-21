@@ -21,7 +21,7 @@ use embedded_hal_bus::spi::ExclusiveDevice;
 use pico1541_common::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus, IecBusState};
 use pico1541_common::snooper::{IecSnooper, IecSnoopByteHandler, SnooperConfig};
 use pico1541_common::formats::AnyDiskImage;
-use pico1541_common::storage::{VectorDirectorySource, MemoryStorage, RuntimeStorage};
+use pico1541_common::storage::{PagedDirectorySource, MemoryStorage, RuntimeStorage};
 use pico1541_emulator::Emulator;
 use pico1541_manager::tasks::{
     DisplayTask, DriveActivityTask, KeyboardTask, MainMenuTask, SnooperTask, VirtualDiskTask,
@@ -56,7 +56,7 @@ type MySpiDev = ExclusiveDevice<MySpi, MyCs, MyDelay>;
 type MyDet = Input<'static>;
 type MyFile = SdFileHandle<MySpiDev, MyDelay, MyDet>;
 type MyStorage = RuntimeStorage<'static, MyFile>;
-type MyDir = VectorDirectorySource<32>;
+type MyDir = PagedDirectorySource<48>;
 type MyDisk = AnyDiskImage<MyStorage, MyDir>;
 
 #[embassy_executor::main]
@@ -153,6 +153,7 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
         disk_image_mutex,
         track_for_task,
         MyOpener { storage: StorageWrapper(sd_mutex) },
+        &CURRENT_DIR,
     );
 
     // --- Spawn Core 1 ---
@@ -371,6 +372,51 @@ impl pico1541_manager::tasks::virtual_dir::FileOpener for MyOpener {
             use pico1541_manager::driver::FileStorageDriver;
             let file_handle = self.storage.open_file_handle(full_path.as_str());
             Ok(RuntimeStorage::File(file_handle))
+        }
+    }
+
+    async fn count_dir_entries(&self, path: &str, use_internal: bool) -> Result<usize, pico1541_common::formats::Error> {
+        use pico1541_manager::driver::FileStorageDriver;
+        if use_internal {
+            let mut internal = pico1541_manager::driver::InternalStorage;
+            internal.count_dir_entries(path).await
+        } else {
+            let mut storage = self.storage.clone();
+            storage.count_dir_entries(path).await
+        }
+    }
+
+    async fn list_dir_range(
+        &self,
+        path: &str,
+        use_internal: bool,
+        start_index: usize,
+        count: usize,
+        mut callback: impl FnMut(pico1541_common::storage::DirectoryEntry),
+    ) -> Result<(), pico1541_common::formats::Error> {
+        use pico1541_manager::driver::FileStorageDriver;
+        if use_internal {
+            let mut internal = pico1541_manager::driver::InternalStorage;
+            internal.list_dir_range(path, start_index, count, |info| {
+                let name_len = info.name.iter().position(|&c| c == 0).unwrap_or(info.name.len());
+                let entry = pico1541_common::storage::DirectoryEntry::from_file_info(
+                    &info.name[..name_len],
+                    info.is_dir,
+                    info.size,
+                );
+                callback(entry);
+            }).await
+        } else {
+            let mut storage = self.storage.clone();
+            storage.list_dir_range(path, start_index, count, |info| {
+                let name_len = info.name.iter().position(|&c| c == 0).unwrap_or(info.name.len());
+                let entry = pico1541_common::storage::DirectoryEntry::from_file_info(
+                    &info.name[..name_len],
+                    info.is_dir,
+                    info.size,
+                );
+                callback(entry);
+            }).await
         }
     }
 }

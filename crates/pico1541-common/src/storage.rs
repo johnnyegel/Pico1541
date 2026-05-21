@@ -16,6 +16,18 @@ pub struct DirectoryEntry {
     pub block_size: u16,
 }
 
+impl Default for DirectoryEntry {
+    fn default() -> Self {
+        Self {
+            file_type: 0x82, // PRG
+            filename: [0xA0; 16],
+            first_track: 0,
+            first_sector: 0,
+            block_size: 0,
+        }
+    }
+}
+
 impl DirectoryEntry {
     pub fn new(filename: &[u8], first_track: u8, first_sector: u8, block_size: u16) -> Self {
         let mut entry = Self {
@@ -29,6 +41,44 @@ impl DirectoryEntry {
         entry.filename[..len].copy_from_slice(&filename[..len]);
         entry
     }
+
+    pub fn from_file_info(name: &[u8], is_dir: bool, size: u32) -> Self {
+        let mut filename = [0xA0; 16];
+        let mut len = 0;
+        for &b in name.iter() {
+            if b == 0 || len >= 16 {
+                break;
+            }
+            let c = if b >= b'a' && b <= b'z' {
+                b - b'a' + b'A'
+            } else {
+                b
+            };
+            filename[len] = c;
+            len += 1;
+        }
+        
+        let file_type = if is_dir {
+            0x81 // DIR
+        } else {
+            0x82 // PRG
+        };
+        
+        Self {
+            file_type,
+            filename,
+            first_track: 1,
+            first_sector: 0,
+            block_size: ((size + 253) / 254) as u16,
+        }
+    }
+}
+
+pub trait PagedDirectorySourceTrait {
+    fn current_read_index(&self) -> usize;
+    fn total_count(&self) -> usize;
+    fn loaded_range(&self) -> (usize, usize);
+    fn set_block(&mut self, block_index: usize, entries: &[DirectoryEntry]);
 }
 
 pub trait DirectorySource {
@@ -57,6 +107,9 @@ pub trait DirectorySource {
                 return Some(entry);
             }
         }
+        None
+    }
+    fn as_paged_mut(&mut self) -> Option<&mut dyn PagedDirectorySourceTrait> {
         None
     }
 }
@@ -143,6 +196,107 @@ impl<const N: usize> DirectorySource for VectorDirectorySource<N> {
     }
     fn rewind(&mut self) {
         self.index = 0;
+    }
+}
+
+pub struct PagedDirectorySource<const N: usize = 48> {
+    name: [u8; 16],
+    entries: [DirectoryEntry; N],
+    start_block: usize,
+    end_block: usize,
+    current_read_index: usize,
+    total_count: usize,
+}
+
+impl<const N: usize> PagedDirectorySource<N> {
+    pub fn new(name: &[u8], total_count: usize) -> Self {
+        let mut n = [0xA0; 16];
+        let len = name.len().min(16);
+        n[..len].copy_from_slice(&name[..len]);
+        Self {
+            name: n,
+            entries: [DirectoryEntry::default(); N],
+            start_block: 0,
+            end_block: 0,
+            current_read_index: 0,
+            total_count,
+        }
+    }
+}
+
+impl<const N: usize> PagedDirectorySourceTrait for PagedDirectorySource<N> {
+    fn current_read_index(&self) -> usize {
+        self.current_read_index
+    }
+
+    fn total_count(&self) -> usize {
+        self.total_count
+    }
+
+    fn loaded_range(&self) -> (usize, usize) {
+        (self.start_block, self.end_block)
+    }
+
+    fn set_block(&mut self, block_index: usize, block_entries: &[DirectoryEntry]) {
+        let slot = block_index % 3;
+        let start_slot_idx = slot * 16;
+        for i in 0..16 {
+            if i < block_entries.len() {
+                self.entries[start_slot_idx + i] = block_entries[i];
+            } else {
+                self.entries[start_slot_idx + i] = DirectoryEntry::default();
+            }
+        }
+        
+        if self.start_block == self.end_block {
+            self.start_block = block_index;
+            self.end_block = block_index + 1;
+        } else if block_index == self.end_block {
+            self.end_block += 1;
+            if self.end_block - self.start_block > 3 {
+                self.start_block = self.end_block - 3;
+            }
+        } else if block_index + 1 == self.start_block {
+            self.start_block = block_index;
+            if self.end_block - self.start_block > 3 {
+                self.end_block = self.start_block + 3;
+            }
+        } else if block_index >= self.start_block && block_index < self.end_block {
+            // Already in range, do nothing
+        } else {
+            self.start_block = block_index;
+            self.end_block = block_index + 1;
+        }
+    }
+}
+
+impl<const N: usize> DirectorySource for PagedDirectorySource<N> {
+    fn name(&self) -> &[u8; 16] {
+        &self.name
+    }
+
+    fn next_entry(&mut self) -> Option<DirectoryEntry> {
+        if self.current_read_index < self.total_count {
+            let idx = self.current_read_index;
+            let b = idx / 16;
+            if b >= self.start_block && b < self.end_block {
+                let entry = self.entries[(b % 3) * 16 + (idx % 16)];
+                self.current_read_index += 1;
+                Some(entry)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    fn rewind(&mut self) {
+        self.current_read_index = 0;
+    }
+
+    fn as_paged_mut(&mut self) -> Option<&mut dyn PagedDirectorySourceTrait> {
+        Some(self)
     }
 }
 

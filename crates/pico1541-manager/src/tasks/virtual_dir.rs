@@ -12,6 +12,15 @@ use embassy_sync::mutex::Mutex;
 pub trait FileOpener {
     type FileStorage: embedded_io_async::Read + embedded_io_async::Seek + 'static;
     async fn open_file(&self, name: &str) -> Result<Self::FileStorage, pico1541_common::formats::Error>;
+    async fn count_dir_entries(&self, path: &str, use_internal: bool) -> Result<usize, pico1541_common::formats::Error>;
+    async fn list_dir_range(
+        &self,
+        path: &str,
+        use_internal: bool,
+        start_index: usize,
+        count: usize,
+        callback: impl FnMut(pico1541_common::storage::DirectoryEntry),
+    ) -> Result<(), pico1541_common::formats::Error>;
 }
 
 fn match_c64_filename(entry_name: &[u8; 16], req_name: &[u8]) -> bool {
@@ -73,6 +82,7 @@ pub struct VirtualDiskTask<'a, S: Read + Seek + 'static, D: DirectorySource + 's
     disk_image: &'a Mutex<CriticalSectionRawMutex, Option<AnyDiskImage<S, D>>>,
     active_track: &'a mut ActiveTrack,
     opener: O,
+    current_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
 }
 
 impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<FileStorage = S>> VirtualDiskTask<'a, S, D, O> {
@@ -80,11 +90,13 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
         disk_image: &'a Mutex<CriticalSectionRawMutex, Option<AnyDiskImage<S, D>>>,
         active_track: &'a mut ActiveTrack,
         opener: O,
+        current_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
     ) -> Self {
         Self {
             disk_image,
             active_track,
             opener,
+            current_dir,
         }
     }
 
@@ -95,12 +107,63 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
 
             match select(timer_fut, cmd_fut).await {
                 Either::First(_) => {
-                    // Periodic update of directory buffer
-                    let mut disk_opt = self.disk_image.lock().await;
-                    if let Some(disk) = disk_opt.as_mut() {
-                        if let Some(vdir) = disk.as_virtual_disk_mut() {
-                            let current_idx = self.active_track.current_byte_idx as usize;
-                            vdir.update_dynamic_buffer(current_idx, &mut self.active_track.gcr_data);
+                    let mut block_to_load = None;
+                    {
+                        let mut disk_opt = self.disk_image.lock().await;
+                        if let Some(disk) = disk_opt.as_mut() {
+                            if let Some(vdir) = disk.as_virtual_disk_mut() {
+                                // Periodic update of directory buffer
+                                let current_idx = self.active_track.current_byte_idx as usize;
+                                vdir.update_dynamic_buffer(current_idx, &mut self.active_track.gcr_data);
+
+                                // Background prefetching for paged directory source
+                                if let Some(paged) = vdir.source.as_paged_mut() {
+                                    let current_idx = paged.current_read_index();
+                                    let total_count = paged.total_count();
+                                    let total_blocks = (total_count + 15) / 16;
+                                    let current_block = current_idx / 16;
+                                    let (start_block, end_block) = paged.loaded_range();
+                                    
+                                    for offset in 0..3 {
+                                        let tb = current_block + offset;
+                                        if tb < total_blocks {
+                                            if tb < start_block || tb >= end_block {
+                                                block_to_load = Some(tb);
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if let Some(tb) = block_to_load {
+                        let (path, use_internal) = {
+                            let guard = self.current_dir.lock().await;
+                            (guard.0.clone(), guard.1)
+                        };
+
+                        let mut block_entries = heapless::Vec::<pico1541_common::storage::DirectoryEntry, 16>::new();
+                        let fetch_res = self.opener.list_dir_range(
+                            path.as_str(),
+                            use_internal,
+                            tb * 16,
+                            16,
+                            |entry| {
+                                let _ = block_entries.push(entry);
+                            }
+                        ).await;
+
+                        if fetch_res.is_ok() {
+                            let mut disk_opt = self.disk_image.lock().await;
+                            if let Some(disk) = disk_opt.as_mut() {
+                                if let Some(vdir) = disk.as_virtual_disk_mut() {
+                                    if let Some(paged) = vdir.source.as_paged_mut() {
+                                        paged.set_block(tb, &block_entries);
+                                    }
+                                }
+                            }
                         }
                     }
                 }
