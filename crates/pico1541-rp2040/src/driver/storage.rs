@@ -4,127 +4,29 @@ use pico1541_common::storage::Error as CommonError;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 
-use sdmmc::SD;
-use sdmmc::CSD;
 use hadris_fat::r#async::fs::FatFs;
 use hadris_fat::r#async::dir::DirectoryEntry;
 use hadris_fat::DirEntryAttrFlags;
 use hadris_io::SeekFrom;
+use embedded_hal::digital::{InputPin, OutputPin};
+use embedded_hal_async::spi::SpiBus;
 
-use embedded_timers::clock::Clock;
-use embedded_timers::instant::Instant64;
+use crate::driver::sdcard::{SdCard, SdSpi};
 
-pub struct EmbassyClock;
-
-impl Clock for EmbassyClock {
-    type Instant = Instant64<1_000_000>;
-
-    fn now(&self) -> Self::Instant {
-        Instant64::new(embassy_time::Instant::now().as_micros())
-    }
-}
-
-pub struct EmbassyDelay;
-
-impl sdmmc::delay::Delay for EmbassyDelay {
-    type Future = embassy_time::Timer;
-
-    fn delay_ms(&mut self, ms: u32) -> Self::Future {
-        embassy_time::Timer::after_millis(ms as u64)
-    }
-}
-
-pub trait SdSpiBus {
-    async fn init_bus(&mut self, delay: EmbassyDelay) -> Result<sdmmc::Card, ManagerError>;
-    fn set_high_speed(&mut self);
-}
-
-impl<T, CS, C, I> SdSpiBus for sdmmc::bus::spi::Bus<embassy_rp::spi::Spi<'static, T, embassy_rp::spi::Async>, CS, C>
-where
-    T: embassy_rp::spi::Instance + 'static,
-    CS: embedded_hal::digital::OutputPin + 'static,
-    C: embedded_timers::clock::Clock<Instant = I> + 'static,
-    I: embedded_timers::instant::Instant + 'static,
-{
-    async fn init_bus(&mut self, delay: EmbassyDelay) -> Result<sdmmc::Card, ManagerError> {
-        self.init(delay).await.map_err(|_| ManagerError::Io)
-    }
-
-    fn set_high_speed(&mut self) {
-        self.spi(|spi| {
-            spi.set_frequency(4_000_000);
-        });
-    }
-}
-
-pub struct RefBus<BUS> {
-    bus_ptr: *mut BUS,
-}
-
-unsafe impl<BUS> Send for RefBus<BUS> {}
-unsafe impl<BUS> Sync for RefBus<BUS> {}
-
-impl<BUS> sdmmc::bus::Bus for RefBus<BUS>
-where
-    BUS: sdmmc::bus::Bus,
-{
-    type Error = BUS::Error;
-
-    fn before(&mut self) -> Result<(), sdmmc::bus::Error<Self::Error>> {
-        unsafe { &mut *self.bus_ptr }.before()
-    }
-
-    fn after(&mut self) -> Result<(), sdmmc::bus::Error<Self::Error>> {
-        unsafe { &mut *self.bus_ptr }.after()
-    }
-}
-
-impl<BUS> sdmmc::bus::Read for RefBus<BUS>
-where
-    BUS: sdmmc::bus::Read + sdmmc::bus::Bus<Error = <BUS as sdmmc::bus::Read>::Error> + 'static,
-{
-    type Error = <BUS as sdmmc::bus::Bus>::Error;
-
-    async fn read_csd(&mut self) -> Result<CSD, sdmmc::bus::Error<Self::Error>> {
-        unsafe { &mut *self.bus_ptr }.read_csd().await
-    }
-
-    async fn read<'a, B>(&mut self, block: u32, blocks: B) -> Result<(), sdmmc::bus::Error<Self::Error>>
-    where
-        B: core::iter::ExactSizeIterator<Item = &'a mut [u8; 512]>,
-    {
-        unsafe { &mut *self.bus_ptr }.read(block, blocks).await
-    }
-}
-
-impl<BUS> sdmmc::bus::Write for RefBus<BUS>
-where
-    BUS: sdmmc::bus::Write + sdmmc::bus::Bus<Error = <BUS as sdmmc::bus::Write>::Error> + 'static,
-{
-    type Error = <BUS as sdmmc::bus::Bus>::Error;
-
-    async fn write<'a, B>(&mut self, block: u32, blocks: B) -> Result<(), sdmmc::bus::Error<Self::Error>>
-    where
-        B: core::iter::ExactSizeIterator<Item = &'a [u8; 512]>,
-    {
-        unsafe { &mut *self.bus_ptr }.write(block, blocks).await
-    }
-}
-
-pub struct SdBlockIo<BUS> {
-    sd_ptr: *mut SD<RefBus<BUS>>,
+pub struct SdBlockIo<SPI, CS> {
+    card_ptr: *mut SdCard<SPI, CS>,
     offset: u64,
     cache: [u8; 512],
     cached_sector: Option<u32>,
 }
 
-unsafe impl<BUS> Send for SdBlockIo<BUS> {}
-unsafe impl<BUS> Sync for SdBlockIo<BUS> {}
+unsafe impl<SPI, CS> Send for SdBlockIo<SPI, CS> {}
+unsafe impl<SPI, CS> Sync for SdBlockIo<SPI, CS> {}
 
-impl<BUS> SdBlockIo<BUS> {
-    pub fn new(sd_ptr: *mut SD<RefBus<BUS>>) -> Self {
+impl<SPI, CS> SdBlockIo<SPI, CS> {
+    pub fn new(card_ptr: *mut SdCard<SPI, CS>) -> Self {
         Self {
-            sd_ptr,
+            card_ptr,
             offset: 0,
             cache: [0u8; 512],
             cached_sector: None,
@@ -132,14 +34,15 @@ impl<BUS> SdBlockIo<BUS> {
     }
 }
 
-impl<BUS> hadris_io::r#async::Read for SdBlockIo<BUS>
+impl<SPI, CS> hadris_io::r#async::Read for SdBlockIo<SPI, CS>
 where
-    BUS: sdmmc::bus::Bus + sdmmc::bus::Read<Error = <BUS as sdmmc::bus::Bus>::Error> + sdmmc::bus::Write<Error = <BUS as sdmmc::bus::Bus>::Error> + 'static,
+    SPI: SpiBus<u8> + SdSpi + 'static,
+    CS: OutputPin + 'static,
 {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, hadris_io::Error> {
         let mut total_read = 0;
         let len = buf.len();
-        let sd = unsafe { &mut *self.sd_ptr };
+        let card = unsafe { &mut *self.card_ptr };
         
         while total_read < len {
             let sector = (self.offset / 512) as u32;
@@ -149,8 +52,8 @@ where
             
             if self.cached_sector != Some(sector) {
                 let mut sector_data = [0u8; 512];
-                let blocks = core::iter::once(&mut sector_data);
-                sd.read(sector, blocks).await.map_err(|_| {
+                card.read_block(sector, &mut sector_data).await.map_err(|e| {
+                    defmt::error!("SdBlockIo: read_block failed: {:?}", e);
                     hadris_io::Error::new_static(hadris_io::ErrorKind::Other, "SD read error")
                 })?;
                 self.cache = sector_data;
@@ -168,17 +71,18 @@ where
     }
 }
 
-impl<BUS> hadris_io::r#async::Seek for SdBlockIo<BUS>
+impl<SPI, CS> hadris_io::r#async::Seek for SdBlockIo<SPI, CS>
 where
-    BUS: sdmmc::bus::Bus + sdmmc::bus::Read<Error = <BUS as sdmmc::bus::Bus>::Error> + sdmmc::bus::Write<Error = <BUS as sdmmc::bus::Bus>::Error> + 'static,
+    SPI: SpiBus<u8> + SdSpi + 'static,
+    CS: OutputPin + 'static,
 {
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, hadris_io::Error> {
-        let sd = unsafe { &mut *self.sd_ptr };
+        let card = unsafe { &mut *self.card_ptr };
         let new_offset = match pos {
             SeekFrom::Start(n) => n,
             SeekFrom::Current(n) => (self.offset as i64 + n) as u64,
             SeekFrom::End(n) => {
-                let num_blocks: u64 = sd.num_blocks().into();
+                let num_blocks = card.num_blocks() as u64;
                 let total_bytes = num_blocks * 512;
                 (total_bytes as i64 + n) as u64
             }
@@ -188,14 +92,15 @@ where
     }
 }
 
-impl<BUS> hadris_io::r#async::Write for SdBlockIo<BUS>
+impl<SPI, CS> hadris_io::r#async::Write for SdBlockIo<SPI, CS>
 where
-    BUS: sdmmc::bus::Bus + sdmmc::bus::Read<Error = <BUS as sdmmc::bus::Bus>::Error> + sdmmc::bus::Write<Error = <BUS as sdmmc::bus::Bus>::Error> + 'static,
+    SPI: SpiBus<u8> + SdSpi + 'static,
+    CS: OutputPin + 'static,
 {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, hadris_io::Error> {
         let mut total_written = 0;
         let len = buf.len();
-        let sd = unsafe { &mut *self.sd_ptr };
+        let card = unsafe { &mut *self.card_ptr };
         
         while total_written < len {
             let sector = (self.offset / 512) as u32;
@@ -205,8 +110,7 @@ where
 
             if self.cached_sector != Some(sector) {
                 let mut sector_data = [0u8; 512];
-                let blocks = core::iter::once(&mut sector_data);
-                if sd.read(sector, blocks).await.is_ok() {
+                if card.read_block(sector, &mut sector_data).await.is_ok() {
                     self.cache = sector_data;
                 } else {
                     self.cache = [0u8; 512];
@@ -214,10 +118,11 @@ where
                 self.cached_sector = Some(sector);
             }
 
-            self.cache[offset_in_sector..offset_in_sector + to_copy].copy_from_slice(&buf[total_written..total_written + to_copy]);
+            self.cache[offset_in_sector..offset_in_sector + to_copy]
+                .copy_from_slice(&buf[total_written..total_written + to_copy]);
             
-            let blocks = core::iter::once(&self.cache);
-            sd.write(sector, blocks).await.map_err(|_| {
+            card.write_block(sector, &self.cache).await.map_err(|e| {
+                defmt::error!("SdBlockIo: write_block failed: {:?}", e);
                 hadris_io::Error::new_static(hadris_io::ErrorKind::Other, "SD write error")
             })?;
 
@@ -232,77 +137,61 @@ where
     }
 }
 
-pub struct SdStorage<BUS, DET>
+pub struct SdStorage<SPI, CS, DET>
 where
-    BUS: sdmmc::bus::Bus + sdmmc::bus::Read<Error = <BUS as sdmmc::bus::Bus>::Error> + sdmmc::bus::Write<Error = <BUS as sdmmc::bus::Bus>::Error> + SdSpiBus + 'static,
-    DET: embedded_hal::digital::InputPin + 'static,
+    SPI: SpiBus<u8> + SdSpi + 'static,
+    CS: OutputPin + 'static,
+    DET: InputPin + 'static,
 {
-    pub bus: BUS,
-    pub sd: Option<SD<RefBus<BUS>>>,
-    pub fat_fs: Option<FatFs<SdBlockIo<BUS>>>,
+    pub card: SdCard<SPI, CS>,
+    pub card_init: bool,
+    pub fat_fs: Option<FatFs<SdBlockIo<SPI, CS>>>,
     pub det_pin: DET,
     pub volume_label: Option<heapless::String<11>>,
 }
 
-impl<BUS, DET> SdStorage<BUS, DET>
+impl<SPI, CS, DET> SdStorage<SPI, CS, DET>
 where
-    BUS: sdmmc::bus::Bus + sdmmc::bus::Read<Error = <BUS as sdmmc::bus::Bus>::Error> + sdmmc::bus::Write<Error = <BUS as sdmmc::bus::Bus>::Error> + SdSpiBus + 'static,
-    DET: embedded_hal::digital::InputPin + 'static,
+    SPI: SpiBus<u8> + SdSpi + 'static,
+    CS: OutputPin + 'static,
+    DET: InputPin + 'static,
 {
-    pub fn new(bus: BUS, det_pin: DET) -> Self {
+    pub fn new(spi: SPI, cs: CS, det_pin: DET) -> Self {
         Self {
-            bus,
-            sd: None,
+            card: SdCard::new(spi, cs),
+            card_init: false,
             fat_fs: None,
             det_pin,
             volume_label: None,
         }
     }
 
-    pub async fn ensure_mounted(&mut self) -> Result<&FatFs<SdBlockIo<BUS>>, ManagerError> {
+    pub async fn ensure_mounted(&mut self) -> Result<&FatFs<SdBlockIo<SPI, CS>>, ManagerError> {
         if self.det_pin.is_high().map_err(|_| ManagerError::Io)? {
             self.fat_fs = None;
-            self.sd = None;
+            self.card_init = false;
             return Err(ManagerError::Io);
         }
 
-        if self.fat_fs.is_none() {
-            defmt::info!("SD: initiating card bus...");
-            let card = match self.bus.init_bus(EmbassyDelay).await {
-                Ok(c) => c,
-                Err(e) => {
-                    defmt::error!("SD: init_bus failed: {:?}", defmt::Debug2Format(&e));
-                    return Err(e);
-                }
-            };
-            defmt::info!("SD: init_bus success. Setting high speed...");
-            self.bus.set_high_speed();
+        if self.fat_fs.is_none() || !self.card_init {
+            self.fat_fs = None;
+            self.card_init = false;
             
-            let ref_bus = RefBus { bus_ptr: &mut self.bus as *mut BUS };
-            defmt::info!("SD: initializing SD reader...");
-            let sd = match SD::init(ref_bus, card).await {
-                Ok(s) => s,
-                Err(e) => {
-                    match e {
-                        sdmmc::bus::Error::NoResponse => defmt::error!("SD: SD::init failed: NoResponse"),
-                        sdmmc::bus::Error::NotIdle => defmt::error!("SD: SD::init failed: NotIdle"),
-                        sdmmc::bus::Error::Command(status) => defmt::error!("SD: SD::init failed: Command({:?})", defmt::Debug2Format(&status)),
-                        sdmmc::bus::Error::Transfer(token) => defmt::error!("SD: SD::init failed: Transfer({:?})", defmt::Debug2Format(&token)),
-                        sdmmc::bus::Error::Timeout => defmt::error!("SD: SD::init failed: Timeout"),
-                        sdmmc::bus::Error::Generic => defmt::error!("SD: SD::init failed: Generic"),
-                        _ => defmt::error!("SD: SD::init failed: Bus error or unknown"),
-                    }
-                    return Err(ManagerError::Io);
-                }
-            };
-            self.sd = Some(sd);
+            defmt::info!("SD: initiating card...");
+            if let Err(e) = self.card.init().await {
+                defmt::error!("SD: init failed: {:?}", e);
+                return Err(ManagerError::Io);
+            }
+            self.card_init = true;
+            defmt::info!("SD: card initialized successfully.");
 
-            let block_io = SdBlockIo::new(self.sd.as_mut().unwrap() as *mut SD<RefBus<BUS>>);
+            let block_io = SdBlockIo::new(&mut self.card as *mut SdCard<SPI, CS>);
             defmt::info!("SD: opening FatFs...");
             let fs = match FatFs::open(block_io).await {
                 Ok(f) => f,
                 Err(e) => {
                     defmt::error!("SD: FatFs::open failed: {:?}", defmt::Debug2Format(&e));
+                    self.card_init = false;
                     return Err(ManagerError::Io);
                 }
             };
@@ -314,51 +203,57 @@ where
     }
 }
 
-pub struct StorageWrapper<BUS, DET>(
-    pub &'static Mutex<CriticalSectionRawMutex, SdStorage<BUS, DET>>,
+pub struct StorageWrapper<SPI, CS, DET>(
+    pub &'static Mutex<CriticalSectionRawMutex, SdStorage<SPI, CS, DET>>,
 )
 where
-    BUS: sdmmc::bus::Bus + sdmmc::bus::Read<Error = <BUS as sdmmc::bus::Bus>::Error> + sdmmc::bus::Write<Error = <BUS as sdmmc::bus::Bus>::Error> + SdSpiBus + 'static,
-    DET: embedded_hal::digital::InputPin + 'static;
+    SPI: SpiBus<u8> + SdSpi + 'static,
+    CS: OutputPin + 'static,
+    DET: InputPin + 'static;
 
-impl<BUS, DET> Clone for StorageWrapper<BUS, DET>
+impl<SPI, CS, DET> Clone for StorageWrapper<SPI, CS, DET>
 where
-    BUS: sdmmc::bus::Bus + sdmmc::bus::Read<Error = <BUS as sdmmc::bus::Bus>::Error> + sdmmc::bus::Write<Error = <BUS as sdmmc::bus::Bus>::Error> + SdSpiBus + 'static,
-    DET: embedded_hal::digital::InputPin + 'static,
+    SPI: SpiBus<u8> + SdSpi + 'static,
+    CS: OutputPin + 'static,
+    DET: InputPin + 'static,
 {
     fn clone(&self) -> Self {
         Self(self.0)
     }
 }
 
-impl<BUS, DET> Copy for StorageWrapper<BUS, DET>
+impl<SPI, CS, DET> Copy for StorageWrapper<SPI, CS, DET>
 where
-    BUS: sdmmc::bus::Bus + sdmmc::bus::Read<Error = <BUS as sdmmc::bus::Bus>::Error> + sdmmc::bus::Write<Error = <BUS as sdmmc::bus::Bus>::Error> + SdSpiBus + 'static,
-    DET: embedded_hal::digital::InputPin + 'static,
+    SPI: SpiBus<u8> + SdSpi + 'static,
+    CS: OutputPin + 'static,
+    DET: InputPin + 'static,
 {}
 
-pub struct HadrisFileWrapper<BUS, DET>
+pub struct HadrisFileWrapper<SPI, CS, DET>
 where
-    BUS: sdmmc::bus::Bus + sdmmc::bus::Read<Error = <BUS as sdmmc::bus::Bus>::Error> + sdmmc::bus::Write<Error = <BUS as sdmmc::bus::Bus>::Error> + SdSpiBus + 'static,
-    DET: embedded_hal::digital::InputPin + 'static,
+    SPI: SpiBus<u8> + SdSpi + 'static,
+    CS: OutputPin + 'static,
+    DET: InputPin + 'static,
 {
-    storage: StorageWrapper<BUS, DET>,
+    storage: StorageWrapper<SPI, CS, DET>,
     path: heapless::String<128>,
     offset: u64,
 }
 
-impl<BUS, DET> embedded_io_async::ErrorType for HadrisFileWrapper<BUS, DET>
+impl<SPI, CS, DET> embedded_io_async::ErrorType for HadrisFileWrapper<SPI, CS, DET>
 where
-    BUS: sdmmc::bus::Bus + sdmmc::bus::Read<Error = <BUS as sdmmc::bus::Bus>::Error> + sdmmc::bus::Write<Error = <BUS as sdmmc::bus::Bus>::Error> + SdSpiBus + 'static,
-    DET: embedded_hal::digital::InputPin + 'static,
+    SPI: SpiBus<u8> + SdSpi + 'static,
+    CS: OutputPin + 'static,
+    DET: InputPin + 'static,
 {
     type Error = CommonError;
 }
 
-impl<BUS, DET> embedded_io_async::Read for HadrisFileWrapper<BUS, DET>
+impl<SPI, CS, DET> embedded_io_async::Read for HadrisFileWrapper<SPI, CS, DET>
 where
-    BUS: sdmmc::bus::Bus + sdmmc::bus::Read<Error = <BUS as sdmmc::bus::Bus>::Error> + sdmmc::bus::Write<Error = <BUS as sdmmc::bus::Bus>::Error> + SdSpiBus + 'static,
-    DET: embedded_hal::digital::InputPin + 'static,
+    SPI: SpiBus<u8> + SdSpi + 'static,
+    CS: OutputPin + 'static,
+    DET: InputPin + 'static,
 {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         let mut storage = self.storage.0.lock().await;
@@ -384,10 +279,11 @@ where
     }
 }
 
-impl<BUS, DET> embedded_io_async::Seek for HadrisFileWrapper<BUS, DET>
+impl<SPI, CS, DET> embedded_io_async::Seek for HadrisFileWrapper<SPI, CS, DET>
 where
-    BUS: sdmmc::bus::Bus + sdmmc::bus::Read<Error = <BUS as sdmmc::bus::Bus>::Error> + sdmmc::bus::Write<Error = <BUS as sdmmc::bus::Bus>::Error> + SdSpiBus + 'static,
-    DET: embedded_hal::digital::InputPin + 'static,
+    SPI: SpiBus<u8> + SdSpi + 'static,
+    CS: OutputPin + 'static,
+    DET: InputPin + 'static,
 {
     async fn seek(&mut self, pos: embedded_io_async::SeekFrom) -> Result<u64, Self::Error> {
         match pos {
@@ -405,12 +301,13 @@ where
     }
 }
 
-impl<BUS, DET> FileStorageDriver for StorageWrapper<BUS, DET>
+impl<SPI, CS, DET> FileStorageDriver for StorageWrapper<SPI, CS, DET>
 where
-    BUS: sdmmc::bus::Bus + sdmmc::bus::Read<Error = <BUS as sdmmc::bus::Bus>::Error> + sdmmc::bus::Write<Error = <BUS as sdmmc::bus::Bus>::Error> + SdSpiBus + 'static,
-    DET: embedded_hal::digital::InputPin + 'static,
+    SPI: SpiBus<u8> + SdSpi + 'static,
+    CS: OutputPin + 'static,
+    DET: InputPin + 'static,
 {
-    type File = HadrisFileWrapper<BUS, DET>;
+    type File = HadrisFileWrapper<SPI, CS, DET>;
 
     async fn is_available(&self) -> bool {
         if let Ok(mut storage) = self.0.try_lock() {
@@ -595,10 +492,11 @@ where
     }
 }
 
-impl<BUS, DET> StorageDriver for SdStorage<BUS, DET>
+impl<SPI, CS, DET> StorageDriver for SdStorage<SPI, CS, DET>
 where
-    BUS: sdmmc::bus::Bus + sdmmc::bus::Read<Error = <BUS as sdmmc::bus::Bus>::Error> + sdmmc::bus::Write<Error = <BUS as sdmmc::bus::Bus>::Error> + SdSpiBus + 'static,
-    DET: embedded_hal::digital::InputPin + 'static,
+    SPI: SpiBus<u8> + SdSpi + 'static,
+    CS: OutputPin + 'static,
+    DET: InputPin + 'static,
 {
     async fn read_block(&mut self, _track: u8, _sector: u8, _buf: &mut [u8]) -> Result<(), ManagerError> {
         Ok(())

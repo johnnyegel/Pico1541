@@ -4,3 +4,4 @@ pub mod input;
 pub mod leds;
 pub mod speaker;
 pub mod storage;
+pub mod sdcard;

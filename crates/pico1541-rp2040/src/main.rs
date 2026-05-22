@@ -38,7 +38,8 @@ use crate::driver::indicator::{ActivityIndicator, IndicatorWrapper};
 use crate::driver::input::KeyboardInput;
 use crate::driver::leds::{ActivityLed, StatusLeds, StatusLedsWrapper};
 use crate::driver::speaker::PiezoSpeaker;
-use crate::driver::storage::{HadrisFileWrapper, SdStorage, StorageWrapper, EmbassyClock};
+use crate::driver::storage::{HadrisFileWrapper, SdStorage, StorageWrapper};
+
 
 use static_cell::StaticCell;
 use portable_atomic::Ordering;
@@ -57,9 +58,8 @@ static CORE1_STACK: StaticCell<Stack<16384>> = StaticCell::new();
 
 type MySpi = Spi<'static, SPI1, Async>;
 type MyCs = Output<'static>;
-type MySdBus = sdmmc::bus::spi::Bus<MySpi, MyCs, EmbassyClock>;
 type MyDet = Input<'static>;
-type MyFile = HadrisFileWrapper<MySdBus, MyDet>;
+type MyFile = HadrisFileWrapper<MySpi, MyCs, MyDet>;
 type MyStorage = RuntimeStorage<'static, MyFile>;
 type MyDir = PagedDirectorySource<48>;
 type MyDisk = AnyDiskImage<MyStorage, MyDir>;
@@ -303,7 +303,7 @@ async fn snooper_run(mut task: SnooperTask) {
 }
 
 struct MyOpener {
-    storage: StorageWrapper<MySdBus, MyDet>,
+    storage: StorageWrapper<MySpi, MyCs, MyDet>,
 }
 
 impl pico1541_manager::tasks::virtual_dir::FileOpener for MyOpener {
@@ -406,7 +406,7 @@ async fn menu_run(
         DisplayWrapper<CriticalSectionRawMutex>,
         StatusLedsWrapper<CriticalSectionRawMutex>,
         IndicatorWrapper<CriticalSectionRawMutex>,
-        StorageWrapper<MySdBus, MyDet>,
+        StorageWrapper<MySpi, MyCs, MyDet>,
         MyFile,
     >,
 ) {
@@ -518,16 +518,15 @@ async fn core1_init_task(
     static STATUS_LEDS: StaticCell<Mutex<CriticalSectionRawMutex, StatusLeds>> = StaticCell::new();
     let status_leds_mutex = STATUS_LEDS.init(Mutex::new(status_leds_obj));
 
-    // 4. SD Card (SPI1)
+    // 4. SD Card (SPI1) — start at any frequency; SdCard::init() forces 400kHz itself
     let cs = Output::new(pins.cs, Level::High);
     let det = Input::new(pins.det, Pull::Up);
     let mut spi_config = SpiConfig::default();
-    spi_config.frequency = 400_000; // Start slow for SD init
+    spi_config.frequency = 400_000;
     let spi = Spi::new(pins.spi1, pins.clk, pins.mosi, pins.miso, pins.dma_ch0, pins.dma_ch1, Irqs, spi_config);
-    let sd_bus = sdmmc::bus::spi::Bus::new(spi, cs, EmbassyClock);
 
-    static SD_STORAGE: StaticCell<Mutex<CriticalSectionRawMutex, SdStorage<MySdBus, MyDet>>> = StaticCell::new();
-    let sd_obj = SdStorage::new(sd_bus, det);
+    static SD_STORAGE: StaticCell<Mutex<CriticalSectionRawMutex, SdStorage<MySpi, MyCs, MyDet>>> = StaticCell::new();
+    let sd_obj = SdStorage::new(spi, cs, det);
     let sd_mutex = SD_STORAGE.init(Mutex::new(sd_obj));
 
     // 5. Keyboard Matrix
