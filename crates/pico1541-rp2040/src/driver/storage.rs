@@ -36,17 +36,24 @@ impl sdmmc::delay::Delay for EmbassyDelay {
 
 pub trait SdSpiBus {
     async fn init_bus(&mut self, delay: EmbassyDelay) -> Result<sdmmc::Card, ManagerError>;
+    fn set_high_speed(&mut self);
 }
 
-impl<E, F, SPI, CS, C, I> SdSpiBus for sdmmc::bus::spi::Bus<SPI, CS, C>
+impl<T, CS, C, I> SdSpiBus for sdmmc::bus::spi::Bus<embassy_rp::spi::Spi<'static, T, embassy_rp::spi::Async>, CS, C>
 where
-    SPI: sdmmc::bus::spi::Transfer<Error = E> + 'static,
-    CS: embedded_hal::digital::OutputPin<Error = F> + 'static,
+    T: embassy_rp::spi::Instance + 'static,
+    CS: embedded_hal::digital::OutputPin + 'static,
     C: embedded_timers::clock::Clock<Instant = I> + 'static,
     I: embedded_timers::instant::Instant + 'static,
 {
     async fn init_bus(&mut self, delay: EmbassyDelay) -> Result<sdmmc::Card, ManagerError> {
         self.init(delay).await.map_err(|_| ManagerError::Io)
+    }
+
+    fn set_high_speed(&mut self) {
+        self.spi(|spi| {
+            spi.set_frequency(4_000_000);
+        });
     }
 }
 
@@ -260,14 +267,47 @@ where
         }
 
         if self.fat_fs.is_none() {
-            let card = self.bus.init_bus(EmbassyDelay).await?;
+            defmt::info!("SD: initiating card bus...");
+            let card = match self.bus.init_bus(EmbassyDelay).await {
+                Ok(c) => c,
+                Err(e) => {
+                    defmt::error!("SD: init_bus failed: {:?}", defmt::Debug2Format(&e));
+                    return Err(e);
+                }
+            };
+            defmt::info!("SD: init_bus success. Setting high speed...");
+            self.bus.set_high_speed();
+            
             let ref_bus = RefBus { bus_ptr: &mut self.bus as *mut BUS };
-            let sd = SD::init(ref_bus, card).await.map_err(|_| ManagerError::Io)?;
+            defmt::info!("SD: initializing SD reader...");
+            let sd = match SD::init(ref_bus, card).await {
+                Ok(s) => s,
+                Err(e) => {
+                    match e {
+                        sdmmc::bus::Error::NoResponse => defmt::error!("SD: SD::init failed: NoResponse"),
+                        sdmmc::bus::Error::NotIdle => defmt::error!("SD: SD::init failed: NotIdle"),
+                        sdmmc::bus::Error::Command(status) => defmt::error!("SD: SD::init failed: Command({:?})", defmt::Debug2Format(&status)),
+                        sdmmc::bus::Error::Transfer(token) => defmt::error!("SD: SD::init failed: Transfer({:?})", defmt::Debug2Format(&token)),
+                        sdmmc::bus::Error::Timeout => defmt::error!("SD: SD::init failed: Timeout"),
+                        sdmmc::bus::Error::Generic => defmt::error!("SD: SD::init failed: Generic"),
+                        _ => defmt::error!("SD: SD::init failed: Bus error or unknown"),
+                    }
+                    return Err(ManagerError::Io);
+                }
+            };
             self.sd = Some(sd);
 
             let block_io = SdBlockIo::new(self.sd.as_mut().unwrap() as *mut SD<RefBus<BUS>>);
-            let fs = FatFs::open(block_io).await.map_err(|_| ManagerError::Io)?;
+            defmt::info!("SD: opening FatFs...");
+            let fs = match FatFs::open(block_io).await {
+                Ok(f) => f,
+                Err(e) => {
+                    defmt::error!("SD: FatFs::open failed: {:?}", defmt::Debug2Format(&e));
+                    return Err(ManagerError::Io);
+                }
+            };
             self.fat_fs = Some(fs);
+            defmt::info!("SD: mounted successfully!");
         }
 
         Ok(self.fat_fs.as_ref().unwrap())

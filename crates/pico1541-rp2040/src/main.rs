@@ -102,95 +102,45 @@ SNOOPER_CONFIG.diag_startup_ticks.store(startup_ticks, Ordering::Relaxed);
 info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_ticks);
 
 
-    let stack = CORE1_STACK.init(Stack::new());
-
-    // 1. OLED Display (I2C)
-    let sda = p.PIN_4;
-    let scl = p.PIN_5;
-    let i2c = embassy_rp::i2c::I2c::new_async(p.I2C0, scl, sda, Irqs, Config::default());
-
-    static OLED: StaticCell<Mutex<CriticalSectionRawMutex, OledDisplay>> = StaticCell::new();
-    let mut oled_obj = OledDisplay::new(i2c);
-    oled_obj.init().await;
-    let oled_mutex = OLED.init(Mutex::new(oled_obj));
-
-    // 2. Indicators (Piezo + LEDs)
-    let activity_led = ActivityLed::new(p.PIN_22, p.PIN_3);
-    let piezo = PiezoSpeaker::new(p.PIN_2);
-    let indicator = ActivityIndicator::new(activity_led, piezo);
-
-    static INDICATOR: StaticCell<Mutex<CriticalSectionRawMutex, ActivityIndicator>> =
-        StaticCell::new();
-    let indicator_mutex = INDICATOR.init(Mutex::new(indicator));
-    let activity_task = DriveActivityTask::new(IndicatorWrapper(indicator_mutex));
-
-    // 3. RGB Status LEDs (Used in Hardware Test via Main Menu)
-    let status_leds_obj = StatusLeds::new(p.PIN_26, p.PIN_27, p.PIN_28);
-    static STATUS_LEDS: StaticCell<Mutex<CriticalSectionRawMutex, StatusLeds>> = StaticCell::new();
-    let status_leds_mutex = STATUS_LEDS.init(Mutex::new(status_leds_obj));
-
-    // 4. SD Card (SPI1)
-    let mosi = p.PIN_15;
-    let miso = p.PIN_12;
-    let clk = p.PIN_14;
-    let cs = Output::new(p.PIN_13, Level::High);
-    let det = Input::new(p.PIN_11, Pull::Up);
-    let mut spi_config = SpiConfig::default();
-    spi_config.frequency = 400_000; // Start slow for SD init
-    let spi = Spi::new(p.SPI1, clk, mosi, miso, p.DMA_CH0, p.DMA_CH1, Irqs, spi_config);
-    let sd_bus = sdmmc::bus::spi::Bus::new(spi, cs, EmbassyClock);
-
-    static SD_STORAGE: StaticCell<Mutex<CriticalSectionRawMutex, SdStorage<MySdBus, MyDet>>> = StaticCell::new();
-    let sd_obj = SdStorage::new(sd_bus, det);
-    let sd_mutex = SD_STORAGE.init(Mutex::new(sd_obj));
-
-    // 5. Keyboard Matrix
-    let keyboard = KeyboardInput::new(p.PIN_6, p.PIN_7, p.PIN_8, p.PIN_9);
-    let keyboard_task = KeyboardTask::new(keyboard);
-
-    // 6. Display Task
-    let display_task = DisplayTask::new(DisplayWrapper(oled_mutex));
-
-    // 7. Snooper Task
-    let snooper_task = SnooperTask::new(8);
-
-    // 8. Storage (Starts unmounted)
-    static DISK_IMAGE: StaticCell<Mutex<CriticalSectionRawMutex, Option<MyDisk>>> = StaticCell::new();
-    let disk_image_mutex = DISK_IMAGE.init(Mutex::new(None));
-
     // Shared ActiveTrack buffer
     static ACTIVE_TRACK: StaticCell<ActiveTrack> = StaticCell::new();
     let track_ptr = ACTIVE_TRACK.init(ActiveTrack::new()) as *mut ActiveTrack;
 
-    let track_for_task = unsafe { &mut *track_ptr };
-    let vdisk_task = VirtualDiskTask::new(
-        disk_image_mutex,
-        track_for_task,
-        MyOpener { storage: StorageWrapper(sd_mutex) },
-        &CURRENT_DIR,
-    );
+    let stack = CORE1_STACK.init(Stack::new());
+
+    // Pack peripherals for Core 1
+    let core1_pins = Core1Pins {
+        i2c0: p.I2C0.into(),
+        sda: p.PIN_4.into(),
+        scl: p.PIN_5.into(),
+        piezo: p.PIN_2.into(),
+        led_pin1: p.PIN_22.into(),
+        led_pin2: p.PIN_3.into(),
+        rgb_red: p.PIN_26.into(),
+        rgb_green: p.PIN_27.into(),
+        rgb_blue: p.PIN_28.into(),
+        spi1: p.SPI1.into(),
+        clk: p.PIN_14.into(),
+        mosi: p.PIN_15.into(),
+        miso: p.PIN_12.into(),
+        cs: p.PIN_13.into(),
+        det: p.PIN_11.into(),
+        dma_ch0: p.DMA_CH0.into(),
+        dma_ch1: p.DMA_CH1.into(),
+        kbd_row1: p.PIN_6.into(),
+        kbd_row2: p.PIN_7.into(),
+        kbd_col1: p.PIN_8.into(),
+        kbd_col2: p.PIN_9.into(),
+        pin25: p.PIN_25.into(),
+    };
+
+    let track_addr = track_ptr as usize;
 
     // --- Spawn Core 1 ---
-    let menu_task = MainMenuTask::new(
-        DisplayWrapper(oled_mutex),
-        StatusLedsWrapper(status_leds_mutex),
-        IndicatorWrapper(indicator_mutex),
-        StorageWrapper(sd_mutex),
-        disk_image_mutex,
-        &CURRENT_DIR,
-        &SNOOPER_CONFIG,
-    );
-    let pin25 = p.PIN_25;
-
     embassy_rp::multicore::spawn_core1(p.CORE1, stack, move || {
         core1_main(
-            menu_task,
-            activity_task,
-            keyboard_task,
-            display_task,
-            snooper_task,
-            vdisk_task,
-            pin25,
+            core1_pins,
+            track_addr,
             &SNOOPER_CONFIG,
         );
     });
@@ -504,34 +454,134 @@ async fn core1_load_run(config: &'static SnooperConfig) {
     }
 }
 
+pub struct Core1Pins {
+    pub i2c0: embassy_rp::Peri<'static, embassy_rp::peripherals::I2C0>,
+    pub sda: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_4>,
+    pub scl: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_5>,
+
+    pub piezo: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_2>,
+    pub led_pin1: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_22>,
+    pub led_pin2: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_3>,
+
+    pub rgb_red: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_26>,
+    pub rgb_green: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_27>,
+    pub rgb_blue: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_28>,
+
+    pub spi1: embassy_rp::Peri<'static, embassy_rp::peripherals::SPI1>,
+    pub clk: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_14>,
+    pub mosi: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_15>,
+    pub miso: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_12>,
+    pub cs: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_13>,
+    pub det: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_11>,
+    pub dma_ch0: embassy_rp::Peri<'static, embassy_rp::peripherals::DMA_CH0>,
+    pub dma_ch1: embassy_rp::Peri<'static, embassy_rp::peripherals::DMA_CH1>,
+
+    pub kbd_row1: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_6>,
+    pub kbd_row2: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_7>,
+    pub kbd_col1: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_8>,
+    pub kbd_col2: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_9>,
+
+    pub pin25: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_25>,
+}
+
+#[embassy_executor::task]
+async fn core1_init_task(
+    spawner: Spawner,
+    pins: Core1Pins,
+    track_addr: usize,
+    config: &'static SnooperConfig,
+) {
+    let track_ptr = track_addr as *mut ActiveTrack;
+
+    // 1. OLED Display (I2C)
+    let sda = pins.sda;
+    let scl = pins.scl;
+    let i2c = embassy_rp::i2c::I2c::new_async(pins.i2c0, scl, sda, Irqs, Config::default());
+
+    static OLED: StaticCell<Mutex<CriticalSectionRawMutex, OledDisplay>> = StaticCell::new();
+    let mut oled_obj = OledDisplay::new(i2c);
+    oled_obj.init().await;
+    let oled_mutex = OLED.init(Mutex::new(oled_obj));
+
+    // 2. Indicators (Piezo + LEDs)
+    let activity_led = ActivityLed::new(pins.led_pin1, pins.led_pin2);
+    let piezo = PiezoSpeaker::new(pins.piezo);
+    let indicator = ActivityIndicator::new(activity_led, piezo);
+
+    static INDICATOR: StaticCell<Mutex<CriticalSectionRawMutex, ActivityIndicator>> =
+        StaticCell::new();
+    let indicator_mutex = INDICATOR.init(Mutex::new(indicator));
+    let activity_task = DriveActivityTask::new(IndicatorWrapper(indicator_mutex));
+
+    // 3. RGB Status LEDs (Used in Hardware Test via Main Menu)
+    let status_leds_obj = StatusLeds::new(pins.rgb_red, pins.rgb_green, pins.rgb_blue);
+    static STATUS_LEDS: StaticCell<Mutex<CriticalSectionRawMutex, StatusLeds>> = StaticCell::new();
+    let status_leds_mutex = STATUS_LEDS.init(Mutex::new(status_leds_obj));
+
+    // 4. SD Card (SPI1)
+    let cs = Output::new(pins.cs, Level::High);
+    let det = Input::new(pins.det, Pull::Up);
+    let mut spi_config = SpiConfig::default();
+    spi_config.frequency = 400_000; // Start slow for SD init
+    let spi = Spi::new(pins.spi1, pins.clk, pins.mosi, pins.miso, pins.dma_ch0, pins.dma_ch1, Irqs, spi_config);
+    let sd_bus = sdmmc::bus::spi::Bus::new(spi, cs, EmbassyClock);
+
+    static SD_STORAGE: StaticCell<Mutex<CriticalSectionRawMutex, SdStorage<MySdBus, MyDet>>> = StaticCell::new();
+    let sd_obj = SdStorage::new(sd_bus, det);
+    let sd_mutex = SD_STORAGE.init(Mutex::new(sd_obj));
+
+    // 5. Keyboard Matrix
+    let keyboard = KeyboardInput::new(pins.kbd_row1, pins.kbd_row2, pins.kbd_col1, pins.kbd_col2);
+    let keyboard_task = KeyboardTask::new(keyboard);
+
+    // 6. Display Task
+    let display_task = DisplayTask::new(DisplayWrapper(oled_mutex));
+
+    // 7. Snooper Task
+    let snooper_task = SnooperTask::new(8);
+
+    // 8. Storage (Starts unmounted)
+    static DISK_IMAGE: StaticCell<Mutex<CriticalSectionRawMutex, Option<MyDisk>>> = StaticCell::new();
+    let disk_image_mutex = DISK_IMAGE.init(Mutex::new(None));
+
+    let track_for_task = unsafe { &mut *track_ptr };
+    let vdisk_task = VirtualDiskTask::new(
+        disk_image_mutex,
+        track_for_task,
+        MyOpener { storage: StorageWrapper(sd_mutex) },
+        &CURRENT_DIR,
+    );
+
+    let menu_task = MainMenuTask::new(
+        DisplayWrapper(oled_mutex),
+        StatusLedsWrapper(status_leds_mutex),
+        IndicatorWrapper(indicator_mutex),
+        StorageWrapper(sd_mutex),
+        disk_image_mutex,
+        &CURRENT_DIR,
+        config,
+    );
+
+    spawner.spawn(menu_run(menu_task).unwrap());
+    spawner.spawn(activity_run(activity_task).unwrap());
+    spawner.spawn(keyboard_run(keyboard_task).unwrap());
+    spawner.spawn(display_run(display_task).unwrap());
+    spawner.spawn(snooper_run(snooper_task).unwrap());
+    spawner.spawn(vdisk_run(vdisk_task).unwrap());
+    spawner.spawn(blinky(pins.pin25).unwrap());
+    spawner.spawn(core1_load_run(config).unwrap());
+}
+
 fn core1_main(
-    menu_task: MainMenuTask<
-        DisplayWrapper<CriticalSectionRawMutex>,
-        StatusLedsWrapper<CriticalSectionRawMutex>,
-        IndicatorWrapper<CriticalSectionRawMutex>,
-        StorageWrapper<MySdBus, MyDet>,
-        MyFile,
-    >,
-    activity_task: DriveActivityTask<IndicatorWrapper<CriticalSectionRawMutex>>,
-    keyboard_task: KeyboardTask<KeyboardInput>,
-    display_task: DisplayTask<DisplayWrapper<CriticalSectionRawMutex>>,
-    snooper_task: SnooperTask,
-    vdisk_task: VirtualDiskTask<'static, MyStorage, MyDir, MyOpener>,
-    pin25: Peri<'static, PIN_25>,
+    pins: Core1Pins,
+    track_addr: usize,
     config: &'static SnooperConfig,
 ) -> ! {
     static EXECUTOR: StaticCell<embassy_executor::Executor> = StaticCell::new();
     let executor = EXECUTOR.init(embassy_executor::Executor::new());
 
     executor.run(|spawner| {
-        spawner.spawn(menu_run(menu_task).unwrap());
-        spawner.spawn(activity_run(activity_task).unwrap());
-        spawner.spawn(keyboard_run(keyboard_task).unwrap());
-        spawner.spawn(display_run(display_task).unwrap());
-        spawner.spawn(snooper_run(snooper_task).unwrap());
-        spawner.spawn(vdisk_run(vdisk_task).unwrap());
-        spawner.spawn(blinky(pin25).unwrap());
-        spawner.spawn(core1_load_run(config).unwrap());
+        spawner.spawn(core1_init_task(spawner, pins, track_addr, config).unwrap());
     })
 }
 
