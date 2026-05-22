@@ -1,176 +1,363 @@
-use embedded_sdmmc::{SdCard, TimeSource, Timestamp, VolumeManager, VolumeIdx, Mode, ShortFileName, Directory, LfnBuffer};
 use pico1541_manager::driver::{StorageDriver, FileStorageDriver, FileInfo};
 use pico1541_common::formats::Error as ManagerError;
 use pico1541_common::storage::Error as CommonError;
-use embedded_io_async::{Read, Seek, SeekFrom, ErrorType};
-use heapless::String;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::mutex::Mutex;
 
-pub struct DummyTimeSource;
+use sdmmc::SD;
+use sdmmc::CSD;
+use hadris_fat::r#async::fs::FatFs;
+use hadris_fat::r#async::dir::DirectoryEntry;
+use hadris_fat::DirEntryAttrFlags;
+use hadris_io::SeekFrom;
 
-impl TimeSource for DummyTimeSource {
-    fn get_timestamp(&self) -> Timestamp {
-        Timestamp {
-            year_since_1970: 56, // 2026
-            zero_indexed_month: 4, // May
-            zero_indexed_day: 12,
-            hours: 0,
-            minutes: 0,
-            seconds: 0,
+use embedded_timers::clock::Clock;
+use embedded_timers::instant::Instant64;
+
+pub struct EmbassyClock;
+
+impl Clock for EmbassyClock {
+    type Instant = Instant64<1_000_000>;
+
+    fn now(&self) -> Self::Instant {
+        Instant64::new(embassy_time::Instant::now().as_micros())
+    }
+}
+
+pub struct EmbassyDelay;
+
+impl sdmmc::delay::Delay for EmbassyDelay {
+    type Future = embassy_time::Timer;
+
+    fn delay_ms(&mut self, ms: u32) -> Self::Future {
+        embassy_time::Timer::after_millis(ms as u64)
+    }
+}
+
+pub trait SdSpiBus {
+    async fn init_bus(&mut self, delay: EmbassyDelay) -> Result<sdmmc::Card, ManagerError>;
+}
+
+impl<E, F, SPI, CS, C, I> SdSpiBus for sdmmc::bus::spi::Bus<SPI, CS, C>
+where
+    SPI: sdmmc::bus::spi::Transfer<Error = E> + 'static,
+    CS: embedded_hal::digital::OutputPin<Error = F> + 'static,
+    C: embedded_timers::clock::Clock<Instant = I> + 'static,
+    I: embedded_timers::instant::Instant + 'static,
+{
+    async fn init_bus(&mut self, delay: EmbassyDelay) -> Result<sdmmc::Card, ManagerError> {
+        self.init(delay).await.map_err(|_| ManagerError::Io)
+    }
+}
+
+pub struct RefBus<BUS> {
+    bus_ptr: *mut BUS,
+}
+
+unsafe impl<BUS> Send for RefBus<BUS> {}
+unsafe impl<BUS> Sync for RefBus<BUS> {}
+
+impl<BUS> sdmmc::bus::Bus for RefBus<BUS>
+where
+    BUS: sdmmc::bus::Bus,
+{
+    type Error = BUS::Error;
+
+    fn before(&mut self) -> Result<(), sdmmc::bus::Error<Self::Error>> {
+        unsafe { &mut *self.bus_ptr }.before()
+    }
+
+    fn after(&mut self) -> Result<(), sdmmc::bus::Error<Self::Error>> {
+        unsafe { &mut *self.bus_ptr }.after()
+    }
+}
+
+impl<BUS> sdmmc::bus::Read for RefBus<BUS>
+where
+    BUS: sdmmc::bus::Read + sdmmc::bus::Bus<Error = <BUS as sdmmc::bus::Read>::Error> + 'static,
+{
+    type Error = <BUS as sdmmc::bus::Bus>::Error;
+
+    async fn read_csd(&mut self) -> Result<CSD, sdmmc::bus::Error<Self::Error>> {
+        unsafe { &mut *self.bus_ptr }.read_csd().await
+    }
+
+    async fn read<'a, B>(&mut self, block: u32, blocks: B) -> Result<(), sdmmc::bus::Error<Self::Error>>
+    where
+        B: core::iter::ExactSizeIterator<Item = &'a mut [u8; 512]>,
+    {
+        unsafe { &mut *self.bus_ptr }.read(block, blocks).await
+    }
+}
+
+impl<BUS> sdmmc::bus::Write for RefBus<BUS>
+where
+    BUS: sdmmc::bus::Write + sdmmc::bus::Bus<Error = <BUS as sdmmc::bus::Write>::Error> + 'static,
+{
+    type Error = <BUS as sdmmc::bus::Bus>::Error;
+
+    async fn write<'a, B>(&mut self, block: u32, blocks: B) -> Result<(), sdmmc::bus::Error<Self::Error>>
+    where
+        B: core::iter::ExactSizeIterator<Item = &'a [u8; 512]>,
+    {
+        unsafe { &mut *self.bus_ptr }.write(block, blocks).await
+    }
+}
+
+pub struct SdBlockIo<BUS> {
+    sd_ptr: *mut SD<RefBus<BUS>>,
+    offset: u64,
+    cache: [u8; 512],
+    cached_sector: Option<u32>,
+}
+
+unsafe impl<BUS> Send for SdBlockIo<BUS> {}
+unsafe impl<BUS> Sync for SdBlockIo<BUS> {}
+
+impl<BUS> SdBlockIo<BUS> {
+    pub fn new(sd_ptr: *mut SD<RefBus<BUS>>) -> Self {
+        Self {
+            sd_ptr,
+            offset: 0,
+            cache: [0u8; 512],
+            cached_sector: None,
         }
     }
 }
 
-pub struct SdStorage<SPI, D, DET> 
-where 
-    SPI: embedded_hal::spi::SpiDevice,
-    D: embedded_hal::delay::DelayNs,
-    DET: embedded_hal::digital::InputPin
+impl<BUS> hadris_io::r#async::Read for SdBlockIo<BUS>
+where
+    BUS: sdmmc::bus::Bus + sdmmc::bus::Read<Error = <BUS as sdmmc::bus::Bus>::Error> + sdmmc::bus::Write<Error = <BUS as sdmmc::bus::Bus>::Error> + 'static,
 {
-    pub volume_mgr: VolumeManager<SdCard<SPI, D>, DummyTimeSource>,
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, hadris_io::Error> {
+        let mut total_read = 0;
+        let len = buf.len();
+        let sd = unsafe { &mut *self.sd_ptr };
+        
+        while total_read < len {
+            let sector = (self.offset / 512) as u32;
+            let offset_in_sector = (self.offset % 512) as usize;
+            let bytes_avail = 512 - offset_in_sector;
+            let to_copy = (len - total_read).min(bytes_avail);
+            
+            if self.cached_sector != Some(sector) {
+                let mut sector_data = [0u8; 512];
+                let blocks = core::iter::once(&mut sector_data);
+                sd.read(sector, blocks).await.map_err(|_| {
+                    hadris_io::Error::new_static(hadris_io::ErrorKind::Other, "SD read error")
+                })?;
+                self.cache = sector_data;
+                self.cached_sector = Some(sector);
+            }
+            
+            let src = &self.cache[offset_in_sector..offset_in_sector + to_copy];
+            buf[total_read..total_read + to_copy].copy_from_slice(src);
+            
+            self.offset += to_copy as u64;
+            total_read += to_copy;
+        }
+        
+        Ok(total_read)
+    }
+}
+
+impl<BUS> hadris_io::r#async::Seek for SdBlockIo<BUS>
+where
+    BUS: sdmmc::bus::Bus + sdmmc::bus::Read<Error = <BUS as sdmmc::bus::Bus>::Error> + sdmmc::bus::Write<Error = <BUS as sdmmc::bus::Bus>::Error> + 'static,
+{
+    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, hadris_io::Error> {
+        let sd = unsafe { &mut *self.sd_ptr };
+        let new_offset = match pos {
+            SeekFrom::Start(n) => n,
+            SeekFrom::Current(n) => (self.offset as i64 + n) as u64,
+            SeekFrom::End(n) => {
+                let num_blocks: u64 = sd.num_blocks().into();
+                let total_bytes = num_blocks * 512;
+                (total_bytes as i64 + n) as u64
+            }
+        };
+        self.offset = new_offset;
+        Ok(new_offset)
+    }
+}
+
+impl<BUS> hadris_io::r#async::Write for SdBlockIo<BUS>
+where
+    BUS: sdmmc::bus::Bus + sdmmc::bus::Read<Error = <BUS as sdmmc::bus::Bus>::Error> + sdmmc::bus::Write<Error = <BUS as sdmmc::bus::Bus>::Error> + 'static,
+{
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, hadris_io::Error> {
+        let mut total_written = 0;
+        let len = buf.len();
+        let sd = unsafe { &mut *self.sd_ptr };
+        
+        while total_written < len {
+            let sector = (self.offset / 512) as u32;
+            let offset_in_sector = (self.offset % 512) as usize;
+            let bytes_avail = 512 - offset_in_sector;
+            let to_copy = (len - total_written).min(bytes_avail);
+
+            if self.cached_sector != Some(sector) {
+                let mut sector_data = [0u8; 512];
+                let blocks = core::iter::once(&mut sector_data);
+                if sd.read(sector, blocks).await.is_ok() {
+                    self.cache = sector_data;
+                } else {
+                    self.cache = [0u8; 512];
+                }
+                self.cached_sector = Some(sector);
+            }
+
+            self.cache[offset_in_sector..offset_in_sector + to_copy].copy_from_slice(&buf[total_written..total_written + to_copy]);
+            
+            let blocks = core::iter::once(&self.cache);
+            sd.write(sector, blocks).await.map_err(|_| {
+                hadris_io::Error::new_static(hadris_io::ErrorKind::Other, "SD write error")
+            })?;
+
+            self.offset += to_copy as u64;
+            total_written += to_copy;
+        }
+        Ok(total_written)
+    }
+
+    async fn flush(&mut self) -> Result<(), hadris_io::Error> {
+        Ok(())
+    }
+}
+
+pub struct SdStorage<BUS, DET>
+where
+    BUS: sdmmc::bus::Bus + sdmmc::bus::Read<Error = <BUS as sdmmc::bus::Bus>::Error> + sdmmc::bus::Write<Error = <BUS as sdmmc::bus::Bus>::Error> + SdSpiBus + 'static,
+    DET: embedded_hal::digital::InputPin + 'static,
+{
+    pub bus: BUS,
+    pub sd: Option<SD<RefBus<BUS>>>,
+    pub fat_fs: Option<FatFs<SdBlockIo<BUS>>>,
     pub det_pin: DET,
     pub volume_label: Option<heapless::String<11>>,
 }
 
-pub struct StorageWrapper<SPI, D, DET>(
-    pub &'static embassy_sync::mutex::Mutex<embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex, SdStorage<SPI, D, DET>>,
+impl<BUS, DET> SdStorage<BUS, DET>
+where
+    BUS: sdmmc::bus::Bus + sdmmc::bus::Read<Error = <BUS as sdmmc::bus::Bus>::Error> + sdmmc::bus::Write<Error = <BUS as sdmmc::bus::Bus>::Error> + SdSpiBus + 'static,
+    DET: embedded_hal::digital::InputPin + 'static,
+{
+    pub fn new(bus: BUS, det_pin: DET) -> Self {
+        Self {
+            bus,
+            sd: None,
+            fat_fs: None,
+            det_pin,
+            volume_label: None,
+        }
+    }
+
+    pub async fn ensure_mounted(&mut self) -> Result<&FatFs<SdBlockIo<BUS>>, ManagerError> {
+        if self.det_pin.is_high().map_err(|_| ManagerError::Io)? {
+            self.fat_fs = None;
+            self.sd = None;
+            return Err(ManagerError::Io);
+        }
+
+        if self.fat_fs.is_none() {
+            let card = self.bus.init_bus(EmbassyDelay).await?;
+            let ref_bus = RefBus { bus_ptr: &mut self.bus as *mut BUS };
+            let sd = SD::init(ref_bus, card).await.map_err(|_| ManagerError::Io)?;
+            self.sd = Some(sd);
+
+            let block_io = SdBlockIo::new(self.sd.as_mut().unwrap() as *mut SD<RefBus<BUS>>);
+            let fs = FatFs::open(block_io).await.map_err(|_| ManagerError::Io)?;
+            self.fat_fs = Some(fs);
+        }
+
+        Ok(self.fat_fs.as_ref().unwrap())
+    }
+}
+
+pub struct StorageWrapper<BUS, DET>(
+    pub &'static Mutex<CriticalSectionRawMutex, SdStorage<BUS, DET>>,
 )
-where 
-    SPI: embedded_hal::spi::SpiDevice + 'static,
-    D: embedded_hal::delay::DelayNs + 'static,
+where
+    BUS: sdmmc::bus::Bus + sdmmc::bus::Read<Error = <BUS as sdmmc::bus::Bus>::Error> + sdmmc::bus::Write<Error = <BUS as sdmmc::bus::Bus>::Error> + SdSpiBus + 'static,
     DET: embedded_hal::digital::InputPin + 'static;
 
-impl<SPI, D, DET> Clone for StorageWrapper<SPI, D, DET>
-where 
-    SPI: embedded_hal::spi::SpiDevice + 'static,
-    D: embedded_hal::delay::DelayNs + 'static,
-    DET: embedded_hal::digital::InputPin + 'static
+impl<BUS, DET> Clone for StorageWrapper<BUS, DET>
+where
+    BUS: sdmmc::bus::Bus + sdmmc::bus::Read<Error = <BUS as sdmmc::bus::Bus>::Error> + sdmmc::bus::Write<Error = <BUS as sdmmc::bus::Bus>::Error> + SdSpiBus + 'static,
+    DET: embedded_hal::digital::InputPin + 'static,
 {
     fn clone(&self) -> Self {
         Self(self.0)
     }
 }
 
-impl<SPI, D, DET> Copy for StorageWrapper<SPI, D, DET>
-where 
-    SPI: embedded_hal::spi::SpiDevice + 'static,
-    D: embedded_hal::delay::DelayNs + 'static,
-    DET: embedded_hal::digital::InputPin + 'static
+impl<BUS, DET> Copy for StorageWrapper<BUS, DET>
+where
+    BUS: sdmmc::bus::Bus + sdmmc::bus::Read<Error = <BUS as sdmmc::bus::Bus>::Error> + sdmmc::bus::Write<Error = <BUS as sdmmc::bus::Bus>::Error> + SdSpiBus + 'static,
+    DET: embedded_hal::digital::InputPin + 'static,
 {}
 
-pub struct SdFileHandle<SPI, D, DET>
-where 
-    SPI: embedded_hal::spi::SpiDevice + 'static,
-    D: embedded_hal::delay::DelayNs + 'static,
-    DET: embedded_hal::digital::InputPin + 'static
+pub struct HadrisFileWrapper<BUS, DET>
+where
+    BUS: sdmmc::bus::Bus + sdmmc::bus::Read<Error = <BUS as sdmmc::bus::Bus>::Error> + sdmmc::bus::Write<Error = <BUS as sdmmc::bus::Bus>::Error> + SdSpiBus + 'static,
+    DET: embedded_hal::digital::InputPin + 'static,
 {
-    storage: StorageWrapper<SPI, D, DET>,
-    path: String<128>,
+    storage: StorageWrapper<BUS, DET>,
+    path: heapless::String<128>,
     offset: u64,
 }
 
-impl<SPI, D, DET> ErrorType for SdFileHandle<SPI, D, DET>
-where 
-    SPI: embedded_hal::spi::SpiDevice + 'static,
-    D: embedded_hal::delay::DelayNs + 'static,
-    DET: embedded_hal::digital::InputPin + 'static
+impl<BUS, DET> embedded_io_async::ErrorType for HadrisFileWrapper<BUS, DET>
+where
+    BUS: sdmmc::bus::Bus + sdmmc::bus::Read<Error = <BUS as sdmmc::bus::Bus>::Error> + sdmmc::bus::Write<Error = <BUS as sdmmc::bus::Bus>::Error> + SdSpiBus + 'static,
+    DET: embedded_hal::digital::InputPin + 'static,
 {
     type Error = CommonError;
 }
 
-fn find_file_in_dir<SPI, D>(
-    dir: &mut Directory<'_, SdCard<SPI, D>, DummyTimeSource, 4, 4, 1>,
-    filename_str: &str,
-) -> Result<ShortFileName, CommonError>
+impl<BUS, DET> embedded_io_async::Read for HadrisFileWrapper<BUS, DET>
 where
-    SPI: embedded_hal::spi::SpiDevice + 'static,
-    D: embedded_hal::delay::DelayNs + 'static,
-{
-    let target_sfn = ShortFileName::create_from_str(filename_str).ok();
-    let mut found_sfn = None;
-    let mut lfn_store = [0u8; 256];
-    let mut lfn_buffer = LfnBuffer::new(&mut lfn_store);
-
-    let _ = dir.iterate_dir_lfn(&mut lfn_buffer, |entry, lfn| {
-        if !entry.attributes.is_directory() {
-            let name_matches = if let Some(lfn_str) = lfn {
-                lfn_str.eq_ignore_ascii_case(filename_str)
-            } else {
-                false
-            } || Some(&entry.name) == target_sfn.as_ref();
-
-            if name_matches {
-                found_sfn = Some(entry.name.clone());
-            }
-        }
-    });
-
-    found_sfn.ok_or(CommonError::Io)
-}
-
-impl<SPI, D, DET> Read for SdFileHandle<SPI, D, DET>
-where 
-    SPI: embedded_hal::spi::SpiDevice + 'static,
-    D: embedded_hal::delay::DelayNs + 'static,
-    DET: embedded_hal::digital::InputPin + 'static
+    BUS: sdmmc::bus::Bus + sdmmc::bus::Read<Error = <BUS as sdmmc::bus::Bus>::Error> + sdmmc::bus::Write<Error = <BUS as sdmmc::bus::Bus>::Error> + SdSpiBus + 'static,
+    DET: embedded_hal::digital::InputPin + 'static,
 {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         let mut storage = self.storage.0.lock().await;
-        if storage.det_pin.is_high().map_err(|_| CommonError::Io)? {
-            return Err(CommonError::Io);
+        let fs = storage.ensure_mounted().await.map_err(|_| CommonError::Io)?;
+        
+        let mut file_reader = fs.open_file_path(self.path.as_str()).await.map_err(|_| CommonError::Io)?;
+        
+        let to_discard = self.offset as usize;
+        let mut discarded = 0;
+        let mut discard_buf = [0u8; 256];
+        while discarded < to_discard {
+            let chunk = (to_discard - discarded).min(discard_buf.len());
+            let n = file_reader.read(&mut discard_buf[..chunk]).await.map_err(|_| CommonError::Io)?;
+            if n == 0 {
+                break;
+            }
+            discarded += n;
         }
         
-        let (parent_path, filename_str) = if let Some(idx) = self.path.rfind('/') {
-            (&self.path[..idx], &self.path[idx + 1..])
-        } else {
-            ("", self.path.as_str())
-        };
-        
-        let offset = self.offset;
-        let mut read_len = 0;
-        
-        with_dir_path_common(&mut *storage, parent_path, |dir| {
-            let filename = find_file_in_dir(dir, filename_str)?;
-            let file = dir.open_file_in_dir(filename, Mode::ReadOnly).map_err(|_| CommonError::Io)?;
-            file.seek_from_start(offset as u32).map_err(|_| CommonError::Io)?;
-            read_len = file.read(buf).map_err(|_| CommonError::Io)?;
-            Ok(())
-        })?;
-        
+        let read_len = file_reader.read(buf).await.map_err(|_| CommonError::Io)?;
         self.offset += read_len as u64;
         Ok(read_len)
     }
 }
 
-impl<SPI, D, DET> Seek for SdFileHandle<SPI, D, DET>
-where 
-    SPI: embedded_hal::spi::SpiDevice + 'static,
-    D: embedded_hal::delay::DelayNs + 'static,
-    DET: embedded_hal::digital::InputPin + 'static
+impl<BUS, DET> embedded_io_async::Seek for HadrisFileWrapper<BUS, DET>
+where
+    BUS: sdmmc::bus::Bus + sdmmc::bus::Read<Error = <BUS as sdmmc::bus::Bus>::Error> + sdmmc::bus::Write<Error = <BUS as sdmmc::bus::Bus>::Error> + SdSpiBus + 'static,
+    DET: embedded_hal::digital::InputPin + 'static,
 {
-    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
+    async fn seek(&mut self, pos: embedded_io_async::SeekFrom) -> Result<u64, Self::Error> {
         match pos {
-            SeekFrom::Start(n) => self.offset = n,
-            SeekFrom::Current(n) => self.offset = (self.offset as i64 + n) as u64,
-            SeekFrom::End(n) => {
+            embedded_io_async::SeekFrom::Start(n) => self.offset = n,
+            embedded_io_async::SeekFrom::Current(n) => self.offset = (self.offset as i64 + n) as u64,
+            embedded_io_async::SeekFrom::End(n) => {
                 let mut storage = self.storage.0.lock().await;
-                if storage.det_pin.is_high().map_err(|_| CommonError::Io)? {
-                    return Err(CommonError::Io);
-                }
-                
-                let (parent_path, filename_str) = if let Some(idx) = self.path.rfind('/') {
-                    (&self.path[..idx], &self.path[idx + 1..])
-                } else {
-                    ("", self.path.as_str())
-                };
-                
-                let mut len = 0;
-                with_dir_path_common(&mut *storage, parent_path, |dir| {
-                    let filename = find_file_in_dir(dir, filename_str)?;
-                    let file = dir.open_file_in_dir(filename, Mode::ReadOnly).map_err(|_| CommonError::Io)?;
-                    len = file.length() as i64;
-                    Ok(())
-                })?;
-                
+                let fs = storage.ensure_mounted().await.map_err(|_| CommonError::Io)?;
+                let file_reader = fs.open_file_path(self.path.as_str()).await.map_err(|_| CommonError::Io)?;
+                let len = file_reader.size() as i64;
                 self.offset = (len + n) as u64;
             }
         }
@@ -178,131 +365,109 @@ where
     }
 }
 
-impl<SPI, D, DET> FileStorageDriver for StorageWrapper<SPI, D, DET>
-where 
-    SPI: embedded_hal::spi::SpiDevice + 'static,
-    D: embedded_hal::delay::DelayNs + 'static,
-    DET: embedded_hal::digital::InputPin + 'static
+impl<BUS, DET> FileStorageDriver for StorageWrapper<BUS, DET>
+where
+    BUS: sdmmc::bus::Bus + sdmmc::bus::Read<Error = <BUS as sdmmc::bus::Bus>::Error> + sdmmc::bus::Write<Error = <BUS as sdmmc::bus::Bus>::Error> + SdSpiBus + 'static,
+    DET: embedded_hal::digital::InputPin + 'static,
 {
-    type File = SdFileHandle<SPI, D, DET>;
+    type File = HadrisFileWrapper<BUS, DET>;
 
     async fn is_available(&self) -> bool {
         if let Ok(mut storage) = self.0.try_lock() {
-            storage.det_pin.is_low().unwrap_or(false)
+            storage.det_pin.is_low().map_err(|_| ()).unwrap_or(false)
         } else {
             false
         }
     }
 
-    async fn list_dir(&mut self, _path: &str, mut callback: impl FnMut(FileInfo)) -> Result<(), ManagerError> {
+    async fn list_dir(&mut self, path: &str, mut callback: impl FnMut(FileInfo)) -> Result<(), ManagerError> {
         let mut storage = self.0.lock().await;
-        if storage.det_pin.is_high().map_err(|_| ManagerError::Io)? {
-            return Err(ManagerError::Io);
-        }
-        
-        if _path == "/" {
-            storage.volume_label = None;
-        }
-        
-        let mut found_volume_label = None;
-        
-        let res = with_dir_path(&mut *storage, _path, |dir| {
-            let mut lfn_store = [0u8; 256];
-            let mut lfn_buffer = LfnBuffer::new(&mut lfn_store);
-            let _ = dir.iterate_dir_lfn(&mut lfn_buffer, |entry, lfn| {
-                if entry.attributes.is_volume() {
-                    let mut label_buf = [0u8; 12];
-                    let mut writer = WrapperWriter::new(&mut label_buf);
-                    let _ = core::fmt::write(&mut writer, format_args!("{}", entry.name));
-                    if let Ok(label_str) = core::str::from_utf8(&label_buf) {
-                        let trimmed = label_str.trim_matches('\0').trim();
-                        let mut label = heapless::String::new();
-                        let _ = label.push_str(trimmed);
-                        found_volume_label = Some(label);
-                    }
-                    return;
-                }
-
-                let is_dot_file = if let Some(lfn_str) = lfn {
-                    lfn_str.starts_with('.')
-                } else {
-                    entry.name.base_name().starts_with(b".")
-                };
-                if is_dot_file {
-                    return;
-                }
-
-                let mut info = FileInfo {
-                    name: [0; 64],
-                    size: entry.size,
-                    is_dir: entry.attributes.is_directory(),
-                };
-                let mut writer = WrapperWriter::new(&mut info.name);
-                if let Some(lfn_str) = lfn {
-                    let _ = core::fmt::write(&mut writer, format_args!("{}", lfn_str));
-                } else {
-                    let _ = core::fmt::write(&mut writer, format_args!("{}", entry.name));
-                }
-
-                callback(info);
-            });
-            Ok(())
-        });
-        
-        if res.is_ok() && found_volume_label.is_some() {
-            storage.volume_label = found_volume_label;
-        }
-        res
-    }
-
-    async fn count_dir_entries(&mut self, path: &str) -> Result<usize, ManagerError> {
-        let mut storage = self.0.lock().await;
-        if storage.det_pin.is_high().map_err(|_| ManagerError::Io)? {
-            return Err(ManagerError::Io);
-        }
         
         if path == "/" {
             storage.volume_label = None;
         }
-        
-        let mut count = 0;
-        let mut found_volume_label = None;
-        
-        let res = with_dir_path(&mut *storage, path, |dir| {
-            let mut lfn_store = [0u8; 256];
-            let mut lfn_buffer = LfnBuffer::new(&mut lfn_store);
-            let _ = dir.iterate_dir_lfn(&mut lfn_buffer, |entry, lfn| {
-                if entry.attributes.is_volume() {
-                    let mut label_buf = [0u8; 12];
-                    let mut writer = WrapperWriter::new(&mut label_buf);
-                    let _ = core::fmt::write(&mut writer, format_args!("{}", entry.name));
-                    if let Ok(label_str) = core::str::from_utf8(&label_buf) {
-                        let trimmed = label_str.trim_matches('\0').trim();
-                        let mut label = heapless::String::new();
-                        let _ = label.push_str(trimmed);
-                        found_volume_label = Some(label);
-                    }
-                    return;
+
+        let mut temp_volume_label = None;
+        {
+            let fs = storage.ensure_mounted().await?;
+            let dir = fs.open_dir_path(path).await.map_err(|_| ManagerError::Io)?;
+            let mut iter = dir.entries();
+            
+            while let Some(entry_res) = iter.next_entry().await {
+                let entry = entry_res.map_err(|_| ManagerError::Io)?;
+                let DirectoryEntry::Entry(file_entry) = entry;
+                
+                if file_entry.attributes().contains(DirEntryAttrFlags::VOLUME_ID) {
+                    let name = file_entry.name();
+                    let mut label = heapless::String::new();
+                    let _ = label.push_str(name.trim());
+                    temp_volume_label = Some(label);
+                    continue;
                 }
 
-                let is_dot_file = if let Some(lfn_str) = lfn {
-                    lfn_str.starts_with('.')
-                } else {
-                    entry.name.base_name().starts_with(b".")
+                let name = file_entry.name();
+                if name.starts_with('.') {
+                    continue;
+                }
+
+                let mut info = FileInfo {
+                    name: [0; 64],
+                    size: file_entry.size() as u32,
+                    is_dir: file_entry.is_directory(),
                 };
-                if is_dot_file {
-                    return;
+                let mut writer = WrapperWriter::new(&mut info.name);
+                let _ = core::fmt::write(&mut writer, format_args!("{}", name));
+                callback(info);
+            }
+        }
+        
+        if temp_volume_label.is_some() {
+            storage.volume_label = temp_volume_label;
+        }
+        
+        Ok(())
+    }
+
+    async fn count_dir_entries(&mut self, path: &str) -> Result<usize, ManagerError> {
+        let mut storage = self.0.lock().await;
+        
+        if path == "/" {
+            storage.volume_label = None;
+        }
+
+        let mut count = 0;
+        let mut temp_volume_label = None;
+        {
+            let fs = storage.ensure_mounted().await?;
+            let dir = fs.open_dir_path(path).await.map_err(|_| ManagerError::Io)?;
+            let mut iter = dir.entries();
+            
+            while let Some(entry_res) = iter.next_entry().await {
+                let entry = entry_res.map_err(|_| ManagerError::Io)?;
+                let DirectoryEntry::Entry(file_entry) = entry;
+                
+                if file_entry.attributes().contains(DirEntryAttrFlags::VOLUME_ID) {
+                    let name = file_entry.name();
+                    let mut label = heapless::String::new();
+                    let _ = label.push_str(name.trim());
+                    temp_volume_label = Some(label);
+                    continue;
+                }
+
+                let name = file_entry.name();
+                if name.starts_with('.') {
+                    continue;
                 }
 
                 count += 1;
-            });
-            Ok(())
-        });
-        
-        if res.is_ok() && found_volume_label.is_some() {
-            storage.volume_label = found_volume_label;
+            }
         }
-        res.map(|_| count)
+        
+        if temp_volume_label.is_some() {
+            storage.volume_label = temp_volume_label;
+        }
+        
+        Ok(count)
     }
 
     async fn list_dir_range(
@@ -313,71 +478,59 @@ where
         mut callback: impl FnMut(FileInfo),
     ) -> Result<(), ManagerError> {
         let mut storage = self.0.lock().await;
-        if storage.det_pin.is_high().map_err(|_| ManagerError::Io)? {
-            return Err(ManagerError::Io);
-        }
         
         if path == "/" {
             storage.volume_label = None;
         }
-        
+
         let mut current_idx = 0;
-        let mut found_volume_label = None;
-        
-        let res = with_dir_path(&mut *storage, path, |dir| {
-            let mut lfn_store = [0u8; 256];
-            let mut lfn_buffer = LfnBuffer::new(&mut lfn_store);
-            let _ = dir.iterate_dir_lfn(&mut lfn_buffer, |entry, lfn| {
+        let mut temp_volume_label = None;
+        {
+            let fs = storage.ensure_mounted().await?;
+            let dir = fs.open_dir_path(path).await.map_err(|_| ManagerError::Io)?;
+            let mut iter = dir.entries();
+            
+            while let Some(entry_res) = iter.next_entry().await {
                 if current_idx >= start_index + count {
-                    return;
+                    break;
                 }
 
-                if entry.attributes.is_volume() {
-                    let mut label_buf = [0u8; 12];
-                    let mut writer = WrapperWriter::new(&mut label_buf);
-                    let _ = core::fmt::write(&mut writer, format_args!("{}", entry.name));
-                    if let Ok(label_str) = core::str::from_utf8(&label_buf) {
-                        let trimmed = label_str.trim_matches('\0').trim();
-                        let mut label = heapless::String::new();
-                        let _ = label.push_str(trimmed);
-                        found_volume_label = Some(label);
-                    }
-                    return;
+                let entry = entry_res.map_err(|_| ManagerError::Io)?;
+                let DirectoryEntry::Entry(file_entry) = entry;
+                
+                if file_entry.attributes().contains(DirEntryAttrFlags::VOLUME_ID) {
+                    let name = file_entry.name();
+                    let mut label = heapless::String::new();
+                    let _ = label.push_str(name.trim());
+                    temp_volume_label = Some(label);
+                    continue;
                 }
 
-                let is_dot_file = if let Some(lfn_str) = lfn {
-                    lfn_str.starts_with('.')
-                } else {
-                    entry.name.base_name().starts_with(b".")
-                };
-                if is_dot_file {
-                    return;
+                let name = file_entry.name();
+                if name.starts_with('.') {
+                    continue;
                 }
 
                 if current_idx >= start_index {
                     let mut info = FileInfo {
                         name: [0; 64],
-                        size: entry.size,
-                        is_dir: entry.attributes.is_directory(),
+                        size: file_entry.size() as u32,
+                        is_dir: file_entry.is_directory(),
                     };
                     let mut writer = WrapperWriter::new(&mut info.name);
-                    if let Some(lfn_str) = lfn {
-                        let _ = core::fmt::write(&mut writer, format_args!("{}", lfn_str));
-                    } else {
-                        let _ = core::fmt::write(&mut writer, format_args!("{}", entry.name));
-                    }
+                    let _ = core::fmt::write(&mut writer, format_args!("{}", name));
                     callback(info);
                 }
                 
                 current_idx += 1;
-            });
-            Ok(())
-        });
-        
-        if res.is_ok() && found_volume_label.is_some() {
-            storage.volume_label = found_volume_label;
+            }
         }
-        res
+        
+        if temp_volume_label.is_some() {
+            storage.volume_label = temp_volume_label;
+        }
+        
+        Ok(())
     }
 
     async fn open_file(&mut self, _path: &str) -> Result<(), ManagerError> {
@@ -386,9 +539,9 @@ where
 
     fn open_file_handle(&self, path: &str) -> Self::File {
         use core::str::FromStr;
-        SdFileHandle {
+        HadrisFileWrapper {
             storage: *self,
-            path: String::from_str(path).unwrap_or_default(),
+            path: heapless::String::from_str(path).unwrap_or_default(),
             offset: 0,
         }
     }
@@ -402,31 +555,10 @@ where
     }
 }
 
-impl<SPI, D, DET> StorageWrapper<SPI, D, DET>
+impl<BUS, DET> StorageDriver for SdStorage<BUS, DET>
 where
-    SPI: embedded_hal::spi::SpiDevice + 'static,
-    D: embedded_hal::delay::DelayNs + 'static,
-    DET: embedded_hal::digital::InputPin + 'static
-{
-}
-impl<SPI, D, DET> SdStorage<SPI, D, DET>
-where 
-    SPI: embedded_hal::spi::SpiDevice,
-    D: embedded_hal::delay::DelayNs,
-    DET: embedded_hal::digital::InputPin
-{
-    pub fn new(spi_device: SPI, delayer: D, det_pin: DET) -> Self {
-        let sdcard = SdCard::new(spi_device, delayer);
-        let volume_mgr = VolumeManager::new(sdcard, DummyTimeSource);
-        Self { volume_mgr, det_pin, volume_label: None }
-    }
-}
-
-impl<SPI, D, DET> StorageDriver for SdStorage<SPI, D, DET>
-where 
-    SPI: embedded_hal::spi::SpiDevice,
-    D: embedded_hal::delay::DelayNs,
-    DET: embedded_hal::digital::InputPin
+    BUS: sdmmc::bus::Bus + sdmmc::bus::Read<Error = <BUS as sdmmc::bus::Bus>::Error> + sdmmc::bus::Write<Error = <BUS as sdmmc::bus::Bus>::Error> + SdSpiBus + 'static,
+    DET: embedded_hal::digital::InputPin + 'static,
 {
     async fn read_block(&mut self, _track: u8, _sector: u8, _buf: &mut [u8]) -> Result<(), ManagerError> {
         Ok(())
@@ -456,124 +588,4 @@ impl<'a> core::fmt::Write for WrapperWriter<'a> {
         self.pos += len;
         Ok(())
     }
-}
-
-fn with_dir_path<SPI, D, DET, R>(
-    storage: &mut SdStorage<SPI, D, DET>,
-    path: &str,
-    f: impl FnOnce(&mut Directory<'_, SdCard<SPI, D>, DummyTimeSource, 4, 4, 1>) -> Result<R, ManagerError>
-) -> Result<R, ManagerError>
-where 
-    SPI: embedded_hal::spi::SpiDevice + 'static,
-    D: embedded_hal::delay::DelayNs + 'static,
-    DET: embedded_hal::digital::InputPin + 'static
-{
-    let volume = storage.volume_mgr.open_volume(VolumeIdx(0)).map_err(|_| ManagerError::Io)?;
-    let root = volume.open_root_dir().map_err(|_| ManagerError::Io)?;
-    
-    fn recurse<SPI, D, DET, R>(
-        mut dir: Directory<'_, SdCard<SPI, D>, DummyTimeSource, 4, 4, 1>,
-        mut segments: core::str::Split<'_, char>,
-        f: impl FnOnce(&mut Directory<'_, SdCard<SPI, D>, DummyTimeSource, 4, 4, 1>) -> Result<R, ManagerError>
-    ) -> Result<R, ManagerError>
-    where
-        SPI: embedded_hal::spi::SpiDevice + 'static,
-        D: embedded_hal::delay::DelayNs + 'static
-    {
-        if let Some(segment) = segments.next() {
-            if segment.is_empty() {
-                recurse::<SPI, D, DET, R>(dir, segments, f)
-            } else {
-                let target_sfn = ShortFileName::create_from_str(segment).ok();
-                let mut found_sfn = None;
-                let mut lfn_store = [0u8; 256];
-                let mut lfn_buffer = LfnBuffer::new(&mut lfn_store);
-                
-                let _ = dir.iterate_dir_lfn(&mut lfn_buffer, |entry, lfn| {
-                    if entry.attributes.is_directory() {
-                        let name_matches = if let Some(lfn_str) = lfn {
-                            lfn_str.eq_ignore_ascii_case(segment)
-                        } else {
-                            false
-                        } || Some(&entry.name) == target_sfn.as_ref();
-
-                        if name_matches {
-                            found_sfn = Some(entry.name.clone());
-                        }
-                    }
-                });
-
-                if let Some(sfn) = found_sfn {
-                    let sub = dir.open_dir(sfn).map_err(|_| ManagerError::Io)?;
-                    recurse::<SPI, D, DET, R>(sub, segments, f)
-                } else {
-                    Err(ManagerError::Io)
-                }
-            }
-        } else {
-            f(&mut dir)
-        }
-    }
-    
-    recurse::<SPI, D, DET, R>(root, path.split('/'), f)
-}
-
-fn with_dir_path_common<SPI, D, DET, R>(
-    storage: &mut SdStorage<SPI, D, DET>,
-    path: &str,
-    f: impl FnOnce(&mut Directory<'_, SdCard<SPI, D>, DummyTimeSource, 4, 4, 1>) -> Result<R, CommonError>
-) -> Result<R, CommonError>
-where 
-    SPI: embedded_hal::spi::SpiDevice + 'static,
-    D: embedded_hal::delay::DelayNs + 'static,
-    DET: embedded_hal::digital::InputPin + 'static
-{
-    let volume = storage.volume_mgr.open_volume(VolumeIdx(0)).map_err(|_| CommonError::Io)?;
-    let root = volume.open_root_dir().map_err(|_| CommonError::Io)?;
-    
-    fn recurse<SPI, D, DET, R>(
-        mut dir: Directory<'_, SdCard<SPI, D>, DummyTimeSource, 4, 4, 1>,
-        mut segments: core::str::Split<'_, char>,
-        f: impl FnOnce(&mut Directory<'_, SdCard<SPI, D>, DummyTimeSource, 4, 4, 1>) -> Result<R, CommonError>
-    ) -> Result<R, CommonError>
-    where
-        SPI: embedded_hal::spi::SpiDevice + 'static,
-        D: embedded_hal::delay::DelayNs + 'static
-    {
-        if let Some(segment) = segments.next() {
-            if segment.is_empty() {
-                recurse::<SPI, D, DET, R>(dir, segments, f)
-            } else {
-                let target_sfn = ShortFileName::create_from_str(segment).ok();
-                let mut found_sfn = None;
-                let mut lfn_store = [0u8; 256];
-                let mut lfn_buffer = LfnBuffer::new(&mut lfn_store);
-                
-                let _ = dir.iterate_dir_lfn(&mut lfn_buffer, |entry, lfn| {
-                    if entry.attributes.is_directory() {
-                        let name_matches = if let Some(lfn_str) = lfn {
-                            lfn_str.eq_ignore_ascii_case(segment)
-                        } else {
-                            false
-                        } || Some(&entry.name) == target_sfn.as_ref();
-
-                        if name_matches {
-                            found_sfn = Some(entry.name.clone());
-                        }
-                    }
-                });
-
-                if let Some(sfn) = found_sfn {
-                    let sub = dir.open_dir(sfn).map_err(|_| CommonError::Io)?;
-                    recurse::<SPI, D, DET, R>(sub, segments, f)
-                } else {
-                    Err(CommonError::Io)
-                }
-            }
-        } else {
-            f(&mut dir)
-        }
-    }
-    
-    recurse::<SPI, D, DET, R>(root, path.split('/'), f)
 }

@@ -1,0 +1,24 @@
+[package]
+name = "hadris-common"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Common types and functions used by Hadris"
+readme = "README.md"
+
+[features]
+default = ["bytemuck", "std"]
+std = []
+bytemuck = ["dep:bytemuck"]
+
+[dependencies]
+bytemuck = { workspace = true, optional = true, features = ["derive"] }
+chrono = "0.4.40"
+crc = "3.2.1"
+rand = "0.9.0"
+
+[dev-dependencies]
+criterion.workspace = true
+static_assertions.workspace = true

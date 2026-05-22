@@ -63,3 +63,10 @@ pub enum ButtonEvent {
 
 /// Channel for keyboard events (logical button events).
 pub static KEYBOARD_CHANNEL: Channel<CriticalSectionRawMutex, ButtonEvent, 16> = Channel::new();
+
+#[cfg(test)]
+mod test_imports {
+    use hadris_fat::*;
+    use hadris_io::*;
+}
+

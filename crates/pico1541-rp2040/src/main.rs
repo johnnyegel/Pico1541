@@ -1,6 +1,11 @@
 #![cfg_attr(not(test), no_std)]
 #![cfg_attr(not(test), no_main)]
 
+extern crate alloc;
+
+#[global_allocator]
+static HEAP: embedded_alloc::LlffHeap = embedded_alloc::LlffHeap::empty();
+
 mod driver;
 
 use defmt::info;
@@ -10,13 +15,13 @@ use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::i2c::{Config, InterruptHandler};
-use embassy_rp::peripherals::{I2C0, SPI1, PIN_25};
-use embassy_rp::spi::{Config as SpiConfig, Spi};
+use embassy_rp::peripherals::{I2C0, SPI1, PIN_25, DMA_CH0, DMA_CH1};
+use embassy_rp::spi::{Config as SpiConfig, Spi, Async};
 use embassy_rp::multicore::Stack;
 use embassy_rp::Peri;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
-use embedded_hal_bus::spi::ExclusiveDevice;
+
 
 use pico1541_common::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus, IecBusState};
 use pico1541_common::snooper::{IecSnooper, IecSnoopByteHandler, SnooperConfig};
@@ -33,13 +38,14 @@ use crate::driver::indicator::{ActivityIndicator, IndicatorWrapper};
 use crate::driver::input::KeyboardInput;
 use crate::driver::leds::{ActivityLed, StatusLeds, StatusLedsWrapper};
 use crate::driver::speaker::PiezoSpeaker;
-use crate::driver::storage::{SdFileHandle, SdStorage, StorageWrapper};
+use crate::driver::storage::{HadrisFileWrapper, SdStorage, StorageWrapper, EmbassyClock};
 
 use static_cell::StaticCell;
 use portable_atomic::Ordering;
 
 bind_interrupts!(struct Irqs {
     I2C0_IRQ => InterruptHandler<I2C0>;
+    DMA_IRQ_0 => embassy_rp::dma::InterruptHandler<DMA_CH0>, embassy_rp::dma::InterruptHandler<DMA_CH1>;
 });
 
 static SNOOPER_CONFIG: SnooperConfig = SnooperConfig::new(8);
@@ -49,18 +55,26 @@ static CURRENT_DIR: Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)
 // Core 1 Stack
 static CORE1_STACK: StaticCell<Stack<16384>> = StaticCell::new();
 
-type MySpi = Spi<'static, SPI1, embassy_rp::spi::Blocking>;
+type MySpi = Spi<'static, SPI1, Async>;
 type MyCs = Output<'static>;
-type MyDelay = embassy_time::Delay;
-type MySpiDev = ExclusiveDevice<MySpi, MyCs, MyDelay>;
+type MySdBus = sdmmc::bus::spi::Bus<MySpi, MyCs, EmbassyClock>;
 type MyDet = Input<'static>;
-type MyFile = SdFileHandle<MySpiDev, MyDelay, MyDet>;
+type MyFile = HadrisFileWrapper<MySdBus, MyDet>;
 type MyStorage = RuntimeStorage<'static, MyFile>;
 type MyDir = PagedDirectorySource<48>;
 type MyDisk = AnyDiskImage<MyStorage, MyDir>;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
+    {
+        use core::mem::MaybeUninit;
+        const HEAP_SIZE: usize = 32768;
+        static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
+        unsafe {
+            HEAP.init(core::ptr::addr_of_mut!(HEAP_MEM) as usize, HEAP_SIZE);
+        }
+    }
+
     // Configure the system clock to 250 MHz
     let mut config = embassy_rp::config::Config::default();
     config.clocks = embassy_rp::clocks::ClockConfig::system_freq(250_000_000).unwrap();
@@ -123,11 +137,11 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
     let det = Input::new(p.PIN_11, Pull::Up);
     let mut spi_config = SpiConfig::default();
     spi_config.frequency = 400_000; // Start slow for SD init
-    let spi = Spi::new_blocking(p.SPI1, clk, mosi, miso, spi_config);
-    let spi_dev = ExclusiveDevice::new(spi, cs, embassy_time::Delay).unwrap();
+    let spi = Spi::new(p.SPI1, clk, mosi, miso, p.DMA_CH0, p.DMA_CH1, Irqs, spi_config);
+    let sd_bus = sdmmc::bus::spi::Bus::new(spi, cs, EmbassyClock);
 
-    static SD_STORAGE: StaticCell<Mutex<CriticalSectionRawMutex, SdStorage<MySpiDev, MyDelay, MyDet>>> = StaticCell::new();
-    let sd_obj = SdStorage::new(spi_dev, embassy_time::Delay, det);
+    static SD_STORAGE: StaticCell<Mutex<CriticalSectionRawMutex, SdStorage<MySdBus, MyDet>>> = StaticCell::new();
+    let sd_obj = SdStorage::new(sd_bus, det);
     let sd_mutex = SD_STORAGE.init(Mutex::new(sd_obj));
 
     // 5. Keyboard Matrix
@@ -339,7 +353,7 @@ async fn snooper_run(mut task: SnooperTask) {
 }
 
 struct MyOpener {
-    storage: StorageWrapper<MySpiDev, MyDelay, MyDet>,
+    storage: StorageWrapper<MySdBus, MyDet>,
 }
 
 impl pico1541_manager::tasks::virtual_dir::FileOpener for MyOpener {
@@ -442,7 +456,7 @@ async fn menu_run(
         DisplayWrapper<CriticalSectionRawMutex>,
         StatusLedsWrapper<CriticalSectionRawMutex>,
         IndicatorWrapper<CriticalSectionRawMutex>,
-        StorageWrapper<MySpiDev, MyDelay, MyDet>,
+        StorageWrapper<MySdBus, MyDet>,
         MyFile,
     >,
 ) {
@@ -495,7 +509,7 @@ fn core1_main(
         DisplayWrapper<CriticalSectionRawMutex>,
         StatusLedsWrapper<CriticalSectionRawMutex>,
         IndicatorWrapper<CriticalSectionRawMutex>,
-        StorageWrapper<MySpiDev, MyDelay, MyDet>,
+        StorageWrapper<MySdBus, MyDet>,
         MyFile,
     >,
     activity_task: DriveActivityTask<IndicatorWrapper<CriticalSectionRawMutex>>,
