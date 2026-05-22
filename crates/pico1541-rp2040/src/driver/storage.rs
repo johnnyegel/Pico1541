@@ -85,26 +85,18 @@ where
     SPI: embedded_hal::spi::SpiDevice + 'static,
     D: embedded_hal::delay::DelayNs + 'static,
 {
+    let target_sfn = ShortFileName::create_from_str(filename_str).ok();
     let mut found_sfn = None;
     let mut lfn_store = [0u8; 256];
     let mut lfn_buffer = LfnBuffer::new(&mut lfn_store);
 
     let _ = dir.iterate_dir_lfn(&mut lfn_buffer, |entry, lfn| {
         if !entry.attributes.is_directory() {
-            let mut sfn_buf = [0u8; 13];
-            let mut writer = WrapperWriter::new(&mut sfn_buf);
-            let _ = core::fmt::write(&mut writer, format_args!("{}", entry.name));
-            let sfn_matches = if let Ok(sfn_str) = core::str::from_utf8(&sfn_buf) {
-                sfn_str.trim_matches('\0').eq_ignore_ascii_case(filename_str)
-            } else {
-                false
-            };
-
-            let name_matches = sfn_matches || if let Some(lfn_str) = lfn {
+            let name_matches = if let Some(lfn_str) = lfn {
                 lfn_str.eq_ignore_ascii_case(filename_str)
             } else {
                 false
-            };
+            } || Some(&entry.name) == target_sfn.as_ref();
 
             if name_matches {
                 found_sfn = Some(entry.name.clone());
@@ -231,6 +223,15 @@ where
                     return;
                 }
 
+                let is_dot_file = if let Some(lfn_str) = lfn {
+                    lfn_str.starts_with('.')
+                } else {
+                    entry.name.base_name().starts_with(b".")
+                };
+                if is_dot_file {
+                    return;
+                }
+
                 let mut info = FileInfo {
                     name: [0; 64],
                     size: entry.size,
@@ -241,13 +242,6 @@ where
                     let _ = core::fmt::write(&mut writer, format_args!("{}", lfn_str));
                 } else {
                     let _ = core::fmt::write(&mut writer, format_args!("{}", entry.name));
-                }
-
-                let name_len = info.name.iter().position(|&c| c == 0).unwrap_or(info.name.len());
-                if let Ok(name_str) = core::str::from_utf8(&info.name[..name_len]) {
-                    if name_str.starts_with('.') {
-                        return;
-                    }
                 }
 
                 callback(info);
@@ -291,23 +285,13 @@ where
                     return;
                 }
 
-                let mut info = FileInfo {
-                    name: [0; 64],
-                    size: entry.size,
-                    is_dir: entry.attributes.is_directory(),
-                };
-                let mut writer = WrapperWriter::new(&mut info.name);
-                if let Some(lfn_str) = lfn {
-                    let _ = core::fmt::write(&mut writer, format_args!("{}", lfn_str));
+                let is_dot_file = if let Some(lfn_str) = lfn {
+                    lfn_str.starts_with('.')
                 } else {
-                    let _ = core::fmt::write(&mut writer, format_args!("{}", entry.name));
-                }
-
-                let name_len = info.name.iter().position(|&c| c == 0).unwrap_or(info.name.len());
-                if let Ok(name_str) = core::str::from_utf8(&info.name[..name_len]) {
-                    if name_str.starts_with('.') {
-                        return;
-                    }
+                    entry.name.base_name().starts_with(b".")
+                };
+                if is_dot_file {
+                    return;
                 }
 
                 count += 1;
@@ -344,6 +328,10 @@ where
             let mut lfn_store = [0u8; 256];
             let mut lfn_buffer = LfnBuffer::new(&mut lfn_store);
             let _ = dir.iterate_dir_lfn(&mut lfn_buffer, |entry, lfn| {
+                if current_idx >= start_index + count {
+                    return;
+                }
+
                 if entry.attributes.is_volume() {
                     let mut label_buf = [0u8; 12];
                     let mut writer = WrapperWriter::new(&mut label_buf);
@@ -357,26 +345,27 @@ where
                     return;
                 }
 
-                let mut info = FileInfo {
-                    name: [0; 64],
-                    size: entry.size,
-                    is_dir: entry.attributes.is_directory(),
-                };
-                let mut writer = WrapperWriter::new(&mut info.name);
-                if let Some(lfn_str) = lfn {
-                    let _ = core::fmt::write(&mut writer, format_args!("{}", lfn_str));
+                let is_dot_file = if let Some(lfn_str) = lfn {
+                    lfn_str.starts_with('.')
                 } else {
-                    let _ = core::fmt::write(&mut writer, format_args!("{}", entry.name));
+                    entry.name.base_name().starts_with(b".")
+                };
+                if is_dot_file {
+                    return;
                 }
 
-                let name_len = info.name.iter().position(|&c| c == 0).unwrap_or(info.name.len());
-                if let Ok(name_str) = core::str::from_utf8(&info.name[..name_len]) {
-                    if name_str.starts_with('.') {
-                        return;
+                if current_idx >= start_index {
+                    let mut info = FileInfo {
+                        name: [0; 64],
+                        size: entry.size,
+                        is_dir: entry.attributes.is_directory(),
+                    };
+                    let mut writer = WrapperWriter::new(&mut info.name);
+                    if let Some(lfn_str) = lfn {
+                        let _ = core::fmt::write(&mut writer, format_args!("{}", lfn_str));
+                    } else {
+                        let _ = core::fmt::write(&mut writer, format_args!("{}", entry.name));
                     }
-                }
-
-                if current_idx >= start_index && current_idx < start_index + count {
                     callback(info);
                 }
                 
@@ -495,26 +484,18 @@ where
             if segment.is_empty() {
                 recurse::<SPI, D, DET, R>(dir, segments, f)
             } else {
+                let target_sfn = ShortFileName::create_from_str(segment).ok();
                 let mut found_sfn = None;
                 let mut lfn_store = [0u8; 256];
                 let mut lfn_buffer = LfnBuffer::new(&mut lfn_store);
                 
                 let _ = dir.iterate_dir_lfn(&mut lfn_buffer, |entry, lfn| {
                     if entry.attributes.is_directory() {
-                        let mut sfn_buf = [0u8; 13];
-                        let mut writer = WrapperWriter::new(&mut sfn_buf);
-                        let _ = core::fmt::write(&mut writer, format_args!("{}", entry.name));
-                        let sfn_matches = if let Ok(sfn_str) = core::str::from_utf8(&sfn_buf) {
-                            sfn_str.trim_matches('\0').eq_ignore_ascii_case(segment)
-                        } else {
-                            false
-                        };
-
-                        let name_matches = sfn_matches || if let Some(lfn_str) = lfn {
+                        let name_matches = if let Some(lfn_str) = lfn {
                             lfn_str.eq_ignore_ascii_case(segment)
                         } else {
                             false
-                        };
+                        } || Some(&entry.name) == target_sfn.as_ref();
 
                         if name_matches {
                             found_sfn = Some(entry.name.clone());
@@ -563,26 +544,18 @@ where
             if segment.is_empty() {
                 recurse::<SPI, D, DET, R>(dir, segments, f)
             } else {
+                let target_sfn = ShortFileName::create_from_str(segment).ok();
                 let mut found_sfn = None;
                 let mut lfn_store = [0u8; 256];
                 let mut lfn_buffer = LfnBuffer::new(&mut lfn_store);
                 
                 let _ = dir.iterate_dir_lfn(&mut lfn_buffer, |entry, lfn| {
                     if entry.attributes.is_directory() {
-                        let mut sfn_buf = [0u8; 13];
-                        let mut writer = WrapperWriter::new(&mut sfn_buf);
-                        let _ = core::fmt::write(&mut writer, format_args!("{}", entry.name));
-                        let sfn_matches = if let Ok(sfn_str) = core::str::from_utf8(&sfn_buf) {
-                            sfn_str.trim_matches('\0').eq_ignore_ascii_case(segment)
-                        } else {
-                            false
-                        };
-
-                        let name_matches = sfn_matches || if let Some(lfn_str) = lfn {
+                        let name_matches = if let Some(lfn_str) = lfn {
                             lfn_str.eq_ignore_ascii_case(segment)
                         } else {
                             false
-                        };
+                        } || Some(&entry.name) == target_sfn.as_ref();
 
                         if name_matches {
                             found_sfn = Some(entry.name.clone());
