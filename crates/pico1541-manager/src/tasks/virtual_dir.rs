@@ -139,6 +139,9 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                     }
 
                     if let Some(tb) = block_to_load {
+                        // Mark active track as Void during background directory fetch to prevent Core 0 emu hang/timeouts.
+                        self.active_track.layout = pico1541_common::formats::TrackLayout::Void;
+
                         let (path, use_internal) = {
                             let guard = self.current_dir.lock().await;
                             (guard.0.clone(), guard.1)
@@ -164,6 +167,25 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                     }
                                 }
                             }
+                        }
+
+                        // Re-generate the GCR data for the active track and restore its layout
+                        let half_track = self.active_track.half_track;
+                        let mut gcr_buf = [0u8; pico1541_common::interface::MAX_TRACK_BYTES];
+                        let mut disk_opt = self.disk_image.lock().await;
+                        if let Some(disk) = disk_opt.as_mut() {
+                            match disk.read_track(half_track, &mut gcr_buf).await {
+                                Ok(layout) => {
+                                    self.active_track.gcr_data.copy_from_slice(&gcr_buf);
+                                    self.active_track.layout = layout;
+                                }
+                                Err(e) => {
+                                    error!("Failed to restore active track: {:?}", e);
+                                    self.active_track.layout = pico1541_common::formats::TrackLayout::Void;
+                                }
+                            }
+                        } else {
+                            self.active_track.layout = pico1541_common::formats::TrackLayout::Void;
                         }
                     }
                 }

@@ -58,56 +58,10 @@ static CURRENT_DIR: Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)
 // Core 1 Stack
 static CORE1_STACK: StaticCell<Stack<16384>> = StaticCell::new();
 
-pub struct LoggingSpiDevice<Spi> {
-    inner: Spi,
-}
-
-impl<Spi> LoggingSpiDevice<Spi> {
-    pub fn new(inner: Spi) -> Self {
-        Self { inner }
-    }
-}
-
-impl<Spi> embedded_hal::spi::ErrorType for LoggingSpiDevice<Spi>
-where
-    Spi: embedded_hal::spi::SpiDevice<u8>,
-{
-    type Error = Spi::Error;
-}
-
-impl<Spi> embedded_hal::spi::SpiDevice<u8> for LoggingSpiDevice<Spi>
-where
-    Spi: embedded_hal::spi::SpiDevice<u8>,
-{
-    fn transaction(&mut self, operations: &mut [embedded_hal::spi::Operation<'_, u8>]) -> Result<(), Self::Error> {
-        let res = self.inner.transaction(operations);
-        for (i, op) in operations.iter().enumerate() {
-            match op {
-                embedded_hal::spi::Operation::Read(buf) => {
-                    defmt::info!("SPI Op {}: Read (len={}) {:?}", i, buf.len(), buf);
-                }
-                embedded_hal::spi::Operation::Write(buf) => {
-                    defmt::info!("SPI Op {}: Write (len={}) {:?}", i, buf.len(), buf);
-                }
-                embedded_hal::spi::Operation::Transfer(read_buf, write_buf) => {
-                    defmt::info!("SPI Op {}: Transfer (len={}) write {:?} | read {:?}", i, write_buf.len(), write_buf, read_buf);
-                }
-                embedded_hal::spi::Operation::TransferInPlace(buf) => {
-                    defmt::info!("SPI Op {}: TransferInPlace (len={}) {:?}", i, buf.len(), buf);
-                }
-                embedded_hal::spi::Operation::DelayNs(ns) => {
-                    defmt::info!("SPI Op {}: Delay {}ns", i, *ns);
-                }
-            }
-        }
-        res
-    }
-}
-
 type MySpi = Spi<'static, SPI1, Blocking>;
 type MyCs = Output<'static>;
 type MyDelay = embassy_time::Delay;
-type MySpiDev = LoggingSpiDevice<ExclusiveDevice<MySpi, MyCs, MyDelay>>;
+type MySpiDev = ExclusiveDevice<MySpi, MyCs, MyDelay>;
 type MyDet = Input<'static>;
 type MyRawBlockIo = SdBlockIo<MySpiDev, MyDelay>;
 type MyFile = HadrisFileWrapper<MyRawBlockIo, MyDet>;
@@ -576,10 +530,8 @@ async fn core1_init_task(
     spi_config.frequency = 400_000;
     let spi = Spi::new_blocking(pins.spi1, pins.clk, pins.mosi, pins.miso, spi_config);
     let spi_dev = ExclusiveDevice::new(spi, cs, embassy_time::Delay).unwrap();
-    let logging_spi_dev = LoggingSpiDevice::new(spi_dev);
-
     static SD_CARD: StaticCell<embedded_sdmmc::SdCard<MySpiDev, MyDelay>> = StaticCell::new();
-    let card = SD_CARD.init(embedded_sdmmc::SdCard::new(logging_spi_dev, embassy_time::Delay));
+    let card = SD_CARD.init(embedded_sdmmc::SdCard::new(spi_dev, embassy_time::Delay));
 
     let block_io = SdBlockIo::new(card as *mut _);
     static SD_STORAGE: StaticCell<Mutex<CriticalSectionRawMutex, FatStorage<MyRawBlockIo, MyDet>>> = StaticCell::new();
