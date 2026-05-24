@@ -8,6 +8,7 @@ pub enum MenuEvent {
     Back,
     Home,
     LoadBlock(usize),
+    Timeout,
 }
 
 pub struct Menu<T, const N: usize, Title = &'static str> {
@@ -243,35 +244,40 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
             display.clear().await;
             self.render(display).await;
 
-            match KEYBOARD_CHANNEL.receive().await {
-                ButtonEvent::Pressed(Button::Up) | ButtonEvent::Hold(Button::Up) => {
-                    if let Some(block_to_load) = self.move_up() {
-                        return MenuEvent::LoadBlock(block_to_load);
+            match embassy_time::with_timeout(embassy_time::Duration::from_millis(500), KEYBOARD_CHANNEL.receive()).await {
+                Ok(event) => match event {
+                    ButtonEvent::Pressed(Button::Up) | ButtonEvent::Hold(Button::Up) => {
+                        if let Some(block_to_load) = self.move_up() {
+                            return MenuEvent::LoadBlock(block_to_load);
+                        }
                     }
-                }
-                ButtonEvent::Pressed(Button::Down) | ButtonEvent::Hold(Button::Down) => {
-                    if let Some(block_to_load) = self.move_down() {
-                        return MenuEvent::LoadBlock(block_to_load);
+                    ButtonEvent::Pressed(Button::Down) | ButtonEvent::Hold(Button::Down) => {
+                        if let Some(block_to_load) = self.move_down() {
+                            return MenuEvent::LoadBlock(block_to_load);
+                        }
                     }
-                }
-                ButtonEvent::Pressed(Button::Select) => {
-                    return MenuEvent::Selected(self.selected_index);
-                }
-                ButtonEvent::Pressed(Button::Back) => {
-                    back_hold_count = 0;
-                }
-                ButtonEvent::Hold(Button::Back) => {
-                    back_hold_count += 1;
-                    if back_hold_count >= 24 {
-                        return MenuEvent::Home;
+                    ButtonEvent::Pressed(Button::Select) => {
+                        return MenuEvent::Selected(self.selected_index);
                     }
-                }
-                ButtonEvent::Released(Button::Back) => {
-                    if back_hold_count < 24 {
-                        return MenuEvent::Back;
+                    ButtonEvent::Pressed(Button::Back) => {
+                        back_hold_count = 0;
                     }
+                    ButtonEvent::Hold(Button::Back) => {
+                        back_hold_count += 1;
+                        if back_hold_count >= 24 {
+                            return MenuEvent::Home;
+                        }
+                    }
+                    ButtonEvent::Released(Button::Back) => {
+                        if back_hold_count < 24 {
+                            return MenuEvent::Back;
+                        }
+                    }
+                    _ => {}
+                },
+                Err(_) => {
+                    return MenuEvent::Timeout;
                 }
-                _ => {}
             }
         }
     }

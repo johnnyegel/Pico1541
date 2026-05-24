@@ -260,8 +260,8 @@ where
     type File = HadrisFileWrapper<B, Det>;
 
     async fn is_available(&self) -> bool {
-        if let Ok(mut storage) = self.0.try_lock() {
-            storage.det_pin.is_low().map_err(|_| ()).unwrap_or(false)
+        if let Ok(storage) = self.0.try_lock() {
+            storage.fat_fs.is_some()
         } else {
             false
         }

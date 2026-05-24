@@ -58,6 +58,12 @@ static CURRENT_DIR: Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)
 static CORE1_STACK: StaticCell<Stack<16384>> = StaticCell::new();
 
 type MySpi = Spi<'static, SPI1, Blocking>;
+
+impl crate::driver::blockdevsdcard::SpiFreq for MySpi {
+    fn set_freq(&mut self, freq: u32) {
+        self.set_frequency(freq);
+    }
+}
 type MyCs = Output<'static>;
 type MyDelay = embassy_time::Delay;
 type MyDet = Input<'static>;
@@ -478,6 +484,32 @@ pub struct Core1Pins {
 }
 
 #[embassy_executor::task]
+async fn sd_card_monitor_task(
+    sd_mutex: &'static Mutex<CriticalSectionRawMutex, FatStorage<MyRawBlockIo, MyDet>>
+) {
+    loop {
+        let mut mounted = false;
+        {
+            let mut storage = sd_mutex.lock().await;
+            if storage.det_pin.is_low() && storage.fat_fs.is_none() {
+                if storage.ensure_mounted().await.is_ok() {
+                    mounted = true;
+                }
+            } else if storage.det_pin.is_high() {
+                storage.fat_fs = None;
+                storage.card_init = false;
+                storage.block_dev.reset();
+            }
+        }
+        if !mounted {
+            embassy_time::Timer::after(embassy_time::Duration::from_millis(500)).await;
+        } else {
+            embassy_time::Timer::after(embassy_time::Duration::from_millis(100)).await;
+        }
+    }
+}
+
+#[embassy_executor::task]
 async fn core1_init_task(
     spawner: Spawner,
     pins: Core1Pins,
@@ -518,22 +550,19 @@ async fn core1_init_task(
     spi_config.frequency = 400_000;
     let spi = Spi::new_blocking(pins.spi1, pins.clk, pins.mosi, pins.miso, spi_config);
     
+    let baudrate = option_env!("PICO1541_SD_BAUDRATE")
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(25_000_000);
+        
     static SD_CARD: StaticCell<SdCard<MySpi, MyCs, MyDelay>> = StaticCell::new();
-    let card = SD_CARD.init(SdCard::new(spi, cs, embassy_time::Delay));
-    if let Err(e) = card.init() {
-        defmt::error!("SD Card init failed: {:?}", defmt::Debug2Format(&e));
-    } else {
-        let baudrate = option_env!("PICO1541_SD_BAUDRATE")
-            .and_then(|s| s.parse::<u32>().ok())
-            .unwrap_or(25_000_000);
-        defmt::info!("SD Card initialized successfully. Bumping frequency to {} Hz.", baudrate);
-        card.spi.set_frequency(baudrate);
-    }
+    let card = SD_CARD.init(SdCard::new(spi, cs, embassy_time::Delay, baudrate));
 
     let block_io = SdBlockIo::new(card as *mut _);
     static SD_STORAGE: StaticCell<Mutex<CriticalSectionRawMutex, FatStorage<MyRawBlockIo, MyDet>>> = StaticCell::new();
     let sd_obj = FatStorage::new(block_io, det);
     let sd_mutex = SD_STORAGE.init(Mutex::new(sd_obj));
+
+    spawner.spawn(sd_card_monitor_task(sd_mutex).unwrap());
 
     // 5. Keyboard Matrix
     let keyboard = KeyboardInput::new(pins.kbd_row1, pins.kbd_row2, pins.kbd_col1, pins.kbd_col2);

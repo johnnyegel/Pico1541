@@ -11,29 +11,38 @@ pub enum SdError {
     CsError,
 }
 
+pub trait SpiFreq {
+    fn set_freq(&mut self, freq: u32);
+}
+
 pub struct SdCard<Spi, Cs, Delay> {
     pub spi: Spi,
     cs: Cs,
     delay: Delay,
     is_sdhc: bool,
+    pub initialized: bool,
+    baudrate: u32,
 }
 
 impl<Spi, Cs, Delay> SdCard<Spi, Cs, Delay>
 where
-    Spi: SpiBus<u8>,
+    Spi: SpiBus<u8> + SpiFreq,
     Cs: OutputPin,
     Delay: embedded_hal::delay::DelayNs,
 {
-    pub fn new(spi: Spi, cs: Cs, delay: Delay) -> Self {
+    pub fn new(spi: Spi, cs: Cs, delay: Delay, baudrate: u32) -> Self {
         Self {
             spi,
             cs,
             delay,
             is_sdhc: false,
+            initialized: false,
+            baudrate,
         }
     }
 
     pub fn init(&mut self) -> Result<(), SdError> {
+        self.spi.set_freq(400_000);
         // 74+ dummy clocks with CS high
         self.cs.set_high().map_err(|_| SdError::CsError)?;
         self.delay.delay_us(1000);
@@ -138,6 +147,11 @@ where
         self.cs.set_high().map_err(|_| SdError::CsError)?;
         self.spi.write(&[0xFF]).map_err(|_| SdError::SpiError)?;
 
+        if res.is_ok() {
+            self.spi.set_freq(self.baudrate);
+            self.initialized = true;
+        }
+
         res
     }
 
@@ -192,6 +206,10 @@ where
     }
 
     pub fn read_block(&mut self, block: u32, buffer: &mut [u8]) -> Result<(), SdError> {
+        if !self.initialized {
+            self.init()?;
+        }
+
         if buffer.len() < 512 {
             return Err(SdError::CommandError(0));
         }
@@ -230,10 +248,18 @@ where
         self.cs.set_high().map_err(|_| SdError::CsError)?;
         self.spi.write(&[0xFF]).map_err(|_| SdError::SpiError)?;
 
+        if res.is_err() {
+            self.initialized = false;
+        }
+
         res
     }
 
     pub fn write_block(&mut self, block: u32, buffer: &[u8]) -> Result<(), SdError> {
+        if !self.initialized {
+            self.init()?;
+        }
+
         if buffer.len() < 512 {
             return Err(SdError::CommandError(0));
         }
@@ -276,13 +302,17 @@ where
         self.cs.set_high().map_err(|_| SdError::CsError)?;
         self.spi.write(&[0xFF]).map_err(|_| SdError::SpiError)?;
 
+        if res.is_err() {
+            self.initialized = false;
+        }
+
         res
     }
 }
 
 pub struct SdBlockIo<Spi, Cs, Delay>
 where
-    Spi: SpiBus<u8> + 'static,
+    Spi: SpiBus<u8> + SpiFreq + 'static,
     Cs: OutputPin + 'static,
     Delay: embedded_hal::delay::DelayNs + 'static,
 {
@@ -294,20 +324,20 @@ where
 
 unsafe impl<Spi, Cs, Delay> Send for SdBlockIo<Spi, Cs, Delay>
 where
-    Spi: SpiBus<u8> + 'static,
+    Spi: SpiBus<u8> + SpiFreq + 'static,
     Cs: OutputPin + 'static,
     Delay: embedded_hal::delay::DelayNs + 'static,
 {}
 unsafe impl<Spi, Cs, Delay> Sync for SdBlockIo<Spi, Cs, Delay>
 where
-    Spi: SpiBus<u8> + 'static,
+    Spi: SpiBus<u8> + SpiFreq + 'static,
     Cs: OutputPin + 'static,
     Delay: embedded_hal::delay::DelayNs + 'static,
 {}
 
 impl<Spi, Cs, Delay> Clone for SdBlockIo<Spi, Cs, Delay>
 where
-    Spi: SpiBus<u8> + 'static,
+    Spi: SpiBus<u8> + SpiFreq + 'static,
     Cs: OutputPin + 'static,
     Delay: embedded_hal::delay::DelayNs + 'static,
 {
@@ -323,14 +353,14 @@ where
 
 impl<Spi, Cs, Delay> Copy for SdBlockIo<Spi, Cs, Delay>
 where
-    Spi: SpiBus<u8> + 'static,
+    Spi: SpiBus<u8> + SpiFreq + 'static,
     Cs: OutputPin + 'static,
     Delay: embedded_hal::delay::DelayNs + 'static,
 {}
 
 impl<Spi, Cs, Delay> SdBlockIo<Spi, Cs, Delay>
 where
-    Spi: SpiBus<u8> + 'static,
+    Spi: SpiBus<u8> + SpiFreq + 'static,
     Cs: OutputPin + 'static,
     Delay: embedded_hal::delay::DelayNs + 'static,
 {
@@ -342,11 +372,17 @@ where
             cached_sector: None,
         }
     }
+
+    pub fn reset(&mut self) {
+        self.cached_sector = None;
+        let card = unsafe { &mut *self.card_ptr };
+        card.initialized = false;
+    }
 }
 
 impl<Spi, Cs, Delay> hadris_io::r#async::Read for SdBlockIo<Spi, Cs, Delay>
 where
-    Spi: SpiBus<u8> + 'static,
+    Spi: SpiBus<u8> + SpiFreq + 'static,
     Cs: OutputPin + 'static,
     Delay: embedded_hal::delay::DelayNs + 'static,
 {
@@ -382,7 +418,7 @@ where
 
 impl<Spi, Cs, Delay> hadris_io::r#async::Seek for SdBlockIo<Spi, Cs, Delay>
 where
-    Spi: SpiBus<u8> + 'static,
+    Spi: SpiBus<u8> + SpiFreq + 'static,
     Cs: OutputPin + 'static,
     Delay: embedded_hal::delay::DelayNs + 'static,
 {
@@ -402,7 +438,7 @@ where
 
 impl<Spi, Cs, Delay> hadris_io::r#async::Write for SdBlockIo<Spi, Cs, Delay>
 where
-    Spi: SpiBus<u8> + 'static,
+    Spi: SpiBus<u8> + SpiFreq + 'static,
     Cs: OutputPin + 'static,
     Delay: embedded_hal::delay::DelayNs + 'static,
 {

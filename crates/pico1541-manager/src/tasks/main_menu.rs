@@ -228,6 +228,10 @@ where
                     // Home in main menu does nothing
                 }
                 MenuEvent::LoadBlock(_) => {}
+                MenuEvent::Timeout => {
+                    // Just let the loop run again to refresh status icons
+                    continue;
+                }
             }
         }
     }
@@ -465,6 +469,14 @@ where
 
             match event {
                 MenuEvent::LoadBlock(_) => {}
+                MenuEvent::Timeout => {
+                    if !use_internal && !self.storage.is_available().await {
+                        let mut disk = self._disk_image.lock().await;
+                        *disk = None;
+                        self.leds.set_status(StatusLedMode::Unmounted);
+                        return false;
+                    }
+                }
                 MenuEvent::Selected(idx) => {
                     let mut selected_infos = Vec::<FileInfo, 1>::new();
                     let fetch_res = if use_internal {
@@ -681,6 +693,7 @@ where
                 MenuEvent::Back => return false,
                 MenuEvent::Home => return true,
                 MenuEvent::LoadBlock(_) => {}
+                MenuEvent::Timeout => {}
             }
         }
     }
@@ -780,6 +793,7 @@ where
                 MenuEvent::Back => return false,
                 MenuEvent::Home => return true,
                 MenuEvent::LoadBlock(_) => {}
+                MenuEvent::Timeout => {}
             }
         }
     }
