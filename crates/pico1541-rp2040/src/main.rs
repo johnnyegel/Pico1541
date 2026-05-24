@@ -502,7 +502,7 @@ async fn sd_card_monitor_task(
             }
         }
         if !mounted {
-            embassy_time::Timer::after(embassy_time::Duration::from_millis(500)).await;
+            embassy_time::Timer::after(embassy_time::Duration::from_millis(50)).await;
         } else {
             embassy_time::Timer::after(embassy_time::Duration::from_millis(100)).await;
         }

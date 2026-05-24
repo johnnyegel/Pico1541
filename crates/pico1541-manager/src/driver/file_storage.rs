@@ -30,18 +30,27 @@ pub struct PartitionedBlockDevice<B> {
     partition_start_bytes: u64,
 }
 
-fn format_fat_name(name: &str) -> heapless::String<16> {
-    let mut clean_name = heapless::String::<16>::new();
+fn format_fat_name(name: &str) -> heapless::String<64> {
+    let mut clean_name = heapless::String::<64>::new();
     if let Some((base, ext)) = name.split_once('.') {
         let base_trim = base.trim_end();
         let ext_trim = ext.trim_end();
-        let _ = clean_name.push_str(base_trim);
+        
+        for c in base_trim.chars() {
+            if clean_name.push(c).is_err() { break; }
+        }
+        
         if !ext_trim.is_empty() {
-            let _ = clean_name.push('.');
-            let _ = clean_name.push_str(ext_trim);
+            if clean_name.push('.').is_ok() {
+                for c in ext_trim.chars() {
+                    if clean_name.push(c).is_err() { break; }
+                }
+            }
         }
     } else {
-        let _ = clean_name.push_str(name.trim_end());
+        for c in name.trim_end().chars() {
+            if clean_name.push(c).is_err() { break; }
+        }
     }
     clean_name
 }
