@@ -30,6 +30,22 @@ pub struct PartitionedBlockDevice<B> {
     partition_start_bytes: u64,
 }
 
+fn format_fat_name(name: &str) -> heapless::String<16> {
+    let mut clean_name = heapless::String::<16>::new();
+    if let Some((base, ext)) = name.split_once('.') {
+        let base_trim = base.trim_end();
+        let ext_trim = ext.trim_end();
+        let _ = clean_name.push_str(base_trim);
+        if !ext_trim.is_empty() {
+            let _ = clean_name.push('.');
+            let _ = clean_name.push_str(ext_trim);
+        }
+    } else {
+        let _ = clean_name.push_str(name.trim_end());
+    }
+    clean_name
+}
+
 impl<B> PartitionedBlockDevice<B> {
     pub fn new(inner: B, partition_start_sectors: u64) -> Self {
         Self {
@@ -324,8 +340,9 @@ where
                     size: file_entry.size() as u32,
                     is_dir: file_entry.is_directory(),
                 };
+                let clean_name = format_fat_name(name);
                 let mut writer = WrapperWriter::new(&mut info.name);
-                let _ = core::fmt::write(&mut writer, format_args!("{}", name));
+                let _ = core::fmt::write(&mut writer, format_args!("{}", clean_name.as_str()));
                 callback(info);
             }
         }
@@ -407,8 +424,9 @@ where
                         size: file_entry.size() as u32,
                         is_dir: file_entry.is_directory(),
                     };
+                    let clean_name = format_fat_name(name);
                     let mut writer = WrapperWriter::new(&mut info.name);
-                    let _ = core::fmt::write(&mut writer, format_args!("{}", name));
+                    let _ = core::fmt::write(&mut writer, format_args!("{}", clean_name.as_str()));
                     callback(info);
                 }
                 

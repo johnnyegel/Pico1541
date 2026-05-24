@@ -230,6 +230,9 @@ where
                 MenuEvent::LoadBlock(_) => {}
                 MenuEvent::Timeout => {
                     cursor = main_menu.selected_index();
+                    if !self.storage.is_available().await {
+                        self.sd_path = String::from_str("/").unwrap();
+                    }
                     // Just let the loop run again to refresh status icons
                     continue;
                 }
@@ -489,6 +492,9 @@ where
                     let mut disk = self._disk_image.lock().await;
                     *disk = None;
                     self.leds.set_status(StatusLedMode::Unmounted);
+                    if !use_internal && title == "SD Card" {
+                        self.sd_path = String::from_str("/").unwrap();
+                    }
                     return false;
                 }
                 MenuEvent::Selected(idx) => {
