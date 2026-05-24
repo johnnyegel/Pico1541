@@ -34,19 +34,19 @@ where
     }
 
     pub fn init(&mut self) -> Result<(), SdError> {
-        // Send dummy clocks with CS high to wake up the card
+        // 74+ dummy clocks with CS high
         self.cs.set_high().map_err(|_| SdError::CsError)?;
         self.delay.delay_us(1000);
-        let dummy = [0xFF; 10]; // 80 clocks
-        self.spi.write(&dummy).map_err(|_| SdError::SpiError)?;
-        self.delay.delay_us(100);
-
+        for _ in 0..10 {
+            self.spi.write(&[0xFF]).map_err(|_| SdError::SpiError)?;
+        }
+        
         self.cs.set_low().map_err(|_| SdError::CsError)?;
 
         let res = (|| {
             // CMD0: GO_IDLE_STATE
             let mut r1 = 0xFF;
-            let mut attempts = 10;
+            let mut attempts = 100;
             while attempts > 0 {
                 match self.send_command(0, 0, 0x95) {
                     Ok(0x01) => {
@@ -56,10 +56,13 @@ where
                     Ok(res) => r1 = res,
                     Err(_) => {}
                 }
-                // Flush some clocks and retry
-                for _ in 0..32 {
+                
+                self.cs.set_high().map_err(|_| SdError::CsError)?;
+                for _ in 0..8 {
                     self.spi.write(&[0xFF]).map_err(|_| SdError::SpiError)?;
                 }
+                self.cs.set_low().map_err(|_| SdError::CsError)?;
+
                 attempts -= 1;
                 self.delay.delay_us(1000);
             }
@@ -68,7 +71,11 @@ where
                 return Err(SdError::CommandError(r1));
             }
 
-            // CMD8: SEND_IF_COND
+            self.cs.set_high().map_err(|_| SdError::CsError)?;
+            self.spi.write(&[0xFF]).map_err(|_| SdError::SpiError)?;
+            self.cs.set_low().map_err(|_| SdError::CsError)?;
+
+            // CMD8
             let r1 = self.send_command(8, 0x000001AA, 0x87)?;
             if r1 == 0x01 {
                 let mut r7 = [0u8; 4];
@@ -76,22 +83,44 @@ where
                 if r7[2] != 0x01 || r7[3] != 0xAA {
                     return Err(SdError::CommandError(r1));
                 }
+            } else if r1 != 0x05 { // 0x05 means illegal command (older SD cards)
+                return Err(SdError::CommandError(r1));
             }
 
+            self.cs.set_high().map_err(|_| SdError::CsError)?;
+            self.spi.write(&[0xFF]).map_err(|_| SdError::SpiError)?;
+            self.cs.set_low().map_err(|_| SdError::CsError)?;
+            
             // ACMD41: SD_SEND_OP_COND
             let mut retries = 10000;
             loop {
-                self.send_command(55, 0, 0x65)?;
-                let r1 = self.send_command(41, 0x40000000, 0x77)?;
+                let r1 = self.send_command(55, 0, 0xFF)?;
+                if r1 != 0x01 && r1 != 0x00 {
+                    return Err(SdError::CommandError(r1));
+                }
+                
+                self.cs.set_high().map_err(|_| SdError::CsError)?;
+                self.spi.write(&[0xFF]).map_err(|_| SdError::SpiError)?;
+                self.cs.set_low().map_err(|_| SdError::CsError)?;
+
+                let r1 = self.send_command(41, 0x40000000, 0xFF)?;
                 if r1 == 0x00 {
                     break;
                 }
+                
+                self.cs.set_high().map_err(|_| SdError::CsError)?;
+                self.spi.write(&[0xFF]).map_err(|_| SdError::SpiError)?;
+                self.cs.set_low().map_err(|_| SdError::CsError)?;
+
                 retries -= 1;
                 if retries == 0 {
                     return Err(SdError::Timeout);
                 }
-                self.delay.delay_us(100);
             }
+
+            self.cs.set_high().map_err(|_| SdError::CsError)?;
+            self.spi.write(&[0xFF]).map_err(|_| SdError::SpiError)?;
+            self.cs.set_low().map_err(|_| SdError::CsError)?;
 
             // CMD58: READ_OCR
             let r1 = self.send_command(58, 0, 0xFD)?;
@@ -118,8 +147,25 @@ where
         Ok(())
     }
 
+    fn wait_not_busy(&mut self) -> Result<(), SdError> {
+        let mut retries = 100000;
+        let mut res = [0xFF];
+        loop {
+            self.spi_read(&mut res)?;
+            if res[0] == 0xFF {
+                return Ok(());
+            }
+            retries -= 1;
+            if retries == 0 {
+                return Err(SdError::Timeout);
+            }
+        }
+    }
+
     fn send_command(&mut self, cmd: u8, arg: u32, crc: u8) -> Result<u8, SdError> {
-        self.spi.write(&[0xFF]).map_err(|_| SdError::SpiError)?;
+        if cmd != 0 {
+            self.wait_not_busy()?;
+        }
 
         let buf = [
             0x40 | cmd,
