@@ -229,6 +229,7 @@ where
                 }
                 MenuEvent::LoadBlock(_) => {}
                 MenuEvent::Timeout => {
+                    cursor = main_menu.selected_index();
                     // Just let the loop run again to refresh status icons
                     continue;
                 }
@@ -302,6 +303,11 @@ where
                 self.display.print(1, "  Read Error!").await;
                 self.display.request_redraw();
                 Timer::after(Duration::from_secs(2)).await;
+                if !use_internal {
+                    let mut disk = self._disk_image.lock().await;
+                    *disk = None;
+                    self.leds.set_status(StatusLedMode::Unmounted);
+                }
                 return false;
             }
 
@@ -377,6 +383,11 @@ where
                         return true;
                     }
                     _ => {}
+                }
+                if !use_internal {
+                    let mut disk = self._disk_image.lock().await;
+                    *disk = None;
+                    self.leds.set_status(StatusLedMode::Unmounted);
                 }
                 return false;
             }
@@ -461,6 +472,11 @@ where
                             menu.set_block(tb, &block_strings);
                         }
                     }
+                    MenuEvent::Timeout => {
+                        if !use_internal && !self.storage.is_available().await {
+                            break MenuEvent::Timeout;
+                        }
+                    }
                     other => break other,
                 }
             };
@@ -470,12 +486,10 @@ where
             match event {
                 MenuEvent::LoadBlock(_) => {}
                 MenuEvent::Timeout => {
-                    if !use_internal && !self.storage.is_available().await {
-                        let mut disk = self._disk_image.lock().await;
-                        *disk = None;
-                        self.leds.set_status(StatusLedMode::Unmounted);
-                        return false;
-                    }
+                    let mut disk = self._disk_image.lock().await;
+                    *disk = None;
+                    self.leds.set_status(StatusLedMode::Unmounted);
+                    return false;
                 }
                 MenuEvent::Selected(idx) => {
                     let mut selected_infos = Vec::<FileInfo, 1>::new();
@@ -793,7 +807,9 @@ where
                 MenuEvent::Back => return false,
                 MenuEvent::Home => return true,
                 MenuEvent::LoadBlock(_) => {}
-                MenuEvent::Timeout => {}
+                MenuEvent::Timeout => {
+                    cursor = menu.selected_index();
+                }
             }
         }
     }
