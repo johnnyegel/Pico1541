@@ -57,8 +57,10 @@ fn test_directory_entry() {
 fn test_paged_directory_source() {
     use pico1541_common::storage::{PagedDirectorySource, PagedDirectorySourceTrait, DirectorySource};
 
-    let mut paged = PagedDirectorySource::<48>::new(b"TEST DRIVE", 50);
-    assert_eq!(paged.total_count(), 50);
+    let mut paged = PagedDirectorySource::<48>::new(b"TEST DRIVE");
+    // Before any block is loaded total_count is usize::MAX (unknown)
+    assert_eq!(paged.total_count(), usize::MAX);
+    assert!(!paged.is_exhausted());
     assert_eq!(paged.loaded_range(), (0, 0));
 
     // Populate block 0

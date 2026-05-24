@@ -31,12 +31,6 @@ pub trait FileStorageDriver {
         None
     }
 
-    async fn count_dir_entries(&mut self, path: &str) -> Result<usize, Error> {
-        let mut count = 0;
-        self.list_dir(path, |_| count += 1).await?;
-        Ok(count)
-    }
-
     async fn list_dir_range(
         &mut self,
         path: &str,

@@ -12,7 +12,6 @@ use embassy_sync::mutex::Mutex;
 pub trait FileOpener {
     type FileStorage: embedded_io_async::Read + embedded_io_async::Seek + 'static;
     async fn open_file(&self, name: &str) -> Result<Self::FileStorage, pico1541_common::formats::Error>;
-    async fn count_dir_entries(&self, path: &str, use_internal: bool) -> Result<usize, pico1541_common::formats::Error>;
     async fn list_dir_range(
         &self,
         path: &str,
@@ -107,7 +106,8 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
 
             match select(timer_fut, cmd_fut).await {
                 Either::First(_) => {
-                    let mut block_to_load = None;
+                    // (first_missing_block, batch_count)
+                    let mut block_batch: Option<(usize, usize)> = None;
                     {
                         let mut disk_opt = self.disk_image.lock().await;
                         if let Some(disk) = disk_opt.as_mut() {
@@ -118,19 +118,31 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
 
                                 // Background prefetching for paged directory source
                                 if let Some(paged) = vdir.source.as_paged_mut() {
-                                    let current_idx = paged.current_read_index();
-                                    let total_count = paged.total_count();
-                                    let total_blocks = (total_count + 15) / 16;
-                                    let current_block = current_idx / 16;
-                                    let (start_block, end_block) = paged.loaded_range();
-                                    
-                                    for offset in 0..3 {
-                                        let tb = current_block + offset;
-                                        if tb < total_blocks {
+                                    // Stop prefetching once the directory end has been discovered.
+                                    if !paged.is_exhausted() {
+                                        let current_idx = paged.current_read_index();
+                                        let current_block = current_idx / 16;
+                                        let (start_block, end_block) = paged.loaded_range();
+
+                                        // Collect consecutive missing blocks in the lookahead window.
+                                        // One list_dir_range call covers them all in a single forward
+                                        // scan, avoiding O(N) re-scans from entry 0.
+                                        let mut batch_start = None;
+                                        let mut batch_end = 0usize;
+                                        for offset in 0..3 {
+                                            let tb = current_block + offset;
                                             if tb < start_block || tb >= end_block {
-                                                block_to_load = Some(tb);
-                                                break;
+                                                if batch_start.is_none() {
+                                                    batch_start = Some(tb);
+                                                    batch_end = tb + 1;
+                                                } else if tb == batch_end {
+                                                    batch_end += 1;
+                                                }
                                             }
+                                        }
+
+                                        if let Some(bs) = batch_start {
+                                            block_batch = Some((bs, batch_end - bs));
                                         }
                                     }
                                 }
@@ -138,7 +150,8 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                         }
                     }
 
-                    if let Some(tb) = block_to_load {
+                    if let Some((blocks_start, blocks_count)) = block_batch {
+
                         // Mark active track as Void during background directory fetch to prevent Core 0 emu hang/timeouts.
                         self.active_track.layout = pico1541_common::formats::TrackLayout::Void;
 
@@ -147,14 +160,18 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                             (guard.0.clone(), guard.1)
                         };
 
-                        let mut block_entries = heapless::Vec::<pico1541_common::storage::DirectoryEntry, 16>::new();
+                        // Fetch all missing blocks in a single sequential pass.
+                        // Each block holds 16 entries; use a 3×16=48 entry buffer max.
+                        let fetch_start = blocks_start * 16;
+                        let fetch_count = blocks_count * 16;
+                        let mut all_entries = heapless::Vec::<pico1541_common::storage::DirectoryEntry, 48>::new();
                         let fetch_res = self.opener.list_dir_range(
                             path.as_str(),
                             use_internal,
-                            tb * 16,
-                            16,
+                            fetch_start,
+                            fetch_count,
                             |entry| {
-                                let _ = block_entries.push(entry);
+                                let _ = all_entries.push(entry);
                             }
                         ).await;
 
@@ -163,7 +180,18 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                             if let Some(disk) = disk_opt.as_mut() {
                                 if let Some(vdir) = disk.as_virtual_disk_mut() {
                                     if let Some(paged) = vdir.source.as_paged_mut() {
-                                        paged.set_block(tb, &block_entries);
+                                        // Distribute fetched entries into their correct block slots.
+                                        // set_block auto-detects end-of-directory from partial blocks.
+                                        for b in 0..blocks_count {
+                                            let slice_start = b * 16;
+                                            let slice_end = (slice_start + 16).min(all_entries.len());
+                                            let block_slice = &all_entries[slice_start..slice_end];
+                                            let mut block_entries = heapless::Vec::<pico1541_common::storage::DirectoryEntry, 16>::new();
+                                            for e in block_slice {
+                                                let _ = block_entries.push(*e);
+                                            }
+                                            paged.set_block(blocks_start + b, &block_entries);
+                                        }
                                     }
                                 }
                             }

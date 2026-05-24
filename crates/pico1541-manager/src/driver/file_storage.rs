@@ -337,69 +337,6 @@ where
         Ok(())
     }
 
-    async fn count_dir_entries(&mut self, path: &str) -> Result<usize, ManagerError> {
-        let mut storage = self.0.lock().await;
-        
-        if path == "/" {
-            storage.volume_label = None;
-        }
-
-        let mut count = 0;
-        let mut temp_volume_label = None;
-        {
-            let fs = storage.ensure_mounted().await?;
-            #[cfg(feature = "defmt")]
-            defmt::info!("SD: count_dir_entries path: '{}'", path);
-
-            let normalized = normalize_path(path);
-            let dir = if normalized.is_empty() {
-                fs.root_dir()
-            } else {
-                match fs.open_dir_path(normalized).await {
-                    Ok(d) => d,
-                    Err(e) => {
-                        #[cfg(feature = "defmt")]
-                        defmt::error!("SD: count_dir_entries open_dir_path('{}') failed: {:?}", normalized, defmt::Debug2Format(&e));
-                        return Err(ManagerError::Io);
-                    }
-                }
-            };
-            let mut iter = dir.entries();
-            
-            while let Some(entry_res) = iter.next_entry().await {
-                let entry = match entry_res {
-                    Ok(e) => e,
-                    Err(e) => {
-                        #[cfg(feature = "defmt")]
-                        defmt::error!("SD: count_dir_entries next_entry failed: {:?}", defmt::Debug2Format(&e));
-                        return Err(ManagerError::Io);
-                    }
-                };
-                let DirectoryEntry::Entry(file_entry) = entry;
-                
-                if file_entry.attributes().contains(DirEntryAttrFlags::VOLUME_ID) {
-                    let name = file_entry.name();
-                    let mut label = heapless::String::new();
-                    let _ = label.push_str(name.trim());
-                    temp_volume_label = Some(label);
-                    continue;
-                }
-
-                let name = file_entry.name();
-                if name.starts_with('.') {
-                    continue;
-                }
-
-                count += 1;
-            }
-        }
-        
-        if temp_volume_label.is_some() {
-            storage.volume_label = temp_volume_label;
-        }
-        
-        Ok(count)
-    }
 
     async fn list_dir_range(
         &mut self,

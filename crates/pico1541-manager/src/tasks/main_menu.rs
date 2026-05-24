@@ -251,34 +251,6 @@ where
                 &self.usb_path
             };
 
-            let count_res = if use_internal {
-                self.internal.count_dir_entries(current_path.as_str()).await
-            } else {
-                self.storage.count_dir_entries(current_path.as_str()).await
-            };
-
-            let total_count = match count_res {
-                Ok(c) => c,
-                Err(e) => {
-                    log::error!("Error listing/counting dir: {:?}", e);
-                    // Reset path on error
-                    let current_path_mut = if use_internal {
-                        &mut self.internal_path
-                    } else if title == "SD Card" {
-                        &mut self.sd_path
-                    } else {
-                        &mut self.usb_path
-                    };
-                    *current_path_mut = String::from_str("/").unwrap();
-
-                    self.display.clear().await;
-                    self.display.print(1, "  Read Error!").await;
-                    self.display.request_redraw();
-                    Timer::after(Duration::from_secs(2)).await;
-                    return false;
-                }
-            };
-
             let path_str = current_path.as_str();
             let mut dir_name_buf = String::<32>::new();
             let dir_name = if path_str == "/" {
@@ -298,23 +270,43 @@ where
                 }
             };
 
-            // Build directory entries for the virtual disk & construct it using PagedDirectorySource
-            let mut dir_source = pico1541_common::storage::PagedDirectorySource::new(dir_name.as_bytes(), total_count);
-            let total_blocks = (total_count + 15) / 16;
-            for tb in 0..total_blocks.min(3) {
-                let mut block_infos = Vec::<FileInfo, 16>::new();
-                if use_internal {
-                    let _ = self.internal.list_dir_range(current_path.as_str(), tb * 16, 16, |info| {
-                        let _ = block_infos.push(info);
-                    }).await;
+            // Load the first 48 entries (3 blocks × 16) in a single iterator pass.
+            // No upfront count needed: PagedDirectorySource discovers the total lazily.
+            let mut initial_infos = Vec::<FileInfo, 48>::new();
+            let load_res = if use_internal {
+                self.internal.list_dir_range(current_path.as_str(), 0, 48, |info| {
+                    let _ = initial_infos.push(info);
+                }).await
+            } else {
+                self.storage.list_dir_range(current_path.as_str(), 0, 48, |info| {
+                    let _ = initial_infos.push(info);
+                }).await
+            };
+
+            if let Err(e) = load_res {
+                log::error!("Error listing dir: {:?}", e);
+                let current_path_mut = if use_internal {
+                    &mut self.internal_path
+                } else if title == "SD Card" {
+                    &mut self.sd_path
                 } else {
-                    let _ = self.storage.list_dir_range(current_path.as_str(), tb * 16, 16, |info| {
-                        let _ = block_infos.push(info);
-                    }).await;
-                }
-                
+                    &mut self.usb_path
+                };
+                *current_path_mut = String::from_str("/").unwrap();
+
+                self.display.clear().await;
+                self.display.print(1, "  Read Error!").await;
+                self.display.request_redraw();
+                Timer::after(Duration::from_secs(2)).await;
+                return false;
+            }
+
+            // Build directory entries for the virtual disk using PagedDirectorySource.
+            // Distribute the fetched entries into blocks; set_block auto-detects end-of-dir.
+            let mut dir_source = pico1541_common::storage::PagedDirectorySource::new(dir_name.as_bytes());
+            for (block_idx, chunk) in initial_infos.chunks(16).enumerate() {
                 let mut block_entries = Vec::<pico1541_common::storage::DirectoryEntry, 16>::new();
-                for info in block_infos.iter() {
+                for info in chunk {
                     let mut name_len = 0;
                     while name_len < info.name.len() && info.name[name_len] != 0 {
                         name_len += 1;
@@ -322,7 +314,7 @@ where
                     let entry = self.create_directory_entry(&info.name[..name_len], info.is_dir, info.size);
                     let _ = block_entries.push(entry);
                 }
-                dir_source.set_block(tb, &block_entries);
+                dir_source.set_block(block_idx, &block_entries);
             }
 
             let vdisk = pico1541_common::formats::VirtualDiskImage::new(dir_source);
@@ -349,7 +341,7 @@ where
                 let _ = menu_title.push_str(dir_name);
             }
 
-            if total_count == 0 {
+            if initial_infos.is_empty() {
                 let mut empty_items = Vec::<&'static str, 1>::new();
                 let _ = empty_items.push("No files found");
                 let mut menu = Menu::new(menu_title, empty_items);
@@ -385,40 +377,27 @@ where
                 return false;
             }
 
-            let mut menu = Menu::<String<64>, 48, _>::new_paged(menu_title, total_count);
-            
-            // Load initial block(s)
-            let total_blocks = (total_count + 15) / 16;
-            for block_idx in 0..total_blocks.min(3) {
-                let mut block_infos = Vec::<FileInfo, 16>::new();
-                let fetch_res = if use_internal {
-                    self.internal.list_dir_range(current_path.as_str(), block_idx * 16, 16, |info| {
-                        let _ = block_infos.push(info);
-                    }).await
-                } else {
-                    self.storage.list_dir_range(current_path.as_str(), block_idx * 16, 16, |info| {
-                        let _ = block_infos.push(info);
-                    }).await
-                };
-                
-                if fetch_res.is_ok() {
-                    let mut block_strings = Vec::<String<64>, 16>::new();
-                    for info in block_infos.iter() {
-                        let mut s = String::<64>::new();
-                        let name_str = core::str::from_utf8(&info.name).unwrap_or("???");
-                        let _ = s.push_str(name_str.trim_matches('\0'));
-                        if info.is_dir {
-                            let _ = s.push_str("/");
-                        }
-                        let _ = block_strings.push(s);
+            // Build paged menu. total_count is discovered lazily as blocks are fetched.
+            let mut menu = Menu::<String<64>, 48, _>::new_paged(menu_title);
+
+            // Load initial blocks into the menu display buffer.
+            for (block_idx, chunk) in initial_infos.chunks(16).enumerate() {
+                let mut block_strings = Vec::<String<64>, 16>::new();
+                for info in chunk {
+                    let mut s = String::<64>::new();
+                    let name_str = core::str::from_utf8(&info.name).unwrap_or("???");
+                    let _ = s.push_str(name_str.trim_matches('\0'));
+                    if info.is_dir {
+                        let _ = s.push_str("/");
                     }
-                    menu.set_block(block_idx, &block_strings);
+                    let _ = block_strings.push(s);
                 }
+                menu.set_block(block_idx, &block_strings);
             }
 
             // Ensure cursor block is loaded
             loop {
-                if let Some(tb) = menu.set_cursor(cursor.min(total_count - 1)) {
+                if let Some(tb) = menu.set_cursor(cursor) {
                     let mut block_infos = Vec::<FileInfo, 16>::new();
                     let fetch_res = if use_internal {
                         self.internal.list_dir_range(current_path.as_str(), tb * 16, 16, |info| {
@@ -599,7 +578,7 @@ where
                                 name_len += 1;
                             }
                             let entry = self.create_directory_entry(&selected.name[..name_len], false, selected.size);
-                            let mut dir_source = pico1541_common::storage::PagedDirectorySource::new(filename.as_bytes(), 1);
+                            let mut dir_source = pico1541_common::storage::PagedDirectorySource::new(filename.as_bytes());
                             let mut block_entries = Vec::<pico1541_common::storage::DirectoryEntry, 16>::new();
                             let _ = block_entries.push(entry);
                             dir_source.set_block(0, &block_entries);

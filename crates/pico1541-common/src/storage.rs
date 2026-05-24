@@ -76,9 +76,13 @@ impl DirectoryEntry {
 
 pub trait PagedDirectorySourceTrait {
     fn current_read_index(&self) -> usize;
+    /// Returns the known upper bound on the number of entries.
+    /// Starts at `usize::MAX` and is tightened lazily when the end of directory is discovered.
     fn total_count(&self) -> usize;
     fn loaded_range(&self) -> (usize, usize);
     fn set_block(&mut self, block_index: usize, entries: &[DirectoryEntry]);
+    /// Returns true if the directory has been fully scanned (end found).
+    fn is_exhausted(&self) -> bool;
 }
 
 pub trait DirectorySource {
@@ -205,11 +209,13 @@ pub struct PagedDirectorySource<const N: usize = 48> {
     start_block: usize,
     end_block: usize,
     current_read_index: usize,
+    /// Known upper bound; starts at usize::MAX and is tightened when a partial block arrives.
     total_count: usize,
 }
 
 impl<const N: usize> PagedDirectorySource<N> {
-    pub fn new(name: &[u8], total_count: usize) -> Self {
+    /// Create a new paged directory source. Total entry count is discovered lazily.
+    pub fn new(name: &[u8]) -> Self {
         let mut n = [0xA0; 16];
         let len = name.len().min(16);
         n[..len].copy_from_slice(&name[..len]);
@@ -219,7 +225,7 @@ impl<const N: usize> PagedDirectorySource<N> {
             start_block: 0,
             end_block: 0,
             current_read_index: 0,
-            total_count,
+            total_count: usize::MAX,
         }
     }
 }
@@ -237,6 +243,10 @@ impl<const N: usize> PagedDirectorySourceTrait for PagedDirectorySource<N> {
         (self.start_block, self.end_block)
     }
 
+    fn is_exhausted(&self) -> bool {
+        self.total_count != usize::MAX
+    }
+
     fn set_block(&mut self, block_index: usize, block_entries: &[DirectoryEntry]) {
         let slot = block_index % 3;
         let start_slot_idx = slot * 16;
@@ -247,7 +257,16 @@ impl<const N: usize> PagedDirectorySourceTrait for PagedDirectorySource<N> {
                 self.entries[start_slot_idx + i] = DirectoryEntry::default();
             }
         }
-        
+
+        // A partial block (fewer than 16 entries) signals the end of directory.
+        // Tighten total_count so prefetching stops and next_entry returns None correctly.
+        if block_entries.len() < 16 {
+            let discovered_total = block_index * 16 + block_entries.len();
+            if discovered_total < self.total_count {
+                self.total_count = discovered_total;
+            }
+        }
+
         if self.start_block == self.end_block {
             self.start_block = block_index;
             self.end_block = block_index + 1;
@@ -276,18 +295,18 @@ impl<const N: usize> DirectorySource for PagedDirectorySource<N> {
     }
 
     fn next_entry(&mut self) -> Option<DirectoryEntry> {
-        if self.current_read_index < self.total_count {
-            let idx = self.current_read_index;
-            let b = idx / 16;
-            if b >= self.start_block && b < self.end_block {
-                let entry = self.entries[(b % 3) * 16 + (idx % 16)];
-                self.current_read_index += 1;
-                Some(entry)
-            } else {
-                None
-            }
+        let idx = self.current_read_index;
+        // total_count is usize::MAX until end-of-directory is discovered.
+        if idx >= self.total_count {
+            return None;
+        }
+        let b = idx / 16;
+        if b >= self.start_block && b < self.end_block {
+            let entry = self.entries[(b % 3) * 16 + (idx % 16)];
+            self.current_read_index += 1;
+            Some(entry)
         } else {
-            None
+            None // Block not yet loaded; caller must prefetch
         }
     }
 

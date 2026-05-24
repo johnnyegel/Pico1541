@@ -344,16 +344,6 @@ impl pico1541_manager::tasks::virtual_dir::FileOpener for MyOpener {
         }
     }
 
-    async fn count_dir_entries(&self, path: &str, use_internal: bool) -> Result<usize, pico1541_common::formats::Error> {
-        use pico1541_manager::driver::FileStorageDriver;
-        if use_internal {
-            let mut internal = pico1541_manager::driver::InternalStorage;
-            internal.count_dir_entries(path).await
-        } else {
-            let mut storage = self.storage.clone();
-            storage.count_dir_entries(path).await
-        }
-    }
 
     async fn list_dir_range(
         &self,
