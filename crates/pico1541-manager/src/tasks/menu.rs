@@ -216,12 +216,22 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
             if self.total_count != usize::MAX && item_idx >= self.total_count {
                 break;
             }
-            let prefix = if item_idx == self.selected_index { "> " } else { "  " };
             let mut line_buf = [0u8; 64];
             if let Some(item) = self.get_item(item_idx) {
-                let item_str = item.as_ref();
+                let item_str_full = item.as_ref();
+                let is_mounted = item_str_full.starts_with('*');
+                let item_str = if is_mounted { &item_str_full[1..] } else { item_str_full };
+
+                let mut prefix_buf = [b' ', b' '];
+                if item_idx == self.selected_index {
+                    prefix_buf[0] = b'>';
+                }
+                if is_mounted {
+                    prefix_buf[1] = b'*';
+                }
+
                 let len = item_str.len().min(62);
-                line_buf[0..2].copy_from_slice(prefix.as_bytes());
+                line_buf[0..2].copy_from_slice(&prefix_buf);
                 line_buf[2..2+len].copy_from_slice(&item_str.as_bytes()[..len]);
                 
                 if let Ok(s) = core::str::from_utf8(&line_buf[..2+len]) {

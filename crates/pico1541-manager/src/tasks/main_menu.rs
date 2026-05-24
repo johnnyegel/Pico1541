@@ -389,14 +389,13 @@ where
                     let mut s = String::<64>::new();
                     let name_str = core::str::from_utf8(&info.name).unwrap_or("???");
                     let name_trimmed = name_str.trim_matches('\0');
+                    let file_path = join_path(current_path.as_str(), name_trimmed);
+                    if Some(file_path) == self.mounted_file_path {
+                        let _ = s.push('*');
+                    }
                     let _ = s.push_str(name_trimmed);
                     if info.is_dir {
                         let _ = s.push_str("/");
-                    }
-                    
-                    let file_path = join_path(current_path.as_str(), name_trimmed);
-                    if Some(file_path) == self.mounted_file_path {
-                        let _ = s.push_str(" *");
                     }
                     
                     let _ = block_strings.push(s);
@@ -423,7 +422,12 @@ where
                         for info in block_infos.iter() {
                             let mut s = String::<64>::new();
                             let name_str = core::str::from_utf8(&info.name).unwrap_or("???");
-                            let _ = s.push_str(name_str.trim_matches('\0'));
+                            let name_trimmed = name_str.trim_matches('\0');
+                            let file_path = join_path(current_path.as_str(), name_trimmed);
+                            if Some(file_path) == self.mounted_file_path {
+                                let _ = s.push('*');
+                            }
+                            let _ = s.push_str(name_trimmed);
                             if info.is_dir {
                                 let _ = s.push_str("/");
                             }
@@ -458,14 +462,13 @@ where
                                 let mut s = String::<64>::new();
                                 let name_str = core::str::from_utf8(&info.name).unwrap_or("???");
                                 let name_trimmed = name_str.trim_matches('\0');
+                                let file_path = join_path(current_path.as_str(), name_trimmed);
+                                if Some(file_path) == self.mounted_file_path {
+                                    let _ = s.push('*');
+                                }
                                 let _ = s.push_str(name_trimmed);
                                 if info.is_dir {
                                     let _ = s.push_str("/");
-                                }
-                                
-                                let file_path = join_path(current_path.as_str(), name_trimmed);
-                                if Some(file_path) == self.mounted_file_path {
-                                    let _ = s.push_str(" *");
                                 }
                                 
                                 let _ = block_strings.push(s);
