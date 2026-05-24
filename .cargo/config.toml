@@ -21,6 +21,7 @@ run-swd = [
     "--target", "thumbv6m-none-eabi",
     "--config", "target.'cfg(all(target_arch = \"arm\", target_os = \"none\"))'.runner = \"probe-rs run --chip RP2040\"",
 ]
+attach = "!probe-rs attach --chip RP2040 target/thumbv6m-none-eabi/release/pico1541-rp2040"
 
 # Flash via USB (Pico must be in BOOTSEL mode: hold BOOTSEL while plugging in).
 # Usage: cargo run-usb

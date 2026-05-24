@@ -38,9 +38,8 @@ use crate::driver::indicator::{ActivityIndicator, IndicatorWrapper};
 use crate::driver::input::KeyboardInput;
 use crate::driver::leds::{ActivityLed, StatusLeds, StatusLedsWrapper};
 use crate::driver::speaker::PiezoSpeaker;
-use crate::driver::storage::SdBlockIo;
+use crate::driver::blockdevsdcard::{SdCard, SdBlockIo};
 use pico1541_manager::driver::file_storage::{HadrisFileWrapper, FatStorage, StorageWrapper};
-use embedded_hal_bus::spi::ExclusiveDevice;
 
 
 use static_cell::StaticCell;
@@ -61,9 +60,8 @@ static CORE1_STACK: StaticCell<Stack<16384>> = StaticCell::new();
 type MySpi = Spi<'static, SPI1, Blocking>;
 type MyCs = Output<'static>;
 type MyDelay = embassy_time::Delay;
-type MySpiDev = ExclusiveDevice<MySpi, MyCs, MyDelay>;
 type MyDet = Input<'static>;
-type MyRawBlockIo = SdBlockIo<MySpiDev, MyDelay>;
+type MyRawBlockIo = SdBlockIo<MySpi, MyCs, MyDelay>;
 type MyFile = HadrisFileWrapper<MyRawBlockIo, MyDet>;
 type MyStorage = RuntimeStorage<'static, MyFile>;
 type MyDir = PagedDirectorySource<48>;
@@ -519,9 +517,15 @@ async fn core1_init_task(
     let mut spi_config = SpiConfig::default();
     spi_config.frequency = 400_000;
     let spi = Spi::new_blocking(pins.spi1, pins.clk, pins.mosi, pins.miso, spi_config);
-    let spi_dev = ExclusiveDevice::new(spi, cs, embassy_time::Delay).unwrap();
-    static SD_CARD: StaticCell<embedded_sdmmc::SdCard<MySpiDev, MyDelay>> = StaticCell::new();
-    let card = SD_CARD.init(embedded_sdmmc::SdCard::new(spi_dev, embassy_time::Delay));
+    
+    static SD_CARD: StaticCell<SdCard<MySpi, MyCs, MyDelay>> = StaticCell::new();
+    let card = SD_CARD.init(SdCard::new(spi, cs, embassy_time::Delay));
+    if let Err(e) = card.init() {
+        defmt::error!("SD Card init failed: {:?}", defmt::Debug2Format(&e));
+    } else {
+        defmt::info!("SD Card initialized successfully. Bumping frequency to 4MHz.");
+        card.spi.set_frequency(4_000_000);
+    }
 
     let block_io = SdBlockIo::new(card as *mut _);
     static SD_STORAGE: StaticCell<Mutex<CriticalSectionRawMutex, FatStorage<MyRawBlockIo, MyDet>>> = StaticCell::new();

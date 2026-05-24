@@ -1,0 +1,400 @@
+use core::cmp::min;
+use embedded_hal::spi::SpiBus;
+use embedded_hal::digital::OutputPin;
+
+#[derive(Debug, defmt::Format)]
+pub enum SdError {
+    Timeout,
+    CommandError(u8),
+    WriteError,
+    SpiError,
+    CsError,
+}
+
+pub struct SdCard<Spi, Cs, Delay> {
+    pub spi: Spi,
+    cs: Cs,
+    delay: Delay,
+    is_sdhc: bool,
+}
+
+impl<Spi, Cs, Delay> SdCard<Spi, Cs, Delay>
+where
+    Spi: SpiBus<u8>,
+    Cs: OutputPin,
+    Delay: embedded_hal::delay::DelayNs,
+{
+    pub fn new(spi: Spi, cs: Cs, delay: Delay) -> Self {
+        Self {
+            spi,
+            cs,
+            delay,
+            is_sdhc: false,
+        }
+    }
+
+    pub fn init(&mut self) -> Result<(), SdError> {
+        // Send dummy clocks with CS high to wake up the card
+        self.cs.set_high().map_err(|_| SdError::CsError)?;
+        self.delay.delay_us(1000);
+        let dummy = [0xFF; 10]; // 80 clocks
+        self.spi.write(&dummy).map_err(|_| SdError::SpiError)?;
+        self.delay.delay_us(100);
+
+        self.cs.set_low().map_err(|_| SdError::CsError)?;
+
+        let res = (|| {
+            // CMD0: GO_IDLE_STATE
+            let mut r1 = 0xFF;
+            let mut attempts = 10;
+            while attempts > 0 {
+                match self.send_command(0, 0, 0x95) {
+                    Ok(0x01) => {
+                        r1 = 0x01;
+                        break;
+                    }
+                    Ok(res) => r1 = res,
+                    Err(_) => {}
+                }
+                // Flush some clocks and retry
+                for _ in 0..32 {
+                    self.spi.write(&[0xFF]).map_err(|_| SdError::SpiError)?;
+                }
+                attempts -= 1;
+                self.delay.delay_us(1000);
+            }
+            
+            if r1 != 0x01 {
+                return Err(SdError::CommandError(r1));
+            }
+
+            // CMD8: SEND_IF_COND
+            let r1 = self.send_command(8, 0x000001AA, 0x87)?;
+            if r1 == 0x01 {
+                let mut r7 = [0u8; 4];
+                self.spi_read(&mut r7)?;
+                if r7[2] != 0x01 || r7[3] != 0xAA {
+                    return Err(SdError::CommandError(r1));
+                }
+            }
+
+            // ACMD41: SD_SEND_OP_COND
+            let mut retries = 10000;
+            loop {
+                self.send_command(55, 0, 0x65)?;
+                let r1 = self.send_command(41, 0x40000000, 0x77)?;
+                if r1 == 0x00 {
+                    break;
+                }
+                retries -= 1;
+                if retries == 0 {
+                    return Err(SdError::Timeout);
+                }
+                self.delay.delay_us(100);
+            }
+
+            // CMD58: READ_OCR
+            let r1 = self.send_command(58, 0, 0xFD)?;
+            if r1 == 0x00 {
+                let mut ocr = [0u8; 4];
+                self.spi_read(&mut ocr)?;
+                self.is_sdhc = (ocr[0] & 0x40) != 0;
+            } else {
+                return Err(SdError::CommandError(r1));
+            }
+
+            Ok(())
+        })();
+
+        self.cs.set_high().map_err(|_| SdError::CsError)?;
+        self.spi.write(&[0xFF]).map_err(|_| SdError::SpiError)?;
+
+        res
+    }
+
+    fn spi_read(&mut self, buf: &mut [u8]) -> Result<(), SdError> {
+        buf.fill(0xFF);
+        self.spi.transfer_in_place(buf).map_err(|_| SdError::SpiError)?;
+        Ok(())
+    }
+
+    fn send_command(&mut self, cmd: u8, arg: u32, crc: u8) -> Result<u8, SdError> {
+        self.spi.write(&[0xFF]).map_err(|_| SdError::SpiError)?;
+
+        let buf = [
+            0x40 | cmd,
+            (arg >> 24) as u8,
+            (arg >> 16) as u8,
+            (arg >> 8) as u8,
+            arg as u8,
+            crc,
+        ];
+        
+        self.spi.write(&buf).map_err(|_| SdError::SpiError)?;
+
+        let mut retries = 100;
+        let mut res = [0xFF];
+        while retries > 0 {
+            self.spi_read(&mut res)?;
+            if (res[0] & 0x80) == 0 {
+                return Ok(res[0]);
+            }
+            retries -= 1;
+        }
+        
+        Err(SdError::Timeout)
+    }
+
+    pub fn read_block(&mut self, block: u32, buffer: &mut [u8]) -> Result<(), SdError> {
+        if buffer.len() < 512 {
+            return Err(SdError::CommandError(0));
+        }
+
+        let addr = if self.is_sdhc { block } else { block * 512 };
+
+        self.cs.set_low().map_err(|_| SdError::CsError)?;
+
+        let res = (|| {
+            let r1 = self.send_command(17, addr, 0xFF)?;
+            if r1 != 0x00 {
+                return Err(SdError::CommandError(r1));
+            }
+
+            let mut retries = 100000;
+            let mut res = [0xFF];
+            loop {
+                self.spi_read(&mut res)?;
+                if res[0] == 0xFE {
+                    break;
+                }
+                retries -= 1;
+                if retries == 0 {
+                    return Err(SdError::Timeout);
+                }
+            }
+
+            self.spi_read(&mut buffer[..512])?;
+
+            let mut crc = [0xFF; 2];
+            self.spi_read(&mut crc)?;
+
+            Ok(())
+        })();
+
+        self.cs.set_high().map_err(|_| SdError::CsError)?;
+        self.spi.write(&[0xFF]).map_err(|_| SdError::SpiError)?;
+
+        res
+    }
+
+    pub fn write_block(&mut self, block: u32, buffer: &[u8]) -> Result<(), SdError> {
+        if buffer.len() < 512 {
+            return Err(SdError::CommandError(0));
+        }
+
+        let addr = if self.is_sdhc { block } else { block * 512 };
+
+        self.cs.set_low().map_err(|_| SdError::CsError)?;
+
+        let res = (|| {
+            let r1 = self.send_command(24, addr, 0xFF)?;
+            if r1 != 0x00 {
+                return Err(SdError::CommandError(r1));
+            }
+
+            self.spi.write(&[0xFF, 0xFE]).map_err(|_| SdError::SpiError)?;
+            self.spi.write(&buffer[..512]).map_err(|_| SdError::SpiError)?;
+            self.spi.write(&[0xFF, 0xFF]).map_err(|_| SdError::SpiError)?;
+
+            let mut res = [0xFF];
+            self.spi_read(&mut res)?;
+            if (res[0] & 0x1F) != 0x05 {
+                return Err(SdError::WriteError);
+            }
+
+            let mut retries = 1000000;
+            loop {
+                self.spi_read(&mut res)?;
+                if res[0] != 0x00 {
+                    break;
+                }
+                retries -= 1;
+                if retries == 0 {
+                    return Err(SdError::Timeout);
+                }
+            }
+
+            Ok(())
+        })();
+
+        self.cs.set_high().map_err(|_| SdError::CsError)?;
+        self.spi.write(&[0xFF]).map_err(|_| SdError::SpiError)?;
+
+        res
+    }
+}
+
+pub struct SdBlockIo<Spi, Cs, Delay>
+where
+    Spi: SpiBus<u8> + 'static,
+    Cs: OutputPin + 'static,
+    Delay: embedded_hal::delay::DelayNs + 'static,
+{
+    card_ptr: *mut SdCard<Spi, Cs, Delay>,
+    offset: u64,
+    cache: [u8; 512],
+    cached_sector: Option<u32>,
+}
+
+unsafe impl<Spi, Cs, Delay> Send for SdBlockIo<Spi, Cs, Delay>
+where
+    Spi: SpiBus<u8> + 'static,
+    Cs: OutputPin + 'static,
+    Delay: embedded_hal::delay::DelayNs + 'static,
+{}
+unsafe impl<Spi, Cs, Delay> Sync for SdBlockIo<Spi, Cs, Delay>
+where
+    Spi: SpiBus<u8> + 'static,
+    Cs: OutputPin + 'static,
+    Delay: embedded_hal::delay::DelayNs + 'static,
+{}
+
+impl<Spi, Cs, Delay> Clone for SdBlockIo<Spi, Cs, Delay>
+where
+    Spi: SpiBus<u8> + 'static,
+    Cs: OutputPin + 'static,
+    Delay: embedded_hal::delay::DelayNs + 'static,
+{
+    fn clone(&self) -> Self {
+        Self {
+            card_ptr: self.card_ptr,
+            offset: self.offset,
+            cache: self.cache,
+            cached_sector: self.cached_sector,
+        }
+    }
+}
+
+impl<Spi, Cs, Delay> Copy for SdBlockIo<Spi, Cs, Delay>
+where
+    Spi: SpiBus<u8> + 'static,
+    Cs: OutputPin + 'static,
+    Delay: embedded_hal::delay::DelayNs + 'static,
+{}
+
+impl<Spi, Cs, Delay> SdBlockIo<Spi, Cs, Delay>
+where
+    Spi: SpiBus<u8> + 'static,
+    Cs: OutputPin + 'static,
+    Delay: embedded_hal::delay::DelayNs + 'static,
+{
+    pub fn new(card_ptr: *mut SdCard<Spi, Cs, Delay>) -> Self {
+        Self {
+            card_ptr,
+            offset: 0,
+            cache: [0u8; 512],
+            cached_sector: None,
+        }
+    }
+}
+
+impl<Spi, Cs, Delay> hadris_io::r#async::Read for SdBlockIo<Spi, Cs, Delay>
+where
+    Spi: SpiBus<u8> + 'static,
+    Cs: OutputPin + 'static,
+    Delay: embedded_hal::delay::DelayNs + 'static,
+{
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, hadris_io::Error> {
+        let mut total_read = 0;
+        let len = buf.len();
+        let card = unsafe { &mut *self.card_ptr };
+        
+        while total_read < len {
+            let sector = (self.offset / 512) as u32;
+            let offset_in_sector = (self.offset % 512) as usize;
+            let bytes_avail = 512 - offset_in_sector;
+            let to_copy = min(len - total_read, bytes_avail);
+            
+            if self.cached_sector != Some(sector) {
+                if let Err(e) = card.read_block(sector, &mut self.cache) {
+                    defmt::error!("SdBlockIo: read block failed: {:?}", defmt::Debug2Format(&e));
+                    return Err(hadris_io::Error::new_static(hadris_io::ErrorKind::Other, "SD read error"));
+                }
+                self.cached_sector = Some(sector);
+            }
+            
+            let src = &self.cache[offset_in_sector..offset_in_sector + to_copy];
+            buf[total_read..total_read + to_copy].copy_from_slice(src);
+            
+            self.offset += to_copy as u64;
+            total_read += to_copy;
+        }
+        
+        Ok(total_read)
+    }
+}
+
+impl<Spi, Cs, Delay> hadris_io::r#async::Seek for SdBlockIo<Spi, Cs, Delay>
+where
+    Spi: SpiBus<u8> + 'static,
+    Cs: OutputPin + 'static,
+    Delay: embedded_hal::delay::DelayNs + 'static,
+{
+    async fn seek(&mut self, pos: hadris_io::SeekFrom) -> Result<u64, hadris_io::Error> {
+        let new_offset = match pos {
+            hadris_io::SeekFrom::Start(n) => n,
+            hadris_io::SeekFrom::Current(n) => (self.offset as i64 + n) as u64,
+            hadris_io::SeekFrom::End(n) => {
+                let total_bytes = 4_000_000_000u64;
+                (total_bytes as i64 + n) as u64
+            }
+        };
+        self.offset = new_offset;
+        Ok(new_offset)
+    }
+}
+
+impl<Spi, Cs, Delay> hadris_io::r#async::Write for SdBlockIo<Spi, Cs, Delay>
+where
+    Spi: SpiBus<u8> + 'static,
+    Cs: OutputPin + 'static,
+    Delay: embedded_hal::delay::DelayNs + 'static,
+{
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, hadris_io::Error> {
+        let mut total_written = 0;
+        let len = buf.len();
+        let card = unsafe { &mut *self.card_ptr };
+        
+        while total_written < len {
+            let sector = (self.offset / 512) as u32;
+            let offset_in_sector = (self.offset % 512) as usize;
+            let bytes_avail = 512 - offset_in_sector;
+            let to_copy = min(len - total_written, bytes_avail);
+
+            if self.cached_sector != Some(sector) {
+                if to_copy < 512 {
+                    if card.read_block(sector, &mut self.cache).is_err() {
+                        self.cache = [0u8; 512];
+                    }
+                }
+                self.cached_sector = Some(sector);
+            }
+
+            self.cache[offset_in_sector..offset_in_sector + to_copy]
+                .copy_from_slice(&buf[total_written..total_written + to_copy]);
+            
+            if let Err(e) = card.write_block(sector, &self.cache) {
+                defmt::error!("SdBlockIo: write block failed: {:?}", defmt::Debug2Format(&e));
+                return Err(hadris_io::Error::new_static(hadris_io::ErrorKind::Other, "SD write error"));
+            }
+
+            self.offset += to_copy as u64;
+            total_written += to_copy;
+        }
+        Ok(total_written)
+    }
+
+    async fn flush(&mut self) -> Result<(), hadris_io::Error> {
+        Ok(())
+    }
+}
