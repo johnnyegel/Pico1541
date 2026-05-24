@@ -230,8 +230,9 @@ where
     }
 
     async fn file_browser_menu(&mut self, title: &str, use_internal: bool) -> bool {
-        let mut cursor = 0;
-        let mut cursor_stack = heapless::Vec::<usize, 32>::new();
+        let mut cursor: usize = 0;
+        let mut scroll_offset: usize = 0;
+        let mut cursor_stack = heapless::Vec::<(usize, usize), 32>::new();
         loop {
             let current_path = if use_internal {
                 &self.internal_path
@@ -260,15 +261,18 @@ where
                 }
             };
 
-            // Load the first 48 entries (3 blocks × 16) in a single iterator pass.
-            // No upfront count needed: PagedDirectorySource discovers the total lazily.
+            let current_block = cursor / 16;
+            let initial_start_block = current_block.saturating_sub(1);
+            let initial_start_idx = initial_start_block * 16;
+
+            // Load the entries around the cursor position (up to 48 entries = 3 blocks)
             let mut initial_infos = Vec::<FileInfo, 48>::new();
             let load_res = if use_internal {
-                self.internal.list_dir_range(current_path.as_str(), 0, 48, |info| {
+                self.internal.list_dir_range(current_path.as_str(), initial_start_idx, 48, |info| {
                     let _ = initial_infos.push(info);
                 }).await
             } else {
-                self.storage.list_dir_range(current_path.as_str(), 0, 48, |info| {
+                self.storage.list_dir_range(current_path.as_str(), initial_start_idx, 48, |info| {
                     let _ = initial_infos.push(info);
                 }).await
             };
@@ -309,7 +313,7 @@ where
                     let entry = self.create_directory_entry(&info.name[..name_len], info.is_dir, info.size);
                     let _ = block_entries.push(entry);
                 }
-                dir_source.set_block(block_idx, &block_entries);
+                dir_source.set_block(initial_start_block + block_idx, &block_entries);
             }
 
             let vdisk = pico1541_common::formats::VirtualDiskImage::new(dir_source);
@@ -360,7 +364,9 @@ where
                         } else {
                             let parent = parent_dir(current_path_mut.as_str());
                             *current_path_mut = String::from_str(parent).unwrap();
-                            cursor = cursor_stack.pop().unwrap_or(0);
+                            let state = cursor_stack.pop().unwrap_or((0, 0));
+                            cursor = state.0;
+                            scroll_offset = state.1;
                             continue;
                         }
                     }
@@ -382,6 +388,7 @@ where
 
             // Build paged menu. total_count is discovered lazily as blocks are fetched.
             let mut menu = Menu::<String<64>, 48, _>::new_paged(menu_title);
+            menu.set_scroll_offset(scroll_offset);
 
             // Load initial blocks into the menu display buffer.
             for (block_idx, chunk) in initial_infos.chunks(16).enumerate() {
@@ -401,7 +408,7 @@ where
                     
                     let _ = block_strings.push(s);
                 }
-                menu.set_block(block_idx, &block_strings);
+                menu.set_block(initial_start_block + block_idx, &block_strings);
             }
 
             // Ensure cursor block is loaded
@@ -487,6 +494,7 @@ where
             };
 
             cursor = menu.selected_index();
+            scroll_offset = menu.scroll_offset();
 
             match event {
                 MenuEvent::LoadBlock(_) => {}
@@ -529,8 +537,9 @@ where
                         };
                         let new_path = join_path(current_path_mut.as_str(), dirname);
                         *current_path_mut = new_path;
-                        let _ = cursor_stack.push(cursor);
+                        let _ = cursor_stack.push((cursor, menu.scroll_offset()));
                         cursor = 0;
+                        scroll_offset = 0;
                     } else {
                         let filename = core::str::from_utf8(&selected.name).unwrap_or("???").trim_matches('\0');
                         let mut full_path = String::<128>::new();
@@ -700,7 +709,9 @@ where
                         let parent = parent_dir(current_path_mut.as_str());
                         *current_path_mut = String::from_str(parent).unwrap();
                         self.mounted_file_path = None;
-                        cursor = 0;
+                        let state = cursor_stack.pop().unwrap_or((0, 0));
+                        cursor = state.0;
+                        scroll_offset = state.1;
                         continue;
                     }
                 }

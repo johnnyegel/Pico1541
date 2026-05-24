@@ -103,6 +103,14 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
         self.selected_index
     }
 
+    pub fn scroll_offset(&self) -> usize {
+        self.scroll_offset
+    }
+
+    pub fn set_scroll_offset(&mut self, offset: usize) {
+        self.scroll_offset = offset;
+    }
+
     pub fn get_item(&self, idx: usize) -> Option<&T> {
         if self.total_count <= N {
             self.items.get(idx).and_then(|opt| opt.as_ref())
