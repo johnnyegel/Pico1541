@@ -231,6 +231,7 @@ where
 
     async fn file_browser_menu(&mut self, title: &str, use_internal: bool) -> bool {
         let mut cursor = 0;
+        let mut cursor_stack = heapless::Vec::<usize, 32>::new();
         loop {
             let current_path = if use_internal {
                 &self.internal_path
@@ -359,7 +360,7 @@ where
                         } else {
                             let parent = parent_dir(current_path_mut.as_str());
                             *current_path_mut = String::from_str(parent).unwrap();
-                            cursor = 0;
+                            cursor = cursor_stack.pop().unwrap_or(0);
                             continue;
                         }
                     }
@@ -528,6 +529,7 @@ where
                         };
                         let new_path = join_path(current_path_mut.as_str(), dirname);
                         *current_path_mut = new_path;
+                        let _ = cursor_stack.push(cursor);
                         cursor = 0;
                     } else {
                         let filename = core::str::from_utf8(&selected.name).unwrap_or("???").trim_matches('\0');

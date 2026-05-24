@@ -70,7 +70,7 @@ impl OledDisplay {
 
         if text_width > 128 {
             let max_scroll = text_width - 128;
-            self.scroll_offset += self.scroll_dir * 2;
+            self.scroll_offset += self.scroll_dir * 3;
 
             if self.scroll_offset >= max_scroll {
                 self.scroll_offset = max_scroll;
@@ -154,6 +154,7 @@ impl OledDisplay {
             let style = MonoTextStyleBuilder::new()
                 .font(font)
                 .text_color(fg_color)
+                .background_color(bg_color)
                 .build();
 
             let y_adj = if is_large { 15 } else { 8 };
@@ -166,11 +167,12 @@ impl OledDisplay {
             let text = &self.lines[i];
             if is_selected && text.len() >= 2 && text.is_char_boundary(2) {
                 let (prefix, rest) = text.split_at(2);
-                let _ = Text::new(prefix, Point::new(0, text_y), style)
-                    .draw(&mut self.display);
                 
                 let rest_x = 2 * char_width - self.scroll_offset;
                 let _ = Text::new(rest, Point::new(rest_x, text_y), style)
+                    .draw(&mut self.display);
+
+                let _ = Text::new(prefix, Point::new(0, text_y), style)
                     .draw(&mut self.display);
             } else {
                 let x_offset = if is_selected { -self.scroll_offset } else { 0 };
