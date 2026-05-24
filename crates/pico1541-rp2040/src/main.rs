@@ -16,7 +16,7 @@ use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::i2c::{Config, InterruptHandler};
 use embassy_rp::peripherals::{I2C0, SPI1, PIN_25, DMA_CH0, DMA_CH1};
-use embassy_rp::spi::{Config as SpiConfig, Spi, Async};
+use embassy_rp::spi::{Config as SpiConfig, Spi, Blocking};
 use embassy_rp::multicore::Stack;
 use embassy_rp::Peri;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -39,6 +39,7 @@ use crate::driver::input::KeyboardInput;
 use crate::driver::leds::{ActivityLed, StatusLeds, StatusLedsWrapper};
 use crate::driver::speaker::PiezoSpeaker;
 use crate::driver::storage::{HadrisFileWrapper, SdStorage, StorageWrapper};
+use embedded_hal_bus::spi::ExclusiveDevice;
 
 
 use static_cell::StaticCell;
@@ -56,10 +57,58 @@ static CURRENT_DIR: Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)
 // Core 1 Stack
 static CORE1_STACK: StaticCell<Stack<16384>> = StaticCell::new();
 
-type MySpi = Spi<'static, SPI1, Async>;
+pub struct LoggingSpiDevice<Spi> {
+    inner: Spi,
+}
+
+impl<Spi> LoggingSpiDevice<Spi> {
+    pub fn new(inner: Spi) -> Self {
+        Self { inner }
+    }
+}
+
+impl<Spi> embedded_hal::spi::ErrorType for LoggingSpiDevice<Spi>
+where
+    Spi: embedded_hal::spi::SpiDevice<u8>,
+{
+    type Error = Spi::Error;
+}
+
+impl<Spi> embedded_hal::spi::SpiDevice<u8> for LoggingSpiDevice<Spi>
+where
+    Spi: embedded_hal::spi::SpiDevice<u8>,
+{
+    fn transaction(&mut self, operations: &mut [embedded_hal::spi::Operation<'_, u8>]) -> Result<(), Self::Error> {
+        let res = self.inner.transaction(operations);
+        for (i, op) in operations.iter().enumerate() {
+            match op {
+                embedded_hal::spi::Operation::Read(buf) => {
+                    defmt::info!("SPI Op {}: Read (len={}) {:?}", i, buf.len(), buf);
+                }
+                embedded_hal::spi::Operation::Write(buf) => {
+                    defmt::info!("SPI Op {}: Write (len={}) {:?}", i, buf.len(), buf);
+                }
+                embedded_hal::spi::Operation::Transfer(read_buf, write_buf) => {
+                    defmt::info!("SPI Op {}: Transfer (len={}) write {:?} | read {:?}", i, write_buf.len(), write_buf, read_buf);
+                }
+                embedded_hal::spi::Operation::TransferInPlace(buf) => {
+                    defmt::info!("SPI Op {}: TransferInPlace (len={}) {:?}", i, buf.len(), buf);
+                }
+                embedded_hal::spi::Operation::DelayNs(ns) => {
+                    defmt::info!("SPI Op {}: Delay {}ns", i, *ns);
+                }
+            }
+        }
+        res
+    }
+}
+
+type MySpi = Spi<'static, SPI1, Blocking>;
 type MyCs = Output<'static>;
+type MyDelay = embassy_time::Delay;
+type MySpiDev = LoggingSpiDevice<ExclusiveDevice<MySpi, MyCs, MyDelay>>;
 type MyDet = Input<'static>;
-type MyFile = HadrisFileWrapper<MySpi, MyCs, MyDet>;
+type MyFile = HadrisFileWrapper<MySpiDev, MyDelay, MyDet>;
 type MyStorage = RuntimeStorage<'static, MyFile>;
 type MyDir = PagedDirectorySource<48>;
 type MyDisk = AnyDiskImage<MyStorage, MyDir>;
@@ -303,7 +352,7 @@ async fn snooper_run(mut task: SnooperTask) {
 }
 
 struct MyOpener {
-    storage: StorageWrapper<MySpi, MyCs, MyDet>,
+    storage: StorageWrapper<MySpiDev, MyDelay, MyDet>,
 }
 
 impl pico1541_manager::tasks::virtual_dir::FileOpener for MyOpener {
@@ -406,7 +455,7 @@ async fn menu_run(
         DisplayWrapper<CriticalSectionRawMutex>,
         StatusLedsWrapper<CriticalSectionRawMutex>,
         IndicatorWrapper<CriticalSectionRawMutex>,
-        StorageWrapper<MySpi, MyCs, MyDet>,
+        StorageWrapper<MySpiDev, MyDelay, MyDet>,
         MyFile,
     >,
 ) {
@@ -518,15 +567,17 @@ async fn core1_init_task(
     static STATUS_LEDS: StaticCell<Mutex<CriticalSectionRawMutex, StatusLeds>> = StaticCell::new();
     let status_leds_mutex = STATUS_LEDS.init(Mutex::new(status_leds_obj));
 
-    // 4. SD Card (SPI1) — start at any frequency; SdCard::init() forces 400kHz itself
+    // 4. SD Card (SPI1)
     let cs = Output::new(pins.cs, Level::High);
     let det = Input::new(pins.det, Pull::Up);
     let mut spi_config = SpiConfig::default();
     spi_config.frequency = 400_000;
-    let spi = Spi::new(pins.spi1, pins.clk, pins.mosi, pins.miso, pins.dma_ch0, pins.dma_ch1, Irqs, spi_config);
+    let spi = Spi::new_blocking(pins.spi1, pins.clk, pins.mosi, pins.miso, spi_config);
+    let spi_dev = ExclusiveDevice::new(spi, cs, embassy_time::Delay).unwrap();
+    let logging_spi_dev = LoggingSpiDevice::new(spi_dev);
 
-    static SD_STORAGE: StaticCell<Mutex<CriticalSectionRawMutex, SdStorage<MySpi, MyCs, MyDet>>> = StaticCell::new();
-    let sd_obj = SdStorage::new(spi, cs, det);
+    static SD_STORAGE: StaticCell<Mutex<CriticalSectionRawMutex, SdStorage<MySpiDev, MyDelay, MyDet>>> = StaticCell::new();
+    let sd_obj = SdStorage::new(logging_spi_dev, embassy_time::Delay, det);
     let sd_mutex = SD_STORAGE.init(Mutex::new(sd_obj));
 
     // 5. Keyboard Matrix

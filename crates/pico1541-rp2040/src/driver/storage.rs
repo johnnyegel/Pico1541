@@ -8,36 +8,63 @@ use hadris_fat::r#async::fs::FatFs;
 use hadris_fat::r#async::dir::DirectoryEntry;
 use hadris_fat::DirEntryAttrFlags;
 use hadris_io::SeekFrom;
-use embedded_hal::digital::{InputPin, OutputPin};
-use embedded_hal_async::spi::SpiBus;
+use embedded_hal::digital::InputPin;
+use embedded_sdmmc::{SdCard, Block, BlockIdx, BlockDevice};
 
-use crate::driver::sdcard::{SdCard, SdSpi};
+fn normalize_path(path: &str) -> &str {
+    let mut p = path;
+    if p.starts_with('/') {
+        p = &p[1..];
+    }
+    if p.ends_with('/') && !p.is_empty() {
+        p = &p[..p.len() - 1];
+    }
+    p
+}
 
-pub struct SdBlockIo<SPI, CS> {
-    card_ptr: *mut SdCard<SPI, CS>,
+pub struct SdBlockIo<SpiDev, Delay>
+where
+    SpiDev: embedded_hal::spi::SpiDevice<u8> + 'static,
+    Delay: embedded_hal::delay::DelayNs + 'static,
+{
+    card_ptr: *mut SdCard<SpiDev, Delay>,
     offset: u64,
     cache: [u8; 512],
     cached_sector: Option<u32>,
+    partition_start: u32,
 }
 
-unsafe impl<SPI, CS> Send for SdBlockIo<SPI, CS> {}
-unsafe impl<SPI, CS> Sync for SdBlockIo<SPI, CS> {}
+unsafe impl<SpiDev, Delay> Send for SdBlockIo<SpiDev, Delay>
+where
+    SpiDev: embedded_hal::spi::SpiDevice<u8> + 'static,
+    Delay: embedded_hal::delay::DelayNs + 'static,
+{}
+unsafe impl<SpiDev, Delay> Sync for SdBlockIo<SpiDev, Delay>
+where
+    SpiDev: embedded_hal::spi::SpiDevice<u8> + 'static,
+    Delay: embedded_hal::delay::DelayNs + 'static,
+{}
 
-impl<SPI, CS> SdBlockIo<SPI, CS> {
-    pub fn new(card_ptr: *mut SdCard<SPI, CS>) -> Self {
+impl<SpiDev, Delay> SdBlockIo<SpiDev, Delay>
+where
+    SpiDev: embedded_hal::spi::SpiDevice<u8> + 'static,
+    Delay: embedded_hal::delay::DelayNs + 'static,
+{
+    pub fn new(card_ptr: *mut SdCard<SpiDev, Delay>, partition_start: u32) -> Self {
         Self {
             card_ptr,
             offset: 0,
             cache: [0u8; 512],
             cached_sector: None,
+            partition_start,
         }
     }
 }
 
-impl<SPI, CS> hadris_io::r#async::Read for SdBlockIo<SPI, CS>
+impl<SpiDev, Delay> hadris_io::r#async::Read for SdBlockIo<SpiDev, Delay>
 where
-    SPI: SpiBus<u8> + SdSpi + 'static,
-    CS: OutputPin + 'static,
+    SpiDev: embedded_hal::spi::SpiDevice<u8> + 'static,
+    Delay: embedded_hal::delay::DelayNs + 'static,
 {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, hadris_io::Error> {
         let mut total_read = 0;
@@ -51,12 +78,13 @@ where
             let to_copy = (len - total_read).min(bytes_avail);
             
             if self.cached_sector != Some(sector) {
-                let mut sector_data = [0u8; 512];
-                card.read_block(sector, &mut sector_data).await.map_err(|e| {
-                    defmt::error!("SdBlockIo: read_block failed: {:?}", e);
+                let mut read_blocks = [Block { contents: [0u8; 512] }];
+                let physical_sector = sector + self.partition_start;
+                card.read(&mut read_blocks, BlockIdx(physical_sector)).map_err(|e| {
+                    defmt::error!("SdBlockIo: read block failed: {:?}", defmt::Debug2Format(&e));
                     hadris_io::Error::new_static(hadris_io::ErrorKind::Other, "SD read error")
                 })?;
-                self.cache = sector_data;
+                self.cache = read_blocks[0].contents;
                 self.cached_sector = Some(sector);
             }
             
@@ -71,10 +99,10 @@ where
     }
 }
 
-impl<SPI, CS> hadris_io::r#async::Seek for SdBlockIo<SPI, CS>
+impl<SpiDev, Delay> hadris_io::r#async::Seek for SdBlockIo<SpiDev, Delay>
 where
-    SPI: SpiBus<u8> + SdSpi + 'static,
-    CS: OutputPin + 'static,
+    SpiDev: embedded_hal::spi::SpiDevice<u8> + 'static,
+    Delay: embedded_hal::delay::DelayNs + 'static,
 {
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, hadris_io::Error> {
         let card = unsafe { &mut *self.card_ptr };
@@ -82,8 +110,11 @@ where
             SeekFrom::Start(n) => n,
             SeekFrom::Current(n) => (self.offset as i64 + n) as u64,
             SeekFrom::End(n) => {
-                let num_blocks = card.num_blocks() as u64;
-                let total_bytes = num_blocks * 512;
+                let count = card.num_blocks().map_err(|e| {
+                    defmt::error!("SdBlockIo: num_blocks failed: {:?}", defmt::Debug2Format(&e));
+                    hadris_io::Error::new_static(hadris_io::ErrorKind::Other, "SD block count error")
+                })?;
+                let total_bytes = count.0 as u64 * 512;
                 (total_bytes as i64 + n) as u64
             }
         };
@@ -92,10 +123,10 @@ where
     }
 }
 
-impl<SPI, CS> hadris_io::r#async::Write for SdBlockIo<SPI, CS>
+impl<SpiDev, Delay> hadris_io::r#async::Write for SdBlockIo<SpiDev, Delay>
 where
-    SPI: SpiBus<u8> + SdSpi + 'static,
-    CS: OutputPin + 'static,
+    SpiDev: embedded_hal::spi::SpiDevice<u8> + 'static,
+    Delay: embedded_hal::delay::DelayNs + 'static,
 {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, hadris_io::Error> {
         let mut total_written = 0;
@@ -108,10 +139,12 @@ where
             let bytes_avail = 512 - offset_in_sector;
             let to_copy = (len - total_written).min(bytes_avail);
 
+            let physical_sector = sector + self.partition_start;
+
             if self.cached_sector != Some(sector) {
-                let mut sector_data = [0u8; 512];
-                if card.read_block(sector, &mut sector_data).await.is_ok() {
-                    self.cache = sector_data;
+                let mut read_blocks = [Block { contents: [0u8; 512] }];
+                if card.read(&mut read_blocks, BlockIdx(physical_sector)).is_ok() {
+                    self.cache = read_blocks[0].contents;
                 } else {
                     self.cache = [0u8; 512];
                 }
@@ -121,8 +154,9 @@ where
             self.cache[offset_in_sector..offset_in_sector + to_copy]
                 .copy_from_slice(&buf[total_written..total_written + to_copy]);
             
-            card.write_block(sector, &self.cache).await.map_err(|e| {
-                defmt::error!("SdBlockIo: write_block failed: {:?}", e);
+            let write_blocks = [Block { contents: self.cache }];
+            card.write(&write_blocks, BlockIdx(physical_sector)).map_err(|e| {
+                defmt::error!("SdBlockIo: write block failed: {:?}", defmt::Debug2Format(&e));
                 hadris_io::Error::new_static(hadris_io::ErrorKind::Other, "SD write error")
             })?;
 
@@ -137,28 +171,28 @@ where
     }
 }
 
-pub struct SdStorage<SPI, CS, DET>
+pub struct SdStorage<SpiDev, Delay, Det>
 where
-    SPI: SpiBus<u8> + SdSpi + 'static,
-    CS: OutputPin + 'static,
-    DET: InputPin + 'static,
+    SpiDev: embedded_hal::spi::SpiDevice<u8> + 'static,
+    Delay: embedded_hal::delay::DelayNs + 'static,
+    Det: InputPin + 'static,
 {
-    pub card: SdCard<SPI, CS>,
+    pub card: SdCard<SpiDev, Delay>,
     pub card_init: bool,
-    pub fat_fs: Option<FatFs<SdBlockIo<SPI, CS>>>,
-    pub det_pin: DET,
+    pub fat_fs: Option<FatFs<SdBlockIo<SpiDev, Delay>>>,
+    pub det_pin: Det,
     pub volume_label: Option<heapless::String<11>>,
 }
 
-impl<SPI, CS, DET> SdStorage<SPI, CS, DET>
+impl<SpiDev, Delay, Det> SdStorage<SpiDev, Delay, Det>
 where
-    SPI: SpiBus<u8> + SdSpi + 'static,
-    CS: OutputPin + 'static,
-    DET: InputPin + 'static,
+    SpiDev: embedded_hal::spi::SpiDevice<u8> + 'static,
+    Delay: embedded_hal::delay::DelayNs + 'static,
+    Det: InputPin + 'static,
 {
-    pub fn new(spi: SPI, cs: CS, det_pin: DET) -> Self {
+    pub fn new(spi_device: SpiDev, delayer: Delay, det_pin: Det) -> Self {
         Self {
-            card: SdCard::new(spi, cs),
+            card: SdCard::new(spi_device, delayer),
             card_init: false,
             fat_fs: None,
             det_pin,
@@ -166,7 +200,7 @@ where
         }
     }
 
-    pub async fn ensure_mounted(&mut self) -> Result<&FatFs<SdBlockIo<SPI, CS>>, ManagerError> {
+    pub async fn ensure_mounted(&mut self) -> Result<&FatFs<SdBlockIo<SpiDev, Delay>>, ManagerError> {
         if self.det_pin.is_high().map_err(|_| ManagerError::Io)? {
             self.fat_fs = None;
             self.card_init = false;
@@ -177,15 +211,54 @@ where
             self.fat_fs = None;
             self.card_init = false;
             
-            defmt::info!("SD: initiating card...");
-            if let Err(e) = self.card.init().await {
-                defmt::error!("SD: init failed: {:?}", e);
+            defmt::info!("SD: checking/initiating card via embedded-sdmmc...");
+            if let Err(e) = self.card.num_blocks() {
+                defmt::error!("SD: init failed: {:?}", defmt::Debug2Format(&e));
                 return Err(ManagerError::Io);
             }
             self.card_init = true;
             defmt::info!("SD: card initialized successfully.");
 
-            let block_io = SdBlockIo::new(&mut self.card as *mut SdCard<SPI, CS>);
+            // Read sector 0 to detect if it has a partition table (MBR) or is formatted directly (super-floppy).
+            let mut boot_sector = [Block { contents: [0u8; 512] }];
+            if let Err(e) = self.card.read(&mut boot_sector, BlockIdx(0)) {
+                defmt::error!("SD: failed to read sector 0: {:?}", defmt::Debug2Format(&e));
+                self.card_init = false;
+                return Err(ManagerError::Io);
+            }
+
+            let sig_ok = boot_sector[0].contents[510] == 0x55 && boot_sector[0].contents[511] == 0xAA;
+            if !sig_ok {
+                defmt::error!("SD: invalid boot sector signature at sector 0: {:02x} {:02x}", boot_sector[0].contents[510], boot_sector[0].contents[511]);
+                self.card_init = false;
+                return Err(ManagerError::Io);
+            }
+
+            let first_part_type = boot_sector[0].contents[446 + 4];
+            let first_part_lba = u32::from_le_bytes([
+                boot_sector[0].contents[446 + 8],
+                boot_sector[0].contents[446 + 9],
+                boot_sector[0].contents[446 + 10],
+                boot_sector[0].contents[446 + 11],
+            ]);
+
+            // MBR partition signature has a non-zero LBA start and a known partition type
+            let is_mbr = first_part_lba != 0 && (
+                first_part_type == 0x0B || first_part_type == 0x0C || // FAT32
+                first_part_type == 0x06 || first_part_type == 0x0E || // FAT16
+                first_part_type == 0x01 || // FAT12
+                first_part_type == 0x07 // NTFS/exFAT
+            );
+
+            let partition_start = if is_mbr {
+                defmt::info!("SD: MBR detected. Partition 1 starts at LBA {}", first_part_lba);
+                first_part_lba
+            } else {
+                defmt::info!("SD: no MBR partition table detected. Accessing sector 0 directly.");
+                0
+            };
+
+            let block_io = SdBlockIo::new(&mut self.card as *mut SdCard<SpiDev, Delay>, partition_start);
             defmt::info!("SD: opening FatFs...");
             let fs = match FatFs::open(block_io).await {
                 Ok(f) => f,
@@ -203,63 +276,63 @@ where
     }
 }
 
-pub struct StorageWrapper<SPI, CS, DET>(
-    pub &'static Mutex<CriticalSectionRawMutex, SdStorage<SPI, CS, DET>>,
+pub struct StorageWrapper<SpiDev, Delay, Det>(
+    pub &'static Mutex<CriticalSectionRawMutex, SdStorage<SpiDev, Delay, Det>>,
 )
 where
-    SPI: SpiBus<u8> + SdSpi + 'static,
-    CS: OutputPin + 'static,
-    DET: InputPin + 'static;
+    SpiDev: embedded_hal::spi::SpiDevice<u8> + 'static,
+    Delay: embedded_hal::delay::DelayNs + 'static,
+    Det: InputPin + 'static;
 
-impl<SPI, CS, DET> Clone for StorageWrapper<SPI, CS, DET>
+impl<SpiDev, Delay, Det> Clone for StorageWrapper<SpiDev, Delay, Det>
 where
-    SPI: SpiBus<u8> + SdSpi + 'static,
-    CS: OutputPin + 'static,
-    DET: InputPin + 'static,
+    SpiDev: embedded_hal::spi::SpiDevice<u8> + 'static,
+    Delay: embedded_hal::delay::DelayNs + 'static,
+    Det: InputPin + 'static,
 {
     fn clone(&self) -> Self {
         Self(self.0)
     }
 }
 
-impl<SPI, CS, DET> Copy for StorageWrapper<SPI, CS, DET>
+impl<SpiDev, Delay, Det> Copy for StorageWrapper<SpiDev, Delay, Det>
 where
-    SPI: SpiBus<u8> + SdSpi + 'static,
-    CS: OutputPin + 'static,
-    DET: InputPin + 'static,
+    SpiDev: embedded_hal::spi::SpiDevice<u8> + 'static,
+    Delay: embedded_hal::delay::DelayNs + 'static,
+    Det: InputPin + 'static,
 {}
 
-pub struct HadrisFileWrapper<SPI, CS, DET>
+pub struct HadrisFileWrapper<SpiDev, Delay, Det>
 where
-    SPI: SpiBus<u8> + SdSpi + 'static,
-    CS: OutputPin + 'static,
-    DET: InputPin + 'static,
+    SpiDev: embedded_hal::spi::SpiDevice<u8> + 'static,
+    Delay: embedded_hal::delay::DelayNs + 'static,
+    Det: InputPin + 'static,
 {
-    storage: StorageWrapper<SPI, CS, DET>,
+    storage: StorageWrapper<SpiDev, Delay, Det>,
     path: heapless::String<128>,
     offset: u64,
 }
 
-impl<SPI, CS, DET> embedded_io_async::ErrorType for HadrisFileWrapper<SPI, CS, DET>
+impl<SpiDev, Delay, Det> embedded_io_async::ErrorType for HadrisFileWrapper<SpiDev, Delay, Det>
 where
-    SPI: SpiBus<u8> + SdSpi + 'static,
-    CS: OutputPin + 'static,
-    DET: InputPin + 'static,
+    SpiDev: embedded_hal::spi::SpiDevice<u8> + 'static,
+    Delay: embedded_hal::delay::DelayNs + 'static,
+    Det: InputPin + 'static,
 {
     type Error = CommonError;
 }
 
-impl<SPI, CS, DET> embedded_io_async::Read for HadrisFileWrapper<SPI, CS, DET>
+impl<SpiDev, Delay, Det> embedded_io_async::Read for HadrisFileWrapper<SpiDev, Delay, Det>
 where
-    SPI: SpiBus<u8> + SdSpi + 'static,
-    CS: OutputPin + 'static,
-    DET: InputPin + 'static,
+    SpiDev: embedded_hal::spi::SpiDevice<u8> + 'static,
+    Delay: embedded_hal::delay::DelayNs + 'static,
+    Det: InputPin + 'static,
 {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         let mut storage = self.storage.0.lock().await;
         let fs = storage.ensure_mounted().await.map_err(|_| CommonError::Io)?;
         
-        let mut file_reader = fs.open_file_path(self.path.as_str()).await.map_err(|_| CommonError::Io)?;
+        let mut file_reader = fs.open_file_path(normalize_path(self.path.as_str())).await.map_err(|_| CommonError::Io)?;
         
         let to_discard = self.offset as usize;
         let mut discarded = 0;
@@ -279,11 +352,11 @@ where
     }
 }
 
-impl<SPI, CS, DET> embedded_io_async::Seek for HadrisFileWrapper<SPI, CS, DET>
+impl<SpiDev, Delay, Det> embedded_io_async::Seek for HadrisFileWrapper<SpiDev, Delay, Det>
 where
-    SPI: SpiBus<u8> + SdSpi + 'static,
-    CS: OutputPin + 'static,
-    DET: InputPin + 'static,
+    SpiDev: embedded_hal::spi::SpiDevice<u8> + 'static,
+    Delay: embedded_hal::delay::DelayNs + 'static,
+    Det: InputPin + 'static,
 {
     async fn seek(&mut self, pos: embedded_io_async::SeekFrom) -> Result<u64, Self::Error> {
         match pos {
@@ -292,7 +365,7 @@ where
             embedded_io_async::SeekFrom::End(n) => {
                 let mut storage = self.storage.0.lock().await;
                 let fs = storage.ensure_mounted().await.map_err(|_| CommonError::Io)?;
-                let file_reader = fs.open_file_path(self.path.as_str()).await.map_err(|_| CommonError::Io)?;
+                let file_reader = fs.open_file_path(normalize_path(self.path.as_str())).await.map_err(|_| CommonError::Io)?;
                 let len = file_reader.size() as i64;
                 self.offset = (len + n) as u64;
             }
@@ -301,13 +374,13 @@ where
     }
 }
 
-impl<SPI, CS, DET> FileStorageDriver for StorageWrapper<SPI, CS, DET>
+impl<SpiDev, Delay, Det> FileStorageDriver for StorageWrapper<SpiDev, Delay, Det>
 where
-    SPI: SpiBus<u8> + SdSpi + 'static,
-    CS: OutputPin + 'static,
-    DET: InputPin + 'static,
+    SpiDev: embedded_hal::spi::SpiDevice<u8> + 'static,
+    Delay: embedded_hal::delay::DelayNs + 'static,
+    Det: InputPin + 'static,
 {
-    type File = HadrisFileWrapper<SPI, CS, DET>;
+    type File = HadrisFileWrapper<SpiDev, Delay, Det>;
 
     async fn is_available(&self) -> bool {
         if let Ok(mut storage) = self.0.try_lock() {
@@ -327,11 +400,29 @@ where
         let mut temp_volume_label = None;
         {
             let fs = storage.ensure_mounted().await?;
-            let dir = fs.open_dir_path(path).await.map_err(|_| ManagerError::Io)?;
+            defmt::info!("SD: list_dir path: '{}'", path);
+            let normalized = normalize_path(path);
+            let dir = if normalized.is_empty() {
+                fs.root_dir()
+            } else {
+                match fs.open_dir_path(normalized).await {
+                    Ok(d) => d,
+                    Err(e) => {
+                        defmt::error!("SD: list_dir open_dir_path('{}') failed: {:?}", normalized, defmt::Debug2Format(&e));
+                        return Err(ManagerError::Io);
+                    }
+                }
+            };
             let mut iter = dir.entries();
             
             while let Some(entry_res) = iter.next_entry().await {
-                let entry = entry_res.map_err(|_| ManagerError::Io)?;
+                let entry = match entry_res {
+                    Ok(e) => e,
+                    Err(e) => {
+                        defmt::error!("SD: list_dir next_entry failed: {:?}", defmt::Debug2Format(&e));
+                        return Err(ManagerError::Io);
+                    }
+                };
                 let DirectoryEntry::Entry(file_entry) = entry;
                 
                 if file_entry.attributes().contains(DirEntryAttrFlags::VOLUME_ID) {
@@ -376,11 +467,29 @@ where
         let mut temp_volume_label = None;
         {
             let fs = storage.ensure_mounted().await?;
-            let dir = fs.open_dir_path(path).await.map_err(|_| ManagerError::Io)?;
+            defmt::info!("SD: count_dir_entries path: '{}'", path);
+            let normalized = normalize_path(path);
+            let dir = if normalized.is_empty() {
+                fs.root_dir()
+            } else {
+                match fs.open_dir_path(normalized).await {
+                    Ok(d) => d,
+                    Err(e) => {
+                        defmt::error!("SD: count_dir_entries open_dir_path('{}') failed: {:?}", normalized, defmt::Debug2Format(&e));
+                        return Err(ManagerError::Io);
+                    }
+                }
+            };
             let mut iter = dir.entries();
             
             while let Some(entry_res) = iter.next_entry().await {
-                let entry = entry_res.map_err(|_| ManagerError::Io)?;
+                let entry = match entry_res {
+                    Ok(e) => e,
+                    Err(e) => {
+                        defmt::error!("SD: count_dir_entries next_entry failed: {:?}", defmt::Debug2Format(&e));
+                        return Err(ManagerError::Io);
+                    }
+                };
                 let DirectoryEntry::Entry(file_entry) = entry;
                 
                 if file_entry.attributes().contains(DirEntryAttrFlags::VOLUME_ID) {
@@ -424,7 +533,19 @@ where
         let mut temp_volume_label = None;
         {
             let fs = storage.ensure_mounted().await?;
-            let dir = fs.open_dir_path(path).await.map_err(|_| ManagerError::Io)?;
+            defmt::info!("SD: list_dir_range path: '{}'", path);
+            let normalized = normalize_path(path);
+            let dir = if normalized.is_empty() {
+                fs.root_dir()
+            } else {
+                match fs.open_dir_path(normalized).await {
+                    Ok(d) => d,
+                    Err(e) => {
+                        defmt::error!("SD: list_dir_range open_dir_path('{}') failed: {:?}", normalized, defmt::Debug2Format(&e));
+                        return Err(ManagerError::Io);
+                    }
+                }
+            };
             let mut iter = dir.entries();
             
             while let Some(entry_res) = iter.next_entry().await {
@@ -432,7 +553,13 @@ where
                     break;
                 }
 
-                let entry = entry_res.map_err(|_| ManagerError::Io)?;
+                let entry = match entry_res {
+                    Ok(e) => e,
+                    Err(e) => {
+                        defmt::error!("SD: list_dir_range next_entry failed: {:?}", defmt::Debug2Format(&e));
+                        return Err(ManagerError::Io);
+                    }
+                };
                 let DirectoryEntry::Entry(file_entry) = entry;
                 
                 if file_entry.attributes().contains(DirEntryAttrFlags::VOLUME_ID) {
@@ -492,11 +619,11 @@ where
     }
 }
 
-impl<SPI, CS, DET> StorageDriver for SdStorage<SPI, CS, DET>
+impl<SpiDev, Delay, Det> StorageDriver for SdStorage<SpiDev, Delay, Det>
 where
-    SPI: SpiBus<u8> + SdSpi + 'static,
-    CS: OutputPin + 'static,
-    DET: InputPin + 'static,
+    SpiDev: embedded_hal::spi::SpiDevice<u8> + 'static,
+    Delay: embedded_hal::delay::DelayNs + 'static,
+    Det: InputPin + 'static,
 {
     async fn read_block(&mut self, _track: u8, _sector: u8, _buf: &mut [u8]) -> Result<(), ManagerError> {
         Ok(())
