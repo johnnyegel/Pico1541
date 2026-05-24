@@ -523,8 +523,11 @@ async fn core1_init_task(
     if let Err(e) = card.init() {
         defmt::error!("SD Card init failed: {:?}", defmt::Debug2Format(&e));
     } else {
-        defmt::info!("SD Card initialized successfully. Bumping frequency to 4MHz.");
-        card.spi.set_frequency(4_000_000);
+        let baudrate = option_env!("PICO1541_SD_BAUDRATE")
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(25_000_000);
+        defmt::info!("SD Card initialized successfully. Bumping frequency to {} Hz.", baudrate);
+        card.spi.set_frequency(baudrate);
     }
 
     let block_io = SdBlockIo::new(card as *mut _);
