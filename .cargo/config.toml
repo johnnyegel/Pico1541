@@ -1,0 +1,32 @@
+# Linker flags and env for ARM no-std targets.
+# These are only applied when building for that target, so they're safe
+# to define at the workspace level alongside non-embedded crates.
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+rustflags = [
+  "-C", "linker=flip-link",
+  "-C", "link-arg=-Tlink.x",
+  "-C", "link-arg=-Tdefmt.x",
+]
+
+[env]
+DEFMT_LOG = "debug"
+EMBASSY_EXECUTOR_TASK_ARENA_SIZE = "32768"
+
+[alias]
+# Flash via SWD and stream defmt/RTT logs with probe-rs.
+# Usage: cargo run-swd
+run-swd = [
+    "run",
+    "--package", "pico1541-rp2040",
+    "--target", "thumbv6m-none-eabi",
+    "--config", "target.'cfg(all(target_arch = \"arm\", target_os = \"none\"))'.runner = \"probe-rs run --chip RP2040\"",
+]
+
+# Flash via USB (Pico must be in BOOTSEL mode: hold BOOTSEL while plugging in).
+# Usage: cargo run-usb
+run-usb = [
+    "run",
+    "--package", "pico1541-rp2040",
+    "--target", "thumbv6m-none-eabi",
+    "--config", "target.'cfg(all(target_arch = \"arm\", target_os = \"none\"))'.runner = \"elf2uf2-rs -d\"",
+]

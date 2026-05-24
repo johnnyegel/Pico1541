@@ -771,6 +771,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "endian-num"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b4a54dfedecb1dc004776a597db0c858cf6c31579296734511309291b8399ce"
+dependencies = [
+ "bytemuck",
+ "bytemuck_derive",
+]
+
+[[package]]
 name = "env_filter"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -995,6 +1005,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c391784dcf01c2711219a7a614c71f62fe16284b00f96e8be9ed882f1b82e116"
 dependencies = [
  "proc-macro2",
+]
+
+[[package]]
+name = "hadris-part"
+version = "1.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0cb3607019e2e71d3ea1705432f1b48757ad1e3cfd3b4b76f234af0372dd1539"
+dependencies = [
+ "bytemuck",
+ "endian-num",
+ "hadris-io",
+ "hadris-macros",
 ]
 
 [[package]]
@@ -1410,10 +1432,12 @@ dependencies = [
  "embassy-futures",
  "embassy-sync",
  "embassy-time",
+ "embedded-hal 1.0.0",
  "embedded-io-async",
  "futures-executor",
  "hadris-fat",
  "hadris-io",
+ "hadris-part",
  "heapless 0.9.3",
  "log",
  "pico1541-common",

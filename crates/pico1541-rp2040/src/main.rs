@@ -38,7 +38,8 @@ use crate::driver::indicator::{ActivityIndicator, IndicatorWrapper};
 use crate::driver::input::KeyboardInput;
 use crate::driver::leds::{ActivityLed, StatusLeds, StatusLedsWrapper};
 use crate::driver::speaker::PiezoSpeaker;
-use crate::driver::storage::{HadrisFileWrapper, SdStorage, StorageWrapper};
+use crate::driver::storage::SdBlockIo;
+use pico1541_manager::driver::file_storage::{HadrisFileWrapper, FatStorage, StorageWrapper};
 use embedded_hal_bus::spi::ExclusiveDevice;
 
 
@@ -108,7 +109,8 @@ type MyCs = Output<'static>;
 type MyDelay = embassy_time::Delay;
 type MySpiDev = LoggingSpiDevice<ExclusiveDevice<MySpi, MyCs, MyDelay>>;
 type MyDet = Input<'static>;
-type MyFile = HadrisFileWrapper<MySpiDev, MyDelay, MyDet>;
+type MyRawBlockIo = SdBlockIo<MySpiDev, MyDelay>;
+type MyFile = HadrisFileWrapper<MyRawBlockIo, MyDet>;
 type MyStorage = RuntimeStorage<'static, MyFile>;
 type MyDir = PagedDirectorySource<48>;
 type MyDisk = AnyDiskImage<MyStorage, MyDir>;
@@ -352,7 +354,7 @@ async fn snooper_run(mut task: SnooperTask) {
 }
 
 struct MyOpener {
-    storage: StorageWrapper<MySpiDev, MyDelay, MyDet>,
+    storage: StorageWrapper<MyRawBlockIo, MyDet>,
 }
 
 impl pico1541_manager::tasks::virtual_dir::FileOpener for MyOpener {
@@ -455,7 +457,7 @@ async fn menu_run(
         DisplayWrapper<CriticalSectionRawMutex>,
         StatusLedsWrapper<CriticalSectionRawMutex>,
         IndicatorWrapper<CriticalSectionRawMutex>,
-        StorageWrapper<MySpiDev, MyDelay, MyDet>,
+        StorageWrapper<MyRawBlockIo, MyDet>,
         MyFile,
     >,
 ) {
@@ -576,8 +578,12 @@ async fn core1_init_task(
     let spi_dev = ExclusiveDevice::new(spi, cs, embassy_time::Delay).unwrap();
     let logging_spi_dev = LoggingSpiDevice::new(spi_dev);
 
-    static SD_STORAGE: StaticCell<Mutex<CriticalSectionRawMutex, SdStorage<MySpiDev, MyDelay, MyDet>>> = StaticCell::new();
-    let sd_obj = SdStorage::new(logging_spi_dev, embassy_time::Delay, det);
+    static SD_CARD: StaticCell<embedded_sdmmc::SdCard<MySpiDev, MyDelay>> = StaticCell::new();
+    let card = SD_CARD.init(embedded_sdmmc::SdCard::new(logging_spi_dev, embassy_time::Delay));
+
+    let block_io = SdBlockIo::new(card as *mut _);
+    static SD_STORAGE: StaticCell<Mutex<CriticalSectionRawMutex, FatStorage<MyRawBlockIo, MyDet>>> = StaticCell::new();
+    let sd_obj = FatStorage::new(block_io, det);
     let sd_mutex = SD_STORAGE.init(Mutex::new(sd_obj));
 
     // 5. Keyboard Matrix

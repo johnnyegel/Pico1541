@@ -17,7 +17,9 @@ critical-section = "1.2.0"
 defmt = { version = "1.1.0", optional = true }
 hadris-fat = { version = "1", default-features = false, features = ["async", "read", "lfn", "alloc"] }
 hadris-io = { version = "1", default-features = false, features = ["async", "alloc"] }
+hadris-part = { version = "1", default-features = false, features = ["async", "alloc", "read"] }
 spin = { version = "0.10", default-features = false, features = ["portable-atomic"] }
+embedded-hal = "1.0.0"
 
 [features]
 default = []
