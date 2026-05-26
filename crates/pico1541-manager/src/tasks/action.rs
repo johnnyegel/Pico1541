@@ -4,8 +4,6 @@ pub struct ActionTask {
     back_held: bool,
     select_held: bool,
     back_used_for_chord: bool,
-    back_hold_count: usize,
-    select_hold_count: usize,
 }
 
 impl ActionTask {
@@ -14,8 +12,6 @@ impl ActionTask {
             back_held: false,
             select_held: false,
             back_used_for_chord: false,
-            back_hold_count: 0,
-            select_hold_count: 0,
         }
     }
 
@@ -25,12 +21,10 @@ impl ActionTask {
 
             match event {
                 ButtonEvent::Pressed(Button::Back) => {
-                    self.back_hold_count = 0;
                     self.back_held = true;
                     self.back_used_for_chord = false;
                 }
                 ButtonEvent::Pressed(Button::Select) => {
-                    self.select_hold_count = 0;
                     self.select_held = true;
                 }
                 ButtonEvent::Pressed(Button::Up) | ButtonEvent::Hold(Button::Up) => {
@@ -50,19 +44,14 @@ impl ActionTask {
                     }
                 }
                 ButtonEvent::Hold(Button::Back) => {
-                    self.back_hold_count += 1;
-                    if self.back_hold_count >= 24 {
-                        if self.select_held {
-                            let _ = ACTION_CHANNEL.try_send(UiAction::Home);
-                            self.back_held = false;
-                            self.select_held = false;
-                        }
-                        // Hold Back alone does nothing (just waits for chord)
+                    if self.select_held {
+                        let _ = ACTION_CHANNEL.try_send(UiAction::Home);
+                        self.back_held = false;
+                        self.select_held = false;
                     }
                 }
                 ButtonEvent::Hold(Button::Select) => {
-                    self.select_hold_count += 1;
-                    if self.select_hold_count >= 24 && self.back_held {
+                    if self.back_held {
                         let _ = ACTION_CHANNEL.try_send(UiAction::Home);
                         self.back_held = false;
                         self.select_held = false;
