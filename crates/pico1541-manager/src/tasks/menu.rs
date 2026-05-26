@@ -20,6 +20,8 @@ pub struct Menu<T, const N: usize, Title = &'static str> {
     total_count: usize,
     selected_index: usize,
     scroll_offset: usize,
+    back_held: bool,
+    back_used_for_chord: bool,
 }
 
 impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T, N, Title> {
@@ -42,6 +44,8 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
             total_count,
             selected_index: 0,
             scroll_offset: 0,
+            back_held: false,
+            back_used_for_chord: false,
         }
     }
 
@@ -56,6 +60,8 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
             total_count: usize::MAX,
             selected_index: 0,
             scroll_offset: 0,
+            back_held: false,
+            back_used_for_chord: false,
         }
     }
 
@@ -70,11 +76,23 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
             }
         }
 
-        // A partial block signals end-of-directory; tighten the known total.
         if block_items.len() < 16 {
             let discovered_total = block_index * 16 + block_items.len();
             if discovered_total < self.total_count {
                 self.total_count = discovered_total;
+                
+                // Clamp selected_index if we discovered the end is earlier than we thought
+                if self.total_count > 0 && self.selected_index >= self.total_count {
+                    self.selected_index = self.total_count - 1;
+                    if self.selected_index < self.scroll_offset {
+                        self.scroll_offset = self.selected_index;
+                    } else if self.selected_index >= self.scroll_offset + 5 {
+                        self.scroll_offset = self.selected_index.saturating_sub(4);
+                    }
+                } else if self.total_count == 0 {
+                    self.selected_index = 0;
+                    self.scroll_offset = 0;
+                }
             }
         }
         
@@ -212,6 +230,68 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
         None
     }
 
+    pub fn skip_up(&mut self, amount: usize) -> Option<usize> {
+        let diff = self.selected_index.saturating_sub(self.scroll_offset);
+        self.selected_index = self.selected_index.saturating_sub(amount);
+        self.scroll_offset = self.selected_index.saturating_sub(diff);
+
+        if self.total_count > N {
+            let current_block = self.selected_index / 16;
+            let known_blocks = if self.total_count == usize::MAX {
+                self.end_block.max(current_block + 1)
+            } else {
+                (self.total_count + 15) / 16
+            };
+            let targets = target_blocks(current_block, known_blocks);
+            for tb in targets.into_iter().flatten() {
+                if tb < self.start_block || tb >= self.end_block {
+                    return Some(tb);
+                }
+            }
+        }
+        None
+    }
+
+    pub fn skip_down(&mut self, amount: usize) -> Option<usize> {
+        let diff = self.selected_index.saturating_sub(self.scroll_offset);
+        let next = self.selected_index.saturating_add(amount);
+        let next = if self.total_count != usize::MAX && next >= self.total_count {
+            if self.total_count > 0 {
+                self.total_count - 1
+            } else {
+                0
+            }
+        } else {
+            next
+        };
+        
+        self.selected_index = next;
+        
+        let mut new_scroll = self.selected_index.saturating_sub(diff);
+        if self.selected_index < new_scroll {
+            new_scroll = self.selected_index;
+        } else if self.selected_index >= new_scroll + 5 {
+            new_scroll = self.selected_index.saturating_sub(4);
+        }
+        self.scroll_offset = new_scroll;
+
+        if self.total_count > N {
+            let current_block = self.selected_index / 16;
+            let known_blocks = if self.total_count == usize::MAX {
+                self.end_block.max(current_block + 1)
+            } else {
+                (self.total_count + 15) / 16
+            };
+            let targets = target_blocks(current_block, known_blocks);
+            for tb in targets.into_iter().flatten() {
+                if tb < self.start_block || tb >= self.end_block {
+                    return Some(tb);
+                }
+            }
+        }
+        None
+    }
+
     pub async fn render<D: DisplayDriver>(&self, display: &mut D) {
         display.print(0, self.title.as_ref()).await;
         
@@ -259,35 +339,68 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
     pub async fn run<D: DisplayDriver>(&mut self, display: &mut D) -> MenuEvent {
         let mut back_hold_count = 0;
         loop {
+            for i in 0..5 {
+                let item_idx = self.scroll_offset + i;
+                if self.total_count != usize::MAX && item_idx >= self.total_count {
+                    break;
+                }
+                if self.get_item(item_idx).is_none() {
+                    let block_to_load = item_idx / 16;
+                    return MenuEvent::LoadBlock(block_to_load);
+                }
+            }
+
             display.clear().await;
             self.render(display).await;
 
             match embassy_time::with_timeout(embassy_time::Duration::from_millis(500), KEYBOARD_CHANNEL.receive()).await {
                 Ok(event) => match event {
                     ButtonEvent::Pressed(Button::Up) | ButtonEvent::Hold(Button::Up) => {
-                        if let Some(block_to_load) = self.move_up() {
-                            return MenuEvent::LoadBlock(block_to_load);
+                        if self.back_held {
+                            self.back_used_for_chord = true;
+                            if let Some(block_to_load) = self.skip_up(48) {
+                                return MenuEvent::LoadBlock(block_to_load);
+                            }
+                        } else {
+                            if let Some(block_to_load) = self.move_up() {
+                                return MenuEvent::LoadBlock(block_to_load);
+                            }
                         }
                     }
                     ButtonEvent::Pressed(Button::Down) | ButtonEvent::Hold(Button::Down) => {
-                        if let Some(block_to_load) = self.move_down() {
-                            return MenuEvent::LoadBlock(block_to_load);
+                        if self.back_held {
+                            self.back_used_for_chord = true;
+                            if let Some(block_to_load) = self.skip_down(48) {
+                                return MenuEvent::LoadBlock(block_to_load);
+                            }
+                        } else {
+                            if let Some(block_to_load) = self.move_down() {
+                                return MenuEvent::LoadBlock(block_to_load);
+                            }
                         }
                     }
                     ButtonEvent::Pressed(Button::Select) => {
+                    }
+                    ButtonEvent::Released(Button::Select) => {
                         return MenuEvent::Selected(self.selected_index);
                     }
                     ButtonEvent::Pressed(Button::Back) => {
                         back_hold_count = 0;
+                        self.back_held = true;
+                        self.back_used_for_chord = false;
                     }
                     ButtonEvent::Hold(Button::Back) => {
                         back_hold_count += 1;
-                        if back_hold_count >= 24 {
+                        if !self.back_used_for_chord && back_hold_count >= 24 {
+                            self.back_held = false;
                             return MenuEvent::Home;
                         }
                     }
                     ButtonEvent::Released(Button::Back) => {
-                        if back_hold_count < 24 {
+                        let used = self.back_used_for_chord;
+                        self.back_held = false;
+                        self.back_used_for_chord = false;
+                        if !used && back_hold_count < 24 {
                             return MenuEvent::Back;
                         }
                     }
@@ -304,16 +417,27 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
 fn target_blocks(current_block: usize, total_blocks: usize) -> [Option<usize>; 3] {
     if total_blocks <= 3 {
         let mut targets = [None; 3];
-        for i in 0..total_blocks {
-            targets[i] = Some(i);
+        if current_block < total_blocks {
+            targets[0] = Some(current_block);
+            let mut idx = 1;
+            for i in 0..total_blocks {
+                if i != current_block {
+                    targets[idx] = Some(i);
+                    idx += 1;
+                }
+            }
+        } else {
+            for i in 0..total_blocks {
+                targets[i] = Some(i);
+            }
         }
         targets
     } else if current_block == 0 {
         [Some(0), Some(1), Some(2)]
     } else if current_block + 1 >= total_blocks {
-        [Some(total_blocks - 3), Some(total_blocks - 2), Some(total_blocks - 1)]
+        [Some(total_blocks - 1), Some(total_blocks - 2), Some(total_blocks - 3)]
     } else {
-        [Some(current_block - 1), Some(current_block), Some(current_block + 1)]
+        [Some(current_block), Some(current_block + 1), Some(current_block - 1)]
     }
 }
 
