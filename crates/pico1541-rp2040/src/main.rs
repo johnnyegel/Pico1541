@@ -29,7 +29,7 @@ use pico1541_common::formats::AnyDiskImage;
 use pico1541_common::storage::{PagedDirectorySource, MemoryStorage, RuntimeStorage};
 use pico1541_emulator::Emulator;
 use pico1541_manager::tasks::{
-    DisplayTask, DriveActivityTask, KeyboardTask, MainMenuTask, SnooperTask, VirtualDiskTask,
+    ActionTask, DisplayTask, DriveActivityTask, KeyboardTask, MainMenuTask, SnooperTask, VirtualDiskTask,
 };
 use panic_probe as _;
 
@@ -400,6 +400,11 @@ async fn keyboard_run(mut task: KeyboardTask<KeyboardInput>) {
 }
 
 #[embassy_executor::task]
+async fn action_run(mut task: ActionTask) {
+    task.run().await;
+}
+
+#[embassy_executor::task]
 async fn menu_run(
     mut task: MainMenuTask<
         DisplayWrapper<CriticalSectionRawMutex>,
@@ -599,6 +604,8 @@ async fn core1_init_task(
     spawner.spawn(menu_run(menu_task).unwrap());
     spawner.spawn(activity_run(activity_task).unwrap());
     spawner.spawn(keyboard_run(keyboard_task).unwrap());
+    let mut action_task = ActionTask::new();
+    spawner.spawn(action_run(action_task).unwrap());
     spawner.spawn(display_run(display_task).unwrap());
     spawner.spawn(snooper_run(snooper_task).unwrap());
     spawner.spawn(vdisk_run(vdisk_task).unwrap());

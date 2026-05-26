@@ -1,5 +1,5 @@
 use crate::driver::DisplayDriver;
-use crate::{KEYBOARD_CHANNEL, Button, ButtonEvent};
+use crate::{ACTION_CHANNEL, UiAction};
 use heapless::Vec;
 use core::fmt::Display;
 
@@ -16,12 +16,9 @@ pub struct Menu<T, const N: usize, Title = &'static str> {
     items: [Option<T>; N],
     start_block: usize,
     end_block: usize,
-    /// Known upper bound; usize::MAX until end-of-directory is discovered via a partial block.
     total_count: usize,
     selected_index: usize,
     scroll_offset: usize,
-    back_held: bool,
-    back_used_for_chord: bool,
 }
 
 impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T, N, Title> {
@@ -44,8 +41,6 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
             total_count,
             selected_index: 0,
             scroll_offset: 0,
-            back_held: false,
-            back_used_for_chord: false,
         }
     }
 
@@ -60,8 +55,6 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
             total_count: usize::MAX,
             selected_index: 0,
             scroll_offset: 0,
-            back_held: false,
-            back_used_for_chord: false,
         }
     }
 
@@ -337,7 +330,6 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
     }
 
     pub async fn run<D: DisplayDriver>(&mut self, display: &mut D) -> MenuEvent {
-        let mut back_hold_count = 0;
         loop {
             for i in 0..5 {
                 let item_idx = self.scroll_offset + i;
@@ -353,58 +345,37 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
             display.clear().await;
             self.render(display).await;
 
-            match embassy_time::with_timeout(embassy_time::Duration::from_millis(500), KEYBOARD_CHANNEL.receive()).await {
-                Ok(event) => match event {
-                    ButtonEvent::Pressed(Button::Up) | ButtonEvent::Hold(Button::Up) => {
-                        if self.back_held {
-                            self.back_used_for_chord = true;
-                            if let Some(block_to_load) = self.skip_up(48) {
-                                return MenuEvent::LoadBlock(block_to_load);
-                            }
-                        } else {
-                            if let Some(block_to_load) = self.move_up() {
-                                return MenuEvent::LoadBlock(block_to_load);
-                            }
+            match embassy_time::with_timeout(embassy_time::Duration::from_millis(500), ACTION_CHANNEL.receive()).await {
+                Ok(action) => match action {
+                    UiAction::ScrollUp => {
+                        if let Some(block_to_load) = self.move_up() {
+                            return MenuEvent::LoadBlock(block_to_load);
                         }
                     }
-                    ButtonEvent::Pressed(Button::Down) | ButtonEvent::Hold(Button::Down) => {
-                        if self.back_held {
-                            self.back_used_for_chord = true;
-                            if let Some(block_to_load) = self.skip_down(48) {
-                                return MenuEvent::LoadBlock(block_to_load);
-                            }
-                        } else {
-                            if let Some(block_to_load) = self.move_down() {
-                                return MenuEvent::LoadBlock(block_to_load);
-                            }
+                    UiAction::ScrollDown => {
+                        if let Some(block_to_load) = self.move_down() {
+                            return MenuEvent::LoadBlock(block_to_load);
                         }
                     }
-                    ButtonEvent::Pressed(Button::Select) => {
+                    UiAction::SkipUp => {
+                        if let Some(block_to_load) = self.skip_up(48) {
+                            return MenuEvent::LoadBlock(block_to_load);
+                        }
                     }
-                    ButtonEvent::Released(Button::Select) => {
+                    UiAction::SkipDown => {
+                        if let Some(block_to_load) = self.skip_down(48) {
+                            return MenuEvent::LoadBlock(block_to_load);
+                        }
+                    }
+                    UiAction::Select => {
                         return MenuEvent::Selected(self.selected_index);
                     }
-                    ButtonEvent::Pressed(Button::Back) => {
-                        back_hold_count = 0;
-                        self.back_held = true;
-                        self.back_used_for_chord = false;
+                    UiAction::Back => {
+                        return MenuEvent::Back;
                     }
-                    ButtonEvent::Hold(Button::Back) => {
-                        back_hold_count += 1;
-                        if !self.back_used_for_chord && back_hold_count >= 24 {
-                            self.back_held = false;
-                            return MenuEvent::Home;
-                        }
+                    UiAction::Home => {
+                        return MenuEvent::Home;
                     }
-                    ButtonEvent::Released(Button::Back) => {
-                        let used = self.back_used_for_chord;
-                        self.back_held = false;
-                        self.back_used_for_chord = false;
-                        if !used && back_hold_count < 24 {
-                            return MenuEvent::Back;
-                        }
-                    }
-                    _ => {}
                 },
                 Err(_) => {
                     return MenuEvent::Timeout;

@@ -1,7 +1,7 @@
 use crate::driver::{DisplayDriver, RgbLedDriver, StatusLedMode, IndicatorDriver, FileStorageDriver, FileInfo, InternalStorage};
 use crate::tasks::menu::{Menu, MenuEvent};
 use crate::tasks::hardware_test::HardwareTestTask;
-use crate::{Button, ButtonEvent};
+use crate::{UiAction, ACTION_CHANNEL};
 use embassy_time::{Duration, Timer};
 use heapless::{Vec, String};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -770,7 +770,6 @@ where
     }
 
     async fn monitor_page(&mut self) -> bool {
-        let mut back_hold_count = 0;
         loop {
             self.display.clear().await;
             self.display.print(0, "-- System Monitor --").await;
@@ -814,22 +813,10 @@ where
 
             match embassy_time::with_timeout(
                 embassy_time::Duration::from_millis(500),
-                crate::KEYBOARD_CHANNEL.receive()
+                crate::ACTION_CHANNEL.receive()
             ).await {
-                Ok(ButtonEvent::Pressed(Button::Back)) => {
-                    back_hold_count = 0;
-                }
-                Ok(ButtonEvent::Hold(Button::Back)) => {
-                    back_hold_count += 1;
-                    if back_hold_count >= 24 {
-                        return true;
-                    }
-                }
-                Ok(ButtonEvent::Released(Button::Back)) => {
-                    if back_hold_count < 24 {
-                        return false;
-                    }
-                }
+                Ok(UiAction::Back) => return false,
+                Ok(UiAction::Home) => return true,
                 _ => {}
             }
         }

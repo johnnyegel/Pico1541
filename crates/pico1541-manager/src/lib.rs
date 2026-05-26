@@ -61,8 +61,21 @@ pub enum ButtonEvent {
     Hold(Button),
 }
 
-/// Channel for keyboard events (logical button events).
 pub static KEYBOARD_CHANNEL: Channel<CriticalSectionRawMutex, ButtonEvent, 16> = Channel::new();
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum UiAction {
+    ScrollUp,
+    ScrollDown,
+    Select,
+    Back,
+    SkipUp,
+    SkipDown,
+    Home,
+}
+
+pub static ACTION_CHANNEL: Channel<CriticalSectionRawMutex, UiAction, 16> = Channel::new();
 
 #[cfg(test)]
 mod test_imports {

@@ -1,5 +1,5 @@
 use crate::driver::{DisplayDriver, RgbLedDriver, IndicatorDriver, ActivityColor};
-use crate::{KEYBOARD_CHANNEL, Button, ButtonEvent};
+use crate::{ACTION_CHANNEL, UiAction};
 use embassy_time::{Duration, Timer, Instant};
 use heapless::String;
 use core::fmt::Write;
@@ -34,22 +34,15 @@ where
         self.display.clear().await;
         self.display.print(0, "Hardware Test Mode").await;
         self.display.print(1, "Buttons: 0000").await;
-        self.display.print(4, "Hold BACK to exit").await;
+        self.display.print(4, "Hold SEL+BACK to exit").await;
         self.display.request_redraw();
         
         let mut step = 0;
         let mut next_led_update = Instant::now();
-        let mut back_pressed_since: Option<Instant> = None;
-
         loop {
             let now = Instant::now();
             
-            // Check if we should exit (2 seconds hold)
-            if let Some(pressed_at) = back_pressed_since {
-                if now - pressed_at >= Duration::from_secs(2) {
-                    return; // Exit task
-                }
-            }
+
 
             let led_timer = if next_led_update <= now {
                 Timer::after(Duration::from_ticks(0))
@@ -57,9 +50,9 @@ where
                 Timer::at(next_led_update)
             };
             
-            let kbd_event = KEYBOARD_CHANNEL.receive();
+            let ui_event = ACTION_CHANNEL.receive();
             
-            match select(led_timer, kbd_event).await {
+            match select(led_timer, ui_event).await {
                 Either::First(_) => {
                     // LED update interval
                     step += 1;
@@ -104,23 +97,14 @@ where
                     
                     self.display.request_redraw();
                 }
-                Either::Second(event) => {
-                    // Keyboard event
+                Either::Second(action) => {
+                    // UI Action event
                     let mut status = String::<32>::new();
-                    let _ = write!(status, "Ev: {:?}", event);
+                    let _ = write!(status, "Ev: {:?}", action);
                     self.display.print(1, &status).await;
                     
-                    // Update Back button hold state
-                    match event {
-                        ButtonEvent::Pressed(Button::Back) => {
-                            if back_pressed_since.is_none() {
-                                back_pressed_since = Some(Instant::now());
-                            }
-                        }
-                        ButtonEvent::Released(Button::Back) => {
-                            back_pressed_since = None;
-                        }
-                        _ => {}
+                    if action == UiAction::Home {
+                        return; // Exit task
                     }
                     
                     self.display.request_redraw();
