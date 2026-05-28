@@ -143,7 +143,7 @@ where
 
         // 1. Boot Screen
         self.display.clear().await;
-        self.display.print_large(2, "  Pico1541").await; 
+        self.display.print_large(1, "  Pico1541").await; 
         
         let mut id_str = heapless::String::<16>::new();
         use core::fmt::Write;
@@ -855,6 +855,7 @@ where
     }
 
     async fn monitor_page(&mut self) -> bool {
+        let free_flash = self.internal.free_space().await;
         loop {
             self.display.clear().await;
             self.display.print(0, "-- System Monitor --").await;
@@ -873,7 +874,7 @@ where
             } else {
                 let _ = core::fmt::write(&mut s_speed, format_args!("Emu clk : {} Hz", speed_hz));
             }
-            self.display.print(2, &s_speed).await;
+            self.display.print(1, &s_speed).await;
 
             let c0_load = if c0_max > 0 {
                 100u32.saturating_sub(((c0_avg as u64 * 100) / c0_max as u64) as u32)
@@ -882,7 +883,7 @@ where
             };
             let mut s_c0 = String::<32>::new();
             let _ = core::fmt::write(&mut s_c0, format_args!("Emu load: {}%", c0_load));
-            self.display.print(3, &s_c0).await;
+            self.display.print(2, &s_c0).await;
 
             let c1_load = if c1_max > 0 {
                 100u32.saturating_sub(((c1_avg as u64 * 100) / c1_max as u64) as u32)
@@ -891,7 +892,13 @@ where
             };
             let mut s_c1 = String::<32>::new();
             let _ = core::fmt::write(&mut s_c1, format_args!("Mgr load: {}%", c1_load));
-            self.display.print(4, &s_c1).await;
+            self.display.print(3, &s_c1).await;
+
+            if let Some(free_bytes) = free_flash {
+                let mut s_flash = String::<32>::new();
+                let _ = core::fmt::write(&mut s_flash, format_args!("Flash free: {} KB", free_bytes / 1024));
+                self.display.print(4, &s_flash).await;
+            }
 
             self.display.print(6, " [Back] ").await;
             self.display.request_redraw();
@@ -943,7 +950,7 @@ where
     }
 
     async fn install_rom_from_sd(&mut self, current_path: &str, filename: &str, bank: u32) {
-        use embedded_io_async::{Read, Seek, SeekFrom};
+        use embedded_io_async::SeekFrom;
         self.display.clear().await;
         self.display.print(1, " Installing ROM...").await;
         self.display.request_redraw();

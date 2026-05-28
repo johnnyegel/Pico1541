@@ -264,6 +264,7 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
         _atn_rx: Input::new(p.PIN_18, Pull::None),
         _data_tx: Output::new(p.PIN_19, Level::Low),
         _clk_tx: Output::new(p.PIN_20, Level::Low),
+        reset_rx: Input::new(p.PIN_21, Pull::Up),
     };
 
     let track_for_bridge = unsafe { &mut *track_ptr };
@@ -288,6 +289,7 @@ struct IecPins {
     _atn_rx: Input<'static>,
     _data_tx: Output<'static>,
     _clk_tx: Output<'static>,
+    reset_rx: Input<'static>,
 }
 
 struct HardwareBridge {
@@ -745,7 +747,7 @@ async fn settings_save_task(mut flash_storage: FlashStorage<'static>) {
                 pico1541_manager::SettingsCommand::SaveDriveId(id) => {
                     match littlefs_rust::Filesystem::mount(flash_storage, config) {
                         Ok(fs) => {
-                            if let Ok(mut file) = fs.open("/settings.dat", littlefs_rust::OpenFlags::WRITE | littlefs_rust::OpenFlags::CREATE | littlefs_rust::OpenFlags::TRUNC) {
+                            if let Ok(file) = fs.open("/settings.dat", littlefs_rust::OpenFlags::WRITE | littlefs_rust::OpenFlags::CREATE | littlefs_rust::OpenFlags::TRUNC) {
                                 let _ = file.write(&[id]);
                                 let _ = file.sync();
                                 info!("Successfully wrote /settings.dat: Drive ID {}", id);
@@ -761,7 +763,7 @@ async fn settings_save_task(mut flash_storage: FlashStorage<'static>) {
                     match littlefs_rust::Filesystem::mount(flash_storage, config) {
                         Ok(fs) => {
                             let _ = fs.mkdir("/settings");
-                            if let Ok(mut file) = fs.open("/settings/boot_rom.txt", littlefs_rust::OpenFlags::WRITE | littlefs_rust::OpenFlags::CREATE | littlefs_rust::OpenFlags::TRUNC) {
+                            if let Ok(file) = fs.open("/settings/boot_rom.txt", littlefs_rust::OpenFlags::WRITE | littlefs_rust::OpenFlags::CREATE | littlefs_rust::OpenFlags::TRUNC) {
                                 let _ = file.write(name.as_bytes());
                                 let _ = file.sync();
                                 info!("Successfully wrote /settings/boot_rom.txt: {}", name.as_str());
@@ -796,7 +798,7 @@ async fn settings_save_task(mut flash_storage: FlashStorage<'static>) {
                             let _ = full_path.push_str("/roms/");
                             let _ = full_path.push_str(filename.as_str());
                             
-                            if let Ok(mut file) = fs.open(full_path.as_str(), littlefs_rust::OpenFlags::WRITE | littlefs_rust::OpenFlags::CREATE | littlefs_rust::OpenFlags::TRUNC) {
+                            if let Ok(file) = fs.open(full_path.as_str(), littlefs_rust::OpenFlags::WRITE | littlefs_rust::OpenFlags::CREATE | littlefs_rust::OpenFlags::TRUNC) {
                                 info!("Opened {} for writing", full_path.as_str());
                                 loop {
                                     let inner_cmd = pico1541_manager::SETTINGS_CHANNEL.receive().await;
@@ -829,7 +831,7 @@ async fn settings_save_task(mut flash_storage: FlashStorage<'static>) {
                             let _ = full_path.push_str("/roms/");
                             let _ = full_path.push_str(name.as_str());
                             crate::SNOOPER_CONFIG.halt_emulator.store(true, portable_atomic::Ordering::Relaxed);
-                            if let Ok(mut file) = fs.open(full_path.as_str(), littlefs_rust::OpenFlags::READ) {
+                            if let Ok(file) = fs.open(full_path.as_str(), littlefs_rust::OpenFlags::READ) {
                                 unsafe {
                                     let mut bytes_read = 0;
                                     while bytes_read < 16384 {
@@ -896,6 +898,7 @@ fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: HardwareBridge
 
     let mut last_tick = timer.timelr().read();
     let mut last_perf_update = last_tick;
+    let mut was_reset = false;
 
     loop {
         let now = timer.timelr().read();
@@ -913,9 +916,25 @@ fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: HardwareBridge
         }
 
         let mut caught_up = 0;
+        let is_reset = bridge._pins.reset_rx.is_high();
+
         while (now.wrapping_sub(last_tick) as i32) > 0 && caught_up < 100 {
             last_tick = last_tick.wrapping_add(1);
-            drive.tick(&mut bridge);
+            
+            if is_reset {
+                if !was_reset {
+                    drive.reset();
+                    bridge.iec_drive(pico1541_common::interface::IecBusState::default());
+                    was_reset = true;
+                }
+                bridge.sync(bridge.iec_host());
+            } else {
+                if was_reset {
+                    drive.reset();
+                    was_reset = false;
+                }
+                drive.tick(&mut bridge);
+            }
             cycle_counter += 1;
             caught_up += 1;
         }

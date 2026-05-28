@@ -168,9 +168,9 @@ where
 
             let fs = match FatFs::open(partitioned_dev).await {
                 Ok(f) => f,
-                Err(e) => {
+                Err(_e) => {
                     #[cfg(feature = "defmt")]
-                    defmt::error!("SD: FatFs::open failed: {:?}", defmt::Debug2Format(&e));
+                    defmt::error!("SD: FatFs::open failed: {:?}", defmt::Debug2Format(&_e));
                     self.card_init = false;
                     return Err(ManagerError::Io);
                 }
@@ -311,9 +311,9 @@ where
             } else {
                 match fs.open_dir_path(normalized).await {
                     Ok(d) => d,
-                    Err(e) => {
+                    Err(_e) => {
                         #[cfg(feature = "defmt")]
-                        defmt::error!("SD: list_dir open_dir_path('{}') failed: {:?}", normalized, defmt::Debug2Format(&e));
+                        defmt::error!("SD: list_dir open_dir_path('{}') failed: {:?}", normalized, defmt::Debug2Format(&_e));
                         return Err(ManagerError::Io);
                     }
                 }
@@ -323,9 +323,9 @@ where
             while let Some(entry_res) = iter.next_entry().await {
                 let entry = match entry_res {
                     Ok(e) => e,
-                    Err(e) => {
+                    Err(_e) => {
                         #[cfg(feature = "defmt")]
-                        defmt::error!("SD: list_dir next_entry failed: {:?}", defmt::Debug2Format(&e));
+                        defmt::error!("SD: list_dir next_entry failed: {:?}", defmt::Debug2Format(&_e));
                         return Err(ManagerError::Io);
                     }
                 };
@@ -390,9 +390,9 @@ where
             } else {
                 match fs.open_dir_path(normalized).await {
                     Ok(d) => d,
-                    Err(e) => {
+                    Err(_e) => {
                         #[cfg(feature = "defmt")]
-                        defmt::error!("SD: list_dir_range open_dir_path('{}') failed: {:?}", normalized, defmt::Debug2Format(&e));
+                        defmt::error!("SD: list_dir_range open_dir_path('{}') failed: {:?}", normalized, defmt::Debug2Format(&_e));
                         return Err(ManagerError::Io);
                     }
                 }
@@ -406,9 +406,9 @@ where
 
                 let entry = match entry_res {
                     Ok(e) => e,
-                    Err(e) => {
+                    Err(_e) => {
                         #[cfg(feature = "defmt")]
-                        defmt::error!("SD: list_dir_range next_entry failed: {:?}", defmt::Debug2Format(&e));
+                        defmt::error!("SD: list_dir_range next_entry failed: {:?}", defmt::Debug2Format(&_e));
                         return Err(ManagerError::Io);
                     }
                 };

@@ -28,6 +28,10 @@ pub trait FileStorageDriver {
         None
     }
 
+    async fn free_space(&self) -> Option<u32> {
+        None
+    }
+
     async fn list_dir_range(
         &mut self,
         path: &str,
