@@ -60,6 +60,7 @@ where
     internal_path: String<128>,
     usb_path: String<128>,
     mounted_file_path: Option<String<128>>,
+    rom_name: String<32>,
 }
 
 impl<D, L, Ind, S, Internal, File> MainMenuTask<D, L, Ind, S, Internal, File>
@@ -80,6 +81,7 @@ where
         disk_image: &'static Mutex<CriticalSectionRawMutex, Option<pico1541_common::AnyDiskImage<pico1541_common::storage::RuntimeStorage<'static, File, Internal::File>, pico1541_common::storage::PagedDirectorySource<48>>>>,
         current_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
         config: &'static SnooperConfig,
+        rom_name: String<32>,
     ) -> Self {
         Self {
             display,
@@ -94,6 +96,7 @@ where
             internal_path: String::from_str("/files").unwrap(),
             usb_path: String::from_str("/").unwrap(),
             mounted_file_path: None,
+            rom_name,
         }
     }
 
@@ -146,6 +149,10 @@ where
         use core::fmt::Write;
         write!(id_str, "    Drive ID: {}", self.config.device_id.load(Ordering::Relaxed)).unwrap();
         self.display.print(4, id_str.as_str()).await;
+        
+        let mut rom_str = heapless::String::<64>::new();
+        write!(rom_str, "{}", self.rom_name.as_str()).unwrap();
+        self.display.print(5, rom_str.as_str()).await;
         
         self.display.request_redraw();
         Timer::after(Duration::from_millis(1500)).await;

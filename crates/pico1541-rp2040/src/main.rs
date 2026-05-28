@@ -65,6 +65,9 @@ static CURRENT_DIR: Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)
 // Core 1 Stack
 static CORE1_STACK: StaticCell<Stack<65536>> = StaticCell::new();
 
+// ROM Buffer for dynamic loading
+static mut ROM_BUFFER: [u8; 16384] = [0; 16384];
+
 type MySpi = Spi<'static, SPI1, Blocking>;
 
 impl crate::driver::blockdevsdcard::SpiFreq for MySpi {
@@ -123,8 +126,10 @@ async fn main(spawner: Spawner) {
         }
     };
     
-    // Read Settings
+    // Read Settings and Load ROM
     let mut drive_id = 8;
+    let mut rom_name = heapless::String::<32>::new();
+    let _ = rom_name.push_str("-- Not available --");
     fs_storage_inst = match littlefs_rust::Filesystem::mount(fs_storage_inst, fs_config()) {
         Ok(fs) => {
             if let Ok(data) = fs.read_to_vec("/settings.dat") {
@@ -132,6 +137,33 @@ async fn main(spawner: Spawner) {
                     drive_id = data[0];
                 }
             }
+
+            // Scan /roms/ for the first .bin file
+            if let Ok(dir) = fs.read_dir("/roms") {
+                for entry in dir {
+                    if let Ok(entry) = entry {
+                        let name_str = entry.name.as_str();
+                        if name_str.ends_with(".bin") || name_str.ends_with(".BIN") || name_str.ends_with(".rom") || name_str.ends_with(".ROM") {
+                            let mut path = heapless::String::<64>::new();
+                            let _ = path.push_str("/roms/");
+                            let _ = path.push_str(name_str);
+                            if let Ok(mut file) = fs.open(path.as_str(), littlefs_rust::OpenFlags::READ) {
+                                if file.size() == 16384 {
+                                    if let Ok(n) = file.read(unsafe { &mut ROM_BUFFER }) {
+                                        if n == 16384 {
+                                            rom_name.clear();
+                                            let _ = rom_name.push_str(name_str);
+                                            info!("Loaded ROM: {}", name_str);
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             fs.unmount().unwrap()
         }
         Err((_, storage)) => storage,
@@ -209,15 +241,14 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
     // --- Spawn Core 1 ---
     info!("Starting Emulator on Core 1...");
     embassy_rp::multicore::spawn_core1(p.CORE1, stack, move || {
-        let rom = include_bytes!("../../../roms/1541-II.251968-03.bin");
-        let mut drive = Emulator::new(*rom, drive_id);
+        let mut drive = Emulator::new(unsafe { ROM_BUFFER }, drive_id);
         drive.reset();
         emulator_loop(drive, bridge);
     });
 
     // --- Run Manager on Core 0 ---
     spawner.spawn(settings_save_task(fs_storage_inst).unwrap());
-    core0_init_task(spawner, core1_pins, track_addr, &SNOOPER_CONFIG).await;
+    core0_init_task(spawner, core1_pins, track_addr, &SNOOPER_CONFIG, rom_name).await;
 }
 
 struct IecPins {
@@ -566,6 +597,7 @@ async fn core0_init_task(
     pins: Core0Pins,
     track_addr: usize,
     config: &'static SnooperConfig,
+    rom_name: heapless::String<32>,
 ) {
     info!("core0_init_task started!");
     let track_ptr = track_addr as *mut ActiveTrack;
@@ -650,6 +682,7 @@ async fn core0_init_task(
         &*disk_image_mutex,
         &CURRENT_DIR,
         config,
+        rom_name,
     );
 
     spawner.spawn(menu_run(main_menu_task).unwrap());
