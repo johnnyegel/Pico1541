@@ -73,14 +73,20 @@ pub enum UiAction {
     SkipUp,
     SkipDown,
     Home,
+    ContextAction,
 }
 
 pub static ACTION_CHANNEL: Channel<CriticalSectionRawMutex, UiAction, 16> = Channel::new();
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SettingsCommand {
     SaveDriveId(u8),
+    SaveBootRom(heapless::String<32>),
+    DeleteRom(heapless::String<32>),
+    InstallRomStart { filename: heapless::String<32>, size: u32, offset: u32 },
+    InstallRomChunk(heapless::Vec<u8, 256>),
+    InstallRomFinish,
+    LoadRomToMemory(heapless::String<32>),
 }
 pub static SETTINGS_CHANNEL: Channel<CriticalSectionRawMutex, SettingsCommand, 2> = Channel::new();
 pub static SETTINGS_SAVE_RESULT: portable_atomic::AtomicU8 = portable_atomic::AtomicU8::new(0);

@@ -1,22 +1,33 @@
 use crate::{Button, ButtonEvent};
 
 pub struct ButtonManager {
-    last_state: u8,
+    last_raw_state: u8,
+    debounced_state: u8,
     hold_counters: [u16; 4],
 }
 
 impl ButtonManager {
     pub const fn new() -> Self {
         Self {
-            last_state: 0,
+            last_raw_state: 0,
+            debounced_state: 0,
             hold_counters: [0; 4],
         }
     }
 
     pub fn update(&mut self, current_state: u8, mut callback: impl FnMut(ButtonEvent)) {
+        let bounce_mask = current_state ^ self.last_raw_state;
+        let stable_mask = !bounce_mask;
+        
+        let new_debounced = (self.debounced_state & bounce_mask) | (current_state & stable_mask);
+        let changes = self.debounced_state ^ new_debounced;
+        
+        self.debounced_state = new_debounced;
+        self.last_raw_state = current_state;
+
         for i in 0..4 {
-            let bit = (current_state >> i) & 1;
-            let last_bit = (self.last_state >> i) & 1;
+            let changed = (changes >> i) & 1;
+            let bit = (self.debounced_state >> i) & 1;
             
             let button = match i {
                 0 => Button::Back,
@@ -26,15 +37,16 @@ impl ButtonManager {
                 _ => unreachable!(),
             };
 
-            if bit == 1 && last_bit == 0 {
-                callback(ButtonEvent::Pressed(button));
-                self.hold_counters[i] = 0;
-            } else if bit == 0 && last_bit == 1 {
-                callback(ButtonEvent::Released(button));
-                self.hold_counters[i] = 0;
-            } else if bit == 1 && last_bit == 1 {
+            if changed == 1 {
+                if bit == 1 {
+                    callback(ButtonEvent::Pressed(button));
+                    self.hold_counters[i] = 0;
+                } else {
+                    callback(ButtonEvent::Released(button));
+                    self.hold_counters[i] = 0;
+                }
+            } else if bit == 1 {
                 self.hold_counters[i] = self.hold_counters[i].saturating_add(1);
-                // 300ms at 10ms intervals = 30
                 if self.hold_counters[i] == 30 {
                     callback(ButtonEvent::Hold(button));
                 } else if self.hold_counters[i] > 30 {
@@ -45,6 +57,5 @@ impl ButtonManager {
                 }
             }
         }
-        self.last_state = current_state;
     }
 }

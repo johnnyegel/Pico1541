@@ -225,6 +225,7 @@ where
                     // Just let the loop run again to refresh status icons
                     continue;
                 }
+                MenuEvent::ContextAction(_) => {}
             }
         }
     }
@@ -690,6 +691,77 @@ where
                         }
                     }
                 }
+                MenuEvent::ContextAction(idx) => {
+                    if use_internal { continue; }
+                    let mut selected_infos = Vec::<FileInfo, 1>::new();
+                    let fetch_res = self.storage.list_dir_range(current_path.as_str(), idx, 1, |info| {
+                        let _ = selected_infos.push(info);
+                    }).await;
+                    
+                    if fetch_res.is_err() || selected_infos.is_empty() {
+                        continue;
+                    }
+                    let selected = selected_infos[0];
+                    if selected.is_dir { continue; }
+
+                    let filename = core::str::from_utf8(&selected.name).unwrap_or("???").trim_matches('\0');
+                    if filename.ends_with(".bin") || filename.ends_with(".rom") || filename.ends_with(".BIN") || filename.ends_with(".ROM") {
+                        if use_internal {
+                            let mut options = Vec::<String<32>, 2>::new();
+                            options.push(String::from_str("Abort").unwrap()).unwrap();
+                            options.push(String::from_str("Delete").unwrap()).unwrap();
+                            let mut ctx_menu = Menu::new("Delete ROM?", options);
+                            loop {
+                                match ctx_menu.run(&mut self.display).await {
+                                    MenuEvent::Selected(opt_idx) => {
+                                        if opt_idx == 1 {
+                                            let _ = crate::SETTINGS_CHANNEL.try_send(crate::SettingsCommand::DeleteRom(heapless::String::<32>::from_str(filename).unwrap()));
+                                            self.display.clear().await;
+                                            self.display.print(2, "   ROM Deleted!").await;
+                                            self.display.request_redraw();
+                                            Timer::after(Duration::from_millis(1500)).await;
+                                        }
+                                        break;
+                                    }
+                                    MenuEvent::Back | MenuEvent::Home => break,
+                                    MenuEvent::Timeout => continue,
+                                    MenuEvent::ContextAction(_) => continue,
+                                    MenuEvent::LoadBlock(_) => {}
+                                }
+                            }
+                        } else if selected.size >= 16384 && selected.size % 16384 == 0 && selected.size <= 65536 {
+                            let mut options = Vec::<String<32>, 5>::new();
+                            options.push(String::from_str("Abort").unwrap()).unwrap();
+                            let num_banks = selected.size / 16384;
+                            if num_banks == 1 {
+                                options.push(String::from_str("Install").unwrap()).unwrap();
+                            } else {
+                                for b in 1..=num_banks {
+                                    let mut s = String::<32>::new();
+                                    core::fmt::write(&mut s, format_args!("Install Bank {}", b)).unwrap();
+                                    options.push(s).unwrap();
+                                }
+                            }
+                            let mut ctx_menu = Menu::new("Install ROM?", options);
+                            loop {
+                                match ctx_menu.run(&mut self.display).await {
+                                    MenuEvent::Selected(opt_idx) => {
+                                        if opt_idx > 0 {
+                                            let bank = opt_idx as u32; // 1-indexed bank
+                                            let path_str = heapless::String::<128>::from_str(current_path.as_str()).unwrap();
+                                            self.install_rom_from_sd(path_str.as_str(), filename, bank).await;
+                                        }
+                                        break;
+                                    }
+                                    MenuEvent::Back | MenuEvent::Home => break,
+                                    MenuEvent::Timeout => continue,
+                                    MenuEvent::ContextAction(_) => continue, // ignore repeated hold events
+                                    MenuEvent::LoadBlock(_) => {} // context menu doesn't need blocks
+                                }
+                            }
+                        }
+                    }
+                }
                 MenuEvent::Back => {
                     let current_path_mut = if use_internal {
                         &mut self.internal_path
@@ -732,60 +804,52 @@ where
     }
 
     async fn settings_menu(&mut self) -> bool {
-        let mut items = Vec::<&'static str, 4>::new();
-        let _ = items.push("Drive ID");
-        let _ = items.push("Monitor");
-        let _ = items.push("Store Settings");
-        
-        let mut menu = Menu::new("--- Settings ---", items);
-
+        let mut cursor = 0;
         loop {
+            let mut items = Vec::<String<32>, 5>::new();
+            
+            let mut id_str = String::<32>::new();
+            let _ = core::fmt::write(&mut id_str, format_args!("Drive ID: {}", self.config.device_id.load(portable_atomic::Ordering::Relaxed)));
+            let _ = items.push(id_str);
+
+            let _ = items.push(String::from_str("Select ROM").unwrap());
+
+            let _ = items.push(String::from_str("Monitor").unwrap());
+            let _ = items.push(String::from_str("Store Settings").unwrap());
+
+            let mut menu = Menu::new("--- Settings ---", items);
+            menu.set_cursor(cursor);
+
             match menu.run(&mut self.display).await {
                 MenuEvent::Selected(idx) => {
+                    cursor = idx;
                     match idx {
                         0 => {
-                            if self.device_id_menu().await {
-                                return true;
-                            }
+                            if self.device_id_menu().await { return true; }
                         }
                         1 => {
-                            if self.monitor_page().await {
-                                return true;
-                            }
+                            if self.select_boot_rom_menu().await { return true; }
                         }
                         2 => {
+                            if self.monitor_page().await { return true; }
+                        }
+                        3 => {
                             let current_id = self.config.device_id.load(portable_atomic::Ordering::Relaxed);
-                            crate::SETTINGS_SAVE_RESULT.store(0, portable_atomic::Ordering::Relaxed);
-                            crate::SETTINGS_SAVE_REQUEST.store(current_id | 0x80, portable_atomic::Ordering::Relaxed);
-                            
-                            // Wait for result
-                            let mut res = 0;
-                            for _ in 0..100 {
-                                res = crate::SETTINGS_SAVE_RESULT.load(portable_atomic::Ordering::Relaxed);
-                                if res != 0 {
-                                    break;
-                                }
-                                embassy_time::Timer::after(embassy_time::Duration::from_millis(10)).await;
-                            }
+                            let _ = crate::SETTINGS_CHANNEL.try_send(crate::SettingsCommand::SaveDriveId(current_id));
                             
                             self.display.clear().await;
-                            if res == 1 {
-                                self.display.print(3, "  Settings Stored").await;
-                            } else {
-                                self.display.print(3, "  Store Failed!").await;
-                            }
+                            self.display.print(2, "   Settings Saved!").await;
                             self.display.request_redraw();
-                            embassy_time::Timer::after(embassy_time::Duration::from_millis(1500)).await;
+                            Timer::after(Duration::from_millis(1500)).await;
                         }
-                        _ => {
-                            log::info!("Selected setting: {:?}", menu.selected_item());
-                        }
+                        _ => {}
                     }
                 }
                 MenuEvent::Back => return false,
                 MenuEvent::Home => return true,
                 MenuEvent::LoadBlock(_) => {}
-                MenuEvent::Timeout => {}
+                MenuEvent::Timeout => { cursor = menu.selected_index(); }
+                _ => {}
             }
         }
     }
@@ -812,16 +876,16 @@ where
             self.display.print(2, &s_speed).await;
 
             let c0_load = if c0_max > 0 {
-                100u32.saturating_sub((c0_avg * 100) / c0_max)
+                100u32.saturating_sub(((c0_avg as u64 * 100) / c0_max as u64) as u32)
             } else {
                 0
             };
             let mut s_c0 = String::<32>::new();
-            let _ = core::fmt::write(&mut s_c0, format_args!("Emu load: {}%", c0_load));
+            let _ = core::fmt::write(&mut s_c0, format_args!("{} / {} ({})", c0_avg, c0_max, c0_load));
             self.display.print(3, &s_c0).await;
 
             let c1_load = if c1_max > 0 {
-                100u32.saturating_sub((c1_avg * 100) / c1_max)
+                100u32.saturating_sub(((c1_avg as u64 * 100) / c1_max as u64) as u32)
             } else {
                 0
             };
@@ -873,7 +937,133 @@ where
                 MenuEvent::Timeout => {
                     cursor = menu.selected_index();
                 }
+                MenuEvent::ContextAction(_) => {}
             }
         }
     }
+
+    async fn install_rom_from_sd(&mut self, current_path: &str, filename: &str, bank: u32) {
+        use embedded_io_async::{Read, Seek, SeekFrom};
+        self.display.clear().await;
+        self.display.print(1, " Installing ROM...").await;
+        self.display.request_redraw();
+
+        let full_path = join_path(current_path, filename);
+        let mut file = self.storage.open_file_handle(full_path.as_str());
+
+        let offset = (bank - 1) * 16384;
+        if let Err(e) = file.seek(SeekFrom::Start(offset as u64)).await {
+            log::error!("Failed to seek to ROM bank: {:?}", e);
+            self.display.print(2, " Seek Error!").await;
+            self.display.request_redraw();
+            Timer::after(Duration::from_secs(2)).await;
+            return;
+        }
+
+        let mut dest_filename = String::<32>::new();
+        if filename.ends_with(".bin") || filename.ends_with(".BIN") {
+            let base = &filename[..filename.len() - 4];
+            let _ = core::fmt::write(&mut dest_filename, format_args!("{}-B{}.bin", base, bank));
+        } else if filename.ends_with(".rom") || filename.ends_with(".ROM") {
+            let base = &filename[..filename.len() - 4];
+            let _ = core::fmt::write(&mut dest_filename, format_args!("{}-B{}.rom", base, bank));
+        } else {
+            let _ = dest_filename.push_str(filename);
+        }
+
+        let mut buf = [0u8; 256];
+        let mut bytes_read = 0;
+
+        let _ = crate::SETTINGS_CHANNEL.send(crate::SettingsCommand::InstallRomStart {
+            filename: dest_filename.clone(),
+            size: 16384,
+            offset: 0,
+        }).await;
+
+        while bytes_read < 16384 {
+            let to_read = (16384 - bytes_read).min(256);
+            if let Ok(n) = file.read(&mut buf[..to_read]).await {
+                if n == 0 { break; }
+                let mut chunk = heapless::Vec::new();
+                let _ = chunk.extend_from_slice(&buf[..n]);
+                let _ = crate::SETTINGS_CHANNEL.send(crate::SettingsCommand::InstallRomChunk(chunk)).await;
+                bytes_read += n;
+                
+                if bytes_read % 2048 == 0 {
+                    let mut prog = String::<32>::new();
+                    let _ = core::fmt::write(&mut prog, format_args!(" {} / 16384", bytes_read));
+                    self.display.print(3, &prog).await;
+                    self.display.request_redraw();
+                }
+            } else {
+                break;
+            }
+        }
+
+        let _ = crate::SETTINGS_CHANNEL.send(crate::SettingsCommand::InstallRomFinish).await;
+        
+        self.display.print(4, " Done!").await;
+        self.display.request_redraw();
+        Timer::after(Duration::from_secs(1)).await;
+    }
+
+    async fn select_boot_rom_menu(&mut self) -> bool {
+        let mut cursor = 0;
+        loop {
+            let mut items = Vec::<String<32>, 48>::new();
+            let mut infos = Vec::<FileInfo, 48>::new();
+            
+            let _ = self.internal.list_dir_range("/roms", 0, 48, |info| {
+                let _ = infos.push(info);
+            }).await;
+
+            let mut roms_added = 0;
+            for info in &infos {
+                if !info.is_dir {
+                    let name = core::str::from_utf8(&info.name).unwrap_or("???").trim_matches('\0');
+                    if name.ends_with(".bin") || name.ends_with(".rom") || name.ends_with(".BIN") || name.ends_with(".ROM") {
+                        let mut s = String::<32>::new();
+                        if name == self.rom_name.as_str() {
+                            let _ = s.push('*');
+                        }
+                        let _ = s.push_str(name);
+                        let _ = items.push(s);
+                        roms_added += 1;
+                    }
+                }
+            }
+
+            if roms_added == 0 {
+                let _ = items.push(String::from_str("No roms installed").unwrap());
+            }
+
+            let mut menu = Menu::new("--- Boot ROM ---", items);
+            menu.set_cursor(cursor);
+
+            match menu.run(&mut self.display).await {
+                MenuEvent::Selected(idx) => {
+                    if roms_added == 0 {
+                        return false;
+                    }
+                    let name_with_star = menu.get_item(idx).unwrap();
+                    let name = if name_with_star.starts_with('*') {
+                        &name_with_star[1..]
+                    } else {
+                        name_with_star.as_str()
+                    };
+                    self.rom_name = String::from_str(name).unwrap();
+                    let _ = crate::SETTINGS_CHANNEL.try_send(crate::SettingsCommand::SaveBootRom(self.rom_name.clone()));
+                    let _ = crate::SETTINGS_CHANNEL.try_send(crate::SettingsCommand::LoadRomToMemory(self.rom_name.clone()));
+                    cursor = idx;
+                }
+                MenuEvent::Back => return false,
+                MenuEvent::Home => return true,
+                MenuEvent::LoadBlock(_) => {}
+                MenuEvent::Timeout => { cursor = menu.selected_index(); }
+                _ => {}
+            }
+        }
+    }
+
+
 }

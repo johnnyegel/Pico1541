@@ -7,6 +7,7 @@ pub enum MenuEvent {
     Selected(usize),
     Back,
     Home,
+    ContextAction(usize),
     LoadBlock(usize),
     Timeout,
 }
@@ -375,6 +376,9 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
                     }
                     UiAction::Home => {
                         return MenuEvent::Home;
+                    }
+                    UiAction::ContextAction => {
+                        return MenuEvent::ContextAction(self.selected_index);
                     }
                 },
                 Err(_) => {

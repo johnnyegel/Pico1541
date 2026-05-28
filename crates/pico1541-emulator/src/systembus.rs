@@ -59,6 +59,10 @@ pub struct SystemBus<H: HostInterface> {
         systembus
     }
 
+    pub fn update_rom(&mut self, rom: [u8; ROM_SIZE]) {
+        self.rom = rom;
+    }
+
     #[cfg(feature = "debug")]
     pub fn led_on(&self) -> bool {
         self.mechanics.led_on(&self.via2)

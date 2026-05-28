@@ -55,6 +55,9 @@ impl ActionTask {
                         let _ = ACTION_CHANNEL.try_send(UiAction::Home);
                         self.back_held = false;
                         self.select_held = false;
+                    } else {
+                        self.select_held = false;
+                        let _ = ACTION_CHANNEL.try_send(UiAction::ContextAction);
                     }
                 }
                 ButtonEvent::Released(Button::Back) => {

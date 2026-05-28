@@ -15,6 +15,8 @@ pub struct SnooperConfig {
     pub core1_max_raw: portable_atomic::AtomicU32,
     pub diag_old_tick: portable_atomic::AtomicU32,
     pub diag_startup_ticks: portable_atomic::AtomicU32,
+    pub trigger_reset: AtomicBool,
+    pub halt_emulator: AtomicBool,
 }
 
 impl SnooperConfig {
@@ -33,6 +35,8 @@ impl SnooperConfig {
             core1_max_raw: portable_atomic::AtomicU32::new(0),
             diag_old_tick: portable_atomic::AtomicU32::new(0),
             diag_startup_ticks: portable_atomic::AtomicU32::new(0),
+            trigger_reset: AtomicBool::new(false),
+            halt_emulator: AtomicBool::new(false),
         }
     }
 

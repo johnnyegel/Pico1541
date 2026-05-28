@@ -59,6 +59,10 @@ impl<H: HostInterface> Emulator<H> {
         }
     }
 
+    pub fn update_rom(&mut self, rom: [u8; 16384]) {
+        self.bus.update_rom(rom);
+    }
+
     /// Resets the 6502 CPU and VIAs.
     pub fn reset(&mut self) {
         emu_debug!("Emulator Reset");
