@@ -881,7 +881,7 @@ where
                 0
             };
             let mut s_c0 = String::<32>::new();
-            let _ = core::fmt::write(&mut s_c0, format_args!("{} / {} ({})", c0_avg, c0_max, c0_load));
+            let _ = core::fmt::write(&mut s_c0, format_args!("Emu load: {}%", c0_load));
             self.display.print(3, &s_c0).await;
 
             let c1_load = if c1_max > 0 {
