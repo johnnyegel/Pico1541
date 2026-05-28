@@ -34,6 +34,11 @@ use pico1541_manager::tasks::{
 };
 use panic_probe as _;
 
+#[cfg(has_mklittlefs)]
+#[link_section = ".fs"]
+#[used]
+static FS_IMAGE: [u8; 512 * 1024] = *include_bytes!(concat!(env!("OUT_DIR"), "/fs.bin"));
+
 use crate::driver::display::{DisplayWrapper, OledDisplay};
 use crate::driver::indicator::{ActivityIndicator, IndicatorWrapper};
 use crate::driver::input::KeyboardInput;

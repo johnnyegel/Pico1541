@@ -11,4 +11,8 @@ SECTIONS {
     .boot2 : {
         KEEP(*(.boot2))
     } > BOOT2
+
+    .fs : {
+        KEEP(*(.fs))
+    } > FS
 }
