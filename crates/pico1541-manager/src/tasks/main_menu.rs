@@ -798,9 +798,9 @@ where
             if speed_hz >= 1_000_000 {
                 let mhz_int = speed_hz / 1_000_000;
                 let mhz_frac = (speed_hz % 1_000_000) / 10_000;
-                let _ = core::fmt::write(&mut s_speed, format_args!("CPU Speed: {}.{:02} MHz", mhz_int, mhz_frac));
+                let _ = core::fmt::write(&mut s_speed, format_args!("Emu clk : {}.{:02} MHz", mhz_int, mhz_frac));
             } else {
-                let _ = core::fmt::write(&mut s_speed, format_args!("CPU Speed: {} Hz", speed_hz));
+                let _ = core::fmt::write(&mut s_speed, format_args!("Emu clk : {} Hz", speed_hz));
             }
             self.display.print(2, &s_speed).await;
 
@@ -810,7 +810,7 @@ where
                 0
             };
             let mut s_c0 = String::<32>::new();
-            let _ = core::fmt::write(&mut s_c0, format_args!("Core 0 Load: {}%", c0_load));
+            let _ = core::fmt::write(&mut s_c0, format_args!("Emu load: {}%", c0_load));
             self.display.print(3, &s_c0).await;
 
             let c1_load = if c1_max > 0 {
@@ -819,7 +819,7 @@ where
                 0
             };
             let mut s_c1 = String::<32>::new();
-            let _ = core::fmt::write(&mut s_c1, format_args!("Core 1 Load: {}%", c1_load));
+            let _ = core::fmt::write(&mut s_c1, format_args!("Mgr load: {}%", c1_load));
             self.display.print(4, &s_c1).await;
 
             self.display.print(6, " [Back] ").await;
