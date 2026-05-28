@@ -1,4 +1,4 @@
-use crate::driver::{DisplayDriver, RgbLedDriver, StatusLedMode, IndicatorDriver, FileStorageDriver, FileInfo, InternalStorage};
+use crate::driver::{DisplayDriver, RgbLedDriver, StatusLedMode, IndicatorDriver, FileStorageDriver, FileInfo};
 use crate::tasks::menu::{Menu, MenuEvent};
 // Removed HardwareTestTask
 use crate::{UiAction, ACTION_CHANNEL};
@@ -44,7 +44,7 @@ fn join_path(current: &str, sub: &str) -> String<128> {
     new_path
 }
 
-pub struct MainMenuTask<D, L, Ind, S, File>
+pub struct MainMenuTask<D, L, Ind, S, Internal: crate::driver::FileStorageDriver, File>
 where
     File: embedded_io_async::Read + embedded_io_async::Seek + 'static,
 {
@@ -52,8 +52,8 @@ where
     leds: L,
     indicator: Ind,
     storage: S,
-    internal: InternalStorage,
-    _disk_image: &'static Mutex<CriticalSectionRawMutex, Option<pico1541_common::AnyDiskImage<pico1541_common::storage::RuntimeStorage<'static, File>, pico1541_common::storage::PagedDirectorySource<48>>>>,
+    internal: Internal,
+    _disk_image: &'static Mutex<CriticalSectionRawMutex, Option<pico1541_common::AnyDiskImage<pico1541_common::storage::RuntimeStorage<'static, File, Internal::File>, pico1541_common::storage::PagedDirectorySource<48>>>>,
     current_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
     config: &'static SnooperConfig,
     sd_path: String<128>,
@@ -62,12 +62,13 @@ where
     mounted_file_path: Option<String<128>>,
 }
 
-impl<D, L, Ind, S, File> MainMenuTask<D, L, Ind, S, File>
+impl<D, L, Ind, S, Internal, File> MainMenuTask<D, L, Ind, S, Internal, File>
 where
     D: DisplayDriver + Clone,
     L: RgbLedDriver + Clone,
     Ind: IndicatorDriver + Clone,
     S: FileStorageDriver<File = File> + Clone,
+    Internal: FileStorageDriver,
     File: embedded_io_async::Read + embedded_io_async::Seek + 'static,
 {
     pub fn new(
@@ -75,7 +76,8 @@ where
         leds: L,
         indicator: Ind,
         storage: S,
-        disk_image: &'static Mutex<CriticalSectionRawMutex, Option<pico1541_common::AnyDiskImage<pico1541_common::storage::RuntimeStorage<'static, File>, pico1541_common::storage::PagedDirectorySource<48>>>>,
+        internal: Internal,
+        disk_image: &'static Mutex<CriticalSectionRawMutex, Option<pico1541_common::AnyDiskImage<pico1541_common::storage::RuntimeStorage<'static, File, Internal::File>, pico1541_common::storage::PagedDirectorySource<48>>>>,
         current_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
         config: &'static SnooperConfig,
     ) -> Self {
@@ -84,12 +86,12 @@ where
             leds,
             indicator,
             storage,
-            internal: InternalStorage,
+            internal,
             _disk_image: disk_image,
             current_dir,
             config,
             sd_path: String::from_str("/").unwrap(),
-            internal_path: String::from_str("/").unwrap(),
+            internal_path: String::from_str("/files").unwrap(),
             usb_path: String::from_str("/").unwrap(),
             mounted_file_path: None,
         }
@@ -126,14 +128,7 @@ where
         }
     }
 
-    fn internal_menu_file_data(&self, filename: &str) -> Option<&'static crate::driver::internal_storage::InternalFile> {
-        for file in crate::driver::internal_storage::INTERNAL_FILES {
-            if file.name.eq_ignore_ascii_case(filename) {
-                return Some(file);
-            }
-        }
-        None
-    }
+
 
     pub async fn run(&mut self) -> ! {
         // Initialize the status LED to the default startup mode (Unmounted - Red)
@@ -601,11 +596,9 @@ where
 
                         if is_d64 {
                             if use_internal {
-                                if let Some(file) = self.internal_menu_file_data(filename) {
-                                    let runtime_storage = pico1541_common::storage::RuntimeStorage::Memory(
-                                        pico1541_common::storage::MemoryStorage::new(file.data)
-                                    );
-                                    let d64 = pico1541_common::formats::D64Image::new(runtime_storage);
+                                let file = self.internal.open_file_handle(full_path.as_str());
+                                let runtime_storage = pico1541_common::storage::RuntimeStorage::File2(file);
+                                let d64 = pico1541_common::formats::D64Image::new(runtime_storage);
                                     {
                                         let mut disk = self._disk_image.lock().await;
                                         *disk = Some(pico1541_common::formats::AnyDiskImage::D64(d64));
@@ -613,7 +606,6 @@ where
                                     self.leds.set_status(StatusLedMode::NonAccurateDisk);
                                     self.mounted_file_path = Some(full_path.clone());
                                     continue;
-                                }
                             } else {
                                 let file_handle = self.storage.open_file_handle(full_path.as_str());
                                 let runtime_storage = pico1541_common::storage::RuntimeStorage::File(file_handle);
@@ -628,11 +620,9 @@ where
                             }
                         } else if is_g64 {
                             if use_internal {
-                                if let Some(file) = self.internal_menu_file_data(filename) {
-                                    let runtime_storage = pico1541_common::storage::RuntimeStorage::Memory(
-                                        pico1541_common::storage::MemoryStorage::new(file.data)
-                                    );
-                                    let g64 = pico1541_common::formats::G64Image::new(runtime_storage);
+                                let file = self.internal.open_file_handle(full_path.as_str());
+                                let runtime_storage = pico1541_common::storage::RuntimeStorage::File2(file);
+                                let g64 = pico1541_common::formats::G64Image::new(runtime_storage);
                                     {
                                         let mut disk = self._disk_image.lock().await;
                                         *disk = Some(pico1541_common::formats::AnyDiskImage::G64(g64));
@@ -640,7 +630,6 @@ where
                                     self.leds.set_status(StatusLedMode::AccurateDisk);
                                     self.mounted_file_path = Some(full_path.clone());
                                     continue;
-                                }
                             } else {
                                 let file_handle = self.storage.open_file_handle(full_path.as_str());
                                 let runtime_storage = pico1541_common::storage::RuntimeStorage::File(file_handle);
@@ -667,20 +656,17 @@ where
                             let mut vdisk = pico1541_common::formats::VirtualDiskImage::new(dir_source);
 
                             if use_internal {
-                                if let Some(file) = self.internal_menu_file_data(filename) {
-                                    let runtime_storage = pico1541_common::storage::RuntimeStorage::Memory(
-                                        pico1541_common::storage::MemoryStorage::new(file.data)
-                                    );
-                                    vdisk.file_storage = Some(runtime_storage);
-                                    vdisk.set_shortcut_entry(Some(entry));
-                                    {
-                                        let mut disk = self._disk_image.lock().await;
-                                        *disk = Some(pico1541_common::formats::AnyDiskImage::VirtualDisk(vdisk));
-                                    }
-                                    self.leds.set_status(StatusLedMode::VirtualDisk);
-                                    self.mounted_file_path = Some(full_path.clone());
-                                    continue;
+                                let file = self.internal.open_file_handle(full_path.as_str());
+                                let runtime_storage = pico1541_common::storage::RuntimeStorage::File2(file);
+                                vdisk.file_storage = Some(runtime_storage);
+                                vdisk.set_shortcut_entry(Some(entry));
+                                {
+                                    let mut disk = self._disk_image.lock().await;
+                                    *disk = Some(pico1541_common::formats::AnyDiskImage::VirtualDisk(vdisk));
                                 }
+                                self.leds.set_status(StatusLedMode::VirtualDisk);
+                                self.mounted_file_path = Some(full_path.clone());
+                                continue;
                             } else {
                                 let file_handle = self.storage.open_file_handle(full_path.as_str());
                                 let runtime_storage = pico1541_common::storage::RuntimeStorage::File(file_handle);
@@ -705,7 +691,13 @@ where
                     } else {
                         &mut self.usb_path
                     };
-                    if current_path_mut.as_str() == "/" {
+                    let is_root = if use_internal {
+                        current_path_mut.as_str() == "/files"
+                    } else {
+                        current_path_mut.as_str() == "/"
+                    };
+
+                    if is_root {
                         let mut disk = self._disk_image.lock().await;
                         *disk = None;
                         self.leds.set_status(StatusLedMode::Unmounted);

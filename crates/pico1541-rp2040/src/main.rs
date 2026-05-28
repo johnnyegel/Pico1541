@@ -49,6 +49,8 @@ use pico1541_manager::driver::file_storage::{HadrisFileWrapper, FatStorage, Stor
 
 
 use static_cell::StaticCell;
+pub mod littlefs_storage;
+use littlefs_storage::LittleFsStorage;
 use flash_storage::FlashStorage;
 
 bind_interrupts!(struct Irqs {
@@ -75,7 +77,7 @@ type MyDelay = embassy_time::Delay;
 type MyDet = Input<'static>;
 type MyRawBlockIo = SdBlockIo<MySpi, MyCs, MyDelay>;
 type MyFile = HadrisFileWrapper<MyRawBlockIo, MyDet>;
-type MyStorage = RuntimeStorage<'static, MyFile>;
+type MyStorage = RuntimeStorage<'static, MyFile, littlefs_storage::LittleFsFileHandle>;
 type MyDir = PagedDirectorySource<48>;
 type MyDisk = AnyDiskImage<MyStorage, MyDir>;
 
@@ -382,12 +384,10 @@ impl pico1541_manager::tasks::virtual_dir::FileOpener for MyOpener {
         }
         
         if use_internal {
-            for file in pico1541_manager::driver::internal_storage::INTERNAL_FILES {
-                if file.name.eq_ignore_ascii_case(name) {
-                    return Ok(RuntimeStorage::Memory(MemoryStorage::new(file.data)));
-                }
-            }
-            Err(pico1541_common::formats::Error::Io)
+            use pico1541_manager::driver::FileStorageDriver;
+            let internal = littlefs_storage::LittleFsStorage;
+            let file_handle = internal.open_file_handle(full_path.as_str());
+            Ok(RuntimeStorage::File2(file_handle))
         } else {
             use pico1541_manager::driver::FileStorageDriver;
             let file_handle = self.storage.open_file_handle(full_path.as_str());
@@ -406,7 +406,7 @@ impl pico1541_manager::tasks::virtual_dir::FileOpener for MyOpener {
     ) -> Result<(), pico1541_common::formats::Error> {
         use pico1541_manager::driver::FileStorageDriver;
         if use_internal {
-            let mut internal = pico1541_manager::driver::InternalStorage;
+            let mut internal = littlefs_storage::LittleFsStorage;
             internal.list_dir_range(path, start_index, count, |info| {
                 let name_len = info.name.iter().position(|&c| c == 0).unwrap_or(info.name.len());
                 let entry = pico1541_common::storage::DirectoryEntry::from_file_info(
@@ -459,6 +459,7 @@ async fn menu_run(
         StatusLedsWrapper<CriticalSectionRawMutex>,
         IndicatorWrapper<CriticalSectionRawMutex>,
         StorageWrapper<MyRawBlockIo, MyDet>,
+        LittleFsStorage,
         MyFile,
     >,
 ) {
@@ -633,23 +634,24 @@ async fn core1_init_task(
 
     let track_for_task = unsafe { &mut *track_ptr };
     let vdisk_task = VirtualDiskTask::new(
-        disk_image_mutex,
+        &*disk_image_mutex,
         track_for_task,
         MyOpener { storage: StorageWrapper(sd_mutex) },
         &CURRENT_DIR,
     );
 
-    let menu_task = MainMenuTask::new(
+    let mut main_menu_task = MainMenuTask::new(
         DisplayWrapper(oled_mutex),
         StatusLedsWrapper(status_leds_mutex),
         IndicatorWrapper(indicator_mutex),
         StorageWrapper(sd_mutex),
-        disk_image_mutex,
+        LittleFsStorage,
+        &*disk_image_mutex,
         &CURRENT_DIR,
         config,
     );
 
-    spawner.spawn(menu_run(menu_task).unwrap());
+    spawner.spawn(menu_run(main_menu_task).unwrap());
     spawner.spawn(activity_run(activity_task).unwrap());
     spawner.spawn(keyboard_run(keyboard_task).unwrap());
     let mut action_task = ActionTask::new();

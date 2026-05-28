@@ -1,9 +1,6 @@
 use pico1541_common::formats::Error;
 
-pub mod internal_storage;
 pub mod file_storage;
-
-pub use internal_storage::InternalStorage;
 
 /// Driver for block-based storage (e.g., SD Card).
 pub trait StorageDriver {

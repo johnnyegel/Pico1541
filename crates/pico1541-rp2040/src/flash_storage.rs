@@ -43,6 +43,32 @@ impl<'d> Storage for FlashStorage<'d> {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct ReadOnlyFlash;
 
+impl ReadOnlyFlash {
+    pub fn new() -> Self {
+        Self
+    }
+}
 
+impl Storage for ReadOnlyFlash {
+    fn read(&mut self, block: u32, offset: u32, buf: &mut [u8]) -> Result<(), Error> {
+        let abs_addr = 0x10000000 + (FS_OFFSET as u32) + (block * (FLASH_SECTOR_SIZE as u32)) + offset;
+        let slice = unsafe { core::slice::from_raw_parts(abs_addr as *const u8, buf.len()) };
+        buf.copy_from_slice(slice);
+        Ok(())
+    }
 
+    fn write(&mut self, _block: u32, _offset: u32, _data: &[u8]) -> Result<(), Error> {
+        Err(Error::Io)
+    }
+
+    fn erase(&mut self, _block: u32) -> Result<(), Error> {
+        Err(Error::Io)
+    }
+
+    fn sync(&mut self) -> Result<(), Error> {
+        Ok(())
+    }
+}

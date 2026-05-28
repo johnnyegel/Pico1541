@@ -350,31 +350,34 @@ impl core::fmt::Display for Error {
 
 impl core::error::Error for Error {}
 
-pub enum RuntimeStorage<'a, S: FileStorage> {
+pub enum RuntimeStorage<'a, S: FileStorage, S2: FileStorage = S> {
     Memory(MemoryStorage<'a>),
     File(S),
+    File2(S2),
     None,
 }
 
-impl<'a, S: FileStorage> ErrorType for RuntimeStorage<'a, S> {
+impl<'a, S: FileStorage, S2: FileStorage> ErrorType for RuntimeStorage<'a, S, S2> {
     type Error = Error;
 }
 
-impl<'a, S: FileStorage> Read for RuntimeStorage<'a, S> {
+impl<'a, S: FileStorage, S2: FileStorage> Read for RuntimeStorage<'a, S, S2> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         match self {
             Self::Memory(s) => s.read(buf).await.map_err(|_| Error::Io),
             Self::File(s) => s.read(buf).await.map_err(|_| Error::Io),
+            Self::File2(s) => s.read(buf).await.map_err(|_| Error::Io),
             Self::None => Err(Error::NotReady),
         }
     }
 }
 
-impl<'a, S: FileStorage> Seek for RuntimeStorage<'a, S> {
+impl<'a, S: FileStorage, S2: FileStorage> Seek for RuntimeStorage<'a, S, S2> {
     async fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         match self {
             Self::Memory(s) => s.seek(pos).await.map_err(|_| Error::Io),
             Self::File(s) => s.seek(pos).await.map_err(|_| Error::Io),
+            Self::File2(s) => s.seek(pos).await.map_err(|_| Error::Io),
             Self::None => Err(Error::NotReady),
         }
     }
