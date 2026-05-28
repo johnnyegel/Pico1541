@@ -96,7 +96,7 @@ async fn main(spawner: Spawner) {
     let mut fs_storage_inst = FlashStorage::new(flash_driver);
     
     fn fs_config() -> littlefs_rust::Config {
-        let mut config = littlefs_rust::Config::new(4096, 256);
+        let mut config = littlefs_rust::Config::new(4096, 128);
         config.read_size = 256;
         config.prog_size = 256;
         config.cache_size = 256;
@@ -715,7 +715,7 @@ fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: HardwareBridge
                 let req = pico1541_manager::SETTINGS_SAVE_REQUEST.swap(0, portable_atomic::Ordering::Relaxed);
                 if req != 0 {
                     let id = req & 0x7F;
-                    let mut config = littlefs_rust::Config::new(4096, 256);
+                    let mut config = littlefs_rust::Config::new(4096, 128);
                     config.read_size = 256;
                     config.prog_size = 256;
                     config.cache_size = 256;
