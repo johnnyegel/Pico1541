@@ -1,7 +1,7 @@
 use crate::driver::{DisplayDriver, RgbLedDriver, StatusLedMode, IndicatorDriver, FileStorageDriver, FileInfo};
 use crate::tasks::menu::{Menu, MenuEvent};
 // Removed HardwareTestTask
-use crate::{UiAction, ACTION_CHANNEL};
+use crate::UiAction;
 use embassy_time::{Duration, Timer};
 use heapless::{Vec, String};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -50,7 +50,7 @@ where
 {
     display: D,
     leds: L,
-    indicator: Ind,
+    _indicator: Ind,
     storage: S,
     internal: Internal,
     _disk_image: &'static Mutex<CriticalSectionRawMutex, Option<pico1541_common::AnyDiskImage<pico1541_common::storage::RuntimeStorage<'static, File, Internal::File>, pico1541_common::storage::PagedDirectorySource<48>>>>,
@@ -86,7 +86,7 @@ where
         Self {
             display,
             leds,
-            indicator,
+            _indicator: indicator,
             storage,
             internal,
             _disk_image: disk_image,

@@ -9,15 +9,15 @@ static HEAP: embedded_alloc::LlffHeap = embedded_alloc::LlffHeap::empty();
 mod driver;
 mod flash_storage;
 
-use core::sync::atomic::{AtomicU32, AtomicU8, Ordering};
+use core::sync::atomic::Ordering;
 use defmt::{info, error};
 use defmt_rtt as _;
 
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
-use embassy_rp::gpio::{AnyPin, Input, Level, Output, Pull};
+use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::i2c::{Config, InterruptHandler};
-use embassy_rp::peripherals::{I2C0, SPI1, PIN_25, DMA_CH0, DMA_CH1};
+use embassy_rp::peripherals::{I2C0, SPI1, DMA_CH0, DMA_CH1};
 use embassy_rp::spi::{Config as SpiConfig, Spi, Blocking};
 use embassy_rp::multicore::Stack;
 use embassy_rp::Peri;
@@ -27,7 +27,7 @@ use embassy_sync::mutex::Mutex;
 use pico1541_common::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus, IecBusState};
 use pico1541_common::snooper::{IecSnooper, IecSnoopByteHandler, SnooperConfig};
 use pico1541_common::formats::AnyDiskImage;
-use pico1541_common::storage::{PagedDirectorySource, MemoryStorage, RuntimeStorage};
+use pico1541_common::storage::{PagedDirectorySource, RuntimeStorage};
 use pico1541_emulator::Emulator;
 use pico1541_manager::tasks::{
     ActionTask, DisplayTask, DriveActivityTask, KeyboardTask, MainMenuTask, SnooperTask, VirtualDiskTask,
@@ -103,7 +103,7 @@ async fn main(spawner: Spawner) {
     // Initialize Flash for LittleFS
     // RP2040 has 2MB of flash. We reserved 1MB at the end.
     let flash_driver = embassy_rp::flash::Flash::<_, embassy_rp::flash::Blocking, { 2 * 1024 * 1024 }>::new_blocking(p.FLASH);
-    let mut fs_storage_inst = FlashStorage::new(flash_driver);
+    let fs_storage_inst = FlashStorage::new(flash_driver);
     
     fn fs_config() -> littlefs_rust::Config {
         let mut config = littlefs_rust::Config::new(4096, 128);
@@ -147,9 +147,10 @@ async fn main(spawner: Spawner) {
                             let mut path = heapless::String::<64>::new();
                             let _ = path.push_str("/roms/");
                             let _ = path.push_str(name_str);
-                            if let Ok(mut file) = fs.open(path.as_str(), littlefs_rust::OpenFlags::READ) {
+                            if let Ok(file) = fs.open(path.as_str(), littlefs_rust::OpenFlags::READ) {
                                 if file.size() == 16384 {
-                                    if let Ok(n) = file.read(unsafe { &mut ROM_BUFFER }) {
+                                    let buf = unsafe { &mut *core::ptr::addr_of_mut!(ROM_BUFFER) };
+                                    if let Ok(n) = file.read(buf) {
                                         if n == 16384 {
                                             rom_name.clear();
                                             let _ = rom_name.push_str(name_str);
@@ -673,7 +674,7 @@ async fn core0_init_task(
         &CURRENT_DIR,
     );
 
-    let mut main_menu_task = MainMenuTask::new(
+    let main_menu_task = MainMenuTask::new(
         DisplayWrapper(oled_mutex),
         StatusLedsWrapper(status_leds_mutex),
         IndicatorWrapper(indicator_mutex),
@@ -688,7 +689,7 @@ async fn core0_init_task(
     spawner.spawn(menu_run(main_menu_task).unwrap());
     spawner.spawn(activity_run(activity_task).unwrap());
     spawner.spawn(keyboard_run(keyboard_task).unwrap());
-    let mut action_task = ActionTask::new();
+    let action_task = ActionTask::new();
     spawner.spawn(action_run(action_task).unwrap());
 
 

@@ -6,10 +6,7 @@ use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
 
 
 // The RP2040 has 2MB of flash. We reserved 512KB at the end of flash.
-pub const FS_SIZE: usize = 512 * 1024;
 pub const FS_OFFSET: usize = 1536 * 1024;
-// embassy-rp flash constants
-pub const FLASH_PAGE_SIZE: usize = 256;
 pub const FLASH_SECTOR_SIZE: usize = 4096;
 
 pub struct FlashStorage<'d> {

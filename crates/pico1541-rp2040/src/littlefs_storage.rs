@@ -3,7 +3,7 @@ use pico1541_common::formats::Error;
 use pico1541_common::storage::Error as CommonError;
 use embedded_io_async::{Read, Seek, SeekFrom, ErrorType};
 use littlefs_rust::{Filesystem, OpenFlags};
-use crate::flash_storage::{ReadOnlyFlash, FlashStorage};
+use crate::flash_storage::ReadOnlyFlash;
 use heapless::String;
 
 #[derive(Clone, Copy)]
@@ -23,8 +23,8 @@ impl FileStorageDriver for LittleFsStorage {
         config.cache_size = 256;
         config.lookahead_size = 16;
         
-        let mut flash = ReadOnlyFlash::new();
-        if let Ok(mut fs) = Filesystem::mount(flash, config) {
+        let flash = ReadOnlyFlash::new();
+        if let Ok(fs) = Filesystem::mount(flash, config) {
             if let Ok(dir) = fs.read_dir(path) {
                 for entry in dir {
                     if let Ok(entry) = entry {
@@ -78,9 +78,9 @@ impl Read for LittleFsFileHandle {
         config.cache_size = 256;
         config.lookahead_size = 16;
         
-        let mut flash = ReadOnlyFlash::new();
+        let flash = ReadOnlyFlash::new();
         if let Ok(fs) = Filesystem::mount(flash, config) {
-            if let Ok(mut file) = fs.open(self.path.as_str(), OpenFlags::READ) {
+            if let Ok(file) = fs.open(self.path.as_str(), OpenFlags::READ) {
                 if file.seek(littlefs_rust::SeekFrom::Start(self.pos)).is_ok() {
                     if let Ok(n) = file.read(buf) {
                         self.pos += n as u32;
@@ -107,7 +107,7 @@ impl Seek for LittleFsFileHandle {
                 config.prog_size = 256;
                 config.cache_size = 256;
                 config.lookahead_size = 16;
-                let mut flash = ReadOnlyFlash::new();
+                let flash = ReadOnlyFlash::new();
                 let mut size = 0;
                 if let Ok(fs) = Filesystem::mount(flash, config) {
                     if let Ok(file) = fs.open(self.path.as_str(), OpenFlags::READ) {
