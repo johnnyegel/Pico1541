@@ -63,7 +63,7 @@ static SNOOPER_CONFIG: SnooperConfig = SnooperConfig::new(8);
 static CURRENT_DIR: Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)> = Mutex::new((heapless::String::new(), false));
 
 // Core 1 Stack
-static CORE1_STACK: StaticCell<Stack<16384>> = StaticCell::new();
+static CORE1_STACK: StaticCell<Stack<65536>> = StaticCell::new();
 
 type MySpi = Spi<'static, SPI1, Blocking>;
 
@@ -167,7 +167,7 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
     let stack = CORE1_STACK.init(Stack::new());
 
     // Pack peripherals for Core 1
-    let core1_pins = Core1Pins {
+    let core1_pins = Core0Pins {
         i2c0: p.I2C0.into(),
         sda: p.PIN_4.into(),
         scl: p.PIN_5.into(),
@@ -194,15 +194,6 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
 
     let track_addr = track_ptr as usize;
 
-    // --- Spawn Core 1 ---
-    embassy_rp::multicore::spawn_core1(p.CORE1, stack, move || {
-        core1_main(
-            core1_pins,
-            track_addr,
-            &SNOOPER_CONFIG,
-        );
-    });
-
     // IEC Pins
     let pins = IecPins {
         _data_rx: Input::new(p.PIN_16, Pull::None),
@@ -215,11 +206,18 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
     let track_for_bridge = unsafe { &mut *track_ptr };
     let bridge = HardwareBridge::new(pins, track_for_bridge, &SNOOPER_CONFIG);
 
-    let rom = include_bytes!("../../../roms/1541-II.251968-03.bin");
-    let mut drive = Emulator::new(*rom, drive_id);
-    drive.reset();
+    // --- Spawn Core 1 ---
+    info!("Starting Emulator on Core 1...");
+    embassy_rp::multicore::spawn_core1(p.CORE1, stack, move || {
+        let rom = include_bytes!("../../../roms/1541-II.251968-03.bin");
+        let mut drive = Emulator::new(*rom, drive_id);
+        drive.reset();
+        emulator_loop(drive, bridge);
+    });
 
-    emulator_loop(drive, bridge, fs_storage_inst);
+    // --- Run Manager on Core 0 ---
+    spawner.spawn(settings_save_task(fs_storage_inst).unwrap());
+    core0_init_task(spawner, core1_pins, track_addr, &SNOOPER_CONFIG).await;
 }
 
 struct IecPins {
@@ -507,7 +505,7 @@ async fn core1_load_run(config: &'static SnooperConfig) {
     }
 }
 
-pub struct Core1Pins {
+pub struct Core0Pins {
     pub i2c0: embassy_rp::Peri<'static, embassy_rp::peripherals::I2C0>,
     pub sda: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_4>,
     pub scl: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_5>,
@@ -563,23 +561,26 @@ async fn sd_card_monitor_task(
     }
 }
 
-#[embassy_executor::task]
-async fn core1_init_task(
+async fn core0_init_task(
     spawner: Spawner,
-    pins: Core1Pins,
+    pins: Core0Pins,
     track_addr: usize,
     config: &'static SnooperConfig,
 ) {
+    info!("core0_init_task started!");
     let track_ptr = track_addr as *mut ActiveTrack;
 
     // 1. OLED Display (I2C)
     let sda = pins.sda;
     let scl = pins.scl;
+    info!("Initializing I2C0...");
     let i2c = embassy_rp::i2c::I2c::new_async(pins.i2c0, scl, sda, Irqs, Config::default());
 
     static OLED: StaticCell<Mutex<CriticalSectionRawMutex, OledDisplay>> = StaticCell::new();
     let mut oled_obj = OledDisplay::new(i2c);
+    info!("Initializing OLED...");
     oled_obj.init().await;
+    info!("OLED Initialized!");
     let oled_mutex = OLED.init(Mutex::new(oled_obj));
 
     // 2. Indicators (Piezo + LEDs)
@@ -665,21 +666,48 @@ async fn core1_init_task(
     spawner.spawn(core1_load_run(config).unwrap());
 }
 
-fn core1_main(
-    pins: Core1Pins,
-    track_addr: usize,
-    config: &'static SnooperConfig,
-) -> ! {
-    static EXECUTOR: StaticCell<embassy_executor::Executor> = StaticCell::new();
-    let executor = EXECUTOR.init(embassy_executor::Executor::new());
-
-    executor.run(|spawner| {
-        spawner.spawn(core1_init_task(spawner, pins, track_addr, config).unwrap());
-    })
+#[embassy_executor::task]
+async fn settings_save_task(mut flash_storage: FlashStorage<'static>) {
+    loop {
+        let req = pico1541_manager::SETTINGS_SAVE_REQUEST.swap(0, portable_atomic::Ordering::Relaxed);
+        if req != 0 {
+            let id = req & 0x7F;
+            let mut config = littlefs_rust::Config::new(4096, 128);
+            config.read_size = 256;
+            config.prog_size = 256;
+            config.cache_size = 256;
+            config.lookahead_size = 16;
+            match littlefs_rust::Filesystem::mount(flash_storage, config) {
+                Ok(fs) => {
+                    info!("Successfully mounted LittleFS for settings save");
+                    match fs.open("/settings.dat", littlefs_rust::OpenFlags::WRITE | littlefs_rust::OpenFlags::CREATE | littlefs_rust::OpenFlags::TRUNC) {
+                        Ok(file) => {
+                            let _ = file.write(&[id]);
+                            let _ = file.sync();
+                            info!("Successfully wrote and synced /settings.dat: Drive ID {}", id);
+                            pico1541_manager::SETTINGS_SAVE_RESULT.store(1, portable_atomic::Ordering::Relaxed);
+                        }
+                        Err(e) => {
+                            error!("Failed to open /settings.dat for writing: {:?}", defmt::Debug2Format(&e));
+                            pico1541_manager::SETTINGS_SAVE_RESULT.store(2, portable_atomic::Ordering::Relaxed);
+                        }
+                    }
+                    flash_storage = fs.unmount().unwrap();
+                    info!("Successfully unmounted LittleFS");
+                }
+                Err((e, storage)) => {
+                    pico1541_manager::SETTINGS_SAVE_RESULT.store(2, portable_atomic::Ordering::Relaxed);
+                    error!("Failed to mount flash storage for settings save: {:?}", defmt::Debug2Format(&e));
+                    flash_storage = storage;
+                }
+            }
+        }
+        embassy_time::Timer::after(embassy_time::Duration::from_millis(50)).await;
+    }
 }
 
 #[link_section = ".ramfunc"]
-fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: HardwareBridge, mut flash_storage: FlashStorage<'static>) -> ! {
+fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: HardwareBridge) -> ! {
     let timer = embassy_rp::pac::TIMER;
     let mut last_tick = timer.timelr().read();
     let mut cycle_counter = 0u32;
@@ -718,41 +746,6 @@ fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: HardwareBridge
         } else {
             if caught_up == 0 {
                 idle_counter = idle_counter.wrapping_add(1);
-                
-                let req = pico1541_manager::SETTINGS_SAVE_REQUEST.swap(0, portable_atomic::Ordering::Relaxed);
-                if req != 0 {
-                    let id = req & 0x7F;
-                    let mut config = littlefs_rust::Config::new(4096, 128);
-                    config.read_size = 256;
-                    config.prog_size = 256;
-                    config.cache_size = 256;
-                    config.lookahead_size = 16;
-                    match littlefs_rust::Filesystem::mount(flash_storage, config) {
-                        Ok(fs) => {
-                            info!("Successfully mounted LittleFS in emulator_loop");
-                            match fs.open("/settings.dat", littlefs_rust::OpenFlags::WRITE | littlefs_rust::OpenFlags::CREATE | littlefs_rust::OpenFlags::TRUNC) {
-                                Ok(file) => {
-                                    let _ = file.write(&[id]);
-                                    let _ = file.sync();
-                                    info!("Successfully wrote and synced /settings.dat: Drive ID {}", id);
-                                    pico1541_manager::SETTINGS_SAVE_RESULT.store(1, portable_atomic::Ordering::Relaxed);
-                                }
-                                Err(e) => {
-                                    error!("Failed to open /settings.dat for writing: {:?}", defmt::Debug2Format(&e));
-                                    pico1541_manager::SETTINGS_SAVE_RESULT.store(2, portable_atomic::Ordering::Relaxed);
-                                }
-                            }
-                            flash_storage = fs.unmount().unwrap();
-                            info!("Successfully unmounted LittleFS");
-                        }
-                        Err((e, storage)) => {
-                            pico1541_manager::SETTINGS_SAVE_RESULT.store(2, portable_atomic::Ordering::Relaxed);
-                            error!("Failed to mount flash storage in emulator_loop: {:?}", defmt::Debug2Format(&e));
-                            flash_storage = storage;
-                        }
-                    }
-                }
-                
                 cortex_m::asm::nop();
             }
         }
