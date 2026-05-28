@@ -1,6 +1,6 @@
 use crate::driver::{DisplayDriver, RgbLedDriver, StatusLedMode, IndicatorDriver, FileStorageDriver, FileInfo, InternalStorage};
 use crate::tasks::menu::{Menu, MenuEvent};
-use crate::tasks::hardware_test::HardwareTestTask;
+// Removed HardwareTestTask
 use crate::{UiAction, ACTION_CHANNEL};
 use embassy_time::{Duration, Timer};
 use heapless::{Vec, String};
@@ -146,6 +146,12 @@ where
         // 1. Boot Screen
         self.display.clear().await;
         self.display.print_large(2, "  Pico1541").await; 
+        
+        let mut id_str = heapless::String::<16>::new();
+        use core::fmt::Write;
+        write!(id_str, "    Drive ID: {}", self.config.device_id.load(Ordering::Relaxed)).unwrap();
+        self.display.print(4, id_str.as_str()).await;
+        
         self.display.request_redraw();
         Timer::after(Duration::from_millis(1500)).await;
 
@@ -730,7 +736,7 @@ where
         let mut items = Vec::<&'static str, 4>::new();
         let _ = items.push("Drive ID");
         let _ = items.push("Monitor");
-        let _ = items.push("Hardware Test");
+        let _ = items.push("Store Settings");
         
         let mut menu = Menu::new("--- Settings ---", items);
 
@@ -749,12 +755,28 @@ where
                             }
                         }
                         2 => {
-                            let mut test = HardwareTestTask::new(
-                                self.display.clone(),
-                                self.leds.clone(),
-                                self.indicator.clone(),
-                            );
-                            test.run().await;
+                            let current_id = self.config.device_id.load(portable_atomic::Ordering::Relaxed);
+                            crate::SETTINGS_SAVE_RESULT.store(0, portable_atomic::Ordering::Relaxed);
+                            crate::SETTINGS_SAVE_REQUEST.store(current_id | 0x80, portable_atomic::Ordering::Relaxed);
+                            
+                            // Wait for result
+                            let mut res = 0;
+                            for _ in 0..100 {
+                                res = crate::SETTINGS_SAVE_RESULT.load(portable_atomic::Ordering::Relaxed);
+                                if res != 0 {
+                                    break;
+                                }
+                                embassy_time::Timer::after(embassy_time::Duration::from_millis(10)).await;
+                            }
+                            
+                            self.display.clear().await;
+                            if res == 1 {
+                                self.display.print(3, "  Settings Stored").await;
+                            } else {
+                                self.display.print(3, "  Store Failed!").await;
+                            }
+                            self.display.request_redraw();
+                            embassy_time::Timer::after(embassy_time::Duration::from_millis(1500)).await;
                         }
                         _ => {
                             log::info!("Selected setting: {:?}", menu.selected_item());
@@ -831,9 +853,7 @@ where
             for id in 8..=11 {
                 let mut s = String::<16>::new();
                 if id == current_id {
-                    let _ = s.push_str("* ");
-                } else {
-                    let _ = s.push_str("  ");
+                    let _ = s.push_str("*");
                 }
                 let _ = core::fmt::write(&mut s, format_args!("{}", id));
                 let _ = items.push(s);

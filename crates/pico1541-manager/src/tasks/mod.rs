@@ -1,6 +1,5 @@
 pub mod display;
 pub mod drive_activity;
-pub mod hardware_test;
 pub mod keyboard;
 pub mod button;
 pub mod action;
@@ -11,7 +10,7 @@ pub mod snooper;
 
 pub use display::DisplayTask;
 pub use drive_activity::DriveActivityTask;
-pub use hardware_test::HardwareTestTask;
+
 pub use keyboard::KeyboardTask;
 pub use action::ActionTask;
 pub use snooper::SnooperTask;

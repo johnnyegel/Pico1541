@@ -77,6 +77,16 @@ pub enum UiAction {
 
 pub static ACTION_CHANNEL: Channel<CriticalSectionRawMutex, UiAction, 16> = Channel::new();
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum SettingsCommand {
+    SaveDriveId(u8),
+}
+pub static SETTINGS_CHANNEL: Channel<CriticalSectionRawMutex, SettingsCommand, 2> = Channel::new();
+pub static SETTINGS_SAVE_RESULT: portable_atomic::AtomicU8 = portable_atomic::AtomicU8::new(0);
+pub static SETTINGS_SAVE_REQUEST: portable_atomic::AtomicU8 = portable_atomic::AtomicU8::new(0);
+
+
 #[cfg(test)]
 mod test_imports {
     use hadris_fat::*;

@@ -7,13 +7,15 @@ extern crate alloc;
 static HEAP: embedded_alloc::LlffHeap = embedded_alloc::LlffHeap::empty();
 
 mod driver;
+mod flash_storage;
 
-use defmt::info;
+use core::sync::atomic::{AtomicU32, AtomicU8, Ordering};
+use defmt::{info, error};
 use defmt_rtt as _;
 
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
-use embassy_rp::gpio::{Input, Level, Output, Pull};
+use embassy_rp::gpio::{AnyPin, Input, Level, Output, Pull};
 use embassy_rp::i2c::{Config, InterruptHandler};
 use embassy_rp::peripherals::{I2C0, SPI1, PIN_25, DMA_CH0, DMA_CH1};
 use embassy_rp::spi::{Config as SpiConfig, Spi, Blocking};
@@ -21,7 +23,6 @@ use embassy_rp::multicore::Stack;
 use embassy_rp::Peri;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
-
 
 use pico1541_common::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus, IecBusState};
 use pico1541_common::snooper::{IecSnooper, IecSnoopByteHandler, SnooperConfig};
@@ -43,7 +44,7 @@ use pico1541_manager::driver::file_storage::{HadrisFileWrapper, FatStorage, Stor
 
 
 use static_cell::StaticCell;
-use portable_atomic::Ordering;
+use flash_storage::FlashStorage;
 
 bind_interrupts!(struct Irqs {
     I2C0_IRQ => InterruptHandler<I2C0>;
@@ -74,7 +75,7 @@ type MyDir = PagedDirectorySource<48>;
 type MyDisk = AnyDiskImage<MyStorage, MyDir>;
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+async fn main(spawner: Spawner) {
     {
         use core::mem::MaybeUninit;
         const HEAP_SIZE: usize = 32768;
@@ -84,12 +85,53 @@ async fn main(_spawner: Spawner) {
         }
     }
 
-    // Configure the system clock to 250 MHz
     let mut config = embassy_rp::config::Config::default();
     config.clocks = embassy_rp::clocks::ClockConfig::system_freq(250_000_000).unwrap();
-    
     let p = embassy_rp::init(config);
     info!("Pico1541 Starting at 250MHz...");
+
+    // Initialize Flash for LittleFS
+    // RP2040 has 2MB of flash. We reserved 1MB at the end.
+    let flash_driver = embassy_rp::flash::Flash::<_, embassy_rp::flash::Blocking, { 2 * 1024 * 1024 }>::new_blocking(p.FLASH);
+    let mut fs_storage_inst = FlashStorage::new(flash_driver);
+    
+    fn fs_config() -> littlefs_rust::Config {
+        let mut config = littlefs_rust::Config::new(4096, 256);
+        config.read_size = 256;
+        config.prog_size = 256;
+        config.cache_size = 256;
+        config.lookahead_size = 16;
+        config
+    }
+    
+    // Attempt to mount LittleFS, if it fails format it
+    let mut fs_storage_inst = match littlefs_rust::Filesystem::mount(fs_storage_inst, fs_config()) {
+        Ok(fs) => fs.unmount().unwrap_or_else(|e| panic!("failed to unmount: {:?}", e)),
+        Err((_, mut fs_storage)) => {
+            info!("Formatting LittleFS...");
+            if let Err(_e) = littlefs_rust::Filesystem::format(&mut fs_storage, &fs_config()) {
+                error!("Failed to format LittleFS!");
+            }
+            fs_storage
+        }
+    };
+    
+    // Read Settings
+    let mut drive_id = 8;
+    fs_storage_inst = match littlefs_rust::Filesystem::mount(fs_storage_inst, fs_config()) {
+        Ok(fs) => {
+            if let Ok(data) = fs.read_to_vec("/settings.dat") {
+                if data.len() == 1 {
+                    drive_id = data[0];
+                }
+            }
+            fs.unmount().unwrap()
+        }
+        Err((_, storage)) => storage,
+    };
+    info!("Settings loaded. Drive ID: {}", drive_id);
+    SNOOPER_CONFIG.device_id.store(drive_id, Ordering::Relaxed);
+
 // Force RP2040 Timer to 1us ticks (12 cycles of 12MHz clk_ref)
 let (old_val, new_val) = unsafe {
     let timer_tick_reg = 0x4005802c as *mut u32;
@@ -167,10 +209,10 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
     let bridge = HardwareBridge::new(pins, track_for_bridge, &SNOOPER_CONFIG);
 
     let rom = include_bytes!("../../../roms/1541-II.251968-03.bin");
-    let mut drive = Emulator::new(*rom, 8);
+    let mut drive = Emulator::new(*rom, drive_id);
     drive.reset();
 
-    emulator_loop(drive, bridge);
+    emulator_loop(drive, bridge, fs_storage_inst);
 }
 
 struct IecPins {
@@ -404,6 +446,7 @@ async fn action_run(mut task: ActionTask) {
     task.run().await;
 }
 
+
 #[embassy_executor::task]
 async fn menu_run(
     mut task: MainMenuTask<
@@ -418,7 +461,7 @@ async fn menu_run(
 }
 
 #[embassy_executor::task]
-async fn blinky(pin: Peri<'static, PIN_25>) {
+async fn blinky(pin: Peri<'static, embassy_rp::peripherals::PIN_25>) {
     let mut led = Output::new(pin, Level::Low);
     info!("Heartbeat blinky task started!");
     loop {
@@ -606,6 +649,8 @@ async fn core1_init_task(
     spawner.spawn(keyboard_run(keyboard_task).unwrap());
     let mut action_task = ActionTask::new();
     spawner.spawn(action_run(action_task).unwrap());
+
+
     spawner.spawn(display_run(display_task).unwrap());
     spawner.spawn(snooper_run(snooper_task).unwrap());
     spawner.spawn(vdisk_run(vdisk_task).unwrap());
@@ -627,7 +672,7 @@ fn core1_main(
 }
 
 #[link_section = ".ramfunc"]
-fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: HardwareBridge) -> ! {
+fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: HardwareBridge, mut flash_storage: FlashStorage<'static>) -> ! {
     let timer = embassy_rp::pac::TIMER;
     let mut last_tick = timer.timelr().read();
     let mut cycle_counter = 0u32;
@@ -660,15 +705,49 @@ fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: HardwareBridge
             if idle_counter > max_raw {
                 config.core0_max_raw.store(idle_counter, Ordering::Relaxed);
             }
-            
             cycle_counter = 0;
             idle_counter = 0;
             last_perf_update = now;
-        }
-
-        if caught_up == 0 {
-            idle_counter = idle_counter.wrapping_add(1);
-            cortex_m::asm::nop();
+        } else {
+            if caught_up == 0 {
+                idle_counter = idle_counter.wrapping_add(1);
+                
+                let req = pico1541_manager::SETTINGS_SAVE_REQUEST.swap(0, portable_atomic::Ordering::Relaxed);
+                if req != 0 {
+                    let id = req & 0x7F;
+                    let mut config = littlefs_rust::Config::new(4096, 256);
+                    config.read_size = 256;
+                    config.prog_size = 256;
+                    config.cache_size = 256;
+                    config.lookahead_size = 16;
+                    match littlefs_rust::Filesystem::mount(flash_storage, config) {
+                        Ok(fs) => {
+                            info!("Successfully mounted LittleFS in emulator_loop");
+                            match fs.open("/settings.dat", littlefs_rust::OpenFlags::WRITE | littlefs_rust::OpenFlags::CREATE | littlefs_rust::OpenFlags::TRUNC) {
+                                Ok(file) => {
+                                    let _ = file.write(&[id]);
+                                    let _ = file.sync();
+                                    info!("Successfully wrote and synced /settings.dat: Drive ID {}", id);
+                                    pico1541_manager::SETTINGS_SAVE_RESULT.store(1, portable_atomic::Ordering::Relaxed);
+                                }
+                                Err(e) => {
+                                    error!("Failed to open /settings.dat for writing: {:?}", defmt::Debug2Format(&e));
+                                    pico1541_manager::SETTINGS_SAVE_RESULT.store(2, portable_atomic::Ordering::Relaxed);
+                                }
+                            }
+                            flash_storage = fs.unmount().unwrap();
+                            info!("Successfully unmounted LittleFS");
+                        }
+                        Err((e, storage)) => {
+                            pico1541_manager::SETTINGS_SAVE_RESULT.store(2, portable_atomic::Ordering::Relaxed);
+                            error!("Failed to mount flash storage in emulator_loop: {:?}", defmt::Debug2Format(&e));
+                            flash_storage = storage;
+                        }
+                    }
+                }
+                
+                cortex_m::asm::nop();
+            }
         }
     }
 }
