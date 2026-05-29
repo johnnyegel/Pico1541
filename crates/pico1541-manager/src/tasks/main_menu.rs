@@ -216,6 +216,10 @@ where
                 MenuEvent::Home => {
                     // Home in main menu does nothing
                 }
+                MenuEvent::Monitor => {
+                    let _ = self.monitor_page().await;
+                    continue;
+                }
                 MenuEvent::LoadBlock(_) => {}
                 MenuEvent::Timeout => {
                     cursor = main_menu.selected_index();
@@ -244,11 +248,11 @@ where
         let mut cursor_stack = heapless::Vec::<(usize, usize), 32>::new();
         loop {
             let current_path = if use_internal {
-                &self.internal_path
+                self.internal_path.clone()
             } else if title == "SD Card" {
-                &self.sd_path
+                self.sd_path.clone()
             } else {
-                &self.usb_path
+                self.usb_path.clone()
             };
 
             let path_str = current_path.as_str();
@@ -384,6 +388,16 @@ where
                         *disk = None;
                         self.leds.set_status(StatusLedMode::Unmounted);
                         return true;
+                    }
+                    MenuEvent::Monitor => {
+                        if self.monitor_page().await {
+                            let mut disk = self._disk_image.lock().await;
+                            *disk = None;
+                            self.leds.set_status(StatusLedMode::Unmounted);
+                            return true;
+                        }
+                        self.display.request_redraw();
+                        continue;
                     }
                     _ => {}
                 }
@@ -724,6 +738,11 @@ where
                                         break;
                                     }
                                     MenuEvent::Back | MenuEvent::Home => break,
+                                    MenuEvent::Monitor => {
+                                        let _ = self.monitor_page().await;
+                                        self.display.request_redraw();
+                                        continue;
+                                    }
                                     MenuEvent::Timeout => continue,
                                     MenuEvent::ContextAction(_) => continue,
                                     MenuEvent::LoadBlock(_) => {}
@@ -754,6 +773,11 @@ where
                                         break;
                                     }
                                     MenuEvent::Back | MenuEvent::Home => break,
+                                    MenuEvent::Monitor => {
+                                        let _ = self.monitor_page().await;
+                                        self.display.request_redraw();
+                                        continue;
+                                    }
                                     MenuEvent::Timeout => continue,
                                     MenuEvent::ContextAction(_) => continue, // ignore repeated hold events
                                     MenuEvent::LoadBlock(_) => {} // context menu doesn't need blocks
@@ -798,6 +822,17 @@ where
                     self.leds.set_status(StatusLedMode::Unmounted);
                     self.mounted_file_path = None;
                     return true;
+                }
+                MenuEvent::Monitor => {
+                    if self.monitor_page().await {
+                        let mut disk = self._disk_image.lock().await;
+                        *disk = None;
+                        self.leds.set_status(StatusLedMode::Unmounted);
+                        self.mounted_file_path = None;
+                        return true;
+                    }
+                    self.display.request_redraw();
+                    continue;
                 }
             }
         }
@@ -847,6 +882,11 @@ where
                 }
                 MenuEvent::Back => return false,
                 MenuEvent::Home => return true,
+                MenuEvent::Monitor => {
+                    if self.monitor_page().await { return true; }
+                    self.display.request_redraw();
+                    continue;
+                }
                 MenuEvent::LoadBlock(_) => {}
                 MenuEvent::Timeout => { cursor = menu.selected_index(); }
                 _ => {}
@@ -904,7 +944,7 @@ where
             self.display.request_redraw();
 
             match embassy_time::with_timeout(
-                embassy_time::Duration::from_millis(500),
+                embassy_time::Duration::from_millis(200),
                 crate::ACTION_CHANNEL.receive()
             ).await {
                 Ok(UiAction::Back) => return false,
@@ -940,6 +980,11 @@ where
                 }
                 MenuEvent::Back => return false,
                 MenuEvent::Home => return true,
+                MenuEvent::Monitor => {
+                    if self.monitor_page().await { return true; }
+                    self.display.request_redraw();
+                    continue;
+                }
                 MenuEvent::LoadBlock(_) => {}
                 MenuEvent::Timeout => {
                     cursor = menu.selected_index();
@@ -1065,6 +1110,11 @@ where
                 }
                 MenuEvent::Back => return false,
                 MenuEvent::Home => return true,
+                MenuEvent::Monitor => {
+                    if self.monitor_page().await { return true; }
+                    self.display.request_redraw();
+                    continue;
+                }
                 MenuEvent::LoadBlock(_) => {}
                 MenuEvent::Timeout => { cursor = menu.selected_index(); }
                 _ => {}

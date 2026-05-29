@@ -11,7 +11,7 @@ use embassy_sync::mutex::Mutex;
 
 pub trait FileOpener {
     type FileStorage: embedded_io_async::Read + embedded_io_async::Seek + 'static;
-    async fn open_file(&self, name: &str) -> Result<Self::FileStorage, pico1541_common::formats::Error>;
+    async fn open_file(&self, requested_petscii: &[u8]) -> Result<Self::FileStorage, pico1541_common::formats::Error>;
     async fn list_dir_range(
         &self,
         path: &str,
@@ -22,7 +22,7 @@ pub trait FileOpener {
     ) -> Result<(), pico1541_common::formats::Error>;
 }
 
-fn match_c64_filename(entry_name: &[u8; 16], req_name: &[u8]) -> bool {
+pub fn match_c64_filename(entry_name: &[u8; 16], req_name: &[u8]) -> bool {
     let mut entry_len = 16;
     while entry_len > 0 && entry_name[entry_len - 1] == 0xA0 {
         entry_len -= 1;
@@ -36,40 +36,48 @@ fn match_c64_filename(entry_name: &[u8; 16], req_name: &[u8]) -> bool {
     if req_len == 0 || entry_len == 0 {
         return false;
     }
+
+    let mut e_idx = 0;
+    let mut r_idx = 0;
     
-    if entry_len == req_len {
-        let mut exact = true;
-        for i in 0..entry_len {
-            if entry_name[i].to_ascii_uppercase() != req_name[i].to_ascii_uppercase() {
-                exact = false;
+    while r_idx < req_len && e_idx < entry_len {
+        let r_char = req_name[r_idx];
+        if r_char == 0x2A { // '*'
+            return true;
+        } else if r_char == 0x3F { // '?'
+            // matches any char
+        } else {
+            if entry_name[e_idx] != r_char {
                 break;
             }
         }
-        if exact {
-            return true;
-        }
+        e_idx += 1;
+        r_idx += 1;
     }
     
-    let extensions: &[&[u8]] = &[b".PRG", b".SEQ", b".USR", b".DEL"];
-    for ext in extensions {
-        if entry_len == req_len + ext.len() {
-            let mut match_found = true;
-            for i in 0..req_len {
-                if entry_name[i].to_ascii_uppercase() != req_name[i].to_ascii_uppercase() {
-                    match_found = false;
-                    break;
-                }
-            }
-            if match_found {
+    if r_idx < req_len && req_name[r_idx] == 0x2A {
+        return true;
+    }
+    
+    if r_idx == req_len && e_idx == entry_len {
+        return true;
+    }
+    
+    if r_idx == req_len {
+        let extensions: &[&[u8]] = &[b".PRG", b".SEQ", b".USR", b".DEL"];
+        for ext in extensions {
+            if entry_len == r_idx + ext.len() {
+                let mut match_found = true;
                 for i in 0..ext.len() {
-                    if entry_name[req_len + i].to_ascii_uppercase() != ext[i] {
+                    let ext_char = pico1541_common::storage::ascii_to_petscii(ext[i]);
+                    if entry_name[r_idx + i] != ext_char {
                         match_found = false;
                         break;
                     }
                 }
-            }
-            if match_found {
-                return true;
+                if match_found {
+                    return true;
+                }
             }
         }
     }
@@ -260,10 +268,8 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                         shortcut.first_sector = 0;
                                         vdir.set_shortcut_entry(Some(shortcut));
 
-                                        let mut ascii_name = [0u8; 16];
-                                        let len = pico1541_common::disk_info::petscii_to_ascii(&entry.filename, &mut ascii_name);
-                                        let name_str = core::str::from_utf8(&ascii_name[..len]).unwrap_or("");
-                                        match self.opener.open_file(name_str).await {
+                                        let name_len = entry.filename.iter().position(|&c| c == 0xA0).unwrap_or(16);
+                                        match self.opener.open_file(&entry.filename[..name_len]).await {
                                             Ok(file_storage) => {
                                                 vdir.file_storage = Some(file_storage);
                                             }

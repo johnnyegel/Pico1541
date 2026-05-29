@@ -73,6 +73,7 @@ pub enum UiAction {
     SkipUp,
     SkipDown,
     Home,
+    Monitor,
     ContextAction,
 }
 

@@ -6,6 +6,46 @@ pub struct MemoryStorage<'a> {
     pos: usize,
 }
 
+pub fn ascii_to_petscii(a: u8) -> u8 {
+    match a {
+        b'a'..=b'z' => a - 0x20, // 0x61-0x7A -> 0x41-0x5A
+        b'A'..=b'Z' => a + 0x80, // 0x41-0x5A -> 0xC1-0xDA
+        _ => a,
+    }
+}
+
+pub fn petscii_to_ascii(p: u8) -> u8 {
+    match p {
+        0x41..=0x5A => p + 0x20, // 0x41-0x5A -> 0x61-0x7A ('a'-'z')
+        0xC1..=0xDA => p - 0x80, // 0xC1-0xDA -> 0x41-0x5A ('A'-'Z')
+        _ => p,
+    }
+}
+
+pub fn mangle_filename(name: &[u8]) -> [u8; 16] {
+    let mut petscii = [0xA0; 16];
+    let actual_len = name.iter().position(|&c| c == 0).unwrap_or(name.len());
+    let actual_name = &name[..actual_len];
+    
+    if actual_name.len() <= 16 {
+        for (i, &b) in actual_name.iter().enumerate() {
+            petscii[i] = ascii_to_petscii(b);
+        }
+    } else {
+        // Take first 13 chars
+        for i in 0..13 {
+            petscii[i] = ascii_to_petscii(actual_name[i]);
+        }
+        petscii[13] = b'-'; // 0x2D is universally supported in PETSCII
+        
+        if actual_len >= 2 {
+            petscii[14] = ascii_to_petscii(actual_name[actual_len - 2]);
+            petscii[15] = ascii_to_petscii(actual_name[actual_len - 1]);
+        }
+    }
+    petscii
+}
+
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DirectoryEntry {
@@ -43,20 +83,7 @@ impl DirectoryEntry {
     }
 
     pub fn from_file_info(name: &[u8], is_dir: bool, size: u32) -> Self {
-        let mut filename = [0xA0; 16];
-        let mut len = 0;
-        for &b in name.iter() {
-            if b == 0 || len >= 16 {
-                break;
-            }
-            let c = if b >= b'a' && b <= b'z' {
-                b - b'a' + b'A'
-            } else {
-                b
-            };
-            filename[len] = c;
-            len += 1;
-        }
+        let filename = mangle_filename(name);
         
         let file_type = if is_dir {
             0x81 // DIR
@@ -216,9 +243,7 @@ pub struct PagedDirectorySource<const N: usize = 48> {
 impl<const N: usize> PagedDirectorySource<N> {
     /// Create a new paged directory source. Total entry count is discovered lazily.
     pub fn new(name: &[u8]) -> Self {
-        let mut n = [0xA0; 16];
-        let len = name.len().min(16);
-        n[..len].copy_from_slice(&name[..len]);
+        let n = mangle_filename(name);
         Self {
             name: n,
             entries: [DirectoryEntry::default(); N],

@@ -8,6 +8,7 @@ pub enum Error {
     InvalidFormat,
     InvalidTrack,
     TrackTooLarge,
+    FileNotFound,
 }
 
 // Represents the layout of a track read from a disk image

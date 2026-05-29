@@ -429,30 +429,81 @@ struct MyOpener {
 impl pico1541_manager::tasks::virtual_dir::FileOpener for MyOpener {
     type FileStorage = MyStorage;
 
-    async fn open_file(&self, name: &str) -> Result<Self::FileStorage, pico1541_common::formats::Error> {
+    async fn open_file(&self, requested_petscii: &[u8]) -> Result<Self::FileStorage, pico1541_common::formats::Error> {
         let (dir_path, use_internal) = {
             let guard = CURRENT_DIR.lock().await;
             (guard.0.clone(), guard.1)
         };
         
-        let mut full_path = heapless::String::<128>::new();
-        if dir_path == "/" || dir_path.is_empty() {
-            let _ = full_path.push_str("/");
-            let _ = full_path.push_str(name);
-        } else {
-            let _ = full_path.push_str(&dir_path);
-            let _ = full_path.push_str("/");
-            let _ = full_path.push_str(name);
-        }
+        let mut found_filename = heapless::String::<64>::new();
         
         if use_internal {
             use pico1541_manager::driver::FileStorageDriver;
-            let internal = littlefs_storage::LittleFsStorage;
+            let mut internal = littlefs_storage::LittleFsStorage;
+            
+            let mut found = false;
+            let _ = internal.list_dir_range(dir_path.as_str(), 0, 1000, |info| {
+                if !found {
+                    let mangled = pico1541_common::storage::mangle_filename(&info.name);
+                    if pico1541_manager::tasks::virtual_dir::match_c64_filename(&mangled, requested_petscii) {
+                        let name_len = info.name.iter().position(|&c| c == 0).unwrap_or(info.name.len());
+                        if let Ok(s) = core::str::from_utf8(&info.name[..name_len]) {
+                            let _ = found_filename.push_str(s);
+                            found = true;
+                        }
+                    }
+                }
+            }).await;
+            
+            if !found {
+                return Err(pico1541_common::formats::Error::FileNotFound);
+            }
+            
+            let mut full_path = heapless::String::<128>::new();
+            if dir_path == "/" || dir_path.is_empty() {
+                let _ = full_path.push_str("/");
+                let _ = full_path.push_str(found_filename.as_str());
+            } else {
+                let _ = full_path.push_str(&dir_path);
+                let _ = full_path.push_str("/");
+                let _ = full_path.push_str(found_filename.as_str());
+            }
+            
             let file_handle = internal.open_file_handle(full_path.as_str());
             Ok(RuntimeStorage::File2(file_handle))
         } else {
             use pico1541_manager::driver::FileStorageDriver;
-            let file_handle = self.storage.open_file_handle(full_path.as_str());
+            let mut sd = self.storage.clone();
+            
+            let mut found = false;
+            let _ = sd.list_dir_range(dir_path.as_str(), 0, 1000, |info| {
+                if !found {
+                    let mangled = pico1541_common::storage::mangle_filename(&info.name);
+                    if pico1541_manager::tasks::virtual_dir::match_c64_filename(&mangled, requested_petscii) {
+                        let name_len = info.name.iter().position(|&c| c == 0).unwrap_or(info.name.len());
+                        if let Ok(s) = core::str::from_utf8(&info.name[..name_len]) {
+                            let _ = found_filename.push_str(s);
+                            found = true;
+                        }
+                    }
+                }
+            }).await;
+            
+            if !found {
+                return Err(pico1541_common::formats::Error::FileNotFound);
+            }
+            
+            let mut full_path = heapless::String::<128>::new();
+            if dir_path == "/" || dir_path.is_empty() {
+                let _ = full_path.push_str("/");
+                let _ = full_path.push_str(found_filename.as_str());
+            } else {
+                let _ = full_path.push_str(&dir_path);
+                let _ = full_path.push_str("/");
+                let _ = full_path.push_str(found_filename.as_str());
+            }
+            
+            let file_handle = sd.open_file_handle(full_path.as_str());
             Ok(RuntimeStorage::File(file_handle))
         }
     }
