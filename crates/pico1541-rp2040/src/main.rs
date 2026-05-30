@@ -958,6 +958,10 @@ fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: HardwareBridge
     let mut last_perf_update = last_tick;
     let mut was_reset = false;
 
+    let mut bus_cycles_acc = 0u64;
+    let mut cpu_cycles_acc = 0u64;
+    let mut ticks_acc = 0u64;
+
     loop {
         let now = timer.timelr().read();
         
@@ -991,7 +995,18 @@ fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: HardwareBridge
                     drive.reset();
                     was_reset = false;
                 }
-                drive.tick(&mut bridge);
+                let t1 = cortex_m::peripheral::SYST::get_current();
+                drive.bus.tick_cycle(&mut bridge);
+                let t2 = cortex_m::peripheral::SYST::get_current();
+                drive.cpu.tick(&mut drive.bus, &mut bridge);
+                let t3 = cortex_m::peripheral::SYST::get_current();
+                
+                // SYST is a 24-bit down counter
+                let bus_cycles = t1.wrapping_sub(t2) & 0x00FFFFFF;
+                let cpu_cycles = t2.wrapping_sub(t3) & 0x00FFFFFF;
+                bus_cycles_acc += bus_cycles as u64;
+                cpu_cycles_acc += cpu_cycles as u64;
+                ticks_acc += 1;
             }
             cycle_counter += 1;
             caught_up += 1;
@@ -1006,6 +1021,17 @@ fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: HardwareBridge
             
             config.emu_speed_hz.store(cycle_counter, Ordering::Relaxed);
             config.core0_avg_raw.store(new_avg, Ordering::Relaxed);
+
+            if ticks_acc > 0 {
+                info!("Profile: Bus={} CPU={} (avg cycles per tick over {} ticks)", 
+                    bus_cycles_acc / ticks_acc, 
+                    cpu_cycles_acc / ticks_acc, 
+                    ticks_acc);
+            }
+
+            bus_cycles_acc = 0;
+            cpu_cycles_acc = 0;
+            ticks_acc = 0;
 
             // We no longer auto-calibrate max_raw upwards here, 
             // because the baseline idle was calculated accurately at startup.
