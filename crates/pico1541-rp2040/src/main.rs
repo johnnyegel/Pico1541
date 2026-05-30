@@ -63,7 +63,7 @@ static SNOOPER_CONFIG: SnooperConfig = SnooperConfig::new(8);
 static CURRENT_DIR: Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)> = Mutex::new((heapless::String::new(), false));
 
 // Core 1 Stack
-static CORE1_STACK: StaticCell<Stack<65536>> = StaticCell::new();
+static mut CORE1_STACK: core::mem::MaybeUninit<Stack<65536>> = core::mem::MaybeUninit::uninit();
 
 // ROM Buffer for dynamic loading
 static mut ROM_BUFFER: [u8; 16384] = [0; 16384];
@@ -224,10 +224,16 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
 
 
     // Shared ActiveTrack buffer
-    static ACTIVE_TRACK: StaticCell<ActiveTrack> = StaticCell::new();
-    let track_ptr = ACTIVE_TRACK.init(ActiveTrack::new()) as *mut ActiveTrack;
+    static mut ACTIVE_TRACK: core::mem::MaybeUninit<ActiveTrack> = core::mem::MaybeUninit::uninit();
+    let track_ptr = unsafe {
+        ACTIVE_TRACK.as_mut_ptr().write(ActiveTrack::new());
+        ACTIVE_TRACK.as_mut_ptr()
+    };
 
-    let stack = CORE1_STACK.init(Stack::new());
+    let stack = unsafe {
+        CORE1_STACK.as_mut_ptr().write(Stack::new());
+        &mut *CORE1_STACK.as_mut_ptr()
+    };
 
     // Pack peripherals for Core 1
     let core1_pins = Core0Pins {
