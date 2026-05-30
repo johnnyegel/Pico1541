@@ -63,6 +63,7 @@ static SNOOPER_CONFIG: SnooperConfig = SnooperConfig::new(8);
 static CURRENT_DIR: Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)> = Mutex::new((heapless::String::new(), false));
 
 // Core 1 Stack
+#[link_section = ".core1_stack"]
 static mut CORE1_STACK: core::mem::MaybeUninit<Stack<65536>> = core::mem::MaybeUninit::uninit();
 
 // ROM Buffer for dynamic loading
