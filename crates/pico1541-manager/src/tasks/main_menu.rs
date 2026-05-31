@@ -278,14 +278,14 @@ where
             let initial_start_block = current_block.saturating_sub(1);
             let initial_start_idx = initial_start_block * 16;
 
-            // Load the entries around the cursor position (up to 48 entries = 3 blocks)
-            let mut initial_infos = Vec::<FileInfo, 48>::new();
+            // Load the entries around the cursor position (up to 64 entries = 4 blocks)
+            let mut initial_infos = Vec::<FileInfo, 64>::new();
             let load_res = if use_internal {
-                self.internal.list_dir_range(current_path.as_str(), initial_start_idx, 48, |info| {
+                self.internal.list_dir_range(current_path.as_str(), initial_start_idx, 64, |info| {
                     let _ = initial_infos.push(info);
                 }).await
             } else {
-                self.storage.list_dir_range(current_path.as_str(), initial_start_idx, 48, |info| {
+                self.storage.list_dir_range(current_path.as_str(), initial_start_idx, 64, |info| {
                     let _ = initial_infos.push(info);
                 }).await
             };
@@ -346,7 +346,7 @@ where
                 current_dir_guard.1 = use_internal;
             }
 
-            let mut menu_title = String::<32>::new();
+            let mut menu_title = String::<64>::new();
             if path_str == "/" && !use_internal {
                 if let Some(label) = self.storage.volume_label() {
                     let _ = core::fmt::write(&mut menu_title, format_args!("SD: {}", label.as_str()));
@@ -355,6 +355,28 @@ where
                 }
             } else {
                 let _ = menu_title.push_str(dir_name);
+            }
+            let mut menu = Menu::<String<64>, 64, _>::new_paged(menu_title.clone());
+            menu.set_scroll_offset(scroll_offset);
+
+            for (block_idx, chunk) in initial_infos.chunks(16).enumerate() {
+                let mut block_strings = Vec::<String<64>, 16>::new();
+                for info in chunk {
+                    let mut s = String::<64>::new();
+                    let name_str = core::str::from_utf8(&info.name).unwrap_or("???");
+                    let name_trimmed = name_str.trim_matches('\0');
+                    let file_path = join_path(current_path.as_str(), name_trimmed);
+                    if Some(file_path) == self.mounted_file_path {
+                        let _ = s.push('*');
+                    }
+                    let _ = s.push_str(name_trimmed);
+                    if info.is_dir {
+                        let _ = s.push_str("/");
+                    }
+                    
+                    let _ = block_strings.push(s);
+                }
+                menu.set_block(initial_start_block + block_idx, &block_strings);
             }
 
             if initial_infos.is_empty() {
@@ -511,6 +533,38 @@ where
                     MenuEvent::Timeout => {
                         if !use_internal && !self.storage.is_available().await {
                             break MenuEvent::Timeout;
+                        }
+                        
+                        if let Some(tb) = menu.prefetch_target() {
+                            let mut block_infos = Vec::<FileInfo, 16>::new();
+                            let fetch_res = if use_internal {
+                                self.internal.list_dir_range(current_path.as_str(), tb * 16, 16, |info| {
+                                    let _ = block_infos.push(info);
+                                }).await
+                            } else {
+                                self.storage.list_dir_range(current_path.as_str(), tb * 16, 16, |info| {
+                                    let _ = block_infos.push(info);
+                                }).await
+                            };
+                            
+                            if fetch_res.is_ok() {
+                                let mut block_strings = Vec::<String<64>, 16>::new();
+                                for info in block_infos.iter() {
+                                    let mut s = String::<64>::new();
+                                    let name_str = core::str::from_utf8(&info.name).unwrap_or("???");
+                                    let name_trimmed = name_str.trim_matches('\0');
+                                    let file_path = join_path(current_path.as_str(), name_trimmed);
+                                    if Some(file_path) == self.mounted_file_path {
+                                        let _ = s.push('*');
+                                    }
+                                    let _ = s.push_str(name_trimmed);
+                                    if info.is_dir {
+                                        let _ = s.push_str("/");
+                                    }
+                                    let _ = block_strings.push(s);
+                                }
+                                menu.set_block(tb, &block_strings);
+                            }
                         }
                     }
                     other => break other,

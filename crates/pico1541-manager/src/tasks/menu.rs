@@ -61,7 +61,7 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
     }
 
     pub fn set_block(&mut self, block_index: usize, block_items: &[T]) {
-        let slot = block_index % 3;
+        let slot = block_index % (N / 16);
         let start_slot_idx = slot * 16;
         for i in 0..16 {
             if i < block_items.len() {
@@ -96,13 +96,13 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
             self.end_block = block_index + 1;
         } else if block_index == self.end_block {
             self.end_block += 1;
-            if self.end_block - self.start_block > 3 {
-                self.start_block = self.end_block - 3;
+            if self.end_block - self.start_block > (N / 16) {
+                self.start_block = self.end_block - (N / 16);
             }
         } else if block_index + 1 == self.start_block {
             self.start_block = block_index;
-            if self.end_block - self.start_block > 3 {
-                self.end_block = self.start_block + 3;
+            if self.end_block - self.start_block > (N / 16) {
+                self.end_block = self.start_block + (N / 16);
             }
         } else if block_index >= self.start_block && block_index < self.end_block {
             // Already in range, do nothing
@@ -130,7 +130,7 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
         } else {
             let b = idx / 16;
             if b >= self.start_block && b < self.end_block {
-                let slot = b % 3;
+                let slot = b % (N / 16);
                 self.items.get(slot * 16 + (idx % 16)).and_then(|opt| opt.as_ref())
             } else {
                 None
@@ -164,6 +164,29 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
                 if tb < self.start_block || tb >= self.end_block {
                     return Some(tb);
                 }
+            }
+        }
+        None
+    }
+
+    pub fn prefetch_target(&self) -> Option<usize> {
+        if self.total_count > N {
+            let current_block = self.selected_index / 16;
+            let known_blocks = if self.total_count == usize::MAX {
+                self.end_block.max(current_block + 2)
+            } else {
+                (self.total_count + 15) / 16
+            };
+            
+            let tb = current_block + 2;
+            if tb < known_blocks {
+                if tb < self.start_block || tb >= self.end_block {
+                    return Some(tb);
+                }
+            }
+            let tb2 = current_block.saturating_sub(2);
+            if tb2 < self.start_block || tb2 >= self.end_block {
+                return Some(tb2);
             }
         }
         None
