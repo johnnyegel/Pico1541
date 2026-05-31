@@ -25,8 +25,8 @@ fn test_hijack_latency() {
         cycles: 0,
         hijacked: false,
     };
-    let drive_rom = [0u8; 16384];
-    let mut drive = pico1541_emulator::Emulator::new(drive_rom, 8);
+    static DRIVE_ROM: [u8; 16384] = [0u8; 16384];
+    let mut drive = pico1541_emulator::Emulator::new(&DRIVE_ROM, 8);
     
     // 1. Run for some cycles
     for _ in 0..100 {

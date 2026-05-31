@@ -310,7 +310,8 @@ mod tests {
     }
     #[test]
     fn test_ram_read_write() {
-        let mut bus = SystemBus::<MockHardware>::new([0; ROM_SIZE], 8);
+        static ROM: [u8; ROM_SIZE] = [0; ROM_SIZE];
+        let mut bus = SystemBus::<MockHardware>::new(&ROM, 8);
         let mut hw = MockHardware {
             track: ActiveTrack::new(),
         };

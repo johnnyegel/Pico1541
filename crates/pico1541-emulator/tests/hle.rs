@@ -18,7 +18,8 @@ impl HostInterface for MockHardware {
 
 #[test]
 fn test_hle_intercept_command_patches_ram() {
-    let mut bus = SystemBus::<MockHardware>::new([0; 0x4000], 8);
+    static ROM: [u8; 0x4000] = [0; 0x4000];
+    let mut bus = SystemBus::<MockHardware>::new(&ROM, 8);
     
     // 1. Simulate a "SYNTAX ERROR" state in RAM
     bus.ram[0x0255] = 1; // cmdwat: command waiting

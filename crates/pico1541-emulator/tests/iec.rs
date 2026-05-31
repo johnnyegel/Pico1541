@@ -106,7 +106,7 @@ fn test_command_snoop() {
     let mut snooped_command = None;
     let mut handler = pico1541_common::snooper::IecSnoopByteHandler::new();
     for event in bridge.events {
-        handler.handle(event, |e| {
+        handler.handle(event, &mut |e| {
             if let pico1541_common::interface::DriveEvent::IecCommand { data, len } = e {
                 snooped_command = Some(String::from_utf8_lossy(&data[..len as usize]).to_string());
             }
@@ -158,7 +158,7 @@ fn test_hijack_command_snoop() {
     // (Rest of the test remains same...)
     let mut handler = pico1541_common::snooper::IecSnoopByteHandler::new();
     for event in &bridge.events {
-        handler.handle(*event, |_| {});
+        handler.handle(*event, &mut |_| {});
     }
 
     assert!(handler.is_hijacked(), "Command should be hijacked");

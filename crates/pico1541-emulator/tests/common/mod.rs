@@ -9,7 +9,7 @@ use pico1541_common::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus}
 use pico1541_emulator::Emulator;
 use pollster::block_on;
 
-const ROM_BYTES: &[u8] = include_bytes!("../../../../flash-fs/roms/1541-II.251968-03.bin");
+static ROM_BYTES: [u8; 16384] = *include_bytes!("../../../../flash-fs/roms/1541-II.251968-03.bin");
 
 /// 1541-II ROM idle loop address range.
 pub const IDLE_LOW: u16 = 0xEBFF;
@@ -24,10 +24,7 @@ pub fn setup_drive(
         .parse_default_env()
         .try_init();
 
-    let mut rom = [0u8; 16384];
-    rom.copy_from_slice(ROM_BYTES);
-
-    let mut drive = Emulator::<TestBridge>::new(rom, device_id);
+    let mut drive = Emulator::<TestBridge>::new(&ROM_BYTES, device_id);
     let mut bridge = TestBridge::new(device_id);
 
     log::info!(
@@ -161,8 +158,8 @@ impl TestBridge {
     }
 
     pub fn ticks(&mut self, drive: &mut Emulator<TestBridge>, n: u32) {
-        let start = drive.cpu.cycles;
-        while drive.cpu.cycles.saturating_sub(start) < (n as u64) {
+        let start = drive.cycles;
+        while drive.cycles.saturating_sub(start) < (n as u64) {
             drive.tick(self);
         }
     }
@@ -239,7 +236,7 @@ impl HostInterface for TestBridge {
         for event in events {
             self.events.push(event);
             let mut extra_events = Vec::new();
-            self.snoop_handler.handle(event, |e| extra_events.push(e));
+            self.snoop_handler.handle(event, &mut |e| extra_events.push(e));
             
             for e in extra_events {
                 self.events.push(e);
@@ -295,8 +292,8 @@ impl<'a> IecComHostBus for IecTestBridge<'a> {
     }
 
     async fn delay_us(&mut self, us: u32) {
-        let start = self.drive.cpu.cycles;
-        while self.drive.cpu.cycles.saturating_sub(start) < (us as u64) {
+        let start = self.drive.cycles;
+        while self.drive.cycles.saturating_sub(start) < (us as u64) {
             self.drive.tick(self.bridge);
         }
     }

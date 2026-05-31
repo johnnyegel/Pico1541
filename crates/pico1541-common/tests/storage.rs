@@ -88,7 +88,6 @@ fn test_paged_directory_source() {
     assert_eq!(paged.loaded_range(), (0, 3));
 
     // Read entries from block 0, 1, 2
-    paged.rewind();
     for i in 0..48 {
         let entry = paged.next_entry().expect("Should have entry");
         let name_str = format!("FILE{:02}", i);
