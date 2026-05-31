@@ -51,14 +51,14 @@ pub struct Emulator<H: HostInterface> {
 }
 
 impl<H: HostInterface> Emulator<H> {
-    pub fn new(rom: [u8; 16384], device_id: u8) -> Self {
+    pub fn new(rom: &'static [u8; 16384], device_id: u8) -> Self {
         let bus = SystemBus::new(rom, device_id);
         Self {
             cpu: CPU::new(bus, Nmos6502),
         }
     }
 
-    pub fn update_rom(&mut self, rom: [u8; 16384]) {
+    pub fn update_rom(&mut self, rom: &'static [u8; 16384]) {
         self.cpu.memory.update_rom(rom);
     }
 
@@ -71,7 +71,7 @@ impl<H: HostInterface> Emulator<H> {
         self.cpu.memory.current_hw = core::ptr::null_mut();
     }
 
-    #[link_section = ".data"]
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     pub fn tick(&mut self, hw: &mut H) -> u32 {
         self.cpu.memory.current_hw = hw;

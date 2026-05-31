@@ -9,6 +9,14 @@ MEMORY {
 }
 
 SECTIONS {
+    .ramfunc : ALIGN(4) {
+        *(.ramfunc .ramfunc.*);
+        . = ALIGN(4);
+    } > RAM AT > FLASH
+}
+INSERT AFTER .data;
+
+SECTIONS {
     .boot2 : {
         KEEP(*(.boot2))
     } > BOOT2

@@ -284,7 +284,7 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
     // --- Spawn Core 1 ---
     info!("Starting Emulator on Core 1...");
     embassy_rp::multicore::spawn_core1(p.CORE1, stack, move || {
-        let mut drive = Emulator::new(unsafe { ROM_BUFFER }, drive_id);
+        let mut drive = Emulator::new(unsafe { &ROM_BUFFER }, drive_id);
         drive.reset(&mut bridge);
         emulator_loop(drive, bridge);
     });
@@ -325,7 +325,7 @@ impl HardwareBridge {
 }
 
 impl IecBus for HardwareBridge {
-    #[link_section = ".data"]
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     fn iec_host(&self) -> IecBusState {
         // Direct SIO register read for speed.
@@ -335,7 +335,7 @@ impl IecBus for HardwareBridge {
         IecBusState(((pins >> 16) & 0x07) as u8)
     }
 
-    #[link_section = ".data"]
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     fn iec_drive(&mut self, state: IecBusState) {
         // GPIO 19: DATA_TX (bit 0), 20: CLK_TX (bit 1)
@@ -359,45 +359,45 @@ impl IecBus for HardwareBridge {
 }
 
 impl HostInterface for HardwareBridge {
-    #[link_section = ".data"]
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     fn get_active_track(&mut self) -> &mut ActiveTrack {
         self.track
     }
 
-    #[link_section = ".data"]
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     fn send_event(&mut self, event: DriveEvent) {
         // try_send is non-blocking and safe for Core 0.
         let _ = pico1541_manager::EVENT_CHANNEL.try_send(event);
     }
 
-    #[link_section = ".data"]
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     fn is_hijacked(&self) -> bool {
         self.config.hijack_active.load(Ordering::Relaxed)
     }
 
-    #[link_section = ".data"]
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     fn pop_discard_request(&mut self) -> bool {
         self.config.discard_request.swap(false, Ordering::Relaxed)
     }
 
-    #[link_section = ".data"]
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     fn update_iec_addresses(&mut self, listen: u8, talk: u8) {
         self.config.listen_addr.store(listen, Ordering::Relaxed);
         self.config.talk_addr.store(talk, Ordering::Relaxed);
     }
 
-    #[link_section = ".data"]
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     fn get_device_id(&self) -> u8 {
         self.config.device_id.load(Ordering::Relaxed)
     }
 
-    #[link_section = ".data"]
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     fn sync(&mut self, host: IecBusState) {
         // The snooper is only updated if something changed on the bus.
@@ -921,7 +921,7 @@ async fn settings_save_task(mut flash_storage: FlashStorage<'static>) {
     }
 }
 
-#[link_section = ".data"]
+#[link_section = ".ramfunc"]
 fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: HardwareBridge) -> ! {
     let timer = embassy_rp::pac::TIMER;
     let mut idle_counter = 0u32;
@@ -981,7 +981,7 @@ fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: HardwareBridge
         }
 
         if bridge.config.trigger_reset.load(Ordering::Relaxed) {
-            drive.update_rom(unsafe { ROM_BUFFER });
+            drive.update_rom(unsafe { &ROM_BUFFER });
             drive.reset(&mut bridge);
             bridge.config.trigger_reset.store(false, Ordering::Relaxed);
         }

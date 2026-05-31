@@ -53,7 +53,7 @@ impl Via6522 {
     }
 
     /// Read a byte from a VIA register.
-    #[link_section = ".data"]
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     pub fn read(&mut self, addr: u16) -> u8 {
         let register = (addr & 0x0F) as usize;
@@ -119,7 +119,7 @@ impl Via6522 {
     }
 
     /// Write a byte to a VIA register.
-    #[link_section = ".data"]
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     pub fn write(&mut self, addr: u16, value: u8) {
         let register = (addr & 0x0F) as usize;
@@ -194,7 +194,7 @@ impl Via6522 {
     }
 
     /// Update the IRQ status based on IFR and IER.
-    #[link_section = ".data"]
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     fn update_irq(&mut self) {
         let pending = self.ifr & self.ier & 0x7F;
@@ -208,14 +208,14 @@ impl Via6522 {
     }
 
     /// This method is called on each CPU cycle.
-    #[link_section = ".data"]
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     pub fn any_active(&self) -> bool {
         self.active_mask != 0
     }
 
     /// This method is called on each CPU cycle.
-    #[link_section = ".data"]
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     pub fn tick_cycle(&mut self) {
         // --- Timer 1 ---
@@ -262,7 +262,7 @@ impl Via6522 {
     }
 
     /// Convenience function to get the value of CB1, if it an output
-    #[link_section = ".data"]
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     pub fn get_ca2_out(&self) -> Option<bool> {
         match self.pcr & 0b0000_1110 {
@@ -273,7 +273,7 @@ impl Via6522 {
     }
 
     /// Convenience function to get the value of CB2, if it an output
-    #[link_section = ".data"]
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     pub fn get_cb2_out(&self) -> Option<bool> {
         match self.pcr & 0b1110_0000 {
@@ -285,7 +285,7 @@ impl Via6522 {
 
     /// Trigger the CA1 IRQ and Latch PA, regardless of the Edge configuration
     /// (Fast convenience method, but this is NOT exact behavior)
-    #[link_section = ".data"]
+    #[link_section = ".ramfunc"]
     #[inline]
     pub fn ca1_irq(&mut self) {
         self.ifr |= 0x02;
@@ -297,7 +297,7 @@ impl Via6522 {
 
     /// Trigger the CA2 IRQ, regardless of the Edge configuration
     /// (Fast convenience method, but this is NOT exact behavior)
-    #[link_section = ".data"]
+    #[link_section = ".ramfunc"]
     #[inline]
     pub fn ca2_irq(&mut self) {
         self.ifr |= 0x01;
@@ -305,7 +305,7 @@ impl Via6522 {
     }
 
 
-    #[link_section = ".data"]
+    #[link_section = ".ramfunc"]
     pub fn set_ca1(&mut self, val: bool) {
         let positive_edge = (self.pcr & 0x01) != 0;
         if (val && !self.last_ca1 && positive_edge) || (!val && self.last_ca1 && !positive_edge) {
@@ -314,7 +314,7 @@ impl Via6522 {
         self.last_ca1 = val;
     }
 
-    #[link_section = ".data"]
+    #[link_section = ".ramfunc"]
     pub fn set_ca2(&mut self, val: bool) {
         if (self.pcr & 0x08) == 0 {
             let positive_edge = (self.pcr & 0x04) != 0;
@@ -325,7 +325,7 @@ impl Via6522 {
         self.last_ca2 = val;
     }
 
-    #[link_section = ".data"]
+    #[link_section = ".ramfunc"]
     pub fn set_cb1(&mut self, val: bool) {
         let positive_edge = (self.pcr & 0x10) != 0;
         if (val && !self.last_cb1 && positive_edge) || (!val && self.last_cb1 && !positive_edge) {
@@ -338,7 +338,7 @@ impl Via6522 {
         self.last_cb1 = val;
     }
 
-    #[link_section = ".data"]
+    #[link_section = ".ramfunc"]
     pub fn set_cb2(&mut self, val: bool) {
         if (self.pcr & 0x80) == 0 {
             let positive_edge = (self.pcr & 0x40) != 0;
@@ -351,7 +351,7 @@ impl Via6522 {
         self.last_cb2 = val;
     }
 
-    #[link_section = ".data"]
+    #[link_section = ".ramfunc"]
     pub fn get_port_b(&self) -> u8 {
         let mut out = (self.orb & self.ddrb) | (self.in_b & !self.ddrb);
         if (self.acr & 0x80) != 0 {
@@ -364,7 +364,7 @@ impl Via6522 {
         out
     }
 
-    #[link_section = ".data"]
+    #[link_section = ".ramfunc"]
     pub fn get_port_a(&self) -> u8 {
         (self.ora & self.ddra) | (self.in_a & !self.ddra)
     }

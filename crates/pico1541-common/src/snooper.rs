@@ -55,7 +55,7 @@ struct IecBusEdge {
 
 impl IecBusEdge {
     /// Returns true if the clock line has an edge matching the expected level.
-    #[link_section = ".data"]
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     pub fn is_clk(&self, expect: bool) -> bool {
         self.delta.get_clk() && self.state.get_clk() == expect
@@ -104,7 +104,7 @@ impl IecSnooper {
         self.listen_addr = listen_address;
     }
 
-    #[link_section = ".data"]
+    #[link_section = ".ramfunc"]
     #[inline(always)]
     pub fn update<F: FnMut(DriveEvent)>(&mut self, iec_state: IecBusState, mut dispatch: F) {
         // Detect edge changed and return early if no change
@@ -170,7 +170,7 @@ impl IecSnooper {
         }
     }
 
-    #[link_section = ".data"]
+    #[link_section = ".ramfunc"]
     fn dispatch_byte<F: FnMut(DriveEvent)>(&mut self, byte: u8, atn: bool, eoi: bool, dispatch: &mut F) {
         log::debug!("[Snooper] Received byte 0x{:02X} (ATN={}, EOI={})", byte, atn, eoi);
         // :? Is this an ATN byte?
@@ -237,7 +237,7 @@ impl Default for IecSnoopByteHandler {
 }
 
 impl IecSnoopByteHandler {
-    #[link_section = ".data"]
+    #[link_section = ".ramfunc"]
     pub fn handle(&mut self, event: DriveEvent, mut dispatch: impl FnMut(DriveEvent)) {
         match event {
             DriveEvent::IecSnoopSecondaryAddress(sa) => {
