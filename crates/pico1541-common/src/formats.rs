@@ -172,17 +172,7 @@ impl<S, D: DirectorySource> VirtualDiskImage<S, D> {
                 }
             }
             let is_exhausted = self.source.as_paged_mut().map(|p| p.is_exhausted()).unwrap_or(true);
-            if count == 0 && is_exhausted && target_sector == 1 {
-                self.source.rewind();
-                for entry_slot in &mut entries {
-                    if let Some(entry) = self.source.next_entry() {
-                        *entry_slot = entry;
-                        count += 1;
-                    } else {
-                        break;
-                    }
-                }
-            } else if count == 0 && !is_exhausted {
+            if count == 0 && !is_exhausted {
                 // Blocks not loaded yet by prefetcher, wait for next tick
                 return false;
             }

@@ -110,6 +110,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
     }
 
     pub async fn run(&mut self) {
+        let mut motor_on = false;
         loop {
             let timer_fut = embassy_time::Timer::after_millis(50);
             let cmd_fut = CMD_CHANNEL.receive();
@@ -122,9 +123,11 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                         let mut disk_opt = self.disk_image.lock().await;
                         if let Some(disk) = disk_opt.as_mut() {
                             if let Some(vdir) = disk.as_virtual_disk_mut() {
-                                // Periodic update of directory buffer
-                                let current_idx = self.active_track.current_byte_idx as usize;
-                                vdir.update_dynamic_buffer(current_idx, &mut self.active_track.gcr_data);
+                                // Periodic update of directory buffer only when motor is on
+                                if motor_on {
+                                    let current_idx = self.active_track.current_byte_idx as usize;
+                                    vdir.update_dynamic_buffer(current_idx, &mut self.active_track.gcr_data);
+                                }
 
                                 // Background prefetching for paged directory source
                                 if let Some(paged) = vdir.source.as_paged_mut() {
@@ -252,6 +255,9 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                 self.active_track.layout = pico1541_common::formats::TrackLayout::Void;
                                 self.active_track.half_track = half_track;
                             }
+                        }
+                        InternalCommand::MotorState(active) => {
+                            motor_on = active;
                         }
                         InternalCommand::ResetDirectory => {
                             info!("Motor ON detected. Resetting virtual directory to start.");

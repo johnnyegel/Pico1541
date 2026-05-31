@@ -39,6 +39,7 @@ impl<I: IndicatorDriver> DriveActivityTask<I> {
                 DriveEvent::MotorChanged(active) => {
                     self.motor_on = active;
                     self.update_led();
+                    let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::MotorState(active));
                     if active {
                         let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::ResetDirectory);
                     }

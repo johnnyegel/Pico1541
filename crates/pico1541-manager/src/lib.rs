@@ -42,6 +42,7 @@ pub enum InternalCommand {
     HeadStepped(u8),
     ResetDirectory,
     ImageMounted,
+    MotorState(bool),
 }
 
 pub static CMD_CHANNEL: Channel<CriticalSectionRawMutex, InternalCommand, 8> = Channel::new();
