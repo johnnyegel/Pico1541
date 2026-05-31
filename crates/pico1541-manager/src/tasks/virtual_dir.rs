@@ -264,6 +264,9 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                         vdir.set_shortcut_entry(None);
                                         vdir.file_storage = None;
                                         vdir.source.rewind();
+                                        if let Some(paged) = vdir.source.as_paged_mut() {
+                                            paged.invalidate();
+                                        }
                                     }
                                 }
                                 drop(disk_opt);

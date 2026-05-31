@@ -111,6 +111,8 @@ pub trait PagedDirectorySourceTrait {
     fn set_total_count(&mut self, total_count: usize);
     /// Returns true if the directory has been fully scanned (end found).
     fn is_exhausted(&self) -> bool;
+    /// Invalidates the cache and resets the read pointer.
+    fn invalidate(&mut self);
 }
 
 pub trait DirectorySource {
@@ -273,6 +275,13 @@ impl<const N: usize> PagedDirectorySourceTrait for PagedDirectorySource<N> {
         self.total_count != usize::MAX
     }
 
+    fn invalidate(&mut self) {
+        self.current_read_index = 0;
+        self.total_count = usize::MAX;
+        self.start_block = 0;
+        self.end_block = 0;
+    }
+
     fn set_block(&mut self, block_index: usize, block_entries: &[DirectoryEntry]) {
         let slot = block_index % 3;
         let start_slot_idx = slot * 16;
@@ -342,9 +351,6 @@ impl<const N: usize> DirectorySource for PagedDirectorySource<N> {
 
     fn rewind(&mut self) {
         self.current_read_index = 0;
-        self.total_count = usize::MAX;
-        self.start_block = 0;
-        self.end_block = 0;
     }
 
     fn as_paged_mut(&mut self) -> Option<&mut dyn PagedDirectorySourceTrait> {
