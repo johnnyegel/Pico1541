@@ -85,6 +85,8 @@ pub fn match_c64_filename(entry_name: &[u8; 16], req_name: &[u8]) -> bool {
     false
 }
 
+static mut VDISK_GCR_BUF: [u8; pico1541_common::interface::MAX_TRACK_BYTES] = [0u8; pico1541_common::interface::MAX_TRACK_BYTES];
+
 pub struct VirtualDiskTask<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<FileStorage = S>> {
     disk_image: &'a Mutex<CriticalSectionRawMutex, Option<AnyDiskImage<S, D>>>,
     active_track: &'a mut ActiveTrack,
@@ -205,9 +207,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                             }
                         }
 
-                        // Re-generate the GCR data for the active track and restore its layout
                         let half_track = self.active_track.half_track;
-                        static mut VDISK_GCR_BUF: [u8; pico1541_common::interface::MAX_TRACK_BYTES] = [0u8; pico1541_common::interface::MAX_TRACK_BYTES];
                         let gcr_buf = unsafe { &mut VDISK_GCR_BUF };
                         let mut disk_opt = self.disk_image.lock().await;
                         if let Some(disk) = disk_opt.as_mut() {
@@ -230,13 +230,12 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                     match cmd {
                         InternalCommand::HeadStepped(half_track) => {
                             info!("Manager loading track {}", half_track);
-                            static mut VDISK_STEP_GCR_BUF: [u8; pico1541_common::interface::MAX_TRACK_BYTES] = [0u8; pico1541_common::interface::MAX_TRACK_BYTES];
-                            let gcr_buf = unsafe { &mut VDISK_STEP_GCR_BUF };
+                            let gcr_buf = unsafe { &raw mut VDISK_GCR_BUF };
                             let mut disk_opt = self.disk_image.lock().await;
                             if let Some(disk) = disk_opt.as_mut() {
-                                match disk.read_track(half_track, gcr_buf).await {
+                                match disk.read_track(half_track, unsafe { &mut *gcr_buf }).await {
                                     Ok(layout) => {
-                                        self.active_track.gcr_data.copy_from_slice(gcr_buf);
+                                        self.active_track.gcr_data.copy_from_slice(unsafe { &*gcr_buf });
                                         self.active_track.layout = layout;
                                         self.active_track.half_track = half_track;
                                     }
@@ -284,6 +283,22 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                         warn!("File not found in Virtual Disk.");
                                         vdir.set_shortcut_entry(None);
                                         vdir.file_storage = None;
+                                    }
+                                }
+                            }
+                            
+                            let half_track = self.active_track.half_track;
+                            let gcr_buf = unsafe { &raw mut VDISK_GCR_BUF };
+                            let mut disk_opt = self.disk_image.lock().await;
+                            if let Some(disk) = disk_opt.as_mut() {
+                                match disk.read_track(half_track, unsafe { &mut *gcr_buf }).await {
+                                    Ok(layout) => {
+                                        self.active_track.gcr_data.copy_from_slice(unsafe { &*gcr_buf });
+                                        self.active_track.layout = layout;
+                                    }
+                                    Err(e) => {
+                                        error!("Failed to restore active track on load: {:?}", e);
+                                        self.active_track.layout = pico1541_common::formats::TrackLayout::Void;
                                     }
                                 }
                             }
