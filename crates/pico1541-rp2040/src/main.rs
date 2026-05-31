@@ -976,7 +976,6 @@ fn emulator_loop(drive: &'static mut Emulator<HardwareBridge>, mut bridge: Hardw
     let mut was_reset = false;
 
     let mut cpu_cycles_acc = 0u64;
-    let mut ticks_acc = 0u64;
 
     loop {
         let now = timer.timelr().read();
@@ -1022,7 +1021,6 @@ fn emulator_loop(drive: &'static mut Emulator<HardwareBridge>, mut bridge: Hardw
                 // SYST is a 24-bit down counter
                 let total_cycles = t1.wrapping_sub(t3) & 0x00FFFFFF;
                 cpu_cycles_acc += total_cycles as u64;
-                ticks_acc += 1;
             }
             caught_up += 1;
         }
@@ -1041,14 +1039,7 @@ fn emulator_loop(drive: &'static mut Emulator<HardwareBridge>, mut bridge: Hardw
             config.emu_speed_hz.store(cycle_counter, Ordering::Relaxed);
             config.core0_avg_raw.store(new_avg, Ordering::Relaxed);
 
-            if ticks_acc > 0 {
-                info!("Profile: Total CPU={} (avg cycles per tick over {} ticks)", 
-                    cpu_cycles_acc / ticks_acc, 
-                    ticks_acc);
-            }
-
             cpu_cycles_acc = 0;
-            ticks_acc = 0;
 
             // We no longer auto-calibrate max_raw upwards here, 
             // because the baseline idle was calculated accurately at startup.
