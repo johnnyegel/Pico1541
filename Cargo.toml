@@ -5,7 +5,8 @@ members = [
     "crates/racc6502v2",
     "crates/pico1541-manager",
     "crates/pico1541-emulator",
-    "crates/pico1541-rp2040"
+    "crates/pico1541-rp2040",
+    "crates/mos6502"
 ]
 resolver = "2"
 
@@ -13,7 +14,8 @@ default-members = [
     "crates/racc6502",
     "crates/pico1541-manager",
     "crates/pico1541-common",
-    "crates/pico1541-emulator"
+    "crates/pico1541-emulator",
+    "crates/mos6502"
 ]
 
 [profile.release]

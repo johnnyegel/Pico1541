@@ -4,7 +4,7 @@ use crate::via6522::Via6522;
 use crate::MemoryMonitor;
 use pico1541_common::interface::{HostInterface, IecBusState};
 use core::marker::PhantomData;
-use racc6502v2::Bus;
+use mos6502::memory::Bus;
 
 const RAM_SIZE: usize = 0x0800; // 2KB
 const ROM_SIZE: usize = 0x4000; // 16KB
@@ -28,8 +28,9 @@ pub struct SystemBus<H: HostInterface> {
     drive_iec_base: u8,
     last_host_iec: IecBusState,
     last_drive_iec: IecBusState,
+    pub current_hw: *mut H,
     _phantom: PhantomData<H>,
-    }
+}
 
     impl<H: HostInterface> SystemBus<H> {
     pub fn new(rom: [u8; ROM_SIZE], device_id: u8) -> Self {
@@ -49,6 +50,7 @@ pub struct SystemBus<H: HostInterface> {
             drive_iec_base: 0,
             last_host_iec: IecBusState::default(),
             last_drive_iec: IecBusState::default(),
+            current_hw: core::ptr::null_mut(),
             _phantom: PhantomData,
         };
 
@@ -187,11 +189,37 @@ pub struct SystemBus<H: HostInterface> {
 }
 
 impl<H: HostInterface> Bus for SystemBus<H> {
-    type Ctx = H;
+    #[link_section = ".ramfunc"]
+    #[inline(always)]
+    fn get_byte(&mut self, addr: u16) -> u8 {
+        let hw = unsafe { &mut *self.current_hw };
+        self.read(addr, hw)
+    }
 
     #[link_section = ".ramfunc"]
     #[inline(always)]
-    fn read(&mut self, addr: u16, _ctx: &mut H) -> u8 {
+    fn set_byte(&mut self, addr: u16, value: u8) {
+        let hw = unsafe { &mut *self.current_hw };
+        self.write(addr, value, hw)
+    }
+
+    #[link_section = ".ramfunc"]
+    #[inline(always)]
+    fn irq_pending(&mut self) -> bool {
+        self.via1.irq || self.via2.irq
+    }
+
+    #[link_section = ".ramfunc"]
+    #[inline(always)]
+    fn nmi_pending(&mut self) -> bool {
+        false
+    }
+}
+
+impl<H: HostInterface> SystemBus<H> {
+    #[link_section = ".ramfunc"]
+    #[inline(always)]
+    pub fn read(&mut self, addr: u16, _ctx: &mut H) -> u8 {
         if addr >= 0x8000 {
             return unsafe { *self.rom.get_unchecked((addr & 0x3FFF) as usize) };
         }
@@ -207,7 +235,7 @@ impl<H: HostInterface> Bus for SystemBus<H> {
 
     #[link_section = ".ramfunc"]
     #[inline(always)]
-    fn write(&mut self, addr: u16, value: u8, ctx: &mut H) {
+    pub fn write(&mut self, addr: u16, value: u8, ctx: &mut H) {
         if addr < 0x1800 {
             unsafe { *self.ram.get_unchecked_mut((addr as usize) & (RAM_SIZE - 1)) = value };
             if addr == 0x0077 || addr == 0x0078 {
@@ -239,19 +267,19 @@ impl<H: HostInterface> Bus for SystemBus<H> {
 
     #[link_section = ".ramfunc"]
     #[inline(always)]
-    fn irq_pending(&self) -> bool {
+    pub fn irq_pending(&self) -> bool {
         self.via1.irq || self.via2.irq
     }
 
     #[link_section = ".ramfunc"]
     #[inline(always)]
-    fn nmi_pending(&self) -> bool {
+    pub fn nmi_pending(&self) -> bool {
         false
     }
 
     #[link_section = ".ramfunc"]
     #[inline(always)]
-    fn so_pending(&self) -> bool {
+    pub fn so_pending(&self) -> bool {
         self.so_active
     }
 }

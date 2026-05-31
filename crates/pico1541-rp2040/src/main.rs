@@ -275,13 +275,13 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
     };
 
     let track_for_bridge = unsafe { &mut *track_ptr };
-    let bridge = HardwareBridge::new(pins, track_for_bridge, &SNOOPER_CONFIG);
+    let mut bridge = HardwareBridge::new(pins, track_for_bridge, &SNOOPER_CONFIG);
 
     // --- Spawn Core 1 ---
     info!("Starting Emulator on Core 1...");
     embassy_rp::multicore::spawn_core1(p.CORE1, stack, move || {
         let mut drive = Emulator::new(unsafe { ROM_BUFFER }, drive_id);
-        drive.reset();
+        drive.reset(&mut bridge);
         emulator_loop(drive, bridge);
     });
 
@@ -973,7 +973,7 @@ fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: HardwareBridge
 
         if bridge.config.trigger_reset.load(Ordering::Relaxed) {
             drive.update_rom(unsafe { ROM_BUFFER });
-            drive.reset();
+            drive.reset(&mut bridge);
             bridge.config.trigger_reset.store(false, Ordering::Relaxed);
         }
 
@@ -985,27 +985,24 @@ fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: HardwareBridge
             
             if is_reset {
                 if !was_reset {
-                    drive.reset();
+                    drive.reset(&mut bridge);
                     bridge.iec_drive(pico1541_common::interface::IecBusState::default());
                     was_reset = true;
                 }
                 bridge.sync(bridge.iec_host());
             } else {
                 if was_reset {
-                    drive.reset();
+                    drive.reset(&mut bridge);
                     was_reset = false;
                 }
                 let t1 = cortex_m::peripheral::SYST::get_current();
-                drive.bus.tick_cycle(&mut bridge);
-                let t2 = cortex_m::peripheral::SYST::get_current();
-                drive.cpu.tick(&mut drive.bus, &mut bridge);
+                drive.tick(&mut bridge);
                 let t3 = cortex_m::peripheral::SYST::get_current();
                 
                 // SYST is a 24-bit down counter
-                let bus_cycles = t1.wrapping_sub(t2) & 0x00FFFFFF;
-                let cpu_cycles = t2.wrapping_sub(t3) & 0x00FFFFFF;
-                bus_cycles_acc += bus_cycles as u64;
-                cpu_cycles_acc += cpu_cycles as u64;
+                let total_cycles = t1.wrapping_sub(t3) & 0x00FFFFFF;
+                bus_cycles_acc += 0;
+                cpu_cycles_acc += total_cycles as u64;
                 ticks_acc += 1;
             }
             cycle_counter += 1;

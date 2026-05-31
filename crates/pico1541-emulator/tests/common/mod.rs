@@ -9,7 +9,7 @@ use pico1541_common::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus}
 use pico1541_emulator::Emulator;
 use pollster::block_on;
 
-const ROM_BYTES: &[u8] = include_bytes!("../../../../roms/1541-II.251968-03.bin");
+const ROM_BYTES: &[u8] = include_bytes!("../../../../flash-fs/roms/1541-II.251968-03.bin");
 
 /// 1541-II ROM idle loop address range.
 pub const IDLE_LOW: u16 = 0xEBFF;
@@ -45,7 +45,7 @@ pub fn setup_drive(
 
 pub fn reset_drive(drive: &mut Emulator<TestBridge>, bridge: &mut TestBridge) {
     bridge.reset();
-    drive.reset();
+    drive.reset(bridge);
 
     // Boot: Wait for idle loop to be stable
     let mut stable_cycles = 0;
@@ -161,7 +161,8 @@ impl TestBridge {
     }
 
     pub fn ticks(&mut self, drive: &mut Emulator<TestBridge>, n: u32) {
-        for _ in 0..n {
+        let start = drive.cpu.cycles;
+        while drive.cpu.cycles.saturating_sub(start) < (n as u64) {
             drive.tick(self);
         }
     }
@@ -294,7 +295,8 @@ impl<'a> IecComHostBus for IecTestBridge<'a> {
     }
 
     async fn delay_us(&mut self, us: u32) {
-        for _ in 0..us {
+        let start = self.drive.cpu.cycles;
+        while self.drive.cpu.cycles.saturating_sub(start) < (us as u64) {
             self.drive.tick(self.bridge);
         }
     }
