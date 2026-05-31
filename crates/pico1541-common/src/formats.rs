@@ -50,13 +50,10 @@ pub struct VirtualDiskImage<S, D: DirectorySource> {
 
 impl<S, D: DirectorySource> VirtualDiskImage<S, D> {
     pub fn new(source: D, name: &[u8]) -> Self {
-        // Generate a pseudo-random ID based on the name so the C64 detects a disk change
-        let mut hash = 0u8;
-        for &b in name {
-            hash = hash.wrapping_add(b);
-        }
-        let id_high = b'0' + (hash % 10);
-        let id_low = b'0' + ((hash / 10) % 10);
+        // Use a constant ID for VirtualDiskImage so the C64 doesn't throw DISK ID MISMATCH
+        // when navigating between different directories. The BAM is read-only anyway.
+        let id_high = b'P';
+        let id_low = b'I';
 
         Self {
             source,
