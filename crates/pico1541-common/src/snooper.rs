@@ -238,7 +238,7 @@ impl Default for IecSnoopByteHandler {
 
 impl IecSnoopByteHandler {
     #[link_section = ".data.ram_func"]
-    pub fn handle(&mut self, event: DriveEvent, mut dispatch: impl FnMut(DriveEvent)) {
+    pub fn handle(&mut self, event: DriveEvent, mut dispatch: &mut dyn FnMut(DriveEvent)) {
         match event {
             DriveEvent::IecSnoopSecondaryAddress(sa) => {
                 self.pos = 0;

@@ -66,8 +66,8 @@ static SNOOPER_CONFIG: SnooperConfig = SnooperConfig::new(DEFAULT_DRIVE_ID);
 static CURRENT_DIR: Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)> = Mutex::new((heapless::String::new(), false));
 
 // Core 1 Stack
-#[link_section = ".core1_stack"]
-static mut CORE1_STACK: core::mem::MaybeUninit<Stack<4096>> = core::mem::MaybeUninit::uninit();
+#[link_section = ".sram3"]
+static mut CORE1_STACK: core::mem::MaybeUninit<Stack<8192>> = core::mem::MaybeUninit::uninit();
 
 // ROM Buffer for dynamic loading
 #[link_section = ".sram3"]
@@ -331,7 +331,7 @@ impl HardwareBridge {
 }
 
 impl IecBus for HardwareBridge {
-    #[link_section = ".data.ram_func"]
+    
     #[inline(always)]
     fn iec_host(&self) -> IecBusState {
         // Direct SIO register read for speed.
@@ -341,7 +341,7 @@ impl IecBus for HardwareBridge {
         IecBusState(((pins >> 16) & 0x07) as u8)
     }
 
-    #[link_section = ".data.ram_func"]
+    
     #[inline(always)]
     fn iec_drive(&mut self, state: IecBusState) {
         // GPIO 19: DATA_TX (bit 0), 20: CLK_TX (bit 1)
@@ -365,45 +365,45 @@ impl IecBus for HardwareBridge {
 }
 
 impl HostInterface for HardwareBridge {
-    #[link_section = ".data.ram_func"]
+    
     #[inline(always)]
     fn get_active_track(&mut self) -> &mut ActiveTrack {
         self.track
     }
 
-    #[link_section = ".data.ram_func"]
+    
     #[inline(always)]
     fn send_event(&mut self, event: DriveEvent) {
         // try_send is non-blocking and safe for Core 0.
         let _ = pico1541_manager::EVENT_CHANNEL.try_send(event);
     }
 
-    #[link_section = ".data.ram_func"]
+    
     #[inline(always)]
     fn is_hijacked(&self) -> bool {
         self.config.hijack_active.load(Ordering::Relaxed)
     }
 
-    #[link_section = ".data.ram_func"]
+    
     #[inline(always)]
     fn pop_discard_request(&mut self) -> bool {
         self.config.discard_request.swap(false, Ordering::Relaxed)
     }
 
-    #[link_section = ".data.ram_func"]
+    
     #[inline(always)]
     fn update_iec_addresses(&mut self, listen: u8, talk: u8) {
         self.config.listen_addr.store(listen, Ordering::Relaxed);
         self.config.talk_addr.store(talk, Ordering::Relaxed);
     }
 
-    #[link_section = ".data.ram_func"]
+    
     #[inline(always)]
     fn get_device_id(&self) -> u8 {
         self.config.device_id.load(Ordering::Relaxed)
     }
 
-    #[link_section = ".data.ram_func"]
+    
     #[inline(always)]
     fn sync(&mut self, host: IecBusState) {
         // The snooper is only updated if something changed on the bus.
@@ -413,7 +413,7 @@ impl HostInterface for HardwareBridge {
         
         self.snooper.update(host, |event| {
             let _ = pico1541_manager::EVENT_CHANNEL.try_send(event);
-            handler.handle(event, |e| {
+            handler.handle(event, &mut |e| {
                  let _ = pico1541_manager::EVENT_CHANNEL.try_send(e);
             });
             if handler.is_hijacked() {
@@ -926,6 +926,7 @@ async fn settings_save_task(mut flash_storage: FlashStorage<'static>) {
         }
     }
 }
+
 
 #[link_section = ".data.ram_func"]
 fn emulator_loop(drive: &'static mut Emulator<HardwareBridge>, mut bridge: HardwareBridge) -> ! {

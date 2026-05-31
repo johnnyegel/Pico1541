@@ -17,7 +17,7 @@ impl SnooperTask {
             let event = EVENT_CHANNEL.receive().await;
             match event {
                 DriveEvent::IecSnoopSecondaryAddress(_) | DriveEvent::IecSnoopByteReceived(_, _) => {
-                    self.handler.handle(event, |e| {
+                    self.handler.handle(event, &mut |e| {
                         let _ = ACTIVITY_CHANNEL.try_send(e);
                     });
                 }

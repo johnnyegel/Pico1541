@@ -3,7 +3,7 @@
 # to define at the workspace level alongside non-embedded crates.
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
 rustflags = [
-  "-C", "linker=flip-link",
+  # "-C", "linker=flip-link",
   "-C", "link-arg=-Tlink.x",
   "-C", "link-arg=-Tdefmt.x",
 ]
