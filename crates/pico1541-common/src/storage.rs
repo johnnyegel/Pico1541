@@ -108,6 +108,7 @@ pub trait PagedDirectorySourceTrait {
     fn total_count(&self) -> usize;
     fn loaded_range(&self) -> (usize, usize);
     fn set_block(&mut self, block_index: usize, entries: &[DirectoryEntry]);
+    fn set_total_count(&mut self, total_count: usize);
     /// Returns true if the directory has been fully scanned (end found).
     fn is_exhausted(&self) -> bool;
 }
@@ -312,6 +313,10 @@ impl<const N: usize> PagedDirectorySourceTrait for PagedDirectorySource<N> {
             self.end_block = block_index + 1;
         }
     }
+
+    fn set_total_count(&mut self, total_count: usize) {
+        self.total_count = total_count;
+    }
 }
 
 impl<const N: usize> DirectorySource for PagedDirectorySource<N> {
@@ -337,6 +342,9 @@ impl<const N: usize> DirectorySource for PagedDirectorySource<N> {
 
     fn rewind(&mut self) {
         self.current_read_index = 0;
+        self.total_count = usize::MAX;
+        self.start_block = 0;
+        self.end_block = 0;
     }
 
     fn as_paged_mut(&mut self) -> Option<&mut dyn PagedDirectorySourceTrait> {

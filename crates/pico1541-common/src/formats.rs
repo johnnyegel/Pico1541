@@ -153,12 +153,28 @@ impl<S, D: DirectorySource> VirtualDiskImage<S, D> {
 
         let mut entries = [crate::storage::DirectoryEntry::new(b"", 0, 0, 0); 8];
         let mut count = 0;
-        for entry_slot in &mut entries {
-            if let Some(entry) = self.source.next_entry() {
-                *entry_slot = entry;
-                count += 1;
+        
+        if let Some(entry) = self.shortcut_entry {
+            if target_sector == 1 {
+                entries[0] = entry;
+                count = 1;
             } else {
-                break;
+                // Sector 2 is empty/end when shortcut is present
+                count = 0;
+            }
+        } else {
+            for entry_slot in &mut entries {
+                if let Some(entry) = self.source.next_entry() {
+                    *entry_slot = entry;
+                    count += 1;
+                } else {
+                    break;
+                }
+            }
+            let is_exhausted = self.source.as_paged_mut().map(|p| p.is_exhausted()).unwrap_or(true);
+            if count == 0 && !is_exhausted {
+                // Blocks not loaded yet by prefetcher, wait for next tick
+                return false;
             }
         }
 
@@ -177,6 +193,17 @@ impl<S, D: DirectorySource> VirtualDiskImage<S, D> {
             return true;
         }
         false
+    }
+
+    pub fn force_update_directory_sectors(&mut self, gcr_data: &mut [u8]) {
+        
+        // Sector 1 must be generated FIRST so it contains the first 8 directory entries.
+        self.next_sector_to_update = 1;
+        self.update_dynamic_buffer(40 + 372 * 2, gcr_data); // Passes sector 2 -> Updates Sector 1
+        self.next_sector_to_update = 2;
+        self.update_dynamic_buffer(40 + 372 * 1, gcr_data); // Passes sector 1 -> Updates Sector 2
+        
+        self.next_sector_to_update = 1; // When actual read starts, wait for Sector 1 to pass, then update Sector 2
     }
 }
 
@@ -300,6 +327,12 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                     sector_data[165] = 0x32;
                     sector_data[166] = 0x41;
                 } else if sector == 1 || sector == 2 {
+                    if sector == 1 {
+                        self.sector1_idx = write_ptr + 39;
+                    } else {
+                        self.sector2_idx = write_ptr + 39;
+                    }
+
                     if let Some(entry) = self.shortcut_entry {
                         if sector == 1 {
                             self.encode_directory_sector(&[entry], 0, 0xFF, &mut sector_data);
@@ -308,11 +341,6 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                             self.encode_directory_sector(&[], 0, 0xFF, &mut sector_data);
                         }
                     } else {
-                        if sector == 1 {
-                            self.sector1_idx = write_ptr + 39;
-                        } else {
-                            self.sector2_idx = write_ptr + 39;
-                        }
 
                         let mut entries = [crate::storage::DirectoryEntry::new(b"", 0, 0, 0); 8];
                         let mut count = 0;

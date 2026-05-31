@@ -193,14 +193,19 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                         // Distribute fetched entries into their correct block slots.
                                         // set_block auto-detects end-of-directory from partial blocks.
                                         for b in 0..blocks_count {
-                                            let slice_start = b * 16;
+                                            let slice_start = (b * 16).min(all_entries.len());
                                             let slice_end = (slice_start + 16).min(all_entries.len());
                                             let block_slice = &all_entries[slice_start..slice_end];
+                                            
                                             let mut block_entries = heapless::Vec::<pico1541_common::storage::DirectoryEntry, 16>::new();
                                             for e in block_slice {
                                                 let _ = block_entries.push(*e);
                                             }
                                             paged.set_block(blocks_start + b, &block_entries);
+                                            
+                                            if block_slice.len() < 16 {
+                                                break; // We reached the end of the directory, don't write trailing empty blocks!
+                                            }
                                         }
                                     }
                                 }
@@ -230,7 +235,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                     match cmd {
                         InternalCommand::HeadStepped(half_track) => {
                             info!("Manager loading track {}", half_track);
-                            let gcr_buf = unsafe { &raw mut VDISK_GCR_BUF };
+                            let gcr_buf = &raw mut VDISK_GCR_BUF;
                             let mut disk_opt = self.disk_image.lock().await;
                             if let Some(disk) = disk_opt.as_mut() {
                                 match disk.read_track(half_track, unsafe { &mut *gcr_buf }).await {
@@ -249,56 +254,97 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                             }
                         }
                         InternalCommand::LoadFile(filename) => {
-                            let mut disk_opt = self.disk_image.lock().await;
-                            if let Some(disk) = disk_opt.as_mut() {
-                                if let Some(vdir) = disk.as_virtual_disk_mut() {
-                                    info!("Searching for file in Virtual Disk...");
-                                    vdir.source.rewind();
-                                    let mut found_entry = None;
-                                    while let Some(entry) = vdir.source.next_entry() {
-                                        if match_c64_filename(&entry.filename, &filename) {
-                                            found_entry = Some(entry);
-                                            break;
-                                        }
-                                    }
-
-                                    if let Some(entry) = found_entry {
-                                        info!("File found! Setting shortcut entry.");
-                                        let mut shortcut = entry;
-                                        shortcut.first_track = 1;
-                                        shortcut.first_sector = 0;
-                                        vdir.set_shortcut_entry(Some(shortcut));
-
-                                        let name_len = entry.filename.iter().position(|&c| c == 0xA0).unwrap_or(16);
-                                        match self.opener.open_file(&entry.filename[..name_len]).await {
-                                            Ok(file_storage) => {
-                                                vdir.file_storage = Some(file_storage);
-                                            }
-                                            Err(e) => {
-                                                error!("Failed to open file data for virtual disk: {:?}", e);
-                                                vdir.file_storage = None;
-                                            }
-                                        }
-                                    } else {
-                                        warn!("File not found in Virtual Disk.");
+                            let is_dir = filename.as_slice() == b"$";
+                            
+                            if is_dir {
+                                info!("Directory requested. Rewinding.");
+                                let mut disk_opt = self.disk_image.lock().await;
+                                if let Some(disk) = disk_opt.as_mut() {
+                                    if let Some(vdir) = disk.as_virtual_disk_mut() {
                                         vdir.set_shortcut_entry(None);
                                         vdir.file_storage = None;
+                                        vdir.source.rewind();
+                                    }
+                                }
+                                drop(disk_opt);
+                                
+                                // Fetch first block synchronously to prevent empty directory
+                                let (dir_path, use_internal) = {
+                                    let guard = self.current_dir.lock().await;
+                                    (guard.0.clone(), guard.1)
+                                };
+                                
+                                let mut all_entries = heapless::Vec::<pico1541_common::storage::DirectoryEntry, 48>::new();
+                                let _ = self.opener.list_dir_range(
+                                    dir_path.as_str(),
+                                    use_internal,
+                                    0,
+                                    16,
+                                    |entry| {
+                                        let _ = all_entries.push(entry);
+                                    }
+                                ).await;
+                                
+                                let mut disk_opt = self.disk_image.lock().await;
+                                if let Some(disk) = disk_opt.as_mut() {
+                                    if let Some(vdir) = disk.as_virtual_disk_mut() {
+                                        if let Some(paged) = vdir.source.as_paged_mut() {
+                                            paged.set_block(0, &all_entries);
+                                            if all_entries.len() < 16 {
+                                                paged.set_total_count(all_entries.len());
+                                            }
+                                        }
+                                        vdir.force_update_directory_sectors(&mut self.active_track.gcr_data);
+                                    }
+                                }
+                            } else {
+                                info!("Opening file in Virtual Disk...");
+                                match self.opener.open_file(&filename).await {
+                                    Ok(file_storage) => {
+                                        info!("File found! Setting shortcut entry.");
+                                        let mut entry_name = [0xA0; 16];
+                                        let copy_len = filename.len().min(16);
+                                        entry_name[..copy_len].copy_from_slice(&filename[..copy_len]);
+                                        
+                                        let shortcut = pico1541_common::storage::DirectoryEntry::new(&entry_name, 0x82, 1, 0);
+                                        let mut disk_opt = self.disk_image.lock().await;
+                                        if let Some(disk) = disk_opt.as_mut() {
+                                            if let Some(vdir) = disk.as_virtual_disk_mut() {
+                                                vdir.set_shortcut_entry(Some(shortcut));
+                                                vdir.file_storage = Some(file_storage);
+                                                vdir.force_update_directory_sectors(&mut self.active_track.gcr_data);
+                                            }
+                                        }
+                                    }
+                                    Err(_) => {
+                                        warn!("File not found in Virtual Disk.");
+                                        let mut disk_opt = self.disk_image.lock().await;
+                                        if let Some(disk) = disk_opt.as_mut() {
+                                            if let Some(vdir) = disk.as_virtual_disk_mut() {
+                                                vdir.set_shortcut_entry(None);
+                                                vdir.file_storage = None;
+                                                vdir.force_update_directory_sectors(&mut self.active_track.gcr_data);
+                                            }
+                                        }
                                     }
                                 }
                             }
-                            
-                            let half_track = self.active_track.half_track;
-                            let gcr_buf = unsafe { &raw mut VDISK_GCR_BUF };
-                            let mut disk_opt = self.disk_image.lock().await;
-                            if let Some(disk) = disk_opt.as_mut() {
-                                match disk.read_track(half_track, unsafe { &mut *gcr_buf }).await {
-                                    Ok(layout) => {
-                                        self.active_track.gcr_data.copy_from_slice(unsafe { &*gcr_buf });
-                                        self.active_track.layout = layout;
-                                    }
-                                    Err(e) => {
-                                        error!("Failed to restore active track on load: {:?}", e);
-                                        self.active_track.layout = pico1541_common::formats::TrackLayout::Void;
+
+                            let needs_regeneration = self.active_track.layout == pico1541_common::formats::TrackLayout::Void;
+                            if needs_regeneration {
+                                let half_track = self.active_track.half_track;
+                                let gcr_buf = &raw mut VDISK_GCR_BUF;
+                                let mut disk_opt = self.disk_image.lock().await;
+                                if let Some(disk) = disk_opt.as_mut() {
+                                    match disk.read_track(half_track, unsafe { &mut *gcr_buf }).await {
+                                        Ok(layout) => {
+                                            self.active_track.gcr_data.copy_from_slice(unsafe { &*gcr_buf });
+                                            self.active_track.layout = layout;
+                                            self.active_track.half_track = half_track;
+                                        }
+                                        Err(_) => {
+                                            self.active_track.layout = pico1541_common::formats::TrackLayout::Void;
+                                        }
                                     }
                                 }
                             }
