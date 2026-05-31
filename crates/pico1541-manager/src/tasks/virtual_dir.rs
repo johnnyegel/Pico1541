@@ -64,7 +64,7 @@ pub fn match_c64_filename(entry_name: &[u8; 16], req_name: &[u8]) -> bool {
     }
     
     if r_idx == req_len {
-        let extensions: &[&[u8]] = &[b".PRG", b".SEQ", b".USR", b".DEL"];
+        let extensions: &[&[u8]] = &[b".PRG", b".SEQ", b".USR", b".DEL", b".DIR"];
         for ext in extensions {
             if entry_len == r_idx + ext.len() {
                 let mut match_found = true;

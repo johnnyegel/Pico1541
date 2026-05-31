@@ -8,8 +8,8 @@ pub struct MemoryStorage<'a> {
 
 pub fn ascii_to_petscii(a: u8) -> u8 {
     match a {
-        b'a'..=b'z' => a - 0x20, // 0x61-0x7A -> 0x41-0x5A
-        b'A'..=b'Z' => a + 0x80, // 0x41-0x5A -> 0xC1-0xDA
+        b'a'..=b'z' => a - 0x20, // 0x61-0x7A -> 0x41-0x5A (lowercase to uppercase PETSCII)
+        // A-Z (0x41-0x5A) are already identical in ASCII and unshifted PETSCII
         _ => a,
     }
 }
@@ -86,7 +86,7 @@ impl DirectoryEntry {
         let filename = mangle_filename(name);
         
         let file_type = if is_dir {
-            0x81 // DIR
+            0x86 // DIR (CMD DOS extension, supported by JiffyDOS/SD2IEC)
         } else {
             0x82 // PRG
         };
