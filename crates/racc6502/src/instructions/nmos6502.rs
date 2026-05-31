@@ -9,410 +9,410 @@ use super::{AddrMicroOp, ExecMicroOp, Instruction};
 // These slices define the bus activity for each 6502 addressing mode.
 
 /// Implied or Accumulator addressing (0 extra cycles).
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static ADDR_NONE: &[AddrMicroOp] = &[];
 /// Immediate addressing (operand fetched during execution).
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static ADDR_IMM: &[AddrMicroOp] = &[];
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static ADDR_ZP_ARR: [AddrMicroOp; 1] = [AddrMicroOp::FetchAddrLo];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static ADDR_ZP: &[AddrMicroOp] = &ADDR_ZP_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static ADDR_ZPX_ARR: [AddrMicroOp; 2] = [AddrMicroOp::FetchAddrLo, AddrMicroOp::AddXToZP];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static ADDR_ZPX: &[AddrMicroOp] = &ADDR_ZPX_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static ADDR_ZPY_ARR: [AddrMicroOp; 2] = [AddrMicroOp::FetchAddrLo, AddrMicroOp::AddYToZP];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static ADDR_ZPY: &[AddrMicroOp] = &ADDR_ZPY_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static ADDR_ABS_ARR: [AddrMicroOp; 2] = [AddrMicroOp::FetchAddrLo, AddrMicroOp::FetchAddrHi];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static ADDR_ABS: &[AddrMicroOp] = &ADDR_ABS_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static ADDR_ABS_JMP_ARR: [AddrMicroOp; 2] = [AddrMicroOp::FetchAddrLo, AddrMicroOp::FetchAddrHiAndJump];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static ADDR_ABS_JMP: &[AddrMicroOp] = &ADDR_ABS_JMP_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static ADDR_ABSX_READ_ARR: [AddrMicroOp; 3] = [
     AddrMicroOp::FetchAddrLo,
     AddrMicroOp::AddXToAbs,
     AddrMicroOp::OptionalFixupX,
 ];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static ADDR_ABSX_READ: &[AddrMicroOp] = &ADDR_ABSX_READ_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static ADDR_ABSX_WRITE_ARR: [AddrMicroOp; 3] = [
     AddrMicroOp::FetchAddrLo,
     AddrMicroOp::AddXToAbs,
     AddrMicroOp::MandatoryFixupX,
 ];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static ADDR_ABSX_WRITE: &[AddrMicroOp] = &ADDR_ABSX_WRITE_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static ADDR_ABSY_READ_ARR: [AddrMicroOp; 3] = [
     AddrMicroOp::FetchAddrLo,
     AddrMicroOp::AddYToAbs,
     AddrMicroOp::OptionalFixupY,
 ];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static ADDR_ABSY_READ: &[AddrMicroOp] = &ADDR_ABSY_READ_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static ADDR_ABSY_WRITE_ARR: [AddrMicroOp; 3] = [
     AddrMicroOp::FetchAddrLo,
     AddrMicroOp::AddYToAbs,
     AddrMicroOp::MandatoryFixupY,
 ];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static ADDR_ABSY_WRITE: &[AddrMicroOp] = &ADDR_ABSY_WRITE_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static ADDR_INDX_ARR: [AddrMicroOp; 4] = [
     AddrMicroOp::FetchAddrLo,
     AddrMicroOp::AddXToZP,
     AddrMicroOp::FetchIndXLo,
     AddrMicroOp::FetchIndXHi,
 ];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static ADDR_INDX: &[AddrMicroOp] = &ADDR_INDX_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static ADDR_INDY_READ_ARR: [AddrMicroOp; 4] = [
     AddrMicroOp::FetchAddrLo,
     AddrMicroOp::FetchIndYLo,
     AddrMicroOp::FetchIndYHi,
     AddrMicroOp::OptionalFixupIndY,
 ];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static ADDR_INDY_READ: &[AddrMicroOp] = &ADDR_INDY_READ_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static ADDR_INDY_WRITE_ARR: [AddrMicroOp; 4] = [
     AddrMicroOp::FetchAddrLo,
     AddrMicroOp::FetchIndYLo,
     AddrMicroOp::FetchIndYHi,
     AddrMicroOp::MandatoryFixupIndY,
 ];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static ADDR_INDY_WRITE: &[AddrMicroOp] = &ADDR_INDY_WRITE_ARR;
 
 // --- Operation Slices ---
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_LDA_IMM_ARR: [ExecMicroOp; 1] = [ExecMicroOp::FetchImmAndLDA];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_LDA_IMM: &[ExecMicroOp] = &OP_LDA_IMM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_LDA_MEM_ARR: [ExecMicroOp; 1] = [ExecMicroOp::ReadEffAndLDA];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_LDA_MEM: &[ExecMicroOp] = &OP_LDA_MEM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_LDX_IMM_ARR: [ExecMicroOp; 1] = [ExecMicroOp::FetchImmAndLDX];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_LDX_IMM: &[ExecMicroOp] = &OP_LDX_IMM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_LDX_MEM_ARR: [ExecMicroOp; 1] = [ExecMicroOp::ReadEffAndLDX];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_LDX_MEM: &[ExecMicroOp] = &OP_LDX_MEM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_LDY_IMM_ARR: [ExecMicroOp; 1] = [ExecMicroOp::FetchImmAndLDY];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_LDY_IMM: &[ExecMicroOp] = &OP_LDY_IMM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_LDY_MEM_ARR: [ExecMicroOp; 1] = [ExecMicroOp::ReadEffAndLDY];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_LDY_MEM: &[ExecMicroOp] = &OP_LDY_MEM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_STA_MEM_ARR: [ExecMicroOp; 1] = [ExecMicroOp::WriteEffA];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_STA_MEM: &[ExecMicroOp] = &OP_STA_MEM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_STX_MEM_ARR: [ExecMicroOp; 1] = [ExecMicroOp::WriteEffX];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_STX_MEM: &[ExecMicroOp] = &OP_STX_MEM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_STY_MEM_ARR: [ExecMicroOp; 1] = [ExecMicroOp::WriteEffY];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_STY_MEM: &[ExecMicroOp] = &OP_STY_MEM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_ADC_IMM_ARR: [ExecMicroOp; 1] = [ExecMicroOp::FetchImmAndADC];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_ADC_IMM: &[ExecMicroOp] = &OP_ADC_IMM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_ADC_MEM_ARR: [ExecMicroOp; 1] = [ExecMicroOp::ReadEffAndADC];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_ADC_MEM: &[ExecMicroOp] = &OP_ADC_MEM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_SBC_IMM_ARR: [ExecMicroOp; 1] = [ExecMicroOp::FetchImmAndSBC];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_SBC_IMM: &[ExecMicroOp] = &OP_SBC_IMM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_SBC_MEM_ARR: [ExecMicroOp; 1] = [ExecMicroOp::ReadEffAndSBC];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_SBC_MEM: &[ExecMicroOp] = &OP_SBC_MEM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_AND_IMM_ARR: [ExecMicroOp; 1] = [ExecMicroOp::FetchImmAndAND];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_AND_IMM: &[ExecMicroOp] = &OP_AND_IMM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_AND_MEM_ARR: [ExecMicroOp; 1] = [ExecMicroOp::ReadEffAndAND];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_AND_MEM: &[ExecMicroOp] = &OP_AND_MEM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_ORA_IMM_ARR: [ExecMicroOp; 1] = [ExecMicroOp::FetchImmAndORA];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_ORA_IMM: &[ExecMicroOp] = &OP_ORA_IMM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_ORA_MEM_ARR: [ExecMicroOp; 1] = [ExecMicroOp::ReadEffAndORA];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_ORA_MEM: &[ExecMicroOp] = &OP_ORA_MEM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_EOR_IMM_ARR: [ExecMicroOp; 1] = [ExecMicroOp::FetchImmAndEOR];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_EOR_IMM: &[ExecMicroOp] = &OP_EOR_IMM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_EOR_MEM_ARR: [ExecMicroOp; 1] = [ExecMicroOp::ReadEffAndEOR];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_EOR_MEM: &[ExecMicroOp] = &OP_EOR_MEM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_CMP_IMM_ARR: [ExecMicroOp; 1] = [ExecMicroOp::FetchImmAndCMP];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_CMP_IMM: &[ExecMicroOp] = &OP_CMP_IMM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_CMP_MEM_ARR: [ExecMicroOp; 1] = [ExecMicroOp::ReadEffAndCMP];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_CMP_MEM: &[ExecMicroOp] = &OP_CMP_MEM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_CPX_IMM_ARR: [ExecMicroOp; 1] = [ExecMicroOp::FetchImmAndCPX];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_CPX_IMM: &[ExecMicroOp] = &OP_CPX_IMM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_CPX_MEM_ARR: [ExecMicroOp; 1] = [ExecMicroOp::ReadEffAndCPX];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_CPX_MEM: &[ExecMicroOp] = &OP_CPX_MEM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_CPY_IMM_ARR: [ExecMicroOp; 1] = [ExecMicroOp::FetchImmAndCPY];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_CPY_IMM: &[ExecMicroOp] = &OP_CPY_IMM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_CPY_MEM_ARR: [ExecMicroOp; 1] = [ExecMicroOp::ReadEffAndCPY];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_CPY_MEM: &[ExecMicroOp] = &OP_CPY_MEM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_BIT_MEM_ARR: [ExecMicroOp; 1] = [ExecMicroOp::ReadEffAndBIT];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_BIT_MEM: &[ExecMicroOp] = &OP_BIT_MEM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_ASL_ACC_ARR: [ExecMicroOp; 2] = [ExecMicroOp::DummyReadPC, ExecMicroOp::AccASL];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_ASL_ACC: &[ExecMicroOp] = &OP_ASL_ACC_ARR;
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_ASL_MEM_ARR: [ExecMicroOp; 3] = [
     ExecMicroOp::ReadEffToData,
     ExecMicroOp::WriteDataBack,
     ExecMicroOp::ASLWrite,
 ];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_ASL_MEM: &[ExecMicroOp] = &OP_ASL_MEM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_LSR_ACC_ARR: [ExecMicroOp; 2] = [ExecMicroOp::DummyReadPC, ExecMicroOp::AccLSR];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_LSR_ACC: &[ExecMicroOp] = &OP_LSR_ACC_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_LSR_MEM_ARR: [ExecMicroOp; 3] = [
     ExecMicroOp::ReadEffToData,
     ExecMicroOp::WriteDataBack,
     ExecMicroOp::LSRWrite,
 ];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_LSR_MEM: &[ExecMicroOp] = &OP_LSR_MEM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_ROL_ACC_ARR: [ExecMicroOp; 2] = [ExecMicroOp::DummyReadPC, ExecMicroOp::AccROL];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_ROL_ACC: &[ExecMicroOp] = &OP_ROL_ACC_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_ROL_MEM_ARR: [ExecMicroOp; 3] = [
     ExecMicroOp::ReadEffToData,
     ExecMicroOp::WriteDataBack,
     ExecMicroOp::ROLWrite,
 ];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_ROL_MEM: &[ExecMicroOp] = &OP_ROL_MEM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_ROR_ACC_ARR: [ExecMicroOp; 2] = [ExecMicroOp::DummyReadPC, ExecMicroOp::AccROR];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_ROR_ACC: &[ExecMicroOp] = &OP_ROR_ACC_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_ROR_MEM_ARR: [ExecMicroOp; 3] = [
     ExecMicroOp::ReadEffToData,
     ExecMicroOp::WriteDataBack,
     ExecMicroOp::RORWrite,
 ];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_ROR_MEM: &[ExecMicroOp] = &OP_ROR_MEM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_INC_MEM_ARR: [ExecMicroOp; 3] = [
     ExecMicroOp::ReadEffToData,
     ExecMicroOp::WriteDataBack,
     ExecMicroOp::INCWrite,
 ];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_INC_MEM: &[ExecMicroOp] = &OP_INC_MEM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_DEC_MEM_ARR: [ExecMicroOp; 3] = [
     ExecMicroOp::ReadEffToData,
     ExecMicroOp::WriteDataBack,
     ExecMicroOp::DECWrite,
 ];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_DEC_MEM: &[ExecMicroOp] = &OP_DEC_MEM_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_TAX_ARR: [ExecMicroOp; 1] = [ExecMicroOp::TAX];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_TAX: &[ExecMicroOp] = &OP_TAX_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_TXA_ARR: [ExecMicroOp; 1] = [ExecMicroOp::TXA];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_TXA: &[ExecMicroOp] = &OP_TXA_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_TAY_ARR: [ExecMicroOp; 1] = [ExecMicroOp::TAY];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_TAY: &[ExecMicroOp] = &OP_TAY_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_TYA_ARR: [ExecMicroOp; 1] = [ExecMicroOp::TYA];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_TYA: &[ExecMicroOp] = &OP_TYA_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_TSX_ARR: [ExecMicroOp; 1] = [ExecMicroOp::TSX];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_TSX: &[ExecMicroOp] = &OP_TSX_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_TXS_ARR: [ExecMicroOp; 1] = [ExecMicroOp::TXS];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_TXS: &[ExecMicroOp] = &OP_TXS_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_INX_ARR: [ExecMicroOp; 1] = [ExecMicroOp::INX];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_INX: &[ExecMicroOp] = &OP_INX_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_DEX_ARR: [ExecMicroOp; 1] = [ExecMicroOp::DEX];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_DEX: &[ExecMicroOp] = &OP_DEX_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_INY_ARR: [ExecMicroOp; 1] = [ExecMicroOp::INY];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_INY: &[ExecMicroOp] = &OP_INY_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_DEY_ARR: [ExecMicroOp; 1] = [ExecMicroOp::DEY];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_DEY: &[ExecMicroOp] = &OP_DEY_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_CLC_ARR: [ExecMicroOp; 1] = [ExecMicroOp::CLC];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_CLC: &[ExecMicroOp] = &OP_CLC_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_SEC_ARR: [ExecMicroOp; 1] = [ExecMicroOp::SEC];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_SEC: &[ExecMicroOp] = &OP_SEC_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_CLI_ARR: [ExecMicroOp; 1] = [ExecMicroOp::CLI];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_CLI: &[ExecMicroOp] = &OP_CLI_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_SEI_ARR: [ExecMicroOp; 1] = [ExecMicroOp::SEI];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_SEI: &[ExecMicroOp] = &OP_SEI_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_CLV_ARR: [ExecMicroOp; 1] = [ExecMicroOp::CLV];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_CLV: &[ExecMicroOp] = &OP_CLV_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_CLD_ARR: [ExecMicroOp; 1] = [ExecMicroOp::CLD];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_CLD: &[ExecMicroOp] = &OP_CLD_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_SED_ARR: [ExecMicroOp; 1] = [ExecMicroOp::SED];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_SED: &[ExecMicroOp] = &OP_SED_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_JMP_ABS: &[ExecMicroOp] = &[];
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_JMP_IND_ARR: [ExecMicroOp; 2] = [ExecMicroOp::JumpIndCycle4, ExecMicroOp::JumpIndCycle5];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_JMP_IND: &[ExecMicroOp] = &OP_JMP_IND_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_BRANCH_ARR: [ExecMicroOp; 3] = [
     ExecMicroOp::BranchCycle2,
     ExecMicroOp::BranchCycle3,
     ExecMicroOp::BranchCycle4,
 ];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_BRANCH: &[ExecMicroOp] = &OP_BRANCH_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_JSR_ARR: [ExecMicroOp; 5] = [
     ExecMicroOp::JsrCycle2,
     ExecMicroOp::JsrCycle3,
@@ -420,10 +420,10 @@ static OP_JSR_ARR: [ExecMicroOp; 5] = [
     ExecMicroOp::JsrCycle5,
     ExecMicroOp::JsrCycle6,
 ];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_JSR: &[ExecMicroOp] = &OP_JSR_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_RTS_ARR: [ExecMicroOp; 5] = [
     ExecMicroOp::RtsCycle2,
     ExecMicroOp::RtsCycle3,
@@ -431,10 +431,10 @@ static OP_RTS_ARR: [ExecMicroOp; 5] = [
     ExecMicroOp::RtsCycle5,
     ExecMicroOp::RtsCycle6,
 ];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_RTS: &[ExecMicroOp] = &OP_RTS_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_RTI_ARR: [ExecMicroOp; 5] = [
     ExecMicroOp::RtiCycle2,
     ExecMicroOp::RtiCycle3,
@@ -442,10 +442,10 @@ static OP_RTI_ARR: [ExecMicroOp; 5] = [
     ExecMicroOp::RtiCycle5,
     ExecMicroOp::RtiCycle6,
 ];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_RTI: &[ExecMicroOp] = &OP_RTI_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_BRK_ARR: [ExecMicroOp; 6] = [
     ExecMicroOp::BrkCycle2,
     ExecMicroOp::BrkCycle3,
@@ -454,48 +454,48 @@ static OP_BRK_ARR: [ExecMicroOp; 6] = [
     ExecMicroOp::BrkCycle6,
     ExecMicroOp::BrkCycle7,
 ];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_BRK: &[ExecMicroOp] = &OP_BRK_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_PHA_ARR: [ExecMicroOp; 2] = [ExecMicroOp::DummyReadPC, ExecMicroOp::PushA];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_PHA: &[ExecMicroOp] = &OP_PHA_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_PHP_ARR: [ExecMicroOp; 2] = [ExecMicroOp::DummyReadPC, ExecMicroOp::PushP];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_PHP: &[ExecMicroOp] = &OP_PHP_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_PLA_ARR: [ExecMicroOp; 3] = [
     ExecMicroOp::DummyReadPC,
     ExecMicroOp::DummyReadStack,
     ExecMicroOp::PullA,
 ];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_PLA: &[ExecMicroOp] = &OP_PLA_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_PLP_ARR: [ExecMicroOp; 3] = [
     ExecMicroOp::DummyReadPC,
     ExecMicroOp::DummyReadStack,
     ExecMicroOp::PullP,
 ];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_PLP: &[ExecMicroOp] = &OP_PLP_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_NOP_ARR: [ExecMicroOp; 1] = [ExecMicroOp::DummyReadPC];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_NOP: &[ExecMicroOp] = &OP_NOP_ARR;
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_NONE: &[ExecMicroOp] = &[];
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 static OP_UNIMPL_ARR: [ExecMicroOp; 1] = [ExecMicroOp::Unimplemented];
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static OP_UNIMPL: &[ExecMicroOp] = &OP_UNIMPL_ARR;
 
 const fn init_table() -> [Instruction; 256] {
@@ -1164,5 +1164,5 @@ const fn init_table() -> [Instruction; 256] {
     table
 }
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data.ram_func"]
 pub static INSTRUCTION_TABLE: [Instruction; 256] = init_table();

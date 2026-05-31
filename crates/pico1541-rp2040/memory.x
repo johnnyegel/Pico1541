@@ -8,13 +8,7 @@ MEMORY {
     SCRATCH_B : ORIGIN = 0x20041000, LENGTH = 4K
 }
 
-SECTIONS {
-    .ramfunc : ALIGN(4) {
-        *(.ramfunc .ramfunc.*);
-        . = ALIGN(4);
-    } > RAM AT > FLASH
-}
-INSERT AFTER .data;
+_stack_start = ORIGIN(SRAM3) + LENGTH(SRAM3);
 
 SECTIONS {
     .boot2 : {
@@ -33,7 +27,7 @@ SECTIONS {
     .core1_stack (NOLOAD) : ALIGN(4) {
         *(.core1_stack .core1_stack.*);
         . = ALIGN(4);
-    } > SRAM3
+    } > SCRATCH_B
 
     .sram3 (NOLOAD) : ALIGN(4) {
         *(.sram3 .sram3.*);

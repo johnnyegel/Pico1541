@@ -67,7 +67,7 @@ static CURRENT_DIR: Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)
 
 // Core 1 Stack
 #[link_section = ".core1_stack"]
-static mut CORE1_STACK: core::mem::MaybeUninit<Stack<40960>> = core::mem::MaybeUninit::uninit();
+static mut CORE1_STACK: core::mem::MaybeUninit<Stack<4096>> = core::mem::MaybeUninit::uninit();
 
 // ROM Buffer for dynamic loading
 #[link_section = ".sram3"]
@@ -93,7 +93,7 @@ type MyDisk = AnyDiskImage<MyStorage, MyDir>;
 async fn main(spawner: Spawner) {
     {
         use core::mem::MaybeUninit;
-        const HEAP_SIZE: usize = 32768;
+        const HEAP_SIZE: usize = 16384;
         static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
         unsafe {
             HEAP.init(core::ptr::addr_of_mut!(HEAP_MEM) as usize, HEAP_SIZE);
@@ -240,6 +240,9 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
         &mut *CORE1_STACK.as_mut_ptr()
     };
 
+    #[link_section = ".sram3"]
+    static mut EMULATOR: core::mem::MaybeUninit<Emulator<HardwareBridge>> = core::mem::MaybeUninit::uninit();
+
     // Pack peripherals for Core 1
     let core1_pins = Core0Pins {
         i2c0: p.I2C0.into(),
@@ -284,7 +287,10 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
     // --- Spawn Core 1 ---
     info!("Starting Emulator on Core 1...");
     embassy_rp::multicore::spawn_core1(p.CORE1, stack, move || {
-        let mut drive = Emulator::new(unsafe { &ROM_BUFFER }, drive_id);
+        let drive = unsafe {
+            EMULATOR.as_mut_ptr().write(Emulator::new(unsafe { &ROM_BUFFER }, drive_id));
+            &mut *EMULATOR.as_mut_ptr()
+        };
         drive.reset(&mut bridge);
         emulator_loop(drive, bridge);
     });
@@ -325,7 +331,7 @@ impl HardwareBridge {
 }
 
 impl IecBus for HardwareBridge {
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn iec_host(&self) -> IecBusState {
         // Direct SIO register read for speed.
@@ -335,7 +341,7 @@ impl IecBus for HardwareBridge {
         IecBusState(((pins >> 16) & 0x07) as u8)
     }
 
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn iec_drive(&mut self, state: IecBusState) {
         // GPIO 19: DATA_TX (bit 0), 20: CLK_TX (bit 1)
@@ -359,45 +365,45 @@ impl IecBus for HardwareBridge {
 }
 
 impl HostInterface for HardwareBridge {
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn get_active_track(&mut self) -> &mut ActiveTrack {
         self.track
     }
 
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn send_event(&mut self, event: DriveEvent) {
         // try_send is non-blocking and safe for Core 0.
         let _ = pico1541_manager::EVENT_CHANNEL.try_send(event);
     }
 
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn is_hijacked(&self) -> bool {
         self.config.hijack_active.load(Ordering::Relaxed)
     }
 
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn pop_discard_request(&mut self) -> bool {
         self.config.discard_request.swap(false, Ordering::Relaxed)
     }
 
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn update_iec_addresses(&mut self, listen: u8, talk: u8) {
         self.config.listen_addr.store(listen, Ordering::Relaxed);
         self.config.talk_addr.store(talk, Ordering::Relaxed);
     }
 
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn get_device_id(&self) -> u8 {
         self.config.device_id.load(Ordering::Relaxed)
     }
 
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn sync(&mut self, host: IecBusState) {
         // The snooper is only updated if something changed on the bus.
@@ -921,8 +927,8 @@ async fn settings_save_task(mut flash_storage: FlashStorage<'static>) {
     }
 }
 
-#[link_section = ".ramfunc"]
-fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: HardwareBridge) -> ! {
+#[link_section = ".data.ram_func"]
+fn emulator_loop(drive: &'static mut Emulator<HardwareBridge>, mut bridge: HardwareBridge) -> ! {
     let timer = embassy_rp::pac::TIMER;
     let mut idle_counter = 0u32;
     let mut cycle_counter = 0u32;

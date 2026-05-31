@@ -71,7 +71,7 @@ impl<H: HostInterface> Emulator<H> {
         self.cpu.memory.current_hw = core::ptr::null_mut();
     }
 
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn tick(&mut self, hw: &mut H) -> u32 {
         self.cpu.memory.current_hw = hw;

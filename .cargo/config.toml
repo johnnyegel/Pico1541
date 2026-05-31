@@ -10,7 +10,7 @@ rustflags = [
 
 [env]
 DEFMT_LOG = "debug"
-EMBASSY_EXECUTOR_TASK_ARENA_SIZE = "32768"
+EMBASSY_EXECUTOR_TASK_ARENA_SIZE = "1024"
 
 [alias]
 # Flash via SWD and stream defmt/RTT logs with probe-rs.
