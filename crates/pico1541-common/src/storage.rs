@@ -59,7 +59,7 @@ pub struct DirectoryEntry {
 impl Default for DirectoryEntry {
     fn default() -> Self {
         Self {
-            file_type: 0x82, // PRG
+            file_type: 0x00, // Empty entry
             filename: [0xA0; 16],
             first_track: 0,
             first_sector: 0,
@@ -86,7 +86,7 @@ impl DirectoryEntry {
         let filename = mangle_filename(name);
         
         let file_type = if is_dir {
-            0x86 // DIR (CMD DOS extension, supported by JiffyDOS/SD2IEC)
+            0x83 // USR for directories
         } else {
             0x82 // PRG
         };
@@ -96,7 +96,7 @@ impl DirectoryEntry {
             filename,
             first_track: 1,
             first_sector: 0,
-            block_size: ((size + 253) / 254) as u16,
+            block_size: if is_dir { 0 } else { ((size + 253) / 254) as u16 },
         }
     }
 }
