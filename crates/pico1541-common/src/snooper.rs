@@ -273,7 +273,8 @@ impl IecSnoopByteHandler {
         if self.pos > 0 {
             // Emit IecCommand if it's on the command channel (SA 15) or hijacked
             let sa = self.secondary_address & 0x0F;
-            if sa == 15 || self.hijack_active {
+            let is_dir_command = self.pos > 0 && self.buffer[0] == b'$';
+            if sa == 15 || self.hijack_active || is_dir_command {
                 let mut data = [0u8; 32];
                 let len = self.pos.min(32);
                 data[..len].copy_from_slice(&self.buffer[..len]);

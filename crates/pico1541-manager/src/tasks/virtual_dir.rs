@@ -253,8 +253,21 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                 self.active_track.half_track = half_track;
                             }
                         }
+                        InternalCommand::ResetDirectory => {
+                            info!("Motor ON detected. Resetting virtual directory to start.");
+                            let mut disk_opt = self.disk_image.lock().await;
+                            if let Some(disk) = disk_opt.as_mut() {
+                                if let Some(vdir) = disk.as_virtual_disk_mut() {
+                                    vdir.source.rewind();
+                                    if let Some(paged) = vdir.source.as_paged_mut() {
+                                        paged.invalidate();
+                                    }
+                                    vdir.force_update_directory_sectors(&mut self.active_track.gcr_data);
+                                }
+                            }
+                        }
                         InternalCommand::LoadFile(filename) => {
-                            let is_dir = filename.as_slice() == b"$";
+                            let is_dir = filename[0] == b'$';
                             
                             if is_dir {
                                 info!("Directory requested. Rewinding.");

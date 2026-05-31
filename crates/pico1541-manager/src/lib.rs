@@ -40,6 +40,7 @@ pub static ACTIVITY_CHANNEL: Channel<CriticalSectionRawMutex, DriveEvent, 16> = 
 pub enum InternalCommand {
     LoadFile([u8; 16]),
     HeadStepped(u8),
+    ResetDirectory,
 }
 
 pub static CMD_CHANNEL: Channel<CriticalSectionRawMutex, InternalCommand, 8> = Channel::new();

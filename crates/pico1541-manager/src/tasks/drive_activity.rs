@@ -39,6 +39,9 @@ impl<I: IndicatorDriver> DriveActivityTask<I> {
                 DriveEvent::MotorChanged(active) => {
                     self.motor_on = active;
                     self.update_led();
+                    if active {
+                        let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::ResetDirectory);
+                    }
                 }
                 DriveEvent::HeadStepped { new_half_track } => {
                     self.indicator.beep();
@@ -56,7 +59,13 @@ impl<I: IndicatorDriver> DriveActivityTask<I> {
     }
 
     async fn handle_command(&mut self, cmd: &str) {
-        if let Some(path) = cmd.strip_prefix("CD:") {
+        if cmd.starts_with('$') {
+            info!("Directory list requested via IEC: {}", cmd);
+            let mut filename = [0xA0; 16];
+            let len = cmd.len().min(16);
+            filename[..len].copy_from_slice(&cmd.as_bytes()[..len]);
+            let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::LoadFile(filename));
+        } else if let Some(path) = cmd.strip_prefix("CD:") {
             info!("Changing directory to: {}", path);
             
             let mut filename = [0xA0; 16];
