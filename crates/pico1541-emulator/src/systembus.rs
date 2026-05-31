@@ -85,7 +85,7 @@ pub struct SystemBus<H: HostInterface> {
         self.drive_iec_base = 0;
     }
 
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data"]
     #[inline(always)]
     fn update_drive_iec_base(&mut self, hardware: &mut H) {
         let orb_ddr = self.via1.orb & self.via1.ddrb;
@@ -104,7 +104,7 @@ pub struct SystemBus<H: HostInterface> {
         self.update_physical_iec(hardware);
     }
 
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data"]
     #[inline(always)]
     fn update_physical_iec(&mut self, hardware: &mut H) {
         let host_atn = self.last_host_iec.get_atn();
@@ -132,7 +132,7 @@ pub struct SystemBus<H: HostInterface> {
         }
     }
 
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data"]
     #[inline(always)]
     pub fn tick_cycle(&mut self, hardware: &mut H) {
         // Resolve the Host IecBusState once per cycle
@@ -175,7 +175,7 @@ pub struct SystemBus<H: HostInterface> {
         self.so_active = self.mechanics.tick(hardware, &mut self.via2, requested_sector);
     }
 
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data"]
     #[inline(always)]
     fn calculate_combined_via_in_b(&self, combined_iec: &IecBusState) -> u8 {
         // Map the combined IEC state to the VIA1 input bits for PB0, PB2, and PB7.
@@ -189,27 +189,27 @@ pub struct SystemBus<H: HostInterface> {
 }
 
 impl<H: HostInterface> Bus for SystemBus<H> {
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data"]
     #[inline(always)]
     fn get_byte(&mut self, addr: u16) -> u8 {
         let hw = unsafe { &mut *self.current_hw };
         self.read(addr, hw)
     }
 
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data"]
     #[inline(always)]
     fn set_byte(&mut self, addr: u16, value: u8) {
         let hw = unsafe { &mut *self.current_hw };
         self.write(addr, value, hw)
     }
 
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data"]
     #[inline(always)]
     fn irq_pending(&mut self) -> bool {
         self.via1.irq || self.via2.irq
     }
 
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data"]
     #[inline(always)]
     fn nmi_pending(&mut self) -> bool {
         false
@@ -217,7 +217,7 @@ impl<H: HostInterface> Bus for SystemBus<H> {
 }
 
 impl<H: HostInterface> SystemBus<H> {
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data"]
     #[inline(always)]
     pub fn read(&mut self, addr: u16, _ctx: &mut H) -> u8 {
         if addr >= 0x8000 {
@@ -233,7 +233,7 @@ impl<H: HostInterface> SystemBus<H> {
         }
     }
 
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data"]
     #[inline(always)]
     pub fn write(&mut self, addr: u16, value: u8, ctx: &mut H) {
         if addr < 0x1800 {
@@ -265,19 +265,19 @@ impl<H: HostInterface> SystemBus<H> {
         }
     }
 
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data"]
     #[inline(always)]
     pub fn irq_pending(&self) -> bool {
         self.via1.irq || self.via2.irq
     }
 
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data"]
     #[inline(always)]
     pub fn nmi_pending(&self) -> bool {
         false
     }
 
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data"]
     #[inline(always)]
     pub fn so_pending(&self) -> bool {
         self.so_active

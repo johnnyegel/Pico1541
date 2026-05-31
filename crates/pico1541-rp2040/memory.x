@@ -26,5 +26,10 @@ SECTIONS {
         *(.core1_stack .core1_stack.*);
         . = ALIGN(4);
     } > SRAM3
+
+    .sram3 (NOLOAD) : ALIGN(4) {
+        *(.sram3 .sram3.*);
+        . = ALIGN(4);
+    } > SRAM3
 }
 INSERT AFTER .bss;

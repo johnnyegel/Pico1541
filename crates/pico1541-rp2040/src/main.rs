@@ -58,15 +58,19 @@ bind_interrupts!(struct Irqs {
     DMA_IRQ_0 => embassy_rp::dma::InterruptHandler<DMA_CH0>, embassy_rp::dma::InterruptHandler<DMA_CH1>;
 });
 
-static SNOOPER_CONFIG: SnooperConfig = SnooperConfig::new(8);
+const DEFAULT_DRIVE_ID: u8 = 9;
+
+
+static SNOOPER_CONFIG: SnooperConfig = SnooperConfig::new(DEFAULT_DRIVE_ID);
 
 static CURRENT_DIR: Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)> = Mutex::new((heapless::String::new(), false));
 
 // Core 1 Stack
 #[link_section = ".core1_stack"]
-static mut CORE1_STACK: core::mem::MaybeUninit<Stack<65536>> = core::mem::MaybeUninit::uninit();
+static mut CORE1_STACK: core::mem::MaybeUninit<Stack<40960>> = core::mem::MaybeUninit::uninit();
 
 // ROM Buffer for dynamic loading
+#[link_section = ".sram3"]
 static mut ROM_BUFFER: [u8; 16384] = [0; 16384];
 
 type MySpi = Spi<'static, SPI1, Blocking>;
@@ -128,7 +132,7 @@ async fn main(spawner: Spawner) {
     };
     
     // Read Settings and Load ROM
-    let mut drive_id = 8;
+    let mut drive_id = DEFAULT_DRIVE_ID;
     let mut rom_name = heapless::String::<32>::new();
     let _ = rom_name.push_str("-- Not available --");
     fs_storage_inst = match littlefs_rust::Filesystem::mount(fs_storage_inst, fs_config()) {
@@ -321,7 +325,7 @@ impl HardwareBridge {
 }
 
 impl IecBus for HardwareBridge {
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data"]
     #[inline(always)]
     fn iec_host(&self) -> IecBusState {
         // Direct SIO register read for speed.
@@ -331,7 +335,7 @@ impl IecBus for HardwareBridge {
         IecBusState(((pins >> 16) & 0x07) as u8)
     }
 
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data"]
     #[inline(always)]
     fn iec_drive(&mut self, state: IecBusState) {
         // GPIO 19: DATA_TX (bit 0), 20: CLK_TX (bit 1)
@@ -355,45 +359,45 @@ impl IecBus for HardwareBridge {
 }
 
 impl HostInterface for HardwareBridge {
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data"]
     #[inline(always)]
     fn get_active_track(&mut self) -> &mut ActiveTrack {
         self.track
     }
 
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data"]
     #[inline(always)]
     fn send_event(&mut self, event: DriveEvent) {
         // try_send is non-blocking and safe for Core 0.
         let _ = pico1541_manager::EVENT_CHANNEL.try_send(event);
     }
 
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data"]
     #[inline(always)]
     fn is_hijacked(&self) -> bool {
         self.config.hijack_active.load(Ordering::Relaxed)
     }
 
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data"]
     #[inline(always)]
     fn pop_discard_request(&mut self) -> bool {
         self.config.discard_request.swap(false, Ordering::Relaxed)
     }
 
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data"]
     #[inline(always)]
     fn update_iec_addresses(&mut self, listen: u8, talk: u8) {
         self.config.listen_addr.store(listen, Ordering::Relaxed);
         self.config.talk_addr.store(talk, Ordering::Relaxed);
     }
 
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data"]
     #[inline(always)]
     fn get_device_id(&self) -> u8 {
         self.config.device_id.load(Ordering::Relaxed)
     }
 
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data"]
     #[inline(always)]
     fn sync(&mut self, host: IecBusState) {
         // The snooper is only updated if something changed on the bus.
@@ -917,11 +921,17 @@ async fn settings_save_task(mut flash_storage: FlashStorage<'static>) {
     }
 }
 
-#[link_section = ".ramfunc"]
+#[link_section = ".data"]
 fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: HardwareBridge) -> ! {
     let timer = embassy_rp::pac::TIMER;
     let mut idle_counter = 0u32;
     let mut cycle_counter = 0u32;
+
+    let mut syst = unsafe { cortex_m::Peripherals::steal().SYST };
+    syst.set_clock_source(cortex_m::peripheral::syst::SystClkSource::Core);
+    syst.set_reload(0x00FFFFFF);
+    syst.clear_current();
+    syst.enable_counter();
 
     // Calibrate true max idle for 10ms to calculate accurate CPU load
     let calib_start = timer.timelr().read();
@@ -958,7 +968,6 @@ fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: HardwareBridge
     let mut last_perf_update = last_tick;
     let mut was_reset = false;
 
-    let mut bus_cycles_acc = 0u64;
     let mut cpu_cycles_acc = 0u64;
     let mut ticks_acc = 0u64;
 
@@ -981,9 +990,10 @@ fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: HardwareBridge
         let is_reset = bridge._pins.reset_rx.is_high();
 
         while (now.wrapping_sub(last_tick) as i32) > 0 && caught_up < 100 {
-            last_tick = last_tick.wrapping_add(1);
-            
             if is_reset {
+                last_tick = last_tick.wrapping_add(1);
+                cycle_counter += 1;
+                
                 if !was_reset {
                     drive.reset(&mut bridge);
                     bridge.iec_drive(pico1541_common::interface::IecBusState::default());
@@ -996,37 +1006,40 @@ fn emulator_loop(mut drive: Emulator<HardwareBridge>, mut bridge: HardwareBridge
                     was_reset = false;
                 }
                 let t1 = cortex_m::peripheral::SYST::get_current();
-                drive.tick(&mut bridge);
+                let elapsed = drive.tick(&mut bridge);
                 let t3 = cortex_m::peripheral::SYST::get_current();
+                
+                last_tick = last_tick.wrapping_add(elapsed);
+                cycle_counter += elapsed;
                 
                 // SYST is a 24-bit down counter
                 let total_cycles = t1.wrapping_sub(t3) & 0x00FFFFFF;
-                bus_cycles_acc += 0;
                 cpu_cycles_acc += total_cycles as u64;
                 ticks_acc += 1;
             }
-            cycle_counter += 1;
             caught_up += 1;
         }
 
         // Update performance metrics every second
         if now.wrapping_sub(last_perf_update) >= 1_000_000 {
             let config = bridge.config;
-            let old_avg = config.core0_avg_raw.load(Ordering::Relaxed);
-            // EMA on the idle counter, not the cycle counter!
-            let new_avg = if old_avg == 0 { idle_counter } else { (idle_counter + old_avg * 3) / 4 };
+            
+            // Calculate average SYST cycles per 1541-tick
+            let new_avg = if cycle_counter > 0 {
+                (cpu_cycles_acc / cycle_counter as u64) as u32
+            } else {
+                0
+            };
             
             config.emu_speed_hz.store(cycle_counter, Ordering::Relaxed);
             config.core0_avg_raw.store(new_avg, Ordering::Relaxed);
 
             if ticks_acc > 0 {
-                info!("Profile: Bus={} CPU={} (avg cycles per tick over {} ticks)", 
-                    bus_cycles_acc / ticks_acc, 
+                info!("Profile: Total CPU={} (avg cycles per tick over {} ticks)", 
                     cpu_cycles_acc / ticks_acc, 
                     ticks_acc);
             }
 
-            bus_cycles_acc = 0;
             cpu_cycles_acc = 0;
             ticks_acc = 0;
 

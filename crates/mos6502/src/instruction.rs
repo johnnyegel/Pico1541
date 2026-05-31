@@ -812,6 +812,7 @@ pub type DecodedInstr = (Instruction, AddressingMode, OpInput);
 pub struct Nmos6502;
 
 impl crate::Variant for Nmos6502 {
+    #[inline(always)]
     fn decode(opcode: u8) -> Option<(Instruction, AddressingMode)> {
         match opcode {
             0x00 => Some((Instruction::BRK, AddressingMode::Implied)),
@@ -1266,6 +1267,7 @@ impl crate::Variant for Nmos6502 {
 pub struct Ricoh2a03;
 
 impl crate::Variant for Ricoh2a03 {
+    #[inline(always)]
     fn decode(opcode: u8) -> Option<(Instruction, AddressingMode)> {
         // It's the same as on NMOS, but doesn't support decimal mode.
         match Nmos6502::decode(opcode) {
@@ -1343,6 +1345,7 @@ impl crate::Variant for Ricoh2a03 {
 pub struct RevisionA;
 
 impl crate::Variant for RevisionA {
+    #[inline(always)]
     fn decode(opcode: u8) -> Option<(Instruction, AddressingMode)> {
         // It's the same as on NMOS, but has no ROR instruction.
         match Nmos6502::decode(opcode) {
@@ -1540,6 +1543,7 @@ const fn rockwell_decode(opcode: u8) -> Option<(Instruction, AddressingMode)> {
 }
 
 impl<const ROCKWELL: bool, const WDC: bool> crate::Variant for Mos65C02<ROCKWELL, WDC> {
+    #[inline(always)]
     fn decode(opcode: u8) -> Option<(Instruction, AddressingMode)> {
         cmos_base_decode(opcode)
             .or_else(|| if WDC { wdc_decode(opcode) } else { None })

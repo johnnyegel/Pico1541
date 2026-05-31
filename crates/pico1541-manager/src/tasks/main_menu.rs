@@ -902,7 +902,7 @@ where
 
             let speed_hz = self.config.emu_speed_hz.load(Ordering::Relaxed);
             let c0_avg = self.config.core0_avg_raw.load(Ordering::Relaxed);
-            let c0_max = self.config.core0_max_raw.load(Ordering::Relaxed);
+            let _c0_max = self.config.core0_max_raw.load(Ordering::Relaxed);
             let c1_avg = self.config.core1_avg_raw.load(Ordering::Relaxed);
             let c1_max = self.config.core1_max_raw.load(Ordering::Relaxed);
 
@@ -916,11 +916,9 @@ where
             }
             self.display.print(1, &s_speed).await;
 
-            let c0_load = if c0_max > 0 {
-                100u32.saturating_sub(((c0_avg as u64 * 100) / c0_max as u64) as u32)
-            } else {
-                0
-            };
+            // core0_avg_raw now stores average SYST cycles per 1541-tick.
+            // 250 SYST cycles = 100% load (since 250MHz sys clock / 1MHz 1541 clock)
+            let c0_load = (c0_avg * 100) / 250;
             let mut s_c0 = String::<32>::new();
             let _ = core::fmt::write(&mut s_c0, format_args!("Emu load: {}%", c0_load));
             self.display.print(2, &s_c0).await;

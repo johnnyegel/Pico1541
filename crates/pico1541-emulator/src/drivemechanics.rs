@@ -78,7 +78,7 @@ impl DriveMechanics {
 
     /// Progresses the drive mechanics by one CPU cycle.
     /// Returns true if a new byte is ready to be processed by the CPU, and the SO pin should be set
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data"]
     #[inline(always)]
     pub fn tick<H: HostInterface>(&mut self, hardware: &mut H, via2: &mut Via6522, requested_sector: u8) -> bool {
         // :? Is the motor off? (PB2)
@@ -97,7 +97,7 @@ impl DriveMechanics {
         self.tick_slow(hardware, via2, requested_sector)
     }
 
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data"]
     #[inline(never)]
     fn tick_slow<H: HostInterface>(&mut self, hardware: &mut H, via2: &mut Via6522, requested_sector: u8) -> bool {
         // Get the active track from hardware
@@ -150,7 +150,7 @@ impl DriveMechanics {
     }
 
     /// Updates the drive mechanics state based on VIA2 Port B outputs.
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data"]
     pub fn update_state<H: HostInterface>(&mut self, orb: u8, ddrb: u8, hardware: &mut H) {
         let full_state = orb & ddrb & (MASK_HARDWARE_STATE | MASK_SPEED_ZONE);
         if full_state != self.last_state {
@@ -180,7 +180,7 @@ impl DriveMechanics {
     // ========== Internal helper functions ==================================================
 
     /// Updates the track current position, and returns the position in the buffer
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data"]
     #[inline(always)]
     fn resolve_track_byte_position(&mut self, track: &ActiveTrack, requested_sector: u8) -> Option<usize> {
         let layout = if self.halftrack_head_pos == track.half_track as i8 {
@@ -248,7 +248,7 @@ impl DriveMechanics {
     }
 
     /// Updates the drive mechanics state, and issues events accordingly.
-    #[link_section = ".ramfunc"]
+    #[link_section = ".data"]
     #[inline(never)]
     fn update_state_slow(&mut self, full_state: u8, hardware: &mut impl HostInterface) {
         let last_state = self.last_state;

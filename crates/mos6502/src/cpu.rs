@@ -157,6 +157,7 @@ impl<M: Bus, V: Variant> CPU<M, V> {
     ///
     /// This function will panic if the instruction is not recognized
     /// (i.e. the opcode is invalid or has not been implemented).
+    #[inline(always)]
     pub fn fetch_next_and_decode(&mut self) -> Option<DecodedInstr> {
         // Helper function to read a 16-bit address from memory
         fn read_address<M: Bus>(mem: &mut M, addr: u16) -> [u8; 2] {
@@ -441,6 +442,7 @@ impl<M: Bus, V: Variant> CPU<M, V> {
     ///
     /// Panics if `decoded_instr`'s (mode, operand) combination is not valid.
     #[allow(clippy::too_many_lines)]
+    #[inline(always)]
     pub fn execute_instruction(&mut self, decoded_instr: DecodedInstr) {
         let (instr, mode, operand) = decoded_instr;
 
@@ -1168,6 +1170,7 @@ impl<M: Bus, V: Variant> CPU<M, V> {
     ///
     /// Note: Interrupt handling may occur during this call, but servicing an interrupt
     /// does not count as executing an instruction for the return value.
+    #[inline(always)]
     pub fn single_step(&mut self) -> bool {
         match self.wait_state {
             WaitState::Running => {
@@ -1781,6 +1784,7 @@ impl<M: Bus, V: Variant> CPU<M, V> {
     /// # References
     ///
     /// - [W65C02S Datasheet, Section 3.4 (IRQB) and 3.6 (NMIB)](https://www.westerndesigncenter.com/wdc/documentation/w65c02s.pdf)
+    #[inline(always)]
     fn check_interrupts(&mut self) -> bool {
         if self.is_nmi_triggered() {
             log::debug!("NMI triggered");

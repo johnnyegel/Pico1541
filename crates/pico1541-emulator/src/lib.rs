@@ -71,7 +71,9 @@ impl<H: HostInterface> Emulator<H> {
         self.cpu.memory.current_hw = core::ptr::null_mut();
     }
 
-    pub fn tick(&mut self, hw: &mut H) {
+    #[link_section = ".data"]
+    #[inline(always)]
+    pub fn tick(&mut self, hw: &mut H) -> u32 {
         self.cpu.memory.current_hw = hw;
         
         let start_cycles = self.cpu.cycles;
@@ -86,6 +88,7 @@ impl<H: HostInterface> Emulator<H> {
         }
         
         self.cpu.memory.current_hw = core::ptr::null_mut();
+        elapsed
     }
 
     /// Executes the given number of CPU cycles.
