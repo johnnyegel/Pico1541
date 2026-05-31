@@ -58,7 +58,7 @@ bind_interrupts!(struct Irqs {
     DMA_IRQ_0 => embassy_rp::dma::InterruptHandler<DMA_CH0>, embassy_rp::dma::InterruptHandler<DMA_CH1>;
 });
 
-const DEFAULT_DRIVE_ID: u8 = 9;
+const DEFAULT_DRIVE_ID: u8 = 8;
 
 
 static SNOOPER_CONFIG: SnooperConfig = SnooperConfig::new(DEFAULT_DRIVE_ID);

@@ -266,6 +266,26 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                 }
                             }
                         }
+                        InternalCommand::ImageMounted => {
+                            info!("Image mounted. Re-reading current track.");
+                            let half_track = self.active_track.half_track;
+                            let gcr_buf = &raw mut VDISK_GCR_BUF;
+                            let mut disk_opt = self.disk_image.lock().await;
+                            if let Some(disk) = disk_opt.as_mut() {
+                                match disk.read_track(half_track, unsafe { &mut *gcr_buf }).await {
+                                    Ok(layout) => {
+                                        self.active_track.gcr_data.copy_from_slice(unsafe { &*gcr_buf });
+                                        self.active_track.layout = layout;
+                                    }
+                                    Err(e) => {
+                                        error!("Failed to read track on mount: {:?}", e);
+                                        self.active_track.layout = pico1541_common::formats::TrackLayout::Void;
+                                    }
+                                }
+                            } else {
+                                self.active_track.layout = pico1541_common::formats::TrackLayout::Void;
+                            }
+                        }
                         InternalCommand::LoadFile(filename) => {
                             let is_dir = filename[0] == b'$';
                             
