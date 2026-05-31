@@ -7,7 +7,7 @@ members = [
     "crates/pico1541-emulator",
     "crates/pico1541-rp2040",
     "crates/mos6502"
-]
+, "crates/racc6502v3"]
 resolver = "2"
 
 default-members = [

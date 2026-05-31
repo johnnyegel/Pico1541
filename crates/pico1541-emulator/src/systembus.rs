@@ -4,7 +4,6 @@ use crate::via6522::Via6522;
 use crate::MemoryMonitor;
 use pico1541_common::interface::{HostInterface, IecBusState};
 use core::marker::PhantomData;
-use mos6502::memory::Bus;
 
 const RAM_SIZE: usize = 0x0800; // 2KB
 const ROM_SIZE: usize = 0x4000; // 16KB
@@ -188,37 +187,22 @@ pub struct SystemBus<H: HostInterface> {
     }
 }
 
-impl<H: HostInterface> Bus for SystemBus<H> {
+impl<H: HostInterface> racc6502v3::Bus for SystemBus<H> {
+    type Ctx = H;
+
     #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn get_byte(&mut self, addr: u16) -> u8 {
-        let hw = unsafe { &mut *self.current_hw };
-        self.read(addr, hw)
+    fn read(&mut self, addr: u16, ctx: &mut Self::Ctx) -> u8 {
+        self.read(addr, ctx)
     }
 
     #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn set_byte(&mut self, addr: u16, value: u8) {
-        let hw = unsafe { &mut *self.current_hw };
-        self.write(addr, value, hw)
-    }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn irq_pending(&mut self) -> bool {
-        self.via1.irq || self.via2.irq
-    }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn nmi_pending(&mut self) -> bool {
-        false
+    fn write(&mut self, addr: u16, value: u8, ctx: &mut Self::Ctx) {
+        self.write(addr, value, ctx)
     }
 }
 
 impl<H: HostInterface> SystemBus<H> {
     #[link_section = ".data.ram_func"]
-    #[inline(always)]
     pub fn read(&mut self, addr: u16, _ctx: &mut H) -> u8 {
         if addr >= 0x8000 {
             return unsafe { *self.rom.get_unchecked((addr & 0x3FFF) as usize) };
@@ -234,7 +218,6 @@ impl<H: HostInterface> SystemBus<H> {
     }
 
     #[link_section = ".data.ram_func"]
-    #[inline(always)]
     pub fn write(&mut self, addr: u16, value: u8, ctx: &mut H) {
         if addr < 0x1800 {
             unsafe { *self.ram.get_unchecked_mut((addr as usize) & (RAM_SIZE - 1)) = value };

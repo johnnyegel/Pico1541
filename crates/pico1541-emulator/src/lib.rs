@@ -30,8 +30,7 @@ pub mod systembus;
 pub mod via6522;
 
 use pico1541_common::interface::HostInterface;
-use mos6502::cpu::CPU;
-use mos6502::instruction::Nmos6502;
+use racc6502v3::CPU;
 use systembus::SystemBus;
 
 /// Trait for peeking and poking at memory/registers without side effects.
@@ -47,54 +46,56 @@ pub trait MemoryMonitor {
 /// The `HostInterface` implementation is **not** stored here — callers own it
 /// and pass it as `&mut H` to every [`tick`](Self::tick) / [`step`](Self::step) call.
 pub struct Emulator<H: HostInterface> {
-    pub cpu: CPU<SystemBus<H>, Nmos6502>,
+    pub cpu: CPU,
+    pub memory: SystemBus<H>,
+    pub cycles: u64,
 }
 
 impl<H: HostInterface> Emulator<H> {
     pub fn new(rom: &'static [u8; 16384], device_id: u8) -> Self {
         let bus = SystemBus::new(rom, device_id);
         Self {
-            cpu: CPU::new(bus, Nmos6502),
+            cpu: CPU::new(),
+            memory: bus,
+            cycles: 0,
         }
     }
 
     pub fn update_rom(&mut self, rom: &'static [u8; 16384]) {
-        self.cpu.memory.update_rom(rom);
+        self.memory.update_rom(rom);
     }
 
     /// Resets the 6502 CPU and VIAs.
     pub fn reset(&mut self, hw: &mut H) {
         emu_debug!("Emulator Reset");
-        self.cpu.memory.reset();
-        self.cpu.memory.current_hw = hw;
-        self.cpu.reset();
-        self.cpu.memory.current_hw = core::ptr::null_mut();
+        self.memory.reset();
+        self.cpu.reset(&mut self.memory, hw);
     }
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn tick(&mut self, hw: &mut H) -> u32 {
-        self.cpu.memory.current_hw = hw;
+        if self.memory.via1.irq || self.memory.via2.irq {
+            self.cpu.pending_interrupt = Some(racc6502v3::cpu::Interrupt::Irq);
+        }
         
-        let start_cycles = self.cpu.cycles;
-        self.cpu.single_step();
-        let elapsed = self.cpu.cycles.saturating_sub(start_cycles) as u32;
+        let elapsed = self.cpu.step(&mut self.memory, hw);
+        self.cycles += elapsed as u64;
         
-        for _ in 0..elapsed.max(1) {
-            self.cpu.memory.tick_cycle(hw);
-            if self.cpu.memory.so_pending() {
-                self.cpu.registers.status.insert(mos6502::registers::Status::PS_OVERFLOW);
+        for _ in 0..elapsed {
+            self.memory.tick_cycle(hw);
+            if self.memory.so_pending() {
+                self.cpu.p |= 0x40; // FLAG_V
             }
         }
         
-        self.cpu.memory.current_hw = core::ptr::null_mut();
-        elapsed
+        elapsed as u32
     }
 
     /// Executes the given number of CPU cycles.
     pub fn run_for(&mut self, hw: &mut H, cycles: u32) {
-        let start = self.cpu.cycles;
-        while self.cpu.cycles.saturating_sub(start) < (cycles as u64) {
+        let start = self.cycles;
+        while self.cycles.saturating_sub(start) < (cycles as u64) {
             self.tick(hw);
         }
     }
@@ -104,29 +105,29 @@ impl<H: HostInterface> Emulator<H> {
     }
 
     pub fn pc(&self) -> u16 {
-        self.cpu.registers.program_counter
+        self.cpu.pc
     }
 
     pub fn state(&self) -> (u8, u8, u8, u8) {
         (
-            self.cpu.registers.accumulator,
-            self.cpu.registers.index_x,
-            self.cpu.registers.index_y,
-            self.cpu.registers.stack_pointer.0,
+            self.cpu.a,
+            self.cpu.x,
+            self.cpu.y,
+            self.cpu.s,
         )
     }
 
     pub fn half_track(&self) -> u8 {
-        self.cpu.memory.mechanics.half_track()
+        self.memory.mechanics.half_track()
     }
 
     /// Direct access to the internal memory bus (e.g. for inspection or peek/poke).
     pub fn bus(&self) -> &SystemBus<H> {
-        &self.cpu.memory
+        &self.memory
     }
 
     /// Mutable access to the internal memory bus.
     pub fn bus_mut(&mut self) -> &mut SystemBus<H> {
-        &mut self.cpu.memory
+        &mut self.memory
     }
 }

@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-mos6502 = { path = "../mos6502" }
+racc6502v3 = { path = "../racc6502v3" }
 log = "0.4.20"
 embedded-io-async = "0.7.0"
 pico1541-common = { path = "../pico1541-common" }
