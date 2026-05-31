@@ -178,15 +178,17 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
                 (self.total_count + 15) / 16
             };
             
-            let tb = current_block + 2;
-            if tb < known_blocks {
-                if tb < self.start_block || tb >= self.end_block {
+            for offset in 1..=2 {
+                let tb = current_block + offset;
+                if tb < known_blocks && (tb < self.start_block || tb >= self.end_block) {
                     return Some(tb);
                 }
             }
-            let tb2 = current_block.saturating_sub(2);
-            if tb2 < self.start_block || tb2 >= self.end_block {
-                return Some(tb2);
+            for offset in 1..=2 {
+                let tb2 = current_block.saturating_sub(offset);
+                if tb2 < self.start_block || tb2 >= self.end_block {
+                    return Some(tb2);
+                }
             }
         }
         None

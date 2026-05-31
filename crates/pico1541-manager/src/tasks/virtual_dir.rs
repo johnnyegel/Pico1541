@@ -91,7 +91,7 @@ pub struct VirtualDiskTask<'a, S: Read + Seek + 'static, D: DirectorySource + 's
     disk_image: &'a Mutex<CriticalSectionRawMutex, Option<AnyDiskImage<S, D>>>,
     active_track: &'a mut ActiveTrack,
     opener: O,
-    current_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
+    mounted_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
 }
 
 impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<FileStorage = S>> VirtualDiskTask<'a, S, D, O> {
@@ -99,13 +99,13 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
         disk_image: &'a Mutex<CriticalSectionRawMutex, Option<AnyDiskImage<S, D>>>,
         active_track: &'a mut ActiveTrack,
         opener: O,
-        current_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
+        mounted_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
     ) -> Self {
         Self {
             disk_image,
             active_track,
             opener,
-            current_dir,
+            mounted_dir,
         }
     }
 
@@ -169,7 +169,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                         self.active_track.layout = pico1541_common::formats::TrackLayout::Void;
 
                         let (path, use_internal) = {
-                            let guard = self.current_dir.lock().await;
+                            let guard = self.mounted_dir.lock().await;
                             (guard.0.clone(), guard.1)
                         };
 
@@ -265,9 +265,6 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                             if let Some(disk) = disk_opt.as_mut() {
                                 if let Some(vdir) = disk.as_virtual_disk_mut() {
                                     vdir.source.rewind();
-                                    if let Some(paged) = vdir.source.as_paged_mut() {
-                                        paged.invalidate();
-                                    }
                                     vdir.force_update_directory_sectors(&mut self.active_track.gcr_data);
                                 }
                             }
@@ -312,7 +309,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                 
                                 // Fetch first block synchronously to prevent empty directory
                                 let (dir_path, use_internal) = {
-                                    let guard = self.current_dir.lock().await;
+                                    let guard = self.mounted_dir.lock().await;
                                     (guard.0.clone(), guard.1)
                                 };
                                 

@@ -64,6 +64,7 @@ const DEFAULT_DRIVE_ID: u8 = 8;
 static SNOOPER_CONFIG: SnooperConfig = SnooperConfig::new(DEFAULT_DRIVE_ID);
 
 static CURRENT_DIR: Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)> = Mutex::new((heapless::String::new(), false));
+static MOUNTED_DIR: Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)> = Mutex::new((heapless::String::new(), false));
 
 // Core 1 Stack
 #[link_section = ".sram3"]
@@ -448,7 +449,7 @@ impl pico1541_manager::tasks::virtual_dir::FileOpener for MyOpener {
 
     async fn open_file(&self, requested_petscii: &[u8]) -> Result<Self::FileStorage, pico1541_common::formats::Error> {
         let (dir_path, use_internal) = {
-            let guard = CURRENT_DIR.lock().await;
+            let guard = MOUNTED_DIR.lock().await;
             (guard.0.clone(), guard.1)
         };
         
@@ -771,7 +772,7 @@ async fn core0_init_task(
         &*disk_image_mutex,
         track_for_task,
         MyOpener { storage: StorageWrapper(sd_mutex) },
-        &CURRENT_DIR,
+        &MOUNTED_DIR,
     );
 
     let main_menu_task = MainMenuTask::new(
@@ -782,6 +783,7 @@ async fn core0_init_task(
         LittleFsStorage,
         &*disk_image_mutex,
         &CURRENT_DIR,
+        &MOUNTED_DIR,
         config,
         rom_name,
     );

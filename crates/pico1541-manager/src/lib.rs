@@ -45,7 +45,7 @@ pub enum InternalCommand {
     MotorState(bool),
 }
 
-pub static CMD_CHANNEL: Channel<CriticalSectionRawMutex, InternalCommand, 8> = Channel::new();
+pub static CMD_CHANNEL: Channel<CriticalSectionRawMutex, InternalCommand, 128> = Channel::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

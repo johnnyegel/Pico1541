@@ -54,7 +54,8 @@ where
     storage: S,
     internal: Internal,
     _disk_image: &'static Mutex<CriticalSectionRawMutex, Option<pico1541_common::AnyDiskImage<pico1541_common::storage::RuntimeStorage<'static, File, Internal::File>, pico1541_common::storage::PagedDirectorySource<48>>>>,
-    current_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
+    viewed_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
+    mounted_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
     config: &'static SnooperConfig,
     sd_path: String<128>,
     internal_path: String<128>,
@@ -79,7 +80,8 @@ where
         storage: S,
         internal: Internal,
         disk_image: &'static Mutex<CriticalSectionRawMutex, Option<pico1541_common::AnyDiskImage<pico1541_common::storage::RuntimeStorage<'static, File, Internal::File>, pico1541_common::storage::PagedDirectorySource<48>>>>,
-        current_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
+        viewed_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
+        mounted_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
         config: &'static SnooperConfig,
         rom_name: String<32>,
     ) -> Self {
@@ -90,7 +92,8 @@ where
             storage,
             internal,
             _disk_image: disk_image,
-            current_dir,
+            viewed_dir,
+            mounted_dir,
             config,
             sd_path: String::from_str("/").unwrap(),
             internal_path: String::from_str("/files").unwrap(),
@@ -329,9 +332,14 @@ where
                 dir_source.set_block(initial_start_block + block_idx, &block_entries);
             }
 
-            let vdisk = pico1541_common::formats::VirtualDiskImage::new(dir_source);
+            let vdisk = pico1541_common::formats::VirtualDiskImage::new(dir_source, dir_name.as_bytes());
 
             if self.mounted_file_path.is_none() {
+                {
+                    let mut mounted_dir_guard = self.mounted_dir.lock().await;
+                    mounted_dir_guard.0 = current_path.clone();
+                    mounted_dir_guard.1 = use_internal;
+                }
                 {
                     let mut disk_lock = self._disk_image.lock().await;
                     *disk_lock = Some(pico1541_common::formats::AnyDiskImage::VirtualDisk(vdisk));
@@ -341,9 +349,9 @@ where
             }
 
             {
-                let mut current_dir_guard = self.current_dir.lock().await;
-                current_dir_guard.0 = current_path.clone();
-                current_dir_guard.1 = use_internal;
+                let mut viewed_dir_guard = self.viewed_dir.lock().await;
+                viewed_dir_guard.0 = current_path.clone();
+                viewed_dir_guard.1 = use_internal;
             }
 
             let mut menu_title = String::<64>::new();
@@ -403,6 +411,7 @@ where
                             let state = cursor_stack.pop().unwrap_or((0, 0));
                             cursor = state.0;
                             scroll_offset = state.1;
+                            self.mounted_file_path = None;
                             continue;
                         }
                     }
@@ -734,7 +743,7 @@ where
                             let _ = block_entries.push(entry);
                             dir_source.set_block(0, &block_entries);
 
-                            let mut vdisk = pico1541_common::formats::VirtualDiskImage::new(dir_source);
+                            let mut vdisk = pico1541_common::formats::VirtualDiskImage::new(dir_source, "INTERNAL".as_bytes());
 
                             if use_internal {
                                 let file = self.internal.open_file_handle(full_path.as_str());
