@@ -45,6 +45,7 @@ impl<I: IndicatorDriver> DriveActivityTask<I> {
                     }
                 }
                 DriveEvent::HeadStepped { new_half_track } => {
+                    info!("Drive head stepped to half_track {}", new_half_track);
                     self.indicator.beep();
                     let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::HeadStepped(new_half_track));
                 }

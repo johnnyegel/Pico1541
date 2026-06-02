@@ -50,10 +50,18 @@ pub struct VirtualDiskImage<S, D: DirectorySource> {
 
 impl<S, D: DirectorySource> VirtualDiskImage<S, D> {
     pub fn new(source: D, name: &[u8]) -> Self {
-        // Use a constant ID for VirtualDiskImage so the C64 doesn't throw DISK ID MISMATCH
-        // when navigating between different directories. The BAM is read-only anyway.
-        let id_high = b'P';
-        let id_low = b'I';
+        // Generate a pseudo-random ID based on the disk name, ensuring valid uppercase PETSCII (0x41-0x5A)
+        let mut hash1 = 0u32;
+        let mut hash2 = 0u32;
+        for (i, &b) in name.iter().enumerate() {
+            if i % 2 == 0 {
+                hash1 = hash1.wrapping_add(b as u32);
+            } else {
+                hash2 = hash2.wrapping_add(b as u32);
+            }
+        }
+        let id_high = 0x41 + (hash1 % 26) as u8;
+        let id_low = 0x41 + (hash2 % 26) as u8;
 
         Self {
             source,
@@ -216,6 +224,9 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
         if half_track > 83 {
             return Ok(TrackLayout::Void);
         }
+
+        // Ensure no old bytes are left behind when the track is completely regenerated
+        dest.fill(0x55);
 
         let track = half_track / 2 + 1;
 

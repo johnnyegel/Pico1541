@@ -270,6 +270,10 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                             }
                         }
                         InternalCommand::ImageMounted => {
+                            info!("Image mounted. Simulating disk removal.");
+                            self.active_track.layout = pico1541_common::formats::TrackLayout::Void;
+                            embassy_time::Timer::after(embassy_time::Duration::from_millis(50)).await;
+                            
                             info!("Image mounted. Re-reading current track.");
                             let half_track = self.active_track.half_track;
                             let gcr_buf = &raw mut VDISK_GCR_BUF;
@@ -294,9 +298,13 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                             
                             if is_dir {
                                 info!("Directory requested. Rewinding.");
+                                
+                                // Reset shortcut logic
+                                let mut is_virtual_disk = false;
                                 let mut disk_opt = self.disk_image.lock().await;
                                 if let Some(disk) = disk_opt.as_mut() {
                                     if let Some(vdir) = disk.as_virtual_disk_mut() {
+                                        is_virtual_disk = true;
                                         vdir.set_shortcut_entry(None);
                                         vdir.file_storage = None;
                                         vdir.source.rewind();
@@ -307,37 +315,49 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                 }
                                 drop(disk_opt);
                                 
-                                // Fetch first block synchronously to prevent empty directory
-                                let (dir_path, use_internal) = {
-                                    let guard = self.mounted_dir.lock().await;
-                                    (guard.0.clone(), guard.1)
-                                };
-                                
-                                let mut all_entries = heapless::Vec::<pico1541_common::storage::DirectoryEntry, 48>::new();
-                                let _ = self.opener.list_dir_range(
-                                    dir_path.as_str(),
-                                    use_internal,
-                                    0,
-                                    16,
-                                    |entry| {
-                                        let _ = all_entries.push(entry);
-                                    }
-                                ).await;
-                                
-                                let mut disk_opt = self.disk_image.lock().await;
-                                if let Some(disk) = disk_opt.as_mut() {
-                                    if let Some(vdir) = disk.as_virtual_disk_mut() {
-                                        if let Some(paged) = vdir.source.as_paged_mut() {
-                                            paged.set_block(0, &all_entries);
-                                            if all_entries.len() < 16 {
-                                                paged.set_total_count(all_entries.len());
-                                            }
+                                if is_virtual_disk {
+                                    // Temporarily set layout to Void so the 1541 DOS waits for SYNC
+                                    // while we fetch the directory, preventing race conditions.
+                                    let old_layout = self.active_track.layout.clone();
+                                    self.active_track.layout = pico1541_common::formats::TrackLayout::Void;
+                                    
+                                    // Fetch first block synchronously to prevent empty directory
+                                    let (dir_path, use_internal) = {
+                                        let guard = self.mounted_dir.lock().await;
+                                        (guard.0.clone(), guard.1)
+                                    };
+                                    
+                                    let mut all_entries = heapless::Vec::<pico1541_common::storage::DirectoryEntry, 48>::new();
+                                    let _ = self.opener.list_dir_range(
+                                        dir_path.as_str(),
+                                        use_internal,
+                                        0,
+                                        16,
+                                        |entry| {
+                                            let _ = all_entries.push(entry);
                                         }
-                                        vdir.force_update_directory_sectors(&mut self.active_track.gcr_data);
+                                    ).await;
+                                    
+                                    let mut disk_opt = self.disk_image.lock().await;
+                                    if let Some(disk) = disk_opt.as_mut() {
+                                        if let Some(vdir) = disk.as_virtual_disk_mut() {
+                                            if let Some(paged) = vdir.source.as_paged_mut() {
+                                                paged.set_block(0, &all_entries);
+                                                if all_entries.len() < 16 {
+                                                    paged.set_total_count(all_entries.len());
+                                                }
+                                            }
+                                            vdir.force_update_directory_sectors(&mut self.active_track.gcr_data);
+                                        }
                                     }
+                                    self.active_track.layout = old_layout;
                                 }
                             } else {
                                 info!("Opening file in Virtual Disk...");
+                                // Set layout to Void while opening, to prevent reading while state is unstable
+                                let old_layout = self.active_track.layout.clone();
+                                self.active_track.layout = pico1541_common::formats::TrackLayout::Void;
+
                                 match self.opener.open_file(&filename).await {
                                     Ok(file_storage) => {
                                         info!("File found! Setting shortcut entry.");
@@ -367,6 +387,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                         }
                                     }
                                 }
+                                self.active_track.layout = old_layout;
                             }
 
                             let needs_regeneration = self.active_track.layout == pico1541_common::formats::TrackLayout::Void;
