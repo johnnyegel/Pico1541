@@ -154,6 +154,7 @@ pub enum DriveEvent {
     },
     /// The Snooper has detected the end of a transaction (e.g. UNLISTEN or ATN assertion)
     IecSnoopEndOfTransaction,
+    IecSnoopTransactionComplete,
 }
 
 /// Open-drain IEC serial bus interface (Emulator side).
@@ -200,6 +201,9 @@ pub trait HostInterface: IecBus {
 
     /// synchronization point called every cycle.
     fn sync(&mut self, _host: IecBusState) {}
+
+    /// Called every emulator tick cycle, independent of bus changes.
+    fn step(&mut self) {}
 
     /// Update the IEC addresses (LISTEN and TALK) snooped by the manager.
     /// Usually called by the emulator when it detects a change in drive RAM.

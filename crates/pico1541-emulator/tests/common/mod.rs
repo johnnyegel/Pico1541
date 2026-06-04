@@ -224,13 +224,6 @@ impl HostInterface for TestBridge {
     }
 
     fn sync(&mut self, host: IecBusState) {
-        self.total_cycles += 1;
-        if let Some(mut hook) = self.sync_hook.take() {
-            let track = self.get_active_track();
-            hook(track);
-            self.sync_hook = Some(hook);
-        }
-
         let mut events = Vec::new();
         // Update the snooper using ONLY host physical state (Mandate: Snooper must only observe host lines)
         self.snooper.update(host, |event| {
@@ -257,6 +250,15 @@ impl HostInterface for TestBridge {
                 log::info!("[SnoopHandler] Hijack requested!");
                 self.discard_request = true;
             }
+        }
+    }
+
+    fn step(&mut self) {
+        self.total_cycles += 1;
+        if let Some(mut hook) = self.sync_hook.take() {
+            let track = self.get_active_track();
+            hook(track);
+            self.sync_hook = Some(hook);
         }
     }
 }

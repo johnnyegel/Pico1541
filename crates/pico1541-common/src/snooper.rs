@@ -119,10 +119,15 @@ impl IecSnooper {
 
         // :? Is this an ATN edge?
         if delta.get_atn() {
-            // -> Yes, then reset to IDLE
-            if iec_state.get_atn() && self.is_listening {
-                // DATA phase ended by host pulling ATN low
-                dispatch(DriveEvent::IecSnoopEndOfTransaction);
+            if iec_state.get_atn() {
+                // ATN went LOW (Asserted)
+                if self.is_listening {
+                    // DATA phase ended by host pulling ATN low
+                    dispatch(DriveEvent::IecSnoopEndOfTransaction);
+                }
+            } else {
+                // ATN went HIGH (Released). Transaction fully complete.
+                dispatch(DriveEvent::IecSnoopTransactionComplete);
             }
             self.state = SnooperState::Idle;
             return;
@@ -214,6 +219,7 @@ pub struct IecSnoopByteHandler {
     secondary_address: u8,
     hijack_active: bool,
     eoi_received: bool,
+    transaction_complete: bool,
     cmd_len: usize,
 }
 
@@ -225,6 +231,7 @@ impl IecSnoopByteHandler {
             secondary_address: 0,
             hijack_active: false,
             eoi_received: false,
+            transaction_complete: false,
             cmd_len: 0,
         }
     }
@@ -246,6 +253,7 @@ impl IecSnoopByteHandler {
                 self.secondary_address = sa;
                 self.hijack_active = false;
                 self.eoi_received = false;
+                self.transaction_complete = false;
             }
             DriveEvent::IecSnoopByteReceived(byte, eoi) => {
                 if self.pos < self.buffer.len() {
@@ -264,6 +272,9 @@ impl IecSnoopByteHandler {
             }
             DriveEvent::IecSnoopEndOfTransaction => {
                 self.finish_command(&mut dispatch);
+            }
+            DriveEvent::IecSnoopTransactionComplete => {
+                self.transaction_complete = true;
             }
             _ => {}
         }
@@ -291,7 +302,7 @@ impl IecSnoopByteHandler {
     }
 
     pub fn should_discard(&self) -> bool {
-        self.hijack_active && self.eoi_received
+        self.hijack_active && self.transaction_complete
     }
 
     pub fn get_command(&self) -> Option<&str> {

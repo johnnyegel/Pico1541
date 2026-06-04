@@ -120,9 +120,6 @@ pub struct SystemBus<H: HostInterface> {
         drive_combined_iec.set_data(pb_data | (pb_atna ^ host_atn));
         drive_combined_iec.set_clk(pb_clk);
 
-        if hardware.is_hijacked() {
-            drive_combined_iec = IecBusState::default();
-        }
 
         // Set the IEC drive lines only if they changed
         if drive_combined_iec != self.last_drive_iec {
@@ -146,6 +143,8 @@ pub struct SystemBus<H: HostInterface> {
             // Notify hardware of the host bus state change
             hardware.sync(host_iec);
         }
+
+        hardware.step();
 
         // Check for hardware configuration changes every 1024 cycles (~1ms)
         self.cycle_counter = self.cycle_counter.wrapping_add(1);

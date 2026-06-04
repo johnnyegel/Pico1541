@@ -62,7 +62,7 @@ fn test_get_status_mode() {
 
     // 2. VirtualDisk
     let dir_source = StaticDirectorySource::new(b"TEST", &[]);
-    let vdisk = VirtualDiskImage::new(dir_source);
+    let vdisk = VirtualDiskImage::new(dir_source, b"TEST");
     let disk: AnyDiskImage<MemoryStorage, StaticDirectorySource> = AnyDiskImage::VirtualDisk(vdisk);
     assert_eq!(get_status_mode(Some(&disk)), StatusLedMode::VirtualDisk);
 

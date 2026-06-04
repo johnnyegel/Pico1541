@@ -3,6 +3,7 @@ use crate::storage::DirectorySource;
 use embedded_io_async::{Read, Seek, SeekFrom};
 
 #[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     Io,
     InvalidFormat,
@@ -215,7 +216,7 @@ impl<S, D: DirectorySource> VirtualDiskImage<S, D> {
         
         // To update Sector 2, we must simulate the head being in Sector 1
         self.next_sector_to_update = 2;
-        self.update_dynamic_buffer(40 + 372 * 1 + 1, gcr_data); // Head in Sector 1, updates Sector 2
+        self.update_dynamic_buffer(40 + 372 + 1, gcr_data); // Head in Sector 1, updates Sector 2
         
         self.next_sector_to_update = 1; // When actual read starts, wait for Sector 1 to pass, then update Sector 2
     }
@@ -432,6 +433,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                 }
             }
 
+            self.source.rewind();
             self.force_update_directory_sectors(dest);
             return Ok(TrackLayout::Accurate(7142));
         }

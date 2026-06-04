@@ -18,7 +18,7 @@ fn test_disk_streaming_data() {
     hardware.track.gcr_data[2] = 0x01;
     hardware.track.gcr_data[3] = 0xFE;
 
-    let mut via2 = Via6522::new();
+    let mut via1 = Via6522::new(); let mut via2 = Via6522::new();
     let mut mechanics = DriveMechanics::new();
     mechanics.halftrack_head_pos = 0; // Align head with Track 1 (half-track 0)
 
@@ -35,7 +35,7 @@ fn test_disk_streaming_data() {
 
     // First byte delivered should be idx 0: 0xAA. Should take exactly 32 ticks.
     let mut ticks = 0;
-    while !mechanics.tick(&mut hardware, &mut via2, 0) {
+    while !mechanics.tick(&mut hardware, &mut via1, &mut via2, 0) {
         ticks += 1;
         if ticks > 100 {
             panic!("Timeout waiting for idx 0");
@@ -48,7 +48,7 @@ fn test_disk_streaming_data() {
 
     // Second byte idx 1: 0x55. Exactly 32 ticks.
     ticks = 0;
-    while !mechanics.tick(&mut hardware, &mut via2, 0) {
+    while !mechanics.tick(&mut hardware, &mut via1, &mut via2, 0) {
         ticks += 1;
         if ticks > 100 {
             panic!("Timeout waiting for idx 1");
@@ -68,7 +68,7 @@ fn test_disk_streaming_sync() {
     hardware.track.gcr_data[0] = 0xFF; // SYNC
     hardware.track.gcr_data[1] = 0x55;
 
-    let mut via2 = Via6522::new();
+    let mut via1 = Via6522::new(); let mut via2 = Via6522::new();
     let mut mechanics = DriveMechanics::new();
     mechanics.halftrack_head_pos = 0; // Align head with Track 1 (half-track 0)
     via2.ddrb = 0xFF;
@@ -82,7 +82,7 @@ fn test_disk_streaming_sync() {
     // Run for 32 cycles. SYNC suppresses SO, so tick() must return false.
     for i in 0..32 {
         assert!(
-            !mechanics.tick(&mut hardware, &mut via2, 0),
+            !mechanics.tick(&mut hardware, &mut via1, &mut via2, 0),
             "SYNC should NOT pulse SO (cycle {})", i
         );
     }
@@ -97,7 +97,7 @@ fn test_disk_streaming_sync() {
     // Next byte idx 1: 0x55 (Data)
     // This one IS data, so it should return true on the 32nd cycle.
     let mut ticks = 0;
-    while !mechanics.tick(&mut hardware, &mut via2, 0) {
+    while !mechanics.tick(&mut hardware, &mut via1, &mut via2, 0) {
         ticks += 1;
         if ticks > 100 {
              panic!("Timeout waiting for data byte after SYNC");
@@ -116,7 +116,7 @@ fn test_disk_bitrate_zones() {
     hardware.track.half_track = 0;
     hardware.track.gcr_data.fill(0x55); // Use data, not SYNC
 
-    let mut via2 = Via6522::new();
+    let mut via1 = Via6522::new(); let mut via2 = Via6522::new();
     let mut mechanics = DriveMechanics::new();
     mechanics.halftrack_head_pos = 0; // Align head with Track 1 (half-track 0)
     via2.ddrb = 0xFF;
@@ -126,7 +126,7 @@ fn test_disk_bitrate_zones() {
     via2.orb = 0x60 | 0x04; // Motor ON
     mechanics.update_state(via2.orb, via2.ddrb, &mut hardware);
     let mut ticks = 0;
-    while !mechanics.tick(&mut hardware, &mut via2, 0) {
+    while !mechanics.tick(&mut hardware, &mut via1, &mut via2, 0) {
         ticks += 1;
         if ticks > 100 { panic!("Timeout Zone 0"); }
     }
@@ -136,7 +136,7 @@ fn test_disk_bitrate_zones() {
     via2.orb = 0x40 | 0x04;
     mechanics.update_state(via2.orb, via2.ddrb, &mut hardware);
     ticks = 0;
-    while !mechanics.tick(&mut hardware, &mut via2, 0) {
+    while !mechanics.tick(&mut hardware, &mut via1, &mut via2, 0) {
         ticks += 1;
         if ticks > 100 { panic!("Timeout Zone 1"); }
     }
@@ -146,7 +146,7 @@ fn test_disk_bitrate_zones() {
     via2.orb = 0x20 | 0x04;
     mechanics.update_state(via2.orb, via2.ddrb, &mut hardware);
     ticks = 0;
-    while !mechanics.tick(&mut hardware, &mut via2, 0) {
+    while !mechanics.tick(&mut hardware, &mut via1, &mut via2, 0) {
         ticks += 1;
         if ticks > 100 { panic!("Timeout Zone 2"); }
     }
@@ -156,7 +156,7 @@ fn test_disk_bitrate_zones() {
     via2.orb = 0x00 | 0x04;
     mechanics.update_state(via2.orb, via2.ddrb, &mut hardware);
     ticks = 0;
-    while !mechanics.tick(&mut hardware, &mut via2, 0) {
+    while !mechanics.tick(&mut hardware, &mut via1, &mut via2, 0) {
         ticks += 1;
         if ticks > 100 { panic!("Timeout Zone 3"); }
     }
@@ -170,7 +170,7 @@ fn test_disk_write_streaming() {
     hardware.track.layout = TrackLayout::Accurate(track_bytes);
     hardware.track.half_track = 0;
 
-    let mut via2 = Via6522::new();
+    let mut via1 = Via6522::new(); let mut via2 = Via6522::new();
     let mut mechanics = DriveMechanics::new();
     mechanics.halftrack_head_pos = 0; // Align head with Track 1 (half-track 0)
 
@@ -189,7 +189,7 @@ fn test_disk_write_streaming() {
     // First byte delivered should go to idx 0
     let mut delivered = false;
     for _ in 0..32 {
-        if mechanics.tick(&mut hardware, &mut via2, 0) {
+        if mechanics.tick(&mut hardware, &mut via1, &mut via2, 0) {
             delivered = true;
         }
     }

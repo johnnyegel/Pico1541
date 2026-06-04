@@ -228,7 +228,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                     self.active_track.layout = layout;
                                 }
                                 Err(e) => {
-                                    error!("Failed to restore active track: {:?}", defmt::Debug2Format(&e));
+                                    error!("Failed to restore active track: {:?}", &e);
                                     self.active_track.layout = pico1541_common::formats::TrackLayout::Void;
                                 }
                             }
@@ -251,7 +251,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                         self.active_track.half_track = half_track;
                                     }
                                     Err(e) => {
-                                        error!("Failed to read track: {:?}", defmt::Debug2Format(&e));
+                                        error!("Failed to read track: {:?}", &e);
                                     }
                                 }
                             } else {
@@ -305,7 +305,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                         unsafe { core::ptr::write_volatile(&mut self.active_track.layout, layout); }
                                     }
                                     Err(e) => {
-                                        error!("Failed to read track on mount: {:?}", defmt::Debug2Format(&e));
+                                        error!("Failed to read track on mount: {:?}", &e);
                                         unsafe { core::ptr::write_volatile(&mut self.active_track.layout, pico1541_common::formats::TrackLayout::Void); }
                                     }
                                 }

@@ -100,7 +100,5 @@ pub static SETTINGS_SAVE_REQUEST: portable_atomic::AtomicU8 = portable_atomic::A
 
 #[cfg(test)]
 mod test_imports {
-    use hadris_fat::*;
-    use hadris_io::*;
 }
 

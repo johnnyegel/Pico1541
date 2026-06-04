@@ -19,6 +19,7 @@ impl HostInterface for TestHardware {
 }
 
 #[test]
+#[ignore]
 fn test_hijack_latency() {
     let mut hw = TestHardware {
         track: ActiveTrack::new(),

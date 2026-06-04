@@ -14,6 +14,8 @@ fn test_handler_detects_cd_command() {
     handler.handle(DriveEvent::IecSnoopByteReceived(b'E', false), &mut |_| {});
     handler.handle(DriveEvent::IecSnoopByteReceived(b'S', false), &mut |_| {});
     handler.handle(DriveEvent::IecSnoopByteReceived(b'T', true), &mut |_| {});
+    handler.handle(DriveEvent::IecSnoopEndOfTransaction, &mut |_| {});
+    handler.handle(DriveEvent::IecSnoopTransactionComplete, &mut |_| {});
     
     assert!(handler.is_hijacked());
     assert!(handler.should_discard());

@@ -138,7 +138,7 @@ fn test_dir_listing_virtual() {
         entries,
         pos: 0,
     };
-    let mut vdir = VirtualDiskImage::<pico1541_common::storage::MemoryStorage<'static>, TestSource>::new(source);
+    let mut vdir = VirtualDiskImage::<pico1541_common::storage::MemoryStorage<'static>, TestSource>::new(source, b"TEST");
     vdir.set_id([0x31, 0x31]);
 
     let (mut drive, mut bridge) = common::setup_drive(true, 8);

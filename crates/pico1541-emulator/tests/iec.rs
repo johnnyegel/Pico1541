@@ -148,8 +148,8 @@ fn test_hijack_command_snoop() {
             .execute()
             .await;
         
-        // We actually expect an error here because of the hijack
-        assert!(res.is_err(), "Expected error/timeout due to hijack");
+        // We now expect the command to finish gracefully before the hijack takes effect
+        assert!(res.is_ok(), "Expected command to finish gracefully");
         
         Ok::<(), IecError>(())
     })
@@ -162,7 +162,7 @@ fn test_hijack_command_snoop() {
     }
 
     assert!(handler.is_hijacked(), "Command should be hijacked");
-    assert_eq!(handler.get_command(), Some("CD:"));
+    assert_eq!(handler.get_command(), Some("CD:GAMES"));
 
     // 3. Check drive status - should be 00, OK because the snooper hijacks CD:
     // We must ensure the hijack is CLEARED before checking status

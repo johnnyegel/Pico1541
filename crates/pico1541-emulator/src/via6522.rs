@@ -2,6 +2,9 @@
 //!
 //! This module provides a detailed simulation of the 6522 VIA,
 //! including timers, interrupts, and I/O ports.
+//! However, the functionality is simplified to cover what is actually
+//! used by the 1541 hardware, and some features (like the shift register) 
+//! is simplified to only fire interrupts without actually shifting data.
 
 #[cfg(feature = "debug")]
 use crate::MemoryMonitor;
@@ -286,7 +289,7 @@ impl Via6522 {
     /// Trigger the CA1 IRQ and Latch PA, regardless of the Edge configuration
     /// (Fast convenience method, but this is NOT exact behavior)
     #[link_section = ".data.ram_func"]
-    #[inline]
+    #[inline(always)]
     pub fn ca1_irq(&mut self) {
         self.ifr |= 0x02;
         self.update_irq();
@@ -298,12 +301,13 @@ impl Via6522 {
     /// Trigger the CA2 IRQ, regardless of the Edge configuration
     /// (Fast convenience method, but this is NOT exact behavior)
     #[link_section = ".data.ram_func"]
-    #[inline]
+    #[inline(always)]
     pub fn ca2_irq(&mut self) {
         self.ifr |= 0x01;
         self.update_irq();
     }
 
+    
 
     #[link_section = ".data.ram_func"]
     pub fn set_ca1(&mut self, val: bool) {
@@ -368,6 +372,7 @@ impl Via6522 {
     pub fn get_port_a(&self) -> u8 {
         (self.ora & self.ddra) | (self.in_a & !self.ddra)
     }
+    
 }
 
 #[cfg(feature = "debug")]
@@ -446,8 +451,7 @@ mod tests {
         let mut via = Via6522::new();
         via.write(0x0B, 0x01);
         via.in_a = 0xAA;
-        via.set_ca1(true);
-        via.set_ca1(false);
+        via.ca1_irq();
         via.in_a = 0xFF;
         assert_eq!(via.read(0x01), 0xAA);
     }

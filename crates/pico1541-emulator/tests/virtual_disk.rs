@@ -8,7 +8,8 @@ fn test_virtual_disk_skeleton_orientation() {
     let (mut drive, mut bridge) = setup_drive(true, 8);
 
     // Mount VirtualDiskImage
-    let disk = VirtualDiskImage::<pico1541_common::storage::MemoryStorage<'static>, DummySource>::new(DummySource);
+    let mut disk = VirtualDiskImage::<pico1541_common::storage::MemoryStorage<'static>, DummySource>::new(DummySource, b"TEST");
+    disk.set_id([0x56, 0x44]);
     let mut runner = DiskRunner {
         image: AnyDiskImage::VirtualDisk(disk),
         last_half_track: 255,
@@ -69,7 +70,7 @@ fn test_virtual_disk_skeleton_orientation() {
 fn test_virtual_disk_stridden_warp() {
     let (mut drive, mut bridge) = setup_drive(true, 8);
 
-    let disk = VirtualDiskImage::<pico1541_common::storage::MemoryStorage<'static>, DummySource>::new(DummySource);
+    let disk = VirtualDiskImage::<pico1541_common::storage::MemoryStorage<'static>, DummySource>::new(DummySource, b"TEST");
     let mut runner = DiskRunner {
         image: AnyDiskImage::VirtualDisk(disk),
         last_half_track: 255,
@@ -160,7 +161,7 @@ fn test_virtual_disk_shortcut_generation() {
     use pico1541_common::DiskImage;
 
     let source = DummySource;
-    let mut vdir = VirtualDiskImage::<pico1541_common::storage::MemoryStorage<'static>, DummySource>::new(source);
+    let mut vdir = VirtualDiskImage::<pico1541_common::storage::MemoryStorage<'static>, DummySource>::new(source, b"TEST");
     
     // Set a shortcut entry
     let entry = DirectoryEntry::new(b"MYGAME", 1, 0, 100);

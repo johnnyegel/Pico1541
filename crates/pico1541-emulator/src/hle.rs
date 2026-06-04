@@ -13,6 +13,7 @@ impl HleManager {
     /// silencing any "SYNTAX ERROR" or other failure status that would
     /// normally result from a partially received or hijacked command.
     pub fn intercept_command<H: HostInterface>(bus: &mut SystemBus<H>) {
+        log::info!("intercept_command executed!");
         // 1. Clear the command waiting flag (found at $0255 in 1541-II ROM)
         // This stops the ROM from trying to parse the buffer.
         bus.ram[0x0255] = 0;

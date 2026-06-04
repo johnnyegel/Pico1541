@@ -79,7 +79,7 @@ fn test_virtual_disk_image() {
         entries: vec![DirectoryEntry::new(b"FILE1", 1, 0, 10)],
         pos: 0,
     };
-    let mut img = VirtualDiskImage::<MemoryStorage<'static>, MockSource>::new(source);
+    let mut img = VirtualDiskImage::<MemoryStorage<'static>, MockSource>::new(source, b"TEST");
     let mut dest = vec![0u8; 10000];
 
     let result = block_on(img.read_track(34, &mut dest)).unwrap();
