@@ -291,6 +291,10 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                             
                             // Wait a bit for the C64 DOS to process the WP change before logging the final state
                             embassy_time::Timer::after(embassy_time::Duration::from_millis(50)).await;
+                            
+                            // Force C64 DOS to re-initialize since WP toggle might be missed if motor is off
+                            unsafe { core::ptr::write_volatile(&mut self.active_track.force_disk_change, true); }
+
                             let post_mount_1c = unsafe { core::ptr::read_volatile(&self.active_track.debug_ram_1c) };
                             
                             info!("Image mounted. Re-reading current track. (0x001C state: before_unmount={:#04X}, before_mount={:#04X}, after_mount={:#04X})", 

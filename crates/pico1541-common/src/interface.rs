@@ -15,6 +15,7 @@ pub struct ActiveTrack {
     pub current_byte_idx: u16,
     pub is_dirty: bool,
     pub is_write_protected: bool,
+    pub force_disk_change: bool,
     pub debug_ram_1c: u8,
 }
 
@@ -27,6 +28,7 @@ impl ActiveTrack {
             current_byte_idx: 0,
             is_dirty: false,
             is_write_protected: false,
+            force_disk_change: false,
             debug_ram_1c: 0,
         }
     }
