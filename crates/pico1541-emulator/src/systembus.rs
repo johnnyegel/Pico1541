@@ -134,24 +134,20 @@ pub struct SystemBus<H: HostInterface> {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn tick_cycle(&mut self, hardware: &mut H) {
-        // Resolve the physical IecBusState once per cycle
-        let combined_iec = hardware.iec_host();
+        // Resolve the Host IecBusState once per cycle
+        let host_iec = hardware.iec_host();
         
-        // Subtract the drive's assertions to get the pure host state
-        let mut pure_host_iec = combined_iec;
-        if self.last_drive_iec.get_data() { pure_host_iec.set_data(false); }
-        if self.last_drive_iec.get_clk() { pure_host_iec.set_clk(false); }
-        if self.last_drive_iec.get_atn() { pure_host_iec.set_atn(false); }
-
-        // Update physical bus and VIA inputs if host changed
-        if pure_host_iec != self.last_host_iec {
-            self.last_host_iec = pure_host_iec;
-            self.via1.set_ca1(pure_host_iec.get_atn());
+        // Update physical bus and VIA inputs if host OR drive changed
+        // Actually, we update it every cycle for simplicity if we don't know when drive changed.
+        // But we know drive only changes on VIA writes.
+        if host_iec != self.last_host_iec {
+            self.last_host_iec = host_iec;
+            self.via1.set_ca1(host_iec.get_atn());
             self.update_physical_iec(hardware);
         }
 
-        // Notify hardware of the pure host bus state change every cycle
-        hardware.sync(pure_host_iec);
+        // Notify hardware of the host bus state change every cycle
+        hardware.sync(host_iec);
 
         // Check for hardware configuration changes every 1024 cycles (~1ms)
         self.cycle_counter = self.cycle_counter.wrapping_add(1);
