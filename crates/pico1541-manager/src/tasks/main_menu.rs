@@ -260,23 +260,6 @@ where
             };
 
             let path_str = current_path.as_str();
-            let mut dir_name_buf = String::<32>::new();
-            let dir_name = if path_str == "/" {
-                if use_internal {
-                    "INTERNAL"
-                } else if let Some(label) = self.storage.volume_label() {
-                    let _ = dir_name_buf.push_str(label.as_str());
-                    dir_name_buf.as_str()
-                } else {
-                    "SD CARD"
-                }
-            } else {
-                if let Some(idx) = path_str.rfind('/') {
-                    &path_str[idx + 1..]
-                } else {
-                    path_str
-                }
-            };
 
             let current_block = cursor / 16;
             let initial_start_block = current_block.saturating_sub(1);
@@ -317,6 +300,24 @@ where
                 }
                 return false;
             }
+
+            let mut dir_name_buf = String::<32>::new();
+            let dir_name = if path_str == "/" {
+                if use_internal {
+                    "INTERNAL"
+                } else if let Some(label) = self.storage.volume_label() {
+                    let _ = dir_name_buf.push_str(label.as_str());
+                    dir_name_buf.as_str()
+                } else {
+                    "SD CARD"
+                }
+            } else {
+                if let Some(idx) = path_str.rfind('/') {
+                    &path_str[idx + 1..]
+                } else {
+                    path_str
+                }
+            };
 
             // Build directory entries for the virtual disk using PagedDirectorySource.
             // Distribute the fetched entries into blocks; set_block auto-detects end-of-dir.

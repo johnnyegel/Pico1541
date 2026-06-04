@@ -209,11 +209,13 @@ impl<S, D: DirectorySource> VirtualDiskImage<S, D> {
     }
 
     pub fn force_update_directory_sectors(&mut self, gcr_data: &mut [u8]) {
-        // Sector 1 must be generated FIRST so it contains the first 8 directory entries.
+        // To update Sector 1, we must simulate the head being in Sector 2
         self.next_sector_to_update = 1;
-        self.update_dynamic_buffer(40 + 372 * 1 + 1, gcr_data); // Updates Sector 1
+        self.update_dynamic_buffer(40 + 372 * 2 + 1, gcr_data); // Head in Sector 2, updates Sector 1
+        
+        // To update Sector 2, we must simulate the head being in Sector 1
         self.next_sector_to_update = 2;
-        self.update_dynamic_buffer(40 + 372 * 2 + 1, gcr_data); // Updates Sector 2
+        self.update_dynamic_buffer(40 + 372 * 1 + 1, gcr_data); // Head in Sector 1, updates Sector 2
         
         self.next_sector_to_update = 1; // When actual read starts, wait for Sector 1 to pass, then update Sector 2
     }
@@ -430,6 +432,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                 }
             }
 
+            self.force_update_directory_sectors(dest);
             return Ok(TrackLayout::Accurate(7142));
         }
 
