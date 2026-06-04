@@ -1,4 +1,5 @@
 # Ignore output and AI instructions
+temp/**
 target/**
 GEMINI.md
 CLAUDE.md
