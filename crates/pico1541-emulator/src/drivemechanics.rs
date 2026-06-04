@@ -80,12 +80,12 @@ impl DriveMechanics {
     /// Returns true if a new byte is ready to be processed by the CPU, and the SO pin should be set
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn tick<H: HostInterface>(&mut self, hardware: &mut H, via1: &mut crate::via6522::Via6522, via2: &mut Via6522, requested_sector: u8) -> bool {
+    pub fn tick<H: HostInterface>(&mut self, hardware: &mut H, _via1: &mut crate::via6522::Via6522, via2: &mut Via6522, requested_sector: u8) -> bool {
         let wp = unsafe { core::ptr::read_volatile(&hardware.get_active_track().is_write_protected) };
         if wp {
-            via1.in_a &= !0x10; // LOW = Write protected
+            via2.in_b &= !0x10; // LOW = Write protected
         } else {
-            via1.in_a |= 0x10;  // HIGH = Not write protected
+            via2.in_b |= 0x10;  // HIGH = Not write protected
         }
 
         // :? Is the motor off? (PB2)
