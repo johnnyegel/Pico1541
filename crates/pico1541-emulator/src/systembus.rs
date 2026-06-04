@@ -171,7 +171,13 @@ pub struct SystemBus<H: HostInterface> {
 
         // Progress the drive mechanics and update SO pin status
         let requested_sector = self.ram[0x000C];
-        self.so_active = self.mechanics.tick(hardware, &mut self.via2, requested_sector);
+        self.so_active = self.mechanics.tick(hardware, &mut self.via1, &mut self.via2, requested_sector);
+        
+        let ram1c = self.ram[0x001C];
+        let track = hardware.get_active_track();
+        if track.debug_ram_1c != ram1c {
+            unsafe { core::ptr::write_volatile(&mut track.debug_ram_1c, ram1c); }
+        }
     }
 
     #[link_section = ".data.ram_func"]

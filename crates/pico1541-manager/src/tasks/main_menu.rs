@@ -142,6 +142,7 @@ where
         {
             let mut disk = self._disk_image.lock().await;
             *disk = None;
+            let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::ImageUnmounted);
         }
 
         // 1. Boot Screen
@@ -311,6 +312,7 @@ where
                 if !use_internal {
                     let mut disk = self._disk_image.lock().await;
                     *disk = None;
+                    let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::ImageUnmounted);
                     self.leds.set_status(StatusLedMode::Unmounted);
                 }
                 return false;
@@ -403,6 +405,7 @@ where
                         if current_path_mut.as_str() == "/" {
                             let mut disk = self._disk_image.lock().await;
                             *disk = None;
+                            let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::ImageUnmounted);
                             self.leds.set_status(StatusLedMode::Unmounted);
                             return false;
                         } else {
@@ -418,6 +421,7 @@ where
                     MenuEvent::Home => {
                         let mut disk = self._disk_image.lock().await;
                         *disk = None;
+                        let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::ImageUnmounted);
                         self.leds.set_status(StatusLedMode::Unmounted);
                         return true;
                     }
@@ -425,6 +429,7 @@ where
                         if self.monitor_page().await {
                             let mut disk = self._disk_image.lock().await;
                             *disk = None;
+                            let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::ImageUnmounted);
                             self.leds.set_status(StatusLedMode::Unmounted);
                             return true;
                         }
@@ -436,6 +441,7 @@ where
                 if !use_internal {
                     let mut disk = self._disk_image.lock().await;
                     *disk = None;
+                    let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::ImageUnmounted);
                     self.leds.set_status(StatusLedMode::Unmounted);
                 }
                 return false;
@@ -588,6 +594,7 @@ where
                 MenuEvent::Timeout => {
                     let mut disk = self._disk_image.lock().await;
                     *disk = None;
+                    let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::ImageUnmounted);
                     self.leds.set_status(StatusLedMode::Unmounted);
                     if !use_internal && title == "SD Card" {
                         self.sd_path = String::from_str("/").unwrap();
@@ -649,6 +656,7 @@ where
                         if Some(full_path.clone()) == self.mounted_file_path {
                             let mut disk = self._disk_image.lock().await;
                             *disk = None;
+                            let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::ImageUnmounted);
                             self.leds.set_status(StatusLedMode::Unmounted);
                             self.mounted_file_path = None;
                             continue;
@@ -873,6 +881,7 @@ where
                     if is_root {
                         let mut disk = self._disk_image.lock().await;
                         *disk = None;
+                        let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::ImageUnmounted);
                         self.leds.set_status(StatusLedMode::Unmounted);
                         self.mounted_file_path = None;
                         return false;
@@ -889,6 +898,7 @@ where
                 MenuEvent::Home => {
                     let mut disk = self._disk_image.lock().await;
                     *disk = None;
+                    let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::ImageUnmounted);
                     self.leds.set_status(StatusLedMode::Unmounted);
                     self.mounted_file_path = None;
                     return true;
@@ -897,6 +907,7 @@ where
                     if self.monitor_page().await {
                         let mut disk = self._disk_image.lock().await;
                         *disk = None;
+                        let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::ImageUnmounted);
                         self.leds.set_status(StatusLedMode::Unmounted);
                         self.mounted_file_path = None;
                         return true;

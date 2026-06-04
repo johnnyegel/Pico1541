@@ -14,16 +14,20 @@ pub struct ActiveTrack {
     // FIXME! This should NOT be part of the active track!
     pub current_byte_idx: u16,
     pub is_dirty: bool,
+    pub is_write_protected: bool,
+    pub debug_ram_1c: u8,
 }
 
 impl ActiveTrack {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             half_track: 0,
             layout: TrackLayout::Void,
             gcr_data: [0; MAX_TRACK_BYTES],
             current_byte_idx: 0,
             is_dirty: false,
+            is_write_protected: false,
+            debug_ram_1c: 0,
         }
     }
 }

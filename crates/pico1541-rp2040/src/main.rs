@@ -1013,6 +1013,7 @@ fn emulator_loop(drive: &'static mut Emulator<HardwareBridge>, mut bridge: Hardw
                     drive.reset(&mut bridge);
                     was_reset = false;
                 }
+                
                 let t1 = cortex_m::peripheral::SYST::get_current();
                 let elapsed = drive.tick(&mut bridge);
                 let t3 = cortex_m::peripheral::SYST::get_current();

@@ -4,7 +4,10 @@ use pico1541_common::interface::ActiveTrack;
 use pico1541_common::storage::DirectorySource;
 use crate::{CMD_CHANNEL, InternalCommand};
 use embassy_futures::select::{select, Either};
-use log::*;
+#[cfg(feature = "defmt")]
+use defmt::{info, warn, error, debug};
+#[cfg(not(feature = "defmt"))]
+use log::{info, warn, error, debug};
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
@@ -225,7 +228,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                     self.active_track.layout = layout;
                                 }
                                 Err(e) => {
-                                    error!("Failed to restore active track: {:?}", e);
+                                    error!("Failed to restore active track: {:?}", defmt::Debug2Format(&e));
                                     self.active_track.layout = pico1541_common::formats::TrackLayout::Void;
                                 }
                             }
@@ -248,7 +251,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                         self.active_track.half_track = half_track;
                                     }
                                     Err(e) => {
-                                        error!("Failed to read track: {:?}", e);
+                                        error!("Failed to read track: {:?}", defmt::Debug2Format(&e));
                                     }
                                 }
                             } else {
@@ -270,28 +273,59 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                             }
                         }
                         InternalCommand::ImageMounted => {
-                            info!("Image mounted. Simulating disk removal.");
-                            self.active_track.layout = pico1541_common::formats::TrackLayout::Void;
-                            embassy_time::Timer::after(embassy_time::Duration::from_millis(50)).await;
+                            info!("Image mounted. Simulating disk insertion.");
                             
-                            info!("Image mounted. Re-reading current track.");
+                            // 1. Unmount sequence (in case a disk was already there)
+                            let pre_unmount_1c = unsafe { core::ptr::read_volatile(&self.active_track.debug_ram_1c) };
+                            unsafe { core::ptr::write_volatile(&mut self.active_track.layout, pico1541_common::formats::TrackLayout::Void); }
+                            unsafe { core::ptr::write_volatile(&mut self.active_track.is_write_protected, true); } // LOW (sliding out)
+                            embassy_time::Timer::after(embassy_time::Duration::from_millis(50)).await;
+                            unsafe { core::ptr::write_volatile(&mut self.active_track.is_write_protected, false); } // HIGH (no disk)
+                            embassy_time::Timer::after(embassy_time::Duration::from_millis(150)).await;
+                            
+                            // 2. Mount sequence
+                            let pre_mount_1c = unsafe { core::ptr::read_volatile(&self.active_track.debug_ram_1c) };
+                            unsafe { core::ptr::write_volatile(&mut self.active_track.is_write_protected, true); } // LOW (sliding in)
+                            embassy_time::Timer::after(embassy_time::Duration::from_millis(50)).await;
+                            unsafe { core::ptr::write_volatile(&mut self.active_track.is_write_protected, true); } // LOW (configured: always write protected)
+                            
+                            // Wait a bit for the C64 DOS to process the WP change before logging the final state
+                            embassy_time::Timer::after(embassy_time::Duration::from_millis(50)).await;
+                            let post_mount_1c = unsafe { core::ptr::read_volatile(&self.active_track.debug_ram_1c) };
+                            
+                            info!("Image mounted. Re-reading current track. (0x001C state: before_unmount={:#04X}, before_mount={:#04X}, after_mount={:#04X})", 
+                                pre_unmount_1c, pre_mount_1c, post_mount_1c);
                             let half_track = self.active_track.half_track;
                             let gcr_buf = &raw mut VDISK_GCR_BUF;
                             let mut disk_opt = self.disk_image.lock().await;
                             if let Some(disk) = disk_opt.as_mut() {
                                 match disk.read_track(half_track, unsafe { &mut *gcr_buf }).await {
                                     Ok(layout) => {
+                                        // Update the active track data
                                         self.active_track.gcr_data.copy_from_slice(unsafe { &*gcr_buf });
-                                        self.active_track.layout = layout;
+                                        unsafe { core::ptr::write_volatile(&mut self.active_track.layout, layout); }
                                     }
                                     Err(e) => {
-                                        error!("Failed to read track on mount: {:?}", e);
-                                        self.active_track.layout = pico1541_common::formats::TrackLayout::Void;
+                                        error!("Failed to read track on mount: {:?}", defmt::Debug2Format(&e));
+                                        unsafe { core::ptr::write_volatile(&mut self.active_track.layout, pico1541_common::formats::TrackLayout::Void); }
                                     }
                                 }
-                            } else {
-                                self.active_track.layout = pico1541_common::formats::TrackLayout::Void;
                             }
+                        }
+                        InternalCommand::ImageUnmounted => {
+                            info!("Image unmounted. Simulating disk removal.");
+                            let pre_unmount_1c = unsafe { core::ptr::read_volatile(&self.active_track.debug_ram_1c) };
+                            unsafe { core::ptr::write_volatile(&mut self.active_track.layout, pico1541_common::formats::TrackLayout::Void); }
+                            unsafe { core::ptr::write_volatile(&mut self.active_track.is_write_protected, true); } // LOW (sliding out)
+                            embassy_time::Timer::after(embassy_time::Duration::from_millis(50)).await;
+                            unsafe { core::ptr::write_volatile(&mut self.active_track.is_write_protected, false); } // HIGH (no disk)
+                            
+                            // Wait a bit for the C64 DOS to process the WP change before logging the final state
+                            embassy_time::Timer::after(embassy_time::Duration::from_millis(50)).await;
+                            let post_unmount_1c = unsafe { core::ptr::read_volatile(&self.active_track.debug_ram_1c) };
+                            
+                            info!("Image unmounted. Simulating disk removal completed. (0x001C state: before={:#04X}, after={:#04X})", 
+                                pre_unmount_1c, post_unmount_1c);
                         }
                         InternalCommand::LoadFile(filename) => {
                             let is_dir = filename[0] == b'$';

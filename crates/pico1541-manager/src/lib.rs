@@ -42,6 +42,7 @@ pub enum InternalCommand {
     HeadStepped(u8),
     ResetDirectory,
     ImageMounted,
+    ImageUnmounted,
     MotorState(bool),
 }
 
