@@ -276,7 +276,6 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                             info!("Image mounted. Simulating disk insertion.");
                             
                             // 1. Unmount sequence (in case a disk was already there)
-                            let pre_unmount_1c = unsafe { core::ptr::read_volatile(&self.active_track.debug_ram_1c) };
                             unsafe { core::ptr::write_volatile(&mut self.active_track.layout, pico1541_common::formats::TrackLayout::Void); }
                             unsafe { core::ptr::write_volatile(&mut self.active_track.is_write_protected, true); } // LOW (sliding out)
                             embassy_time::Timer::after(embassy_time::Duration::from_millis(50)).await;
@@ -284,7 +283,6 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                             embassy_time::Timer::after(embassy_time::Duration::from_millis(150)).await;
                             
                             // 2. Mount sequence
-                            let pre_mount_1c = unsafe { core::ptr::read_volatile(&self.active_track.debug_ram_1c) };
                             unsafe { core::ptr::write_volatile(&mut self.active_track.is_write_protected, true); } // LOW (sliding in)
                             embassy_time::Timer::after(embassy_time::Duration::from_millis(50)).await;
                             unsafe { core::ptr::write_volatile(&mut self.active_track.is_write_protected, true); } // LOW (configured: always write protected)
@@ -295,10 +293,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                             // Force C64 DOS to re-initialize since WP toggle might be missed if motor is off
                             unsafe { core::ptr::write_volatile(&mut self.active_track.force_disk_change, true); }
 
-                            let post_mount_1c = unsafe { core::ptr::read_volatile(&self.active_track.debug_ram_1c) };
-                            
-                            info!("Image mounted. Re-reading current track. (0x001C state: before_unmount={:#04X}, before_mount={:#04X}, after_mount={:#04X})", 
-                                pre_unmount_1c, pre_mount_1c, post_mount_1c);
+                            info!("Image mounted. Re-reading current track.");
                             let half_track = self.active_track.half_track;
                             let gcr_buf = &raw mut VDISK_GCR_BUF;
                             let mut disk_opt = self.disk_image.lock().await;
@@ -318,7 +313,6 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                         }
                         InternalCommand::ImageUnmounted => {
                             info!("Image unmounted. Simulating disk removal.");
-                            let pre_unmount_1c = unsafe { core::ptr::read_volatile(&self.active_track.debug_ram_1c) };
                             unsafe { core::ptr::write_volatile(&mut self.active_track.layout, pico1541_common::formats::TrackLayout::Void); }
                             unsafe { core::ptr::write_volatile(&mut self.active_track.is_write_protected, true); } // LOW (sliding out)
                             embassy_time::Timer::after(embassy_time::Duration::from_millis(50)).await;
@@ -326,10 +320,8 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                             
                             // Wait a bit for the C64 DOS to process the WP change before logging the final state
                             embassy_time::Timer::after(embassy_time::Duration::from_millis(50)).await;
-                            let post_unmount_1c = unsafe { core::ptr::read_volatile(&self.active_track.debug_ram_1c) };
                             
-                            info!("Image unmounted. Simulating disk removal completed. (0x001C state: before={:#04X}, after={:#04X})", 
-                                pre_unmount_1c, post_unmount_1c);
+                            info!("Image unmounted. Simulating disk removal completed.");
                         }
                         InternalCommand::LoadFile(filename) => {
                             let is_dir = filename[0] == b'$';

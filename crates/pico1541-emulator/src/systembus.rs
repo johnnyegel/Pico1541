@@ -173,16 +173,10 @@ pub struct SystemBus<H: HostInterface> {
         let requested_sector = self.ram[0x000C];
         self.so_active = self.mechanics.tick(hardware, &mut self.via1, &mut self.via2, requested_sector);
         
-        let ram1c = self.ram[0x001C];
         let track = hardware.get_active_track();
-        
         if unsafe { core::ptr::read_volatile(&track.force_disk_change) } {
             unsafe { core::ptr::write_volatile(&mut track.force_disk_change, false); }
             self.ram[0x001C] = 1;
-        }
-
-        if track.debug_ram_1c != ram1c {
-            unsafe { core::ptr::write_volatile(&mut track.debug_ram_1c, ram1c); }
         }
     }
 
