@@ -81,13 +81,6 @@ impl DriveMechanics {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn tick<H: HostInterface>(&mut self, hardware: &mut H, _via1: &mut crate::via6522::Via6522, via2: &mut Via6522, requested_sector: u8) -> bool {
-        let wp = unsafe { core::ptr::read_volatile(&hardware.get_active_track().is_write_protected) };
-        if wp {
-            via2.in_b &= !0x10; // LOW = Write protected
-        } else {
-            via2.in_b |= 0x10;  // HIGH = Not write protected
-        }
-
         // :? Is the motor off? (PB2)
         if (self.last_state & MASK_MOTOR) == 0 {
             return false;

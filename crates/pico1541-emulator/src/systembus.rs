@@ -138,16 +138,14 @@ pub struct SystemBus<H: HostInterface> {
         let host_iec = hardware.iec_host();
         
         // Update physical bus and VIA inputs if host OR drive changed
-        // Actually, we update it every cycle for simplicity if we don't know when drive changed.
-        // But we know drive only changes on VIA writes.
         if host_iec != self.last_host_iec {
             self.last_host_iec = host_iec;
             self.via1.set_ca1(host_iec.get_atn());
             self.update_physical_iec(hardware);
+            
+            // Notify hardware of the host bus state change
+            hardware.sync(host_iec);
         }
-
-        // Notify hardware of the host bus state change every cycle
-        hardware.sync(host_iec);
 
         // Check for hardware configuration changes every 1024 cycles (~1ms)
         self.cycle_counter = self.cycle_counter.wrapping_add(1);
@@ -158,6 +156,19 @@ pub struct SystemBus<H: HostInterface> {
             if hardware.pop_discard_request() {
                 crate::hle::HleManager::intercept_command(self);
                 self.update_physical_iec(hardware);
+            }
+            
+            let track = hardware.get_active_track();
+            if unsafe { core::ptr::read_volatile(&track.force_disk_change) } {
+                unsafe { core::ptr::write_volatile(&mut track.force_disk_change, false); }
+                self.ram[0x001C] = 1;
+            }
+            
+            let wp = unsafe { core::ptr::read_volatile(&track.is_write_protected) };
+            if wp {
+                self.via2.in_b &= !0x10; // LOW = Write protected
+            } else {
+                self.via2.in_b |= 0x10;  // HIGH = Not write protected
             }
         }
 
@@ -172,12 +183,6 @@ pub struct SystemBus<H: HostInterface> {
         // Progress the drive mechanics and update SO pin status
         let requested_sector = self.ram[0x000C];
         self.so_active = self.mechanics.tick(hardware, &mut self.via1, &mut self.via2, requested_sector);
-        
-        let track = hardware.get_active_track();
-        if unsafe { core::ptr::read_volatile(&track.force_disk_change) } {
-            unsafe { core::ptr::write_volatile(&mut track.force_disk_change, false); }
-            self.ram[0x001C] = 1;
-        }
     }
 
     #[link_section = ".data.ram_func"]
