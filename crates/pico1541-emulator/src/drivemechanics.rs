@@ -113,9 +113,13 @@ impl DriveMechanics {
         // :? Is Read mode enabled?
         if is_read_mode {
             // -> Yes, then get the byte
-            let gcr_byte = gcr_pos
+            let gcr_byte = if track.layout == pico1541_common::formats::TrackLayout::SyncWait {
+                BYTE_SYNC
+            } else {
+                gcr_pos
                     .map(|ix| track.gcr_data[ix])
-                    .unwrap_or(BYTE_VOID);
+                    .unwrap_or(BYTE_VOID)
+            };
 
             // SYNC signal is Active LOW (0 = SYNC found, 1 = No SYNC)
             if gcr_byte == BYTE_SYNC {
@@ -222,6 +226,10 @@ impl DriveMechanics {
                 true
             },
             TrackLayout::Void => {
+                self.last_requested_sector = 0xFF; // Reset sector tracking on void track
+                false
+            },
+            TrackLayout::SyncWait => {
                 self.last_requested_sector = 0xFF; // Reset sector tracking on void track
                 false
             }

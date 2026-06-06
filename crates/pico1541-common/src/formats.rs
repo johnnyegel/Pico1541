@@ -29,6 +29,8 @@ pub enum TrackLayout {
     /// There is no readable nor writable track (either no disk, or track is not formatted)
     /// This track layout can NOT be written to!
     Void,
+    /// A special track layout that continuously emits SYNC bytes to pause the 1541 ROM.
+    SyncWait,
 }
 
 

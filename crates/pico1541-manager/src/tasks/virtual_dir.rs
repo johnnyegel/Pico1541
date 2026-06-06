@@ -168,8 +168,9 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
 
                     if let Some((blocks_start, blocks_count)) = block_batch {
 
-                        // Mark active track as Void during background directory fetch to prevent Core 0 emu hang/timeouts.
-                        self.active_track.layout = pico1541_common::formats::TrackLayout::Void;
+                        // Mark active track as SyncWait during background directory fetch to prevent Core 0 emu hang/timeouts.
+                        let old_layout = self.active_track.layout.clone();
+                        self.active_track.layout = pico1541_common::formats::TrackLayout::SyncWait;
 
                         let (path, use_internal) = {
                             let guard = self.mounted_dir.lock().await;
@@ -218,23 +219,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                             }
                         }
 
-                        let half_track = self.active_track.half_track;
-                        let gcr_buf = &raw mut VDISK_GCR_BUF;
-                        let mut disk_opt = self.disk_image.lock().await;
-                        if let Some(disk) = disk_opt.as_mut() {
-                            match disk.read_track(half_track, unsafe { &mut *gcr_buf }).await {
-                                Ok(layout) => {
-                                    self.active_track.gcr_data.copy_from_slice(unsafe { &*gcr_buf });
-                                    self.active_track.layout = layout;
-                                }
-                                Err(e) => {
-                                    error!("Failed to restore active track: {:?}", &e);
-                                    self.active_track.layout = pico1541_common::formats::TrackLayout::Void;
-                                }
-                            }
-                        } else {
-                            self.active_track.layout = pico1541_common::formats::TrackLayout::Void;
-                        }
+                        self.active_track.layout = old_layout;
                     }
                 }
                 Either::Second(cmd) => {
@@ -346,10 +331,10 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                 drop(disk_opt);
                                 
                                 if is_virtual_disk {
-                                    // Temporarily set layout to Void so the 1541 DOS waits for SYNC
-                                    // while we fetch the directory, preventing race conditions.
+                                    // Temporarily set layout to SyncWait so the 1541 DOS waits for SYNC
+                                    // while we fetch the directory, preventing race conditions and timeouts.
                                     let old_layout = self.active_track.layout.clone();
-                                    self.active_track.layout = pico1541_common::formats::TrackLayout::Void;
+                                    self.active_track.layout = pico1541_common::formats::TrackLayout::SyncWait;
                                     
                                     // Fetch first block synchronously to prevent empty directory
                                     let (dir_path, use_internal) = {
@@ -386,7 +371,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                 info!("Opening file in Virtual Disk...");
                                 // Set layout to Void while opening, to prevent reading while state is unstable
                                 let old_layout = self.active_track.layout.clone();
-                                self.active_track.layout = pico1541_common::formats::TrackLayout::Void;
+                                self.active_track.layout = pico1541_common::formats::TrackLayout::SyncWait;
 
                                 match self.opener.open_file(&filename).await {
                                     Ok(file_storage) => {
