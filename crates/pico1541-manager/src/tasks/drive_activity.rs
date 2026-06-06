@@ -40,9 +40,6 @@ impl<I: IndicatorDriver> DriveActivityTask<I> {
                     self.motor_on = active;
                     self.update_led();
                     let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::MotorState(active));
-                    if active {
-                        let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::ResetDirectory);
-                    }
                 }
                 DriveEvent::HeadStepped { new_half_track } => {
                     info!("Drive head stepped to half_track {}", new_half_track);

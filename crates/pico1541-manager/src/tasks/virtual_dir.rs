@@ -247,16 +247,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                         InternalCommand::MotorState(active) => {
                             motor_on = active;
                         }
-                        InternalCommand::ResetDirectory => {
-                            info!("Motor ON detected. Resetting virtual directory to start.");
-                            let mut disk_opt = self.disk_image.lock().await;
-                            if let Some(disk) = disk_opt.as_mut() {
-                                if let Some(vdir) = disk.as_virtual_disk_mut() {
-                                    vdir.source.rewind();
-                                    vdir.force_update_directory_sectors(&mut self.active_track.gcr_data);
-                                }
-                            }
-                        }
+
                         InternalCommand::ImageMounted => {
                             info!("Image mounted. Simulating disk insertion.");
                             

@@ -103,37 +103,6 @@ where
         }
     }
 
-    fn create_directory_entry(&self, name: &[u8], is_dir: bool, size: u32) -> pico1541_common::storage::DirectoryEntry {
-        let mut filename = [0xA0; 16];
-        let mut len = 0;
-        for &b in name.iter() {
-            if b == 0 || len >= 16 {
-                break;
-            }
-            let c = if b >= b'a' && b <= b'z' {
-                b - b'a' + b'A'
-            } else {
-                b
-            };
-            filename[len] = c;
-            len += 1;
-        }
-        
-        let file_type = if is_dir {
-            0x81
-        } else {
-            0x82
-        };
-        
-        pico1541_common::storage::DirectoryEntry {
-            file_type,
-            filename,
-            first_track: 1,
-            first_sector: 0,
-            block_size: ((size + 253) / 254) as u16,
-        }
-    }
-
 
 
     pub async fn run(&mut self) -> ! {
@@ -329,7 +298,7 @@ where
                     while name_len < info.name.len() && info.name[name_len] != 0 {
                         name_len += 1;
                     }
-                    let entry = self.create_directory_entry(&info.name[..name_len], info.is_dir, info.size);
+                    let entry = pico1541_common::storage::DirectoryEntry::from_file_info(&info.name[..name_len], info.is_dir, info.size);
                     let _ = block_entries.push(entry);
                 }
                 dir_source.set_block(initial_start_block + block_idx, &block_entries);
@@ -746,7 +715,7 @@ where
                             while name_len < selected.name.len() && selected.name[name_len] != 0 {
                                 name_len += 1;
                             }
-                            let entry = self.create_directory_entry(&selected.name[..name_len], false, selected.size);
+                            let entry = pico1541_common::storage::DirectoryEntry::from_file_info(&selected.name[..name_len], false, selected.size);
                             let mut dir_source = pico1541_common::storage::PagedDirectorySource::new(filename.as_bytes());
                             let mut block_entries = Vec::<pico1541_common::storage::DirectoryEntry, 16>::new();
                             let _ = block_entries.push(entry);

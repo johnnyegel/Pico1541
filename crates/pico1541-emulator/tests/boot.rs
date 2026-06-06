@@ -279,3 +279,184 @@ fn test_dir_listing_g64() {
     })
     .unwrap();
 }
+
+#[test]
+fn test_dir_listing_stable() {
+    use pico1541_common::formats::{DiskImage, TrackLayout, VirtualDiskImage};
+    use pico1541_common::storage::{DirectoryEntry, DirectorySource};
+    use pollster::block_on;
+
+    struct TestSource {
+        name: [u8; 16],
+        entries: Vec<DirectoryEntry>,
+        pos: usize,
+    }
+    impl DirectorySource for TestSource {
+        fn name(&self) -> &[u8; 16] {
+            &self.name
+        }
+        fn next_entry(&mut self) -> Option<DirectoryEntry> {
+            if self.pos < self.entries.len() {
+                let e = self.entries[self.pos];
+                self.pos += 1;
+                Some(e)
+            } else {
+                None
+            }
+        }
+        fn rewind(&mut self) {
+            self.pos = 0;
+        }
+    }
+
+    let mut name = [0u8; 16];
+    name[0..12].copy_from_slice(b"STABLE DISK ");
+    let mut entries = Vec::new();
+    entries.push(DirectoryEntry {
+        filename: *b"GAME            ",
+        block_size: 10,
+        file_type: 0x82, // PRG
+        first_track: 18,
+        first_sector: 1,
+    });
+    entries.push(DirectoryEntry {
+        filename: *b"FILE01          ",
+        block_size: 20,
+        file_type: 0x82, // PRG
+        first_track: 18,
+        first_sector: 3,
+    });
+
+    let source = TestSource {
+        name,
+        entries,
+        pos: 0,
+    };
+    let mut vdir = VirtualDiskImage::<pico1541_common::storage::MemoryStorage<'static>, TestSource>::new(source, b"TEST");
+    vdir.set_id([0x31, 0x31]);
+
+    let (mut drive, mut bridge) = common::setup_drive(true, 8);
+
+    log::info!("Waiting for drive to reach idle loop...");
+    let mut timeout = 0;
+    while !bridge.is_idle(&drive) {
+        bridge.ticks(&mut drive, 1000);
+        timeout += 1;
+        if timeout > 5000 {
+            panic!(
+                "Drive never reached idle loop after reset (PC=${:04X})",
+                drive.pc()
+            );
+        }
+    }
+
+    let mut gcr_data = [0u8; pico1541_common::interface::MAX_TRACK_BYTES];
+    let layout = block_on(vdir.read_track(34, &mut gcr_data)).expect("read_track failed");
+
+    bridge.track.gcr_data.copy_from_slice(&gcr_data);
+    bridge.track.layout = layout;
+
+    // Use a sync hook to keep the virtual track in sync with head position
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    let layout_rc = Rc::new(RefCell::new(layout));
+    let layout_clone = layout_rc.clone();
+
+    bridge.sync_hook = Some(Box::new(move |track| {
+        if track.half_track != 34 {
+            track.layout = TrackLayout::Void;
+        } else {
+            track.layout = *layout_clone.borrow();
+        }
+    }));
+
+    // First listing
+    block_on(async {
+        {
+            let mut bus = common::IecTestBridge {
+                drive: &mut drive,
+                bridge: &mut bridge,
+            };
+            IecCommander::new(&mut bus)
+                .open(8, 0xF0) // OPEN 0 (Directory)
+                .send(b"$")
+                .execute()
+                .await?;
+        }
+
+        bridge.ticks(&mut drive, 5_000_000);
+
+        let mut received = Vec::new();
+        {
+            let mut bus = common::IecTestBridge {
+                drive: &mut drive,
+                bridge: &mut bridge,
+            };
+            IecCommander::new(&mut bus)
+                .open(8, 0) // TALK 0
+                .receive(|b| received.push(b))
+                .await?;
+        }
+
+        let text = String::from_utf8_lossy(&received);
+        assert!(text.contains("FILE01"), "Directory listing 1 missing FILE01");
+        assert!(text.contains("STABLE DISK"), "Directory listing 1 missing disk name");
+        Ok::<(), IecError>(())
+    })
+    .unwrap();
+
+    // Send CLOSE 0 (0xE0)
+    block_on(async {
+        let mut bus = common::IecTestBridge {
+            drive: &mut drive,
+            bridge: &mut bridge,
+        };
+        IecCommander::new(&mut bus)
+            .open(8, 0xE0) // CLOSE 0
+            .execute()
+            .await?;
+        Ok::<(), IecError>(())
+    }).unwrap();
+
+    bridge.ticks(&mut drive, 500_000);
+
+    // Call read_track AGAIN to simulate the second load
+    let layout2 = block_on(vdir.read_track(34, &mut gcr_data)).expect("read_track failed");
+    bridge.track.gcr_data.copy_from_slice(&gcr_data);
+    *layout_rc.borrow_mut() = layout2;
+
+    // Second listing
+    block_on(async {
+        {
+            let mut bus = common::IecTestBridge {
+                drive: &mut drive,
+                bridge: &mut bridge,
+            };
+            IecCommander::new(&mut bus)
+                .open(8, 0xF0) // OPEN 0 (Directory)
+                .send(b"$")
+                .execute()
+                .await?;
+        }
+
+        bridge.ticks(&mut drive, 5_000_000);
+
+        let mut received = Vec::new();
+        {
+            let mut bus = common::IecTestBridge {
+                drive: &mut drive,
+                bridge: &mut bridge,
+            };
+            IecCommander::new(&mut bus)
+                .open(8, 0) // TALK 0
+                .receive(|b| received.push(b))
+                .await?;
+        }
+
+        let text = String::from_utf8_lossy(&received);
+        assert!(text.contains("FILE01"), "Directory listing 2 missing FILE01");
+        assert!(text.contains("STABLE DISK"), "Directory listing 2 missing disk name");
+        Ok::<(), IecError>(())
+    })
+    .unwrap();
+}
