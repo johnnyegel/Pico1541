@@ -49,6 +49,7 @@ pub struct VirtualDiskImage<S, D: DirectorySource> {
     pub sector2_idx: usize,
     pub next_sector_to_update: u8,
     pub shortcut_entry: Option<crate::storage::DirectoryEntry>,
+    pub treadmill_spinup_delay: u16,
 }
 
 impl<S, D: DirectorySource> VirtualDiskImage<S, D> {
@@ -74,6 +75,7 @@ impl<S, D: DirectorySource> VirtualDiskImage<S, D> {
             sector2_idx: 0,
             next_sector_to_update: 1,
             shortcut_entry: None,
+            treadmill_spinup_delay: 0,
         }
     }
 
@@ -98,20 +100,22 @@ impl<S, D: DirectorySource> VirtualDiskImage<S, D> {
 
         for (i, entry) in entries.iter().enumerate() {
             let offset = 2 + i * 32;
-            if offset + 32 > 256 {
+            if offset >= 256 {
                 break;
             }
             raw[offset] = entry.file_type;
-            raw[offset + 1] = entry.first_track;
-            raw[offset + 2] = entry.first_sector;
-            raw[offset + 3..offset + 19].copy_from_slice(&entry.filename);
-            raw[offset + 19] = 0; // side track
-            raw[offset + 20] = 0; // side sector
-            raw[offset + 21] = 0; // REL record length
-                                  // 22-25 unused
-                                  // 26-27 unused
-            raw[offset + 28] = (entry.block_size & 0xFF) as u8;
-            raw[offset + 29] = (entry.block_size >> 8) as u8;
+            if offset + 1 < 256 { raw[offset + 1] = entry.first_track; }
+            if offset + 2 < 256 { raw[offset + 2] = entry.first_sector; }
+            for j in 0..16 {
+                if offset + 3 + j < 256 {
+                    raw[offset + 3 + j] = entry.filename[j];
+                }
+            }
+            if offset + 19 < 256 { raw[offset + 19] = 0; } // side track
+            if offset + 20 < 256 { raw[offset + 20] = 0; } // side sector
+            if offset + 21 < 256 { raw[offset + 21] = 0; } // REL record length
+            if offset + 28 < 256 { raw[offset + 28] = (entry.block_size & 0xFF) as u8; }
+            if offset + 29 < 256 { raw[offset + 29] = (entry.block_size >> 8) as u8; }
         }
         dest.copy_from_slice(&raw);
     }
@@ -144,6 +148,11 @@ impl<S, D: DirectorySource> VirtualDiskImage<S, D> {
     }
 
     pub fn update_dynamic_buffer(&mut self, current_byte_idx: usize, gcr_data: &mut [u8]) -> bool {
+        if self.treadmill_spinup_delay > 0 {
+            self.treadmill_spinup_delay -= 1;
+            return false;
+        }
+
         let sector = if current_byte_idx < 40 {
             0xFF
         } else {
@@ -332,7 +341,8 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
 
             self.source.rewind();
 
-            for sector in 0..sectors {
+            for physical_sector in 0..sectors {
+                let sector = ((physical_sector as u32 * 3) % (sectors as u32)) as u8;
                 let mut sector_data = [0u8; 256];
 
                 if sector == 0 {
@@ -374,6 +384,9 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                                 break;
                             }
                         }
+                        
+                        log::info!("Virtual directory (Initial): Laid out {} entries in Sector {}", count, sector);
+                        
                         let (next_t, next_s) = if count == 0 {
                             (0, 0xFF)
                         } else {

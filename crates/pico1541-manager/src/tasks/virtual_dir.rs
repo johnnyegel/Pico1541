@@ -245,6 +245,18 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                             }
                         }
                         InternalCommand::MotorState(active) => {
+                            if active && !motor_on {
+                                let mut disk_opt = self.disk_image.lock().await;
+                                if let Some(disk) = disk_opt.as_mut() {
+                                    if let Some(vdir) = disk.as_virtual_disk_mut() {
+                                        vdir.source.rewind();
+                                        vdir.next_sector_to_update = 1;
+                                        vdir.treadmill_spinup_delay = 10;
+                                        let gcr_buf = &mut self.active_track.gcr_data;
+                                        vdir.force_update_directory_sectors(gcr_buf);
+                                    }
+                                }
+                            }
                             motor_on = active;
                         }
 
@@ -306,6 +318,8 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                     }
                                 ).await;
                                 
+                                info!("ImageMounted: Fetched {} entries from {}", all_entries.len(), dir_path.as_str());
+
                                 let mut disk_opt = self.disk_image.lock().await;
                                 if let Some(disk) = disk_opt.as_mut() {
                                     if let Some(vdir) = disk.as_virtual_disk_mut() {
@@ -400,6 +414,8 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                                     paged.set_total_count(all_entries.len());
                                                 }
                                             }
+                                            vdir.next_sector_to_update = 1;
+                                            vdir.treadmill_spinup_delay = 10;
                                             vdir.force_update_directory_sectors(&mut self.active_track.gcr_data);
                                         }
                                     }

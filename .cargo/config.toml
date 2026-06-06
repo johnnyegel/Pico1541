@@ -16,7 +16,7 @@ EMBASSY_EXECUTOR_TASK_ARENA_SIZE = "1024"
 [alias]
 # Flash via SWD and stream defmt/RTT logs with probe-rs.
 # Usage: cargo flash-rtt
-flash-rtt = [
+flash-swd = [
     "run",
     "--package", "pico1541-rp2040",
     "--target", "thumbv6m-none-eabi",
@@ -32,12 +32,9 @@ flash-usb = [
     "--config", "target.'cfg(all(target_arch = \"arm\", target_os = \"none\"))'.runner = \"elf2uf2-rs -d\"",
 ]
 
-attach-rtt = [
+attach-swd = [
     "run",
     "--package", "pico1541-rp2040",
     "--target", "thumbv6m-none-eabi",
     "--config", "target.'cfg(all(target_arch = \"arm\", target_os = \"none\"))'.runner = \"probe-rs attach --chip RP2040\"",
 ]
-
-# Attaches to the Release build
-attach-rtt-rel = "!probe-rs attach --chip RP2040 target/thumbv6m-none-eabi/release/pico1541-rp2040 --log-format rtt"
