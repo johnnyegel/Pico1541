@@ -194,6 +194,8 @@ impl<S, D: DirectorySource> VirtualDiskImage<S, D> {
             }
         }
 
+        log::debug!("Virtual directory: Laid out {} entries in Sector {}", count, target_sector);
+
         let (next_t, next_s) = if count == 0 {
             (0, 0xFF)
         } else {
