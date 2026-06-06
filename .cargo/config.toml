@@ -31,3 +31,13 @@ flash-usb = [
     "--target", "thumbv6m-none-eabi",
     "--config", "target.'cfg(all(target_arch = \"arm\", target_os = \"none\"))'.runner = \"elf2uf2-rs -d\"",
 ]
+
+attach-rtt = [
+    "run",
+    "--package", "pico1541-rp2040",
+    "--target", "thumbv6m-none-eabi",
+    "--config", "target.'cfg(all(target_arch = \"arm\", target_os = \"none\"))'.runner = \"probe-rs attach --chip RP2040\"",
+]
+
+# Attaches to the Release build
+attach-rtt-rel = "!probe-rs attach --chip RP2040 target/thumbv6m-none-eabi/release/pico1541-rp2040 --log-format rtt"

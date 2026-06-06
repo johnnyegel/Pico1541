@@ -272,6 +272,53 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                             info!("Image mounted. Re-reading current track.");
                             let half_track = self.active_track.half_track;
                             let gcr_buf = &raw mut VDISK_GCR_BUF;
+                            
+                            // Initialize Virtual Directory if applicable before reading track
+                            let mut is_virtual_disk = false;
+                            let mut disk_opt = self.disk_image.lock().await;
+                            if let Some(disk) = disk_opt.as_mut() {
+                                if let Some(vdir) = disk.as_virtual_disk_mut() {
+                                    is_virtual_disk = true;
+                                    vdir.set_shortcut_entry(None);
+                                    vdir.file_storage = None;
+                                    vdir.source.rewind();
+                                    if let Some(paged) = vdir.source.as_paged_mut() {
+                                        paged.invalidate();
+                                    }
+                                }
+                            }
+                            drop(disk_opt);
+                            
+                            if is_virtual_disk {
+                                let (dir_path, use_internal) = {
+                                    let guard = self.mounted_dir.lock().await;
+                                    (guard.0.clone(), guard.1)
+                                };
+                                
+                                let mut all_entries = heapless::Vec::<pico1541_common::storage::DirectoryEntry, 48>::new();
+                                let _ = self.opener.list_dir_range(
+                                    dir_path.as_str(),
+                                    use_internal,
+                                    0,
+                                    16,
+                                    |entry| {
+                                        let _ = all_entries.push(entry);
+                                    }
+                                ).await;
+                                
+                                let mut disk_opt = self.disk_image.lock().await;
+                                if let Some(disk) = disk_opt.as_mut() {
+                                    if let Some(vdir) = disk.as_virtual_disk_mut() {
+                                        if let Some(paged) = vdir.source.as_paged_mut() {
+                                            paged.set_block(0, &all_entries);
+                                            if all_entries.len() < 16 {
+                                                paged.set_total_count(all_entries.len());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             let mut disk_opt = self.disk_image.lock().await;
                             if let Some(disk) = disk_opt.as_mut() {
                                 match disk.read_track(half_track, unsafe { &mut *gcr_buf }).await {
