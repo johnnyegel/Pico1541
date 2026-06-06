@@ -251,9 +251,9 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                     if let Some(vdir) = disk.as_virtual_disk_mut() {
                                         vdir.source.rewind();
                                         vdir.next_sector_to_update = 1;
-                                        vdir.treadmill_spinup_delay = 10;
                                         let gcr_buf = &mut self.active_track.gcr_data;
                                         vdir.force_update_directory_sectors(gcr_buf);
+                                        vdir.treadmill_spinup_delay = 10;
                                     }
                                 }
                             }
@@ -360,6 +360,20 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                             
                             info!("Image unmounted. Simulating disk removal completed.");
                         }
+                        InternalCommand::CloseChannel(sa) => {
+                            if sa == 0 {
+                                info!("Channel 0 closed. Rewinding virtual directory.");
+                                let mut disk_opt = self.disk_image.lock().await;
+                                if let Some(disk) = disk_opt.as_mut() {
+                                    if let Some(vdir) = disk.as_virtual_disk_mut() {
+                                        vdir.source.rewind();
+                                        vdir.next_sector_to_update = 1;
+                                        vdir.force_update_directory_sectors(&mut self.active_track.gcr_data);
+                                        vdir.treadmill_spinup_delay = 10;
+                                    }
+                                }
+                            }
+                        }
                         InternalCommand::LoadFile(filename) => {
                             let is_dir = filename[0] == b'$';
                             
@@ -415,8 +429,8 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                                 }
                                             }
                                             vdir.next_sector_to_update = 1;
-                                            vdir.treadmill_spinup_delay = 10;
                                             vdir.force_update_directory_sectors(&mut self.active_track.gcr_data);
+                                            vdir.treadmill_spinup_delay = 10;
                                         }
                                     }
                                     self.active_track.layout = old_layout;

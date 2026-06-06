@@ -152,9 +152,13 @@ pub enum DriveEvent {
         data: [u8; 32],
         len: u8,
     },
+    /// The Snooper detected a CLOSE command for a specific secondary address
+    IecCloseChannel(u8),
     /// The Snooper has detected the end of a transaction (e.g. UNLISTEN or ATN assertion)
     IecSnoopEndOfTransaction,
     IecSnoopTransactionComplete,
+    /// The Snooper detected that the IEC bus has been fully idle (all lines released) for > 250ms.
+    IecBusIdleTimeout,
 }
 
 /// Open-drain IEC serial bus interface (Emulator side).

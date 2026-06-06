@@ -81,7 +81,9 @@ pub struct IecSnooper {
     is_atn: bool,
 
     is_listening: bool,
-    secondary_address: u8
+    secondary_address: u8,
+    idle_cycles: u32,
+    has_notified_idle: bool,
 }
 
 impl IecSnooper {
@@ -97,6 +99,8 @@ impl IecSnooper {
             is_atn: false,
             is_listening: false,
             secondary_address: 0,
+            idle_cycles: 0,
+            has_notified_idle: false,
         }
     }
 
@@ -110,8 +114,19 @@ impl IecSnooper {
         // Detect edge changed and return early if no change
         let delta = iec_state.delta(&self.last_iec);
         if delta.0 == 0 {
+            if iec_state.0 == 0 {
+                if self.idle_cycles < 250_000 {
+                    self.idle_cycles += 1;
+                } else if !self.has_notified_idle {
+                    self.has_notified_idle = true;
+                    dispatch(DriveEvent::IecBusIdleTimeout);
+                }
+            }
             return
         }
+
+        self.idle_cycles = 0;
+        self.has_notified_idle = false;
 
         // Capture the edge information, and update the last known state
         let edge = IecBusEdge { state: iec_state, delta };
@@ -180,11 +195,17 @@ impl IecSnooper {
         log::debug!("[Snooper] Received byte 0x{:02X} (ATN={}, EOI={})", byte, atn, eoi);
         // :? Is this an ATN byte?
         if atn {
-            // :? Is it a secondary address (0x60..0x7F)?
-            if (byte & 0xE0) == 0x60 {
+            // :? Is it a secondary address?
+            // 0x60..0x6F = DATA, 0xE0..0xEF = CLOSE, 0xF0..0xFF = OPEN
+            let is_sa = (byte & 0xE0) == 0x60 || (byte & 0xE0) == 0xE0 || (byte & 0xF0) == 0xF0;
+            if is_sa {
                 if self.is_listening {
                     self.secondary_address = byte;
-                    dispatch(DriveEvent::IecSnoopSecondaryAddress(byte));
+                    if (byte & 0xE0) == 0xE0 {
+                        dispatch(DriveEvent::IecCloseChannel(byte & 0x0F));
+                    } else {
+                        dispatch(DriveEvent::IecSnoopSecondaryAddress(byte));
+                    }
                 }
             } else if byte == self.listen_addr {
                 // -> No, but this byte is our listen address, so we should start listening

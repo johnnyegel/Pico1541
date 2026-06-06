@@ -52,6 +52,16 @@ impl<I: IndicatorDriver> DriveActivityTask<I> {
                     info!("Manager received IEC command: {}", cmd_str);
                     self.handle_command(cmd_str).await;
                 }
+                DriveEvent::IecCloseChannel(sa) => {
+                    if sa == 0 {
+                        info!("IEC channel 0 closed.");
+                        let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::CloseChannel(sa));
+                    }
+                }
+                DriveEvent::IecBusIdleTimeout => {
+                    info!("IEC bus idle timeout (>250ms). Rewinding directory.");
+                    let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::CloseChannel(0));
+                }
                 _ => {}
             }
         }
