@@ -4,15 +4,8 @@ use pico1541_common::storage::Error as CommonError;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 
-use hadris_fat::r#async::fs::FatFs;
-use hadris_fat::r#async::dir::DirectoryEntry;
-use hadris_fat::DirEntryAttrFlags;
-use hadris_io::SeekFrom;
-use hadris_io::r#async::Seek;
+use fatfs::{FileSystem, FsOptions, Dir, File, SeekFrom as FatFsSeekFrom, Read, Write, Seek};
 use embedded_hal::digital::InputPin;
-
-use hadris_part::r#async::scheme_io::DiskPartitionSchemeReadExt;
-use hadris_part::scheme::DiskPartitionScheme;
 
 fn normalize_path(path: &str) -> &str {
     let mut p = path;
@@ -64,34 +57,35 @@ impl<B> PartitionedBlockDevice<B> {
     }
 }
 
-impl<B: hadris_io::r#async::Read> hadris_io::r#async::Read for PartitionedBlockDevice<B> {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, hadris_io::Error> {
-        self.inner.read(buf).await
+impl<B: fatfs::IoBase> fatfs::IoBase for PartitionedBlockDevice<B> {
+    type Error = B::Error;
+}
+
+impl<B: fatfs::Read> fatfs::Read for PartitionedBlockDevice<B> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        self.inner.read(buf)
     }
 }
 
-impl<B: hadris_io::r#async::Write> hadris_io::r#async::Write for PartitionedBlockDevice<B> {
-    async fn write(&mut self, buf: &[u8]) -> Result<usize, hadris_io::Error> {
-        self.inner.write(buf).await
+impl<B: fatfs::Write> fatfs::Write for PartitionedBlockDevice<B> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.inner.write(buf)
     }
-    async fn flush(&mut self) -> Result<(), hadris_io::Error> {
-        self.inner.flush().await
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        self.inner.flush()
     }
 }
 
-impl<B: hadris_io::r#async::Seek> hadris_io::r#async::Seek for PartitionedBlockDevice<B> {
-    async fn seek(&mut self, pos: SeekFrom) -> Result<u64, hadris_io::Error> {
+impl<B: fatfs::Seek> fatfs::Seek for PartitionedBlockDevice<B> {
+    fn seek(&mut self, pos: FatFsSeekFrom) -> Result<u64, Self::Error> {
         let physical_pos = match pos {
-            SeekFrom::Start(n) => SeekFrom::Start(n + self.partition_start_bytes),
-            SeekFrom::Current(n) => SeekFrom::Current(n),
-            SeekFrom::End(n) => SeekFrom::End(n),
+            FatFsSeekFrom::Start(n) => FatFsSeekFrom::Start(n + self.partition_start_bytes),
+            FatFsSeekFrom::Current(n) => FatFsSeekFrom::Current(n),
+            FatFsSeekFrom::End(n) => FatFsSeekFrom::End(n),
         };
-        let res = self.inner.seek(physical_pos).await?;
+        let res = self.inner.seek(physical_pos)?;
         if res < self.partition_start_bytes {
-            return Err(hadris_io::Error::new_static(
-                hadris_io::ErrorKind::Other,
-                "Seek out of partition bounds",
-            ));
+            return Ok(0);
         }
         Ok(res - self.partition_start_bytes)
     }
@@ -99,19 +93,19 @@ impl<B: hadris_io::r#async::Seek> hadris_io::r#async::Seek for PartitionedBlockD
 
 pub struct FatStorage<B, Det>
 where
-    B: hadris_io::r#async::Read + hadris_io::r#async::Write + hadris_io::r#async::Seek + Send + Sync + Clone + 'static,
+    B: fatfs::Read + fatfs::Write + fatfs::Seek + Send + Sync + Clone + 'static,
     Det: InputPin + 'static,
 {
     pub block_dev: B,
     pub card_init: bool,
-    pub fat_fs: Option<FatFs<PartitionedBlockDevice<B>>>,
+    pub fat_fs: Option<FileSystem<PartitionedBlockDevice<B>>>,
     pub det_pin: Det,
     pub volume_label: Option<heapless::String<11>>,
 }
 
 impl<B, Det> FatStorage<B, Det>
 where
-    B: hadris_io::r#async::Read + hadris_io::r#async::Write + hadris_io::r#async::Seek + Send + Sync + Clone + 'static,
+    B: fatfs::Read + fatfs::Write + fatfs::Seek + Send + Sync + Clone + 'static,
     Det: InputPin + 'static,
 {
     pub fn new(block_dev: B, det_pin: Det) -> Self {
@@ -124,7 +118,7 @@ where
         }
     }
 
-    pub async fn ensure_mounted(&mut self) -> Result<&FatFs<PartitionedBlockDevice<B>>, ManagerError> {
+    pub async fn ensure_mounted(&mut self) -> Result<&FileSystem<PartitionedBlockDevice<B>>, ManagerError> {
         if self.det_pin.is_high().map_err(|_| ManagerError::Io)? {
             self.fat_fs = None;
             self.card_init = false;
@@ -136,41 +130,51 @@ where
             self.card_init = false;
 
             #[cfg(feature = "defmt")]
-            defmt::info!("SD: checking partition table via hadris-part...");
+            defmt::info!("SD: checking partition table...");
 
-            // Reset raw seek offset before reading partitions
             let mut raw_dev = self.block_dev.clone();
-            let _ = raw_dev.seek(SeekFrom::Start(0)).await.map_err(|_| ManagerError::Io)?;
+            let _ = raw_dev.seek(FatFsSeekFrom::Start(0)).map_err(|_| ManagerError::Io)?;
 
-            // Use hadris-part to detect and parse the partition scheme
-            let partition_start = if let Ok(scheme) = DiskPartitionScheme::read_from(&mut raw_dev, 512).await {
-                if let Some(part) = scheme.partitions().first() {
-                    #[cfg(feature = "defmt")]
-                    defmt::info!("SD: Partition table detected. Partition 1 LBA start: {}", part.start_lba);
-                    part.start_lba
+            let mut sector0 = [0u8; 512];
+            let partition_start = if raw_dev.read(&mut sector0).is_ok() {
+                // Check MBR signature
+                if sector0[510] == 0x55 && sector0[511] == 0xAA {
+                    let part_type = sector0[446 + 4];
+                    if part_type != 0x00 {
+                        let lba = u32::from_le_bytes([
+                            sector0[446 + 8],
+                            sector0[446 + 9],
+                            sector0[446 + 10],
+                            sector0[446 + 11],
+                        ]);
+                        #[cfg(feature = "defmt")]
+                        defmt::info!("SD: Partition table detected. Partition 1 LBA start: {}", lba);
+                        lba as u64
+                    } else {
+                        #[cfg(feature = "defmt")]
+                        defmt::info!("SD: No partitions found in partition table. Defaulting to sector 0.");
+                        0
+                    }
                 } else {
                     #[cfg(feature = "defmt")]
-                    defmt::info!("SD: No partitions found in partition table. Defaulting to sector 0.");
+                    defmt::info!("SD: No valid partition table detected. Accessing sector 0 directly.");
                     0
                 }
             } else {
-                #[cfg(feature = "defmt")]
-                defmt::info!("SD: No valid partition table detected. Accessing sector 0 directly.");
                 0
             };
 
-            let mut partitioned_dev = PartitionedBlockDevice::new(self.block_dev.clone(), partition_start);
-            // Seek to 0 on the partitioned device
-            let _ = partitioned_dev.seek(SeekFrom::Start(0)).await.map_err(|_| ManagerError::Io)?;
+            let mut partitioned_dev = PartitionedBlockDevice::new(self.block_dev.clone(), partition_start as u64);
+            let _ = partitioned_dev.seek(FatFsSeekFrom::Start(0)).map_err(|_| ManagerError::Io)?;
 
             #[cfg(feature = "defmt")]
             defmt::info!("SD: opening FatFs...");
 
-            let fs = match FatFs::open(partitioned_dev).await {
+            let fs = match FileSystem::new(partitioned_dev, FsOptions::new()) {
                 Ok(f) => f,
                 Err(_e) => {
                     #[cfg(feature = "defmt")]
-                    defmt::error!("SD: FatFs::open failed: {:?}", defmt::Debug2Format(&_e));
+                    defmt::error!("SD: FileSystem::new failed");
                     self.card_init = false;
                     return Err(ManagerError::Io);
                 }
@@ -190,12 +194,12 @@ pub struct StorageWrapper<B, Det>(
     pub &'static Mutex<CriticalSectionRawMutex, FatStorage<B, Det>>,
 )
 where
-    B: hadris_io::r#async::Read + hadris_io::r#async::Write + hadris_io::r#async::Seek + Send + Sync + Clone + 'static,
+    B: fatfs::Read + fatfs::Write + fatfs::Seek + Send + Sync + Clone + 'static,
     Det: InputPin + 'static;
 
 impl<B, Det> Clone for StorageWrapper<B, Det>
 where
-    B: hadris_io::r#async::Read + hadris_io::r#async::Write + hadris_io::r#async::Seek + Send + Sync + Clone + 'static,
+    B: fatfs::Read + fatfs::Write + fatfs::Seek + Send + Sync + Clone + 'static,
     Det: InputPin + 'static,
 {
     fn clone(&self) -> Self {
@@ -205,13 +209,13 @@ where
 
 impl<B, Det> Copy for StorageWrapper<B, Det>
 where
-    B: hadris_io::r#async::Read + hadris_io::r#async::Write + hadris_io::r#async::Seek + Send + Sync + Clone + 'static,
+    B: fatfs::Read + fatfs::Write + fatfs::Seek + Send + Sync + Clone + 'static,
     Det: InputPin + 'static,
 {}
 
-pub struct HadrisFileWrapper<B, Det>
+pub struct FatFsFileWrapper<B, Det>
 where
-    B: hadris_io::r#async::Read + hadris_io::r#async::Write + hadris_io::r#async::Seek + Send + Sync + Clone + 'static,
+    B: fatfs::Read + fatfs::Write + fatfs::Seek + Send + Sync + Clone + 'static,
     Det: InputPin + 'static,
 {
     storage: StorageWrapper<B, Det>,
@@ -219,54 +223,36 @@ where
     offset: u64,
 }
 
-impl<B, Det> embedded_io_async::ErrorType for HadrisFileWrapper<B, Det>
+impl<B, Det> embedded_io_async::ErrorType for FatFsFileWrapper<B, Det>
 where
-    B: hadris_io::r#async::Read + hadris_io::r#async::Write + hadris_io::r#async::Seek + Send + Sync + Clone + 'static,
+    B: fatfs::Read + fatfs::Write + fatfs::Seek + Send + Sync + Clone + 'static,
     Det: InputPin + 'static,
 {
     type Error = CommonError;
 }
 
-impl<B, Det> embedded_io_async::Read for HadrisFileWrapper<B, Det>
+impl<B, Det> embedded_io_async::Read for FatFsFileWrapper<B, Det>
 where
-    B: hadris_io::r#async::Read + hadris_io::r#async::Write + hadris_io::r#async::Seek + Send + Sync + Clone + 'static,
+    B: fatfs::Read + fatfs::Write + fatfs::Seek + Send + Sync + Clone + 'static,
     Det: InputPin + 'static,
 {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         let mut storage = self.storage.0.lock().await;
         let fs = storage.ensure_mounted().await.map_err(|_| CommonError::Io)?;
         
-        let mut file_reader = fs.open_file_path(normalize_path(self.path.as_str())).await.map_err(|_| CommonError::Io)?;
+        let mut file = fs.root_dir().open_file(normalize_path(self.path.as_str())).map_err(|_| CommonError::Io)?;
         
-        let to_discard = self.offset as usize;
-        let mut discarded = 0;
-        let mut discard_buf = [0u8; 1024];
-        while discarded < to_discard {
-            let chunk = (to_discard - discarded).min(discard_buf.len());
-            let n = file_reader.read(&mut discard_buf[..chunk]).await.map_err(|_| CommonError::Io)?;
-            if n == 0 {
-                break;
-            }
-            discarded += n;
-        }
+        let _ = file.seek(FatFsSeekFrom::Start(self.offset)).map_err(|_| CommonError::Io)?;
         
-        let mut total_read = 0;
-        while total_read < buf.len() {
-            let n = file_reader.read(&mut buf[total_read..]).await.map_err(|_| CommonError::Io)?;
-            if n == 0 {
-                break;
-            }
-            total_read += n;
-        }
-        
-        self.offset += total_read as u64;
-        Ok(total_read)
+        let read_len = file.read(buf).map_err(|_| CommonError::Io)?;
+        self.offset += read_len as u64;
+        Ok(read_len)
     }
 }
 
-impl<B, Det> embedded_io_async::Seek for HadrisFileWrapper<B, Det>
+impl<B, Det> embedded_io_async::Seek for FatFsFileWrapper<B, Det>
 where
-    B: hadris_io::r#async::Read + hadris_io::r#async::Write + hadris_io::r#async::Seek + Send + Sync + Clone + 'static,
+    B: fatfs::Read + fatfs::Write + fatfs::Seek + Send + Sync + Clone + 'static,
     Det: InputPin + 'static,
 {
     async fn seek(&mut self, pos: embedded_io_async::SeekFrom) -> Result<u64, Self::Error> {
@@ -276,8 +262,8 @@ where
             embedded_io_async::SeekFrom::End(n) => {
                 let mut storage = self.storage.0.lock().await;
                 let fs = storage.ensure_mounted().await.map_err(|_| CommonError::Io)?;
-                let file_reader = fs.open_file_path(normalize_path(self.path.as_str())).await.map_err(|_| CommonError::Io)?;
-                let len = file_reader.size() as i64;
+                let mut file = fs.root_dir().open_file(normalize_path(self.path.as_str())).map_err(|_| CommonError::Io)?;
+                let len = file.seek(FatFsSeekFrom::End(0)).map_err(|_| CommonError::Io)? as i64;
                 self.offset = (len + n) as u64;
             }
         }
@@ -287,10 +273,10 @@ where
 
 impl<B, Det> FileStorageDriver for StorageWrapper<B, Det>
 where
-    B: hadris_io::r#async::Read + hadris_io::r#async::Write + hadris_io::r#async::Seek + Send + Sync + Clone + 'static,
+    B: fatfs::Read + fatfs::Write + fatfs::Seek + Send + Sync + Clone + 'static,
     Det: InputPin + 'static,
 {
-    type File = HadrisFileWrapper<B, Det>;
+    type File = FatFsFileWrapper<B, Det>;
 
     async fn is_available(&self) -> bool {
         if let Ok(storage) = self.0.try_lock() {
@@ -317,47 +303,46 @@ where
             let dir = if normalized.is_empty() {
                 fs.root_dir()
             } else {
-                match fs.open_dir_path(normalized).await {
+                match fs.root_dir().open_dir(normalized) {
                     Ok(d) => d,
                     Err(_e) => {
                         #[cfg(feature = "defmt")]
-                        defmt::error!("SD: list_dir open_dir_path('{}') failed: {:?}", normalized, defmt::Debug2Format(&_e));
+                        defmt::error!("SD: list_dir open_dir_path('{}') failed", normalized);
                         return Err(ManagerError::Io);
                     }
                 }
             };
-            let mut iter = dir.entries();
+            let iter = dir.iter();
             
-            while let Some(entry_res) = iter.next_entry().await {
-                let entry = match entry_res {
+            for entry_res in iter {
+                let file_entry = match entry_res {
                     Ok(e) => e,
                     Err(_e) => {
                         #[cfg(feature = "defmt")]
-                        defmt::error!("SD: list_dir next_entry failed: {:?}", defmt::Debug2Format(&_e));
+                        defmt::error!("SD: list_dir next_entry failed");
                         return Err(ManagerError::Io);
                     }
                 };
-                let DirectoryEntry::Entry(file_entry) = entry;
                 
-                if file_entry.attributes().contains(DirEntryAttrFlags::VOLUME_ID) {
-                    let name = file_entry.name();
+                if file_entry.attributes().contains(fatfs::FileAttributes::VOLUME_ID) {
+                    let name = file_entry.file_name();
                     let mut label = heapless::String::new();
                     let _ = label.push_str(name.trim());
                     temp_volume_label = Some(label);
                     continue;
                 }
 
-                let name = file_entry.name();
+                let name = file_entry.file_name();
                 if name.starts_with('.') {
                     continue;
                 }
 
                 let mut info = FileInfo {
                     name: [0; 64],
-                    size: file_entry.size() as u32,
-                    is_dir: file_entry.is_directory(),
+                    size: file_entry.len() as u32,
+                    is_dir: file_entry.is_dir(),
                 };
-                let clean_name = format_fat_name(name);
+                let clean_name = format_fat_name(&name);
                 let mut writer = WrapperWriter::new(&mut info.name);
                 let _ = core::fmt::write(&mut writer, format_args!("{}", clean_name.as_str()));
                 callback(info);
@@ -370,7 +355,6 @@ where
         
         Ok(())
     }
-
 
     async fn list_dir_range(
         &mut self,
@@ -396,41 +380,40 @@ where
             let dir = if normalized.is_empty() {
                 fs.root_dir()
             } else {
-                match fs.open_dir_path(normalized).await {
+                match fs.root_dir().open_dir(normalized) {
                     Ok(d) => d,
                     Err(_e) => {
                         #[cfg(feature = "defmt")]
-                        defmt::error!("SD: list_dir_range open_dir_path('{}') failed: {:?}", normalized, defmt::Debug2Format(&_e));
+                        defmt::error!("SD: list_dir_range open_dir_path('{}') failed", normalized);
                         return Err(ManagerError::Io);
                     }
                 }
             };
-            let mut iter = dir.entries();
+            let iter = dir.iter();
             
-            while let Some(entry_res) = iter.next_entry().await {
+            for entry_res in iter {
                 if current_idx >= start_index + count {
                     break;
                 }
 
-                let entry = match entry_res {
+                let file_entry = match entry_res {
                     Ok(e) => e,
                     Err(_e) => {
                         #[cfg(feature = "defmt")]
-                        defmt::error!("SD: list_dir_range next_entry failed: {:?}", defmt::Debug2Format(&_e));
+                        defmt::error!("SD: list_dir_range next_entry failed");
                         return Err(ManagerError::Io);
                     }
                 };
-                let DirectoryEntry::Entry(file_entry) = entry;
                 
-                if file_entry.attributes().contains(DirEntryAttrFlags::VOLUME_ID) {
-                    let name = file_entry.name();
+                if file_entry.attributes().contains(fatfs::FileAttributes::VOLUME_ID) {
+                    let name = file_entry.file_name();
                     let mut label = heapless::String::new();
                     let _ = label.push_str(name.trim());
                     temp_volume_label = Some(label);
                     continue;
                 }
 
-                let name = file_entry.name();
+                let name = file_entry.file_name();
                 if name.starts_with('.') {
                     continue;
                 }
@@ -438,10 +421,10 @@ where
                 if current_idx >= start_index {
                     let mut info = FileInfo {
                         name: [0; 64],
-                        size: file_entry.size() as u32,
-                        is_dir: file_entry.is_directory(),
+                        size: file_entry.len() as u32,
+                        is_dir: file_entry.is_dir(),
                     };
-                    let clean_name = format_fat_name(name);
+                    let clean_name = format_fat_name(&name);
                     let mut writer = WrapperWriter::new(&mut info.name);
                     let _ = core::fmt::write(&mut writer, format_args!("{}", clean_name.as_str()));
                     callback(info);
@@ -464,7 +447,7 @@ where
 
     fn open_file_handle(&self, path: &str) -> Self::File {
         use core::str::FromStr;
-        HadrisFileWrapper {
+        FatFsFileWrapper {
             storage: *self,
             path: heapless::String::from_str(path).unwrap_or_default(),
             offset: 0,
@@ -504,7 +487,7 @@ impl<'a> core::fmt::Write for WrapperWriter<'a> {
 
 impl<B, Det> StorageDriver for FatStorage<B, Det>
 where
-    B: hadris_io::r#async::Read + hadris_io::r#async::Write + hadris_io::r#async::Seek + Send + Sync + Clone + 'static,
+    B: fatfs::Read + fatfs::Write + fatfs::Seek + Send + Sync + Clone + 'static,
     Det: InputPin + 'static,
 {
     async fn read_block(&mut self, _track: u8, _sector: u8, _buf: &mut [u8]) -> Result<(), ManagerError> {

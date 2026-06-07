@@ -156,20 +156,6 @@ name = "bytemuck"
 version = "1.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8efb64bd706a16a1bdde310ae86b351e4d21550d98d056f22f8a7f7a2183fec"
-dependencies = [
- "bytemuck_derive",
-]
-
-[[package]]
-name = "bytemuck_derive"
-version = "1.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9abbd1bc6865053c427f7198e6af43bfdedc55ab791faed4fbd361d789575ff"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
 
 [[package]]
 name = "byteorder"
@@ -752,16 +738,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "endian-num"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b4a54dfedecb1dc004776a597db0c858cf6c31579296734511309291b8399ce"
-dependencies = [
- "bytemuck",
- "bytemuck_derive",
-]
-
-[[package]]
 name = "env_filter"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -789,6 +765,15 @@ name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
+
+[[package]]
+name = "fatfs"
+version = "0.4.0"
+source = "git+https://github.com/rafalh/rust-fatfs.git#c4b88477b22ca7e5131fbd8891f62a5deaa88e6e"
+dependencies = [
+ "bitflags 2.11.1",
+ "log",
+]
 
 [[package]]
 name = "find-msvc-tools"
@@ -940,64 +925,6 @@ checksum = "4bb6743198531e02858aeaea5398fcc883e71851fcbcb5a2f773e2fb6cb1edf2"
 dependencies = [
  "typenum",
  "version_check",
-]
-
-[[package]]
-name = "hadris-common"
-version = "1.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a9dba84a6cbcceae87e6ae05678baa5ee166ac67d81d200f7bfa407b0ed06db"
-dependencies = [
- "hadris-io",
- "noalloc",
- "zerocopy",
-]
-
-[[package]]
-name = "hadris-fat"
-version = "1.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d2ed279d245466a344ff41aa792617ebda758c8427a317aec8c1c3cd44c4fb0"
-dependencies = [
- "bitflags 2.11.1",
- "bytemuck",
- "chrono",
- "hadris-common",
- "hadris-io",
- "hadris-macros",
- "parse-size",
- "spin",
-]
-
-[[package]]
-name = "hadris-io"
-version = "1.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0e6c5ab7e56eeef44f4aaee489bcec9fee52b329cfd1b4388799bb35ee69654"
-dependencies = [
- "bytemuck",
- "cfg-if",
-]
-
-[[package]]
-name = "hadris-macros"
-version = "1.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c391784dcf01c2711219a7a614c71f62fe16284b00f96e8be9ed882f1b82e116"
-dependencies = [
- "proc-macro2",
-]
-
-[[package]]
-name = "hadris-part"
-version = "1.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0cb3607019e2e71d3ea1705432f1b48757ad1e3cfd3b4b76f234af0372dd1539"
-dependencies = [
- "bytemuck",
- "endian-num",
- "hadris-io",
- "hadris-macros",
 ]
 
 [[package]]
@@ -1264,12 +1191,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
-name = "noalloc"
-version = "0.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a2537501480803dd22fbd79a39ea83318caba3ba936f7554f7139f4180faa94"
-
-[[package]]
 name = "nu-ansi-term"
 version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1354,12 +1275,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "parse-size"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "487f2ccd1e17ce8c1bfab3a65c89525af41cfad4c8659021a1e9a2aacd73b89b"
-
-[[package]]
 name = "paste"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1430,10 +1345,8 @@ dependencies = [
  "embassy-time",
  "embedded-hal 1.0.0",
  "embedded-io-async",
+ "fatfs",
  "futures-executor",
- "hadris-fat",
- "hadris-io",
- "hadris-part",
  "heapless",
  "log",
  "pico1541-common",
@@ -1462,11 +1375,11 @@ dependencies = [
  "embedded-hal 1.0.0",
  "embedded-hal-async",
  "embedded-hal-bus",
+ "embedded-io",
  "embedded-io-async",
  "embedded-storage",
  "embedded-timers",
- "hadris-fat",
- "hadris-io",
+ "fatfs",
  "heapless",
  "littlefs-rust",
  "panic-probe",
@@ -1895,7 +1808,6 @@ version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d5fe4ccb98d9c292d56fec89a5e07da7fc4cf0dc11e156b41793132775d3e591"
 dependencies = [
- "lock_api",
  "portable-atomic",
 ]
 

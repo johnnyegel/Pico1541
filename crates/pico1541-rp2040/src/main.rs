@@ -45,7 +45,7 @@ use crate::driver::input::KeyboardInput;
 use crate::driver::leds::{ActivityLed, StatusLeds, StatusLedsWrapper};
 use crate::driver::speaker::PiezoSpeaker;
 use crate::driver::blockdevsdcard::{SdCard, SdBlockIo};
-use pico1541_manager::driver::file_storage::{HadrisFileWrapper, FatStorage, StorageWrapper};
+use pico1541_manager::driver::file_storage::{FatFsFileWrapper, FatStorage, StorageWrapper};
 
 
 use static_cell::StaticCell;
@@ -85,7 +85,7 @@ type MyCs = Output<'static>;
 type MyDelay = embassy_time::Delay;
 type MyDet = Input<'static>;
 type MyRawBlockIo = SdBlockIo<MySpi, MyCs, MyDelay>;
-type MyFile = HadrisFileWrapper<MyRawBlockIo, MyDet>;
+type MyFile = FatFsFileWrapper<MyRawBlockIo, MyDet>;
 type MyStorage = RuntimeStorage<'static, MyFile, littlefs_storage::LittleFsFileHandle>;
 type MyDir = PagedDirectorySource<48>;
 type MyDisk = AnyDiskImage<MyStorage, MyDir>;

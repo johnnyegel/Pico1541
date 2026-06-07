@@ -380,13 +380,22 @@ where
     }
 }
 
-impl<Spi, Cs, Delay> hadris_io::r#async::Read for SdBlockIo<Spi, Cs, Delay>
+impl<Spi, Cs, Delay> fatfs::IoBase for SdBlockIo<Spi, Cs, Delay>
 where
     Spi: SpiBus<u8> + SpiFreq + 'static,
     Cs: OutputPin + 'static,
     Delay: embedded_hal::delay::DelayNs + 'static,
 {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, hadris_io::Error> {
+    type Error = fatfs::Error<()>;
+}
+
+impl<Spi, Cs, Delay> fatfs::Read for SdBlockIo<Spi, Cs, Delay>
+where
+    Spi: SpiBus<u8> + SpiFreq + 'static,
+    Cs: OutputPin + 'static,
+    Delay: embedded_hal::delay::DelayNs + 'static,
+{
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         let mut total_read = 0;
         let len = buf.len();
         let card = unsafe { &mut *self.card_ptr };
@@ -400,7 +409,7 @@ where
             if self.cached_sector != Some(sector) {
                 if let Err(e) = card.read_block(sector, &mut self.cache) {
                     defmt::error!("SdBlockIo: read block failed: {:?}", defmt::Debug2Format(&e));
-                    return Err(hadris_io::Error::new_static(hadris_io::ErrorKind::Other, "SD read error"));
+                    return Err(fatfs::Error::Io(()));
                 }
                 self.cached_sector = Some(sector);
             }
@@ -416,17 +425,17 @@ where
     }
 }
 
-impl<Spi, Cs, Delay> hadris_io::r#async::Seek for SdBlockIo<Spi, Cs, Delay>
+impl<Spi, Cs, Delay> fatfs::Seek for SdBlockIo<Spi, Cs, Delay>
 where
     Spi: SpiBus<u8> + SpiFreq + 'static,
     Cs: OutputPin + 'static,
     Delay: embedded_hal::delay::DelayNs + 'static,
 {
-    async fn seek(&mut self, pos: hadris_io::SeekFrom) -> Result<u64, hadris_io::Error> {
+    fn seek(&mut self, pos: fatfs::SeekFrom) -> Result<u64, Self::Error> {
         let new_offset = match pos {
-            hadris_io::SeekFrom::Start(n) => n,
-            hadris_io::SeekFrom::Current(n) => (self.offset as i64 + n) as u64,
-            hadris_io::SeekFrom::End(n) => {
+            fatfs::SeekFrom::Start(n) => n,
+            fatfs::SeekFrom::Current(n) => (self.offset as i64 + n) as u64,
+            fatfs::SeekFrom::End(n) => {
                 let total_bytes = 4_000_000_000u64;
                 (total_bytes as i64 + n) as u64
             }
@@ -436,13 +445,13 @@ where
     }
 }
 
-impl<Spi, Cs, Delay> hadris_io::r#async::Write for SdBlockIo<Spi, Cs, Delay>
+impl<Spi, Cs, Delay> fatfs::Write for SdBlockIo<Spi, Cs, Delay>
 where
     Spi: SpiBus<u8> + SpiFreq + 'static,
     Cs: OutputPin + 'static,
     Delay: embedded_hal::delay::DelayNs + 'static,
 {
-    async fn write(&mut self, buf: &[u8]) -> Result<usize, hadris_io::Error> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         let mut total_written = 0;
         let len = buf.len();
         let card = unsafe { &mut *self.card_ptr };
@@ -467,7 +476,7 @@ where
             
             if let Err(e) = card.write_block(sector, &self.cache) {
                 defmt::error!("SdBlockIo: write block failed: {:?}", defmt::Debug2Format(&e));
-                return Err(hadris_io::Error::new_static(hadris_io::ErrorKind::Other, "SD write error"));
+                return Err(fatfs::Error::Io(()));
             }
 
             self.offset += to_copy as u64;
@@ -476,7 +485,7 @@ where
         Ok(total_written)
     }
 
-    async fn flush(&mut self) -> Result<(), hadris_io::Error> {
+    fn flush(&mut self) -> Result<(), Self::Error> {
         Ok(())
     }
 }
