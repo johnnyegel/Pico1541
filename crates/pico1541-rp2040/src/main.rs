@@ -229,12 +229,8 @@ SNOOPER_CONFIG.diag_startup_ticks.store(startup_ticks, Ordering::Relaxed);
 info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_ticks);
 
 
-    // Shared ActiveTrack buffer
-    static mut ACTIVE_TRACK: core::mem::MaybeUninit<ActiveTrack> = core::mem::MaybeUninit::uninit();
-    let track_ptr = unsafe {
-        ACTIVE_TRACK.as_mut_ptr().write(ActiveTrack::new());
-        ACTIVE_TRACK.as_mut_ptr()
-    };
+    // Initialize the shared double track buffers
+    pico1541_common::interface::TRACK_BUFFERS.init();
 
     let stack = unsafe {
         CORE1_STACK.as_mut_ptr().write(Stack::new());
@@ -270,7 +266,7 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
         pin25: p.PIN_25.into(),
     };
 
-    let track_addr = track_ptr as usize;
+    // (track_addr unused)
 
     // IEC Pins
     let pins = IecPins {
@@ -282,8 +278,7 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
         reset_rx: Input::new(p.PIN_21, Pull::Up),
     };
 
-    let track_for_bridge = unsafe { &mut *track_ptr };
-    let mut bridge = HardwareBridge::new(pins, track_for_bridge, &SNOOPER_CONFIG);
+    let mut bridge = HardwareBridge::new(pins, &SNOOPER_CONFIG);
 
     // --- Spawn Core 1 ---
     info!("Starting Emulator on Core 1...");
@@ -298,7 +293,7 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
 
     // --- Run Manager on Core 0 ---
     spawner.spawn(settings_save_task(fs_storage_inst).unwrap());
-    core0_init_task(spawner, core1_pins, track_addr, &SNOOPER_CONFIG, rom_name).await;
+    core0_init_task(spawner, core1_pins, &SNOOPER_CONFIG, rom_name).await;
 }
 
 struct IecPins {
@@ -311,7 +306,6 @@ struct IecPins {
 }
 
 struct HardwareBridge {
-    track: &'static mut ActiveTrack,
     _pins: IecPins,
     snooper: IecSnooper,
     handler: IecSnoopByteHandler,
@@ -319,10 +313,9 @@ struct HardwareBridge {
 }
 
 impl HardwareBridge {
-    fn new(pins: IecPins, track: &'static mut ActiveTrack, config: &'static SnooperConfig) -> Self {
+    fn new(pins: IecPins, config: &'static SnooperConfig) -> Self {
         let device_id = config.device_id.load(Ordering::Relaxed);
         Self {
-            track,
             _pins: pins,
             snooper: IecSnooper::new(device_id),
             handler: IecSnoopByteHandler::new(),
@@ -369,7 +362,7 @@ impl HostInterface for HardwareBridge {
     
     #[inline(always)]
     fn get_active_track(&mut self) -> &mut ActiveTrack {
-        self.track
+        unsafe { &mut *pico1541_common::interface::TRACK_BUFFERS.get_active_ptr() }
     }
 
     
@@ -697,12 +690,10 @@ async fn sd_card_monitor_task(
 async fn core0_init_task(
     spawner: Spawner,
     pins: Core0Pins,
-    track_addr: usize,
     config: &'static SnooperConfig,
     rom_name: heapless::String<32>,
 ) {
     info!("core0_init_task started!");
-    let track_ptr = track_addr as *mut ActiveTrack;
 
     // 1. OLED Display (I2C)
     let sda = pins.sda;
@@ -767,10 +758,9 @@ async fn core0_init_task(
     static DISK_IMAGE: StaticCell<Mutex<CriticalSectionRawMutex, Option<MyDisk>>> = StaticCell::new();
     let disk_image_mutex = DISK_IMAGE.init(Mutex::new(None));
 
-    let track_for_task = unsafe { &mut *track_ptr };
     let vdisk_task = VirtualDiskTask::new(
         &*disk_image_mutex,
-        track_for_task,
+        &pico1541_common::interface::TRACK_BUFFERS,
         MyOpener { storage: StorageWrapper(sd_mutex) },
         &MOUNTED_DIR,
     );

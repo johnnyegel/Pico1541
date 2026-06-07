@@ -88,11 +88,10 @@ pub fn match_c64_filename(entry_name: &[u8; 16], req_name: &[u8]) -> bool {
     false
 }
 
-static mut VDISK_GCR_BUF: [u8; pico1541_common::interface::MAX_TRACK_BYTES] = [0u8; pico1541_common::interface::MAX_TRACK_BYTES];
 
 pub struct VirtualDiskTask<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<FileStorage = S>> {
     disk_image: &'a Mutex<CriticalSectionRawMutex, Option<AnyDiskImage<S, D>>>,
-    active_track: &'a mut ActiveTrack,
+    track_buffers: &'static pico1541_common::interface::DoubleTrackBuffer,
     opener: O,
     mounted_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
 }
@@ -100,16 +99,26 @@ pub struct VirtualDiskTask<'a, S: Read + Seek + 'static, D: DirectorySource + 's
 impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<FileStorage = S>> VirtualDiskTask<'a, S, D, O> {
     pub fn new(
         disk_image: &'a Mutex<CriticalSectionRawMutex, Option<AnyDiskImage<S, D>>>,
-        active_track: &'a mut ActiveTrack,
+        track_buffers: &'static pico1541_common::interface::DoubleTrackBuffer,
         opener: O,
         mounted_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
     ) -> Self {
         Self {
             disk_image,
-            active_track,
+            track_buffers,
             opener,
             mounted_dir,
         }
+    }
+
+    #[inline(always)]
+    fn active_track_mut(&self) -> &mut ActiveTrack {
+        unsafe { &mut *self.track_buffers.get_active_ptr() }
+    }
+
+    #[inline(always)]
+    fn inactive_track_mut(&self) -> &mut ActiveTrack {
+        unsafe { &mut *self.track_buffers.get_inactive_ptr() }
     }
 
     pub async fn run(&mut self) {
@@ -128,8 +137,8 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                             if let Some(vdir) = disk.as_virtual_disk_mut() {
                                 // Periodic update of directory buffer only when motor is on
                                 if motor_on {
-                                    let current_idx = self.active_track.current_byte_idx as usize;
-                                    vdir.update_dynamic_buffer(current_idx, &mut self.active_track.gcr_data).await;
+                                    let current_idx = pico1541_common::interface::CURRENT_TRACK_BYTE_IDX.load(core::sync::atomic::Ordering::Relaxed) as usize;
+                                    vdir.update_dynamic_buffer(current_idx, &mut self.active_track_mut().gcr_data).await;
                                 }
 
                                 // Background prefetching for paged directory source
@@ -169,8 +178,8 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                     if let Some((blocks_start, blocks_count)) = block_batch {
 
                         // Mark active track as SyncWait during background directory fetch to prevent Core 0 emu hang/timeouts.
-                        let old_layout = self.active_track.layout.clone();
-                        self.active_track.layout = pico1541_common::formats::TrackLayout::SyncWait;
+                        let old_layout = self.active_track_mut().layout.clone();
+                        self.active_track_mut().layout = pico1541_common::formats::TrackLayout::SyncWait;
 
                         let (path, use_internal) = {
                             let guard = self.mounted_dir.lock().await;
@@ -219,29 +228,30 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                             }
                         }
 
-                        self.active_track.layout = old_layout;
+                        self.active_track_mut().layout = old_layout;
                     }
                 }
                 Either::Second(cmd) => {
                     match cmd {
                         InternalCommand::HeadStepped(half_track) => {
                             info!("Manager loading track {}", half_track);
-                            let gcr_buf = &raw mut VDISK_GCR_BUF;
                             let mut disk_opt = self.disk_image.lock().await;
                             if let Some(disk) = disk_opt.as_mut() {
-                                match disk.read_track(half_track, unsafe { &mut *gcr_buf }).await {
+                                let inactive = self.inactive_track_mut();
+                                match disk.read_track(half_track, &mut inactive.gcr_data).await {
                                     Ok(layout) => {
-                                        self.active_track.gcr_data.copy_from_slice(unsafe { &*gcr_buf });
-                                        self.active_track.layout = layout;
-                                        self.active_track.half_track = half_track;
+                                        inactive.layout = layout;
+                                        inactive.half_track = half_track;
+                                        inactive.is_dirty = false;
+                                        self.track_buffers.swap();
                                     }
                                     Err(e) => {
                                         error!("Failed to read track: {:?}", &e);
                                     }
                                 }
                             } else {
-                                self.active_track.layout = pico1541_common::formats::TrackLayout::Void;
-                                self.active_track.half_track = half_track;
+                                self.active_track_mut().layout = pico1541_common::formats::TrackLayout::Void;
+                                self.active_track_mut().half_track = half_track;
                             }
                         }
                         InternalCommand::MotorState(active) => {
@@ -251,9 +261,12 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                     if let Some(vdir) = disk.as_virtual_disk_mut() {
                                         vdir.source.rewind();
                                         vdir.next_sector_to_update = 1;
-                                        let gcr_buf = &mut self.active_track.gcr_data;
-                                        vdir.force_update_directory_sectors(gcr_buf).await;
-                                        vdir.treadmill_spinup_delay = 10;
+                                        if self.active_track_mut().is_dirty {
+                                            let gcr_buf = &mut self.active_track_mut().gcr_data;
+                                            vdir.force_update_directory_sectors(gcr_buf).await;
+                                            vdir.treadmill_spinup_delay = 10;
+                                            self.active_track_mut().is_dirty = false;
+                                        }
                                     }
                                 }
                             }
@@ -264,99 +277,97 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                             info!("Image mounted. Simulating disk insertion.");
                             
                             // 1. Unmount sequence (in case a disk was already there)
-                            unsafe { core::ptr::write_volatile(&mut self.active_track.layout, pico1541_common::formats::TrackLayout::Void); }
-                            unsafe { core::ptr::write_volatile(&mut self.active_track.is_write_protected, true); } // LOW (sliding out)
-                            embassy_time::Timer::after(embassy_time::Duration::from_millis(50)).await;
-                            unsafe { core::ptr::write_volatile(&mut self.active_track.is_write_protected, false); } // HIGH (no disk)
-                            embassy_time::Timer::after(embassy_time::Duration::from_millis(150)).await;
+                            unsafe { core::ptr::write_volatile(&mut self.active_track_mut().layout, pico1541_common::formats::TrackLayout::Void); }
+                            unsafe { core::ptr::write_volatile(&mut self.active_track_mut().is_write_protected, true); } // LOW (sliding out)
+                            embassy_time::Timer::after_millis(50).await;
+                            unsafe { core::ptr::write_volatile(&mut self.active_track_mut().is_write_protected, false); } // HIGH (no disk)
                             
-                            // 2. Mount sequence
-                            unsafe { core::ptr::write_volatile(&mut self.active_track.is_write_protected, true); } // LOW (sliding in)
-                            embassy_time::Timer::after(embassy_time::Duration::from_millis(50)).await;
-                            unsafe { core::ptr::write_volatile(&mut self.active_track.is_write_protected, true); } // LOW (configured: always write protected)
-                            
-                            // Wait a bit for the C64 DOS to process the WP change before logging the final state
-                            embassy_time::Timer::after(embassy_time::Duration::from_millis(50)).await;
-                            
-                            // Force C64 DOS to re-initialize since WP toggle might be missed if motor is off
-                            unsafe { core::ptr::write_volatile(&mut self.active_track.force_disk_change, true); }
-
-                            info!("Image mounted. Re-reading current track.");
-                            let half_track = self.active_track.half_track;
-                            let gcr_buf = &raw mut VDISK_GCR_BUF;
-                            
-                            // Initialize Virtual Directory if applicable before reading track
-                            let mut is_virtual_disk = false;
                             let mut disk_opt = self.disk_image.lock().await;
-                            if let Some(disk) = disk_opt.as_mut() {
-                                if let Some(vdir) = disk.as_virtual_disk_mut() {
-                                    is_virtual_disk = true;
-                                    vdir.set_shortcut_entry(None);
-                                    vdir.file_storage = None;
-                                    vdir.source.rewind();
-                                    if let Some(paged) = vdir.source.as_paged_mut() {
-                                        paged.invalidate();
-                                    }
-                                }
-                            }
-                            drop(disk_opt);
-                            
-                            if is_virtual_disk {
-                                let (dir_path, use_internal) = {
-                                    let guard = self.mounted_dir.lock().await;
-                                    (guard.0.clone(), guard.1)
-                                };
+                            if !disk_opt.is_none() {
+                                embassy_time::Timer::after_millis(400).await;
+                                unsafe { core::ptr::write_volatile(&mut self.active_track_mut().is_write_protected, true); } // LOW (sliding in)
+                                embassy_time::Timer::after_millis(50).await;
+                                unsafe { core::ptr::write_volatile(&mut self.active_track_mut().is_write_protected, true); } // LOW (configured: always write protected)
                                 
-                                let mut all_entries = heapless::Vec::<pico1541_common::storage::DirectoryEntry, 48>::new();
-                                let _ = self.opener.list_dir_range(
-                                    dir_path.as_str(),
-                                    use_internal,
-                                    0,
-                                    16,
-                                    |entry| {
-                                        let _ = all_entries.push(entry);
-                                    }
-                                ).await;
-                                
-                                info!("ImageMounted: Fetched {} entries from {}", all_entries.len(), dir_path.as_str());
+                                // Set force disk change flag
+                                unsafe { core::ptr::write_volatile(&mut self.active_track_mut().force_disk_change, true); }
 
-                                let mut disk_opt = self.disk_image.lock().await;
+                                let half_track = self.active_track_mut().half_track;
+                                
+                                // Initialize Virtual Directory if applicable before reading track
+                                let mut is_virtual_disk = false;
                                 if let Some(disk) = disk_opt.as_mut() {
                                     if let Some(vdir) = disk.as_virtual_disk_mut() {
+                                        is_virtual_disk = true;
+                                        vdir.set_shortcut_entry(None);
+                                        vdir.file_storage = None;
+                                        vdir.source.rewind();
                                         if let Some(paged) = vdir.source.as_paged_mut() {
-                                            paged.set_block(0, &all_entries);
-                                            if all_entries.len() < 16 {
-                                                paged.set_total_count(all_entries.len());
+                                            paged.invalidate();
+                                        }
+                                    }
+                                }
+                                drop(disk_opt);
+                                
+                                if is_virtual_disk {
+                                    let (dir_path, use_internal) = {
+                                        let guard = self.mounted_dir.lock().await;
+                                        (guard.0.clone(), guard.1)
+                                    };
+                                    
+                                    let mut all_entries = heapless::Vec::<pico1541_common::storage::DirectoryEntry, 48>::new();
+                                    let _ = self.opener.list_dir_range(
+                                        dir_path.as_str(),
+                                        use_internal,
+                                        0,
+                                        16,
+                                        |entry| {
+                                            let _ = all_entries.push(entry);
+                                        }
+                                    ).await;
+                                    
+                                    info!("ImageMounted: Fetched {} entries from {}", all_entries.len(), dir_path.as_str());
+
+                                    let mut disk_opt = self.disk_image.lock().await;
+                                    if let Some(disk) = disk_opt.as_mut() {
+                                        if let Some(vdir) = disk.as_virtual_disk_mut() {
+                                            if let Some(paged) = vdir.source.as_paged_mut() {
+                                                paged.set_block(0, &all_entries);
+                                                if all_entries.len() < 16 {
+                                                    paged.set_total_count(all_entries.len());
+                                                }
                                             }
                                         }
                                     }
                                 }
-                            }
 
-                            let mut disk_opt = self.disk_image.lock().await;
-                            if let Some(disk) = disk_opt.as_mut() {
-                                match disk.read_track(half_track, unsafe { &mut *gcr_buf }).await {
-                                    Ok(layout) => {
-                                        // Update the active track data
-                                        self.active_track.gcr_data.copy_from_slice(unsafe { &*gcr_buf });
-                                        unsafe { core::ptr::write_volatile(&mut self.active_track.layout, layout); }
-                                    }
-                                    Err(e) => {
-                                        error!("Failed to read track on mount: {:?}", &e);
-                                        unsafe { core::ptr::write_volatile(&mut self.active_track.layout, pico1541_common::formats::TrackLayout::Void); }
+                                let mut disk_opt = self.disk_image.lock().await;
+                                if let Some(disk) = disk_opt.as_mut() {
+                                    let inactive = self.inactive_track_mut();
+                                    match disk.read_track(half_track, &mut inactive.gcr_data).await {
+                                        Ok(layout) => {
+                                            unsafe { core::ptr::write_volatile(&mut inactive.layout, layout); }
+                                            inactive.half_track = half_track;
+                                            inactive.is_dirty = false;
+                                            self.track_buffers.swap();
+                                        }
+                                        Err(e) => {
+                                            error!("Failed to read track on mount: {:?}", &e);
+                                            unsafe { core::ptr::write_volatile(&mut self.active_track_mut().layout, pico1541_common::formats::TrackLayout::Void); }
+                                        }
                                     }
                                 }
                             }
                         }
                         InternalCommand::ImageUnmounted => {
                             info!("Image unmounted. Simulating disk removal.");
-                            unsafe { core::ptr::write_volatile(&mut self.active_track.layout, pico1541_common::formats::TrackLayout::Void); }
-                            unsafe { core::ptr::write_volatile(&mut self.active_track.is_write_protected, true); } // LOW (sliding out)
-                            embassy_time::Timer::after(embassy_time::Duration::from_millis(50)).await;
-                            unsafe { core::ptr::write_volatile(&mut self.active_track.is_write_protected, false); } // HIGH (no disk)
+                            unsafe { core::ptr::write_volatile(&mut self.active_track_mut().layout, pico1541_common::formats::TrackLayout::Void); }
+                            unsafe { core::ptr::write_volatile(&mut self.active_track_mut().is_write_protected, true); } // LOW (sliding out)
+                            embassy_time::Timer::after_millis(50).await;
+                            unsafe { core::ptr::write_volatile(&mut self.active_track_mut().is_write_protected, false); } // HIGH (no disk)
                             
                             // Wait a bit for the C64 DOS to process the WP change before logging the final state
-                            embassy_time::Timer::after(embassy_time::Duration::from_millis(50)).await;
+                            embassy_time::Timer::after_millis(50).await;
                             
                             info!("Image unmounted. Simulating disk removal completed.");
                         }
@@ -368,7 +379,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                     if let Some(vdir) = disk.as_virtual_disk_mut() {
                                         vdir.source.rewind();
                                         vdir.next_sector_to_update = 1;
-                                        vdir.force_update_directory_sectors(&mut self.active_track.gcr_data).await;
+                                        vdir.force_update_directory_sectors(&mut self.active_track_mut().gcr_data).await;
                                         vdir.treadmill_spinup_delay = 10;
                                     }
                                 }
@@ -399,8 +410,8 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                 if is_virtual_disk {
                                     // Temporarily set layout to SyncWait so the 1541 DOS waits for SYNC
                                     // while we fetch the directory, preventing race conditions and timeouts.
-                                    let old_layout = self.active_track.layout.clone();
-                                    self.active_track.layout = pico1541_common::formats::TrackLayout::SyncWait;
+                                    let old_layout = self.active_track_mut().layout.clone();
+                                    self.active_track_mut().layout = pico1541_common::formats::TrackLayout::SyncWait;
                                     
                                     // Fetch first block synchronously to prevent empty directory
                                     let (dir_path, use_internal) = {
@@ -429,17 +440,17 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                                 }
                                             }
                                             vdir.next_sector_to_update = 1;
-                                            vdir.force_update_directory_sectors(&mut self.active_track.gcr_data).await;
+                                            vdir.force_update_directory_sectors(&mut self.active_track_mut().gcr_data).await;
                                             vdir.treadmill_spinup_delay = 10;
                                         }
                                     }
-                                    self.active_track.layout = old_layout;
+                                    self.active_track_mut().layout = old_layout;
                                 }
                             } else {
                                 info!("Opening file in Virtual Disk...");
                                 // Set layout to Void while opening, to prevent reading while state is unstable
-                                let old_layout = self.active_track.layout.clone();
-                                self.active_track.layout = pico1541_common::formats::TrackLayout::SyncWait;
+                                let old_layout = self.active_track_mut().layout.clone();
+                                self.active_track_mut().layout = pico1541_common::formats::TrackLayout::SyncWait;
 
                                 match self.opener.open_file(&filename).await {
                                     Ok(file_storage) => {
@@ -454,7 +465,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                             if let Some(vdir) = disk.as_virtual_disk_mut() {
                                                 vdir.set_shortcut_entry(Some(shortcut));
                                                 vdir.file_storage = Some(file_storage);
-                                                vdir.force_update_directory_sectors(&mut self.active_track.gcr_data).await;
+                                                vdir.force_update_directory_sectors(&mut self.active_track_mut().gcr_data).await;
                                             }
                                         }
                                     }
@@ -465,28 +476,29 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                             if let Some(vdir) = disk.as_virtual_disk_mut() {
                                                 vdir.set_shortcut_entry(None);
                                                 vdir.file_storage = None;
-                                                vdir.force_update_directory_sectors(&mut self.active_track.gcr_data).await;
+                                                vdir.force_update_directory_sectors(&mut self.active_track_mut().gcr_data).await;
                                             }
                                         }
                                     }
                                 }
-                                self.active_track.layout = old_layout;
+                                self.active_track_mut().layout = old_layout;
                             }
 
-                            let needs_regeneration = self.active_track.layout == pico1541_common::formats::TrackLayout::Void;
+                            let needs_regeneration = self.active_track_mut().layout == pico1541_common::formats::TrackLayout::Void;
                             if needs_regeneration {
-                                let half_track = self.active_track.half_track;
-                                let gcr_buf = &raw mut VDISK_GCR_BUF;
+                                let half_track = self.active_track_mut().half_track;
                                 let mut disk_opt = self.disk_image.lock().await;
                                 if let Some(disk) = disk_opt.as_mut() {
-                                    match disk.read_track(half_track, unsafe { &mut *gcr_buf }).await {
+                                    let inactive = self.inactive_track_mut();
+                                    match disk.read_track(half_track, &mut inactive.gcr_data).await {
                                         Ok(layout) => {
-                                            self.active_track.gcr_data.copy_from_slice(unsafe { &*gcr_buf });
-                                            self.active_track.layout = layout;
-                                            self.active_track.half_track = half_track;
+                                            unsafe { core::ptr::write_volatile(&mut inactive.layout, layout); }
+                                            inactive.half_track = half_track;
+                                            inactive.is_dirty = false;
+                                            self.track_buffers.swap();
                                         }
                                         Err(_) => {
-                                            self.active_track.layout = pico1541_common::formats::TrackLayout::Void;
+                                            self.active_track_mut().layout = pico1541_common::formats::TrackLayout::Void;
                                         }
                                     }
                                 }

@@ -100,9 +100,9 @@ impl DriveMechanics {
     #[link_section = ".data.ram_func"]
     #[inline(never)]
     fn tick_slow<H: HostInterface>(&mut self, hardware: &mut H, via2: &mut Via6522, requested_sector: u8) -> bool {
+        hardware.update_track_byte_idx(self.track_byte_pos_ix as u32);
         // Get the active track from hardware
         let track = hardware.get_active_track();
-        track.current_byte_idx = self.track_byte_pos_ix as u16;
 
         // Advance the track position
         let gcr_pos = self.resolve_track_byte_position(track, requested_sector);

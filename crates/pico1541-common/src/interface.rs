@@ -1,9 +1,14 @@
 use core::fmt;
 use core::fmt::Display;
+use core::sync::atomic::{AtomicPtr, AtomicU32, Ordering};
+use core::ptr;
+use core::cell::UnsafeCell;
 
 use crate::formats::{TrackLayout};
 
 pub const MAX_TRACK_BYTES: usize = 10_000;
+
+pub static CURRENT_TRACK_BYTE_IDX: AtomicU32 = AtomicU32::new(0);
 
 #[derive(Debug, Clone, Copy)]
 pub struct ActiveTrack {
@@ -11,8 +16,6 @@ pub struct ActiveTrack {
     pub layout: TrackLayout,
 
     pub gcr_data: [u8; MAX_TRACK_BYTES],
-    // FIXME! This should NOT be part of the active track!
-    pub current_byte_idx: u16,
     pub is_dirty: bool,
     pub is_write_protected: bool,
     pub force_disk_change: bool,
@@ -24,7 +27,6 @@ impl ActiveTrack {
             half_track: 0,
             layout: TrackLayout::Void,
             gcr_data: [0; MAX_TRACK_BYTES],
-            current_byte_idx: 0,
             is_dirty: false,
             is_write_protected: false,
             force_disk_change: false,
@@ -37,6 +39,48 @@ impl Default for ActiveTrack {
         Self::new()
     }
 }
+
+pub struct DoubleTrackBuffer {
+    pub track_0: UnsafeCell<ActiveTrack>,
+    pub track_1: UnsafeCell<ActiveTrack>,
+    pub active_ptr: AtomicPtr<ActiveTrack>,
+}
+
+unsafe impl Sync for DoubleTrackBuffer {}
+
+impl DoubleTrackBuffer {
+    pub const fn new() -> Self {
+        Self {
+            track_0: UnsafeCell::new(ActiveTrack::new()),
+            track_1: UnsafeCell::new(ActiveTrack::new()),
+            active_ptr: AtomicPtr::new(ptr::null_mut()),
+        }
+    }
+
+    pub fn init(&self) {
+        self.active_ptr.store(self.track_0.get(), Ordering::SeqCst);
+    }
+
+    pub fn get_active_ptr(&self) -> *mut ActiveTrack {
+        self.active_ptr.load(Ordering::Acquire)
+    }
+
+    pub fn get_inactive_ptr(&self) -> *mut ActiveTrack {
+        let active = self.get_active_ptr();
+        if active == self.track_0.get() {
+            self.track_1.get()
+        } else {
+            self.track_0.get()
+        }
+    }
+
+    pub fn swap(&self) {
+        let inactive = self.get_inactive_ptr();
+        self.active_ptr.store(inactive, Ordering::Release);
+    }
+}
+
+pub static TRACK_BUFFERS: DoubleTrackBuffer = DoubleTrackBuffer::new();
 
 /// Represents the bus state of the IEC bus lines
 /// Bit 0: DATA, Bit 1: CLK, Bit 2: ATN
@@ -212,6 +256,9 @@ pub trait HostInterface: IecBus {
     /// Update the IEC addresses (LISTEN and TALK) snooped by the manager.
     /// Usually called by the emulator when it detects a change in drive RAM.
     fn update_iec_addresses(&mut self, _listen: u8, _talk: u8) { }
+
+    /// Update the current track byte index (used by manager to track head position)
+    fn update_track_byte_idx(&mut self, _idx: u32) {}
 
     /// Returns the current device ID (8-11) configured for the drive.
     fn get_device_id(&self) -> u8 {
