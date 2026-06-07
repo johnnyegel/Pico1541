@@ -648,6 +648,12 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
                 .read_exact(&mut sector_data)
                 .await
                 .map_err(|_| Error::Io)?;
+                
+            if track == 18 && sector == 0 {
+                self.id[0] = sector_data[162];
+                self.id[1] = sector_data[163];
+            }
+
             for _ in 0..10 {
                 if write_ptr < dest.len() {
                     dest[write_ptr] = 0xFF;
