@@ -76,31 +76,23 @@ pub struct ActivityLed {
 }
 
 impl ActivityLed {
-    pub fn new(
-        pos: Peri<'static, impl Pin>,
-        neg: Peri<'static, impl Pin>,
-    ) -> Self {
-        Self {
-            pos: Output::new(pos, Level::Low),
-            neg: Output::new(neg, Level::Low),
-        }
+    pub fn new(pos: Output<'static>, neg: Output<'static>) -> Self {
+        Self { pos, neg }
     }
 
-    pub fn set_color(&mut self, color: pico1541_manager::driver::ActivityColor) {
-        use pico1541_manager::driver::ActivityColor;
-        match color {
-            ActivityColor::Red => {
-                self.pos.set_low();
-                self.neg.set_high();
-            }
-            ActivityColor::Green => {
-                self.pos.set_high();
-                self.neg.set_low();
-            }
-            ActivityColor::Off => {
-                self.pos.set_low();
-                self.neg.set_low();
-            }
+    pub fn set_state(&mut self, led_on: bool, motor_on: bool) {
+        if led_on {
+            // Red
+            self.pos.set_low();
+            self.neg.set_high();
+        } else if motor_on {
+            // Green
+            self.pos.set_high();
+            self.neg.set_low();
+        } else {
+            // Off
+            self.pos.set_low();
+            self.neg.set_low();
         }
     }
 }

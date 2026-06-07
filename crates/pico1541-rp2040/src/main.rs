@@ -246,8 +246,6 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
         sda: p.PIN_4.into(),
         scl: p.PIN_5.into(),
         piezo: p.PIN_2.into(),
-        led_pin1: p.PIN_22.into(),
-        led_pin2: p.PIN_3.into(),
         rgb_red: p.PIN_26.into(),
         rgb_green: p.PIN_27.into(),
         rgb_blue: p.PIN_28.into(),
@@ -278,7 +276,11 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
         reset_rx: Input::new(p.PIN_21, Pull::Up),
     };
 
-    let mut bridge = HardwareBridge::new(pins, &SNOOPER_CONFIG);
+    let activity_led = ActivityLed::new(
+        Output::new(p.PIN_22, Level::Low),
+        Output::new(p.PIN_3, Level::Low)
+    );
+    let mut bridge = HardwareBridge::new(pins, &SNOOPER_CONFIG, activity_led);
 
     // --- Spawn Core 1 ---
     info!("Starting Emulator on Core 1...");
@@ -310,16 +312,22 @@ struct HardwareBridge {
     snooper: IecSnooper,
     handler: IecSnoopByteHandler,
     config: &'static SnooperConfig,
+    activity_led: ActivityLed,
+    led_state: bool,
+    motor_state: bool,
 }
 
 impl HardwareBridge {
-    fn new(pins: IecPins, config: &'static SnooperConfig) -> Self {
+    fn new(pins: IecPins, config: &'static SnooperConfig, activity_led: ActivityLed) -> Self {
         let device_id = config.device_id.load(Ordering::Relaxed);
         Self {
             _pins: pins,
             snooper: IecSnooper::new(device_id),
             handler: IecSnoopByteHandler::new(),
             config,
+            activity_led,
+            led_state: false,
+            motor_state: false,
         }
     }
 }
@@ -368,8 +376,28 @@ impl HostInterface for HardwareBridge {
     
     #[inline(always)]
     fn send_event(&mut self, event: DriveEvent) {
-        // try_send is non-blocking and safe for Core 0.
-        let _ = pico1541_manager::EVENT_CHANNEL.try_send(event);
+        let mut color_changed = false;
+        match event {
+            DriveEvent::LedChanged(on) => {
+                self.led_state = on;
+                color_changed = true;
+            }
+            DriveEvent::MotorChanged(on) => {
+                self.motor_state = on;
+                color_changed = true;
+            }
+            _ => {}
+        }
+        if color_changed {
+            self.activity_led.set_state(self.led_state, self.motor_state);
+        }
+
+        // The manager no longer processes LedChanged for the indicator.
+        // It does still need MotorChanged for other internal states though.
+        if !matches!(event, DriveEvent::LedChanged(_)) {
+            // try_send is non-blocking and safe for Core 0.
+            let _ = pico1541_manager::EVENT_CHANNEL.try_send(event);
+        }
     }
 
     
@@ -637,8 +665,6 @@ pub struct Core0Pins {
     pub scl: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_5>,
 
     pub piezo: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_2>,
-    pub led_pin1: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_22>,
-    pub led_pin2: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_3>,
 
     pub rgb_red: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_26>,
     pub rgb_green: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_27>,
@@ -709,9 +735,8 @@ async fn core0_init_task(
     let oled_mutex = OLED.init(Mutex::new(oled_obj));
 
     // 2. Indicators (Piezo + LEDs)
-    let activity_led = ActivityLed::new(pins.led_pin1, pins.led_pin2);
     let piezo = PiezoSpeaker::new(pins.piezo);
-    let indicator = ActivityIndicator::new(activity_led, piezo);
+    let indicator = ActivityIndicator::new(piezo);
 
     static INDICATOR: StaticCell<Mutex<CriticalSectionRawMutex, ActivityIndicator>> =
         StaticCell::new();

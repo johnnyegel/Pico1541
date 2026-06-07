@@ -7,7 +7,7 @@ use embassy_sync::channel::Channel;
 pub mod driver;
 pub mod tasks;
 
-pub use driver::{ActivityColor, DisplayDriver, IndicatorDriver, InputDriver, RgbLedDriver, StatusLedMode, StorageDriver};
+pub use driver::{DisplayDriver, IndicatorDriver, InputDriver, RgbLedDriver, StatusLedMode, StorageDriver};
 
 // Disk format code lives in pico1541-common; re-exported here for API compatibility.
 pub use pico1541_common::gcr;
