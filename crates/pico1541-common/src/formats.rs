@@ -635,6 +635,13 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
             .seek(SeekFrom::Start(track_offset as u64))
             .await
             .map_err(|_| Error::Io)?;
+            
+        let buffer_start = dest.len() - (sectors as usize * 256);
+        self.storage
+            .read_exact(&mut dest[buffer_start..buffer_start + (sectors as usize * 256)])
+            .await
+            .map_err(|_| Error::Io)?;
+
         let mut write_ptr = 0;
         for _ in 0..40 {
             if write_ptr < dest.len() {
@@ -642,12 +649,12 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
                 write_ptr += 1;
             }
         }
-        for sector in 0..sectors {
+        for physical_sector in 0..sectors {
             let mut sector_data = [0u8; 256];
-            self.storage
-                .read_exact(&mut sector_data)
-                .await
-                .map_err(|_| Error::Io)?;
+            // Read sectors sequentially, interleave is NOT applied physically
+            let sector = physical_sector;
+            let src_offset = buffer_start + (sector as usize) * 256;
+            sector_data.copy_from_slice(&dest[src_offset..src_offset + 256]);
                 
             if track == 18 && sector == 0 {
                 self.id[0] = sector_data[162];

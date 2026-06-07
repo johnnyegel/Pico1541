@@ -240,7 +240,7 @@ where
         
         let to_discard = self.offset as usize;
         let mut discarded = 0;
-        let mut discard_buf = [0u8; 256];
+        let mut discard_buf = [0u8; 1024];
         while discarded < to_discard {
             let chunk = (to_discard - discarded).min(discard_buf.len());
             let n = file_reader.read(&mut discard_buf[..chunk]).await.map_err(|_| CommonError::Io)?;
@@ -250,9 +250,17 @@ where
             discarded += n;
         }
         
-        let read_len = file_reader.read(buf).await.map_err(|_| CommonError::Io)?;
-        self.offset += read_len as u64;
-        Ok(read_len)
+        let mut total_read = 0;
+        while total_read < buf.len() {
+            let n = file_reader.read(&mut buf[total_read..]).await.map_err(|_| CommonError::Io)?;
+            if n == 0 {
+                break;
+            }
+            total_read += n;
+        }
+        
+        self.offset += total_read as u64;
+        Ok(total_read)
     }
 }
 
