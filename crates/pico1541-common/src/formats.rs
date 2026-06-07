@@ -310,7 +310,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
 
             for physical_sector in 0..sectors {
                 let sector = ((physical_sector as u32 * 3) % (sectors as u32)) as u8;
-                let mut sector_data = [0u8; 256];
+                let sector_data = [0u8; 256];
 
                 if sector == 1 {
                     self.sector1_idx = write_ptr + 39;

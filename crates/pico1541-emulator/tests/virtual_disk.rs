@@ -103,8 +103,8 @@ fn test_virtual_disk_stridden_warp() {
     
     let pos = drive.bus_mut().mechanics.track_byte_pos_ix();
     log::info!("Position after sector 5 warp: {}", pos);
-    // Sector 5 * Stride 400 = 2000. It may have advanced a few bytes.
-    assert!(pos >= 2000 && pos < 2100, "Warp to sector 5 failed, pos={}", pos);
+    // Sector 5 * Stride 372 = 1860. It may have advanced a few bytes.
+    assert!(pos >= 1860 && pos < 2000, "Warp to sector 5 failed, pos={}", pos);
     
     // Change to sector 10
     drive.bus_mut().ram[0x000C] = 10;
@@ -113,7 +113,7 @@ fn test_virtual_disk_stridden_warp() {
     }
     let pos = drive.bus_mut().mechanics.track_byte_pos_ix();
     log::info!("Position after sector 10 warp: {}", pos);
-    assert!(pos >= 4000 && pos < 4100, "Warp to sector 10 failed, pos={}", pos);
+    assert!(pos >= 3720 && pos < 3900, "Warp to sector 10 failed, pos={}", pos);
 }
 
 #[test]

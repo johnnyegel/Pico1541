@@ -5,9 +5,9 @@ use pico1541_common::storage::DirectorySource;
 use crate::{CMD_CHANNEL, InternalCommand};
 use embassy_futures::select::{select, Either};
 #[cfg(feature = "defmt")]
-use defmt::{info, warn, error, debug};
+use defmt::{info, warn, error};
 #[cfg(not(feature = "defmt"))]
-use log::{info, warn, error, debug};
+use log::{info, warn, error};
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
