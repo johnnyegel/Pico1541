@@ -124,7 +124,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
     pub async fn run(&mut self) {
         let mut motor_on = false;
         loop {
-            let timer_fut = embassy_time::Timer::after_millis(50);
+            let timer_fut = embassy_time::Timer::after_millis(20);
             let cmd_fut = CMD_CHANNEL.receive();
 
             match select(timer_fut, cmd_fut).await {
@@ -138,7 +138,36 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                 // Periodic update of directory buffer only when motor is on
                                 if motor_on {
                                     let current_idx = pico1541_common::interface::CURRENT_TRACK_BYTE_IDX.load(core::sync::atomic::Ordering::Relaxed) as usize;
-                                    vdir.update_dynamic_buffer(current_idx, &mut self.active_track_mut().gcr_data).await;
+                                    
+                                    if vdir.file_storage.is_some() {
+                                        // Track 1: File streaming (StriddenWarp)
+                                        vdir.update_dynamic_buffer(current_idx, &mut self.active_track_mut().gcr_data).await;
+                                    } else if !vdir.source.as_paged_mut().map(|p| p.is_exhausted()).unwrap_or(true) {
+                                        // Track 18: Directory Listing (Accurate(7142))
+                                        let s1 = vdir.sector1_idx;
+                                        let s2 = vdir.sector2_idx;
+                                        
+                                        if s1 > 0 && s2 > 0 {
+                                            let s2_end = s2 + 325;
+                                            let s1_start = s1.saturating_sub(40);
+                                            
+                                            // Dead zone between Sector 2 and Sector 1
+                                            if current_idx > s2_end && current_idx < s1_start {
+                                                if vdir.next_sector_to_update == 2 {
+                                                    // Head has passed Sector 2. Swap to the next batch!
+                                                    self.inactive_track_mut().gcr_data.copy_from_slice(&self.active_track_mut().gcr_data);
+                                                    vdir.force_update_directory_sectors(&mut self.inactive_track_mut().gcr_data).await;
+                                                    self.track_buffers.swap();
+                                                    
+                                                    // Prevent further swaps until we pass Sector 2 again
+                                                    vdir.next_sector_to_update = 1;
+                                                }
+                                            } else if current_idx < s2 {
+                                                // Reset the trigger flag when head loops around before Sector 2
+                                                vdir.next_sector_to_update = 2;
+                                            }
+                                        }
+                                    }
                                 }
 
                                 // Background prefetching for paged directory source
