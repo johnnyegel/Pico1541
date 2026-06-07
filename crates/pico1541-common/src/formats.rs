@@ -52,7 +52,7 @@ pub struct VirtualDiskImage<S, D: DirectorySource> {
     pub treadmill_spinup_delay: u16,
 }
 
-impl<S, D: DirectorySource> VirtualDiskImage<S, D> {
+impl<S: Read + Seek, D: DirectorySource> VirtualDiskImage<S, D> {
     pub fn new(source: D, name: &[u8]) -> Self {
         // Generate a pseudo-random ID based on the disk name, ensuring valid uppercase PETSCII (0x41-0x5A)
         let mut hash1 = 0u32;
@@ -147,7 +147,7 @@ impl<S, D: DirectorySource> VirtualDiskImage<S, D> {
         }
     }
 
-    pub fn update_dynamic_buffer(&mut self, current_byte_idx: usize, gcr_data: &mut [u8]) -> bool {
+    pub async fn update_dynamic_buffer(&mut self, current_byte_idx: usize, gcr_data: &mut [u8]) -> bool {
         if self.treadmill_spinup_delay > 0 {
             self.treadmill_spinup_delay -= 1;
             return false;
@@ -173,6 +173,52 @@ impl<S, D: DirectorySource> VirtualDiskImage<S, D> {
             self.sector2_idx
         };
         if idx == 0 {
+            return false;
+        }
+
+        if let Some(storage) = &mut self.file_storage {
+            let mut file_buf = [0u8; 254];
+            let mut bytes_read = 0;
+            loop {
+                let n = storage.read(&mut file_buf[bytes_read..]).await.unwrap_or(0);
+                if n == 0 { break; }
+                bytes_read += n;
+                if bytes_read == 254 { break; }
+            }
+            
+            let mut raw_sector = [0u8; 256];
+            raw_sector[2..2+bytes_read].copy_from_slice(&file_buf[..bytes_read]);
+            
+            let (next_t, next_s) = if bytes_read == 254 {
+                (1, if target_sector == 1 { 2 } else { 1 })
+            } else {
+                (0, (bytes_read + 1) as u8) // End of file
+            };
+            raw_sector[0] = next_t;
+            raw_sector[1] = next_s;
+            
+            let mut data_checksum = 0u8;
+            for b in raw_sector.iter() {
+                data_checksum ^= b;
+            }
+            let mut data_raw = [0u8; 260];
+            data_raw[0] = 0x07;
+            data_raw[1..257].copy_from_slice(&raw_sector);
+            data_raw[257] = data_checksum;
+            
+            let mut dest_gcr = [0u8; 325];
+            for (i, chunk) in data_raw.chunks_exact(4).enumerate() {
+                crate::gcr::encode_gcr_block(
+                    chunk.try_into().unwrap(),
+                    (&mut dest_gcr[i * 5..(i + 1) * 5]).try_into().unwrap(),
+                );
+            }
+            
+            if idx + 325 <= gcr_data.len() {
+                gcr_data[idx..idx + 325].copy_from_slice(&dest_gcr);
+                self.next_sector_to_update = next_after;
+                return true;
+            }
             return false;
         }
 
@@ -222,14 +268,14 @@ impl<S, D: DirectorySource> VirtualDiskImage<S, D> {
         false
     }
 
-    pub fn force_update_directory_sectors(&mut self, gcr_data: &mut [u8]) {
+    pub async fn force_update_directory_sectors(&mut self, gcr_data: &mut [u8]) {
         // To update Sector 1, we must simulate the head being in Sector 2
         self.next_sector_to_update = 1;
-        self.update_dynamic_buffer(40 + 372 * 2 + 1, gcr_data); // Head in Sector 2, updates Sector 1
+        self.update_dynamic_buffer(40 + 372 * 2 + 1, gcr_data).await; // Head in Sector 2, updates Sector 1
         
         // To update Sector 2, we must simulate the head being in Sector 1
         self.next_sector_to_update = 2;
-        self.update_dynamic_buffer(40 + 372 + 1, gcr_data); // Head in Sector 1, updates Sector 2
+        self.update_dynamic_buffer(40 + 372 + 1, gcr_data).await; // Head in Sector 1, updates Sector 2
         
         self.next_sector_to_update = 1; // When actual read starts, wait for Sector 1 to pass, then update Sector 2
     }
@@ -248,21 +294,30 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
 
         if track == 1 {
             // Track 1: Infinite File Track
-            let sectors = 25;
-            let stride = 400;
+            let sectors = 21;
+            let mut write_ptr = 0;
 
-            for sector in 0..sectors {
-                let mut write_ptr = sector * stride;
+            for _ in 0..40 {
+                if write_ptr < dest.len() {
+                    dest[write_ptr] = 0xAA;
+                    write_ptr += 1;
+                }
+            }
 
-                // Lead-in
-                for _ in 0..5 {
-                    if write_ptr < dest.len() {
-                        dest[write_ptr] = 0xAA;
-                        write_ptr += 1;
-                    }
+            if let Some(storage) = &mut self.file_storage {
+                let _ = storage.seek(embedded_io_async::SeekFrom::Start(0)).await;
+            }
+
+            for physical_sector in 0..sectors {
+                let sector = ((physical_sector as u32 * 3) % (sectors as u32)) as u8;
+                let mut sector_data = [0u8; 256];
+
+                if sector == 1 {
+                    self.sector1_idx = write_ptr + 39;
+                } else if sector == 2 {
+                    self.sector2_idx = write_ptr + 39;
                 }
 
-                // Header SYNC
                 for _ in 0..10 {
                     if write_ptr < dest.len() {
                         dest[write_ptr] = 0xFF;
@@ -275,56 +330,50 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                 ];
                 for chunk in header_raw.chunks_exact(4) {
                     let mut dst = [0u8; 5];
-                    gcr::encode_gcr_block(chunk.try_into().unwrap(), &mut dst);
+                    crate::gcr::encode_gcr_block(chunk.try_into().unwrap(), &mut dst);
                     if write_ptr + 5 <= dest.len() {
                         dest[write_ptr..write_ptr + 5].copy_from_slice(&dst);
                         write_ptr += 5;
                     }
                 }
-                // Header-to-Data Gap
                 for _ in 0..9 {
                     if write_ptr < dest.len() {
                         dest[write_ptr] = 0xAA;
                         write_ptr += 1;
                     }
                 }
-                // Data SYNC
                 for _ in 0..10 {
                     if write_ptr < dest.len() {
                         dest[write_ptr] = 0xFF;
                         write_ptr += 1;
                     }
                 }
-                
-                let mut sector_data = [0u8; 256];
-                if let Some(storage) = &mut self.file_storage {
-                    let file_offset = (sector as u64) * 256;
-                    let _ = storage.seek(SeekFrom::Start(file_offset)).await;
-                    let _ = storage.read_exact(&mut sector_data).await;
-                }
-
                 let mut data_checksum = 0u8;
                 for b in sector_data.iter() {
                     data_checksum ^= b;
                 }
-
                 let mut data_raw = [0u8; 260];
                 data_raw[0] = 0x07;
                 data_raw[1..257].copy_from_slice(&sector_data);
                 data_raw[257] = data_checksum;
-
                 for chunk in data_raw.chunks_exact(4) {
                     let mut dst = [0u8; 5];
-                    gcr::encode_gcr_block(chunk.try_into().unwrap(), &mut dst);
+                    crate::gcr::encode_gcr_block(chunk.try_into().unwrap(), &mut dst);
                     if write_ptr + 5 <= dest.len() {
                         dest[write_ptr..write_ptr + 5].copy_from_slice(&dst);
                         write_ptr += 5;
                     }
                 }
+                for _ in 0..8 {
+                    if write_ptr < dest.len() {
+                        dest[write_ptr] = 0xAA;
+                        write_ptr += 1;
+                    }
+                }
             }
 
             log::info!("VirtualDiskImage: Returning StriddenWarp for track 1");
-            return Ok(TrackLayout::StriddenWarp(10000, stride));
+            return Ok(TrackLayout::StriddenWarp(10000, 372));
         }
 
         if half_track == 34 || half_track == 35 {
@@ -451,7 +500,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
             }
 
             self.source.rewind();
-            self.force_update_directory_sectors(dest);
+            self.force_update_directory_sectors(dest).await;
             return Ok(TrackLayout::Accurate(7142));
         }
 

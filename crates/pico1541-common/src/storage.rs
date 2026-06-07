@@ -95,7 +95,7 @@ impl DirectoryEntry {
             file_type,
             filename,
             first_track: 1,
-            first_sector: 0,
+            first_sector: 1,
             block_size: if is_dir { 0 } else { size.div_ceil(254) as u16 },
         }
     }

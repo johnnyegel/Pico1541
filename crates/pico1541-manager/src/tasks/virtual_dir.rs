@@ -129,7 +129,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                 // Periodic update of directory buffer only when motor is on
                                 if motor_on {
                                     let current_idx = self.active_track.current_byte_idx as usize;
-                                    vdir.update_dynamic_buffer(current_idx, &mut self.active_track.gcr_data);
+                                    vdir.update_dynamic_buffer(current_idx, &mut self.active_track.gcr_data).await;
                                 }
 
                                 // Background prefetching for paged directory source
@@ -252,7 +252,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                         vdir.source.rewind();
                                         vdir.next_sector_to_update = 1;
                                         let gcr_buf = &mut self.active_track.gcr_data;
-                                        vdir.force_update_directory_sectors(gcr_buf);
+                                        vdir.force_update_directory_sectors(gcr_buf).await;
                                         vdir.treadmill_spinup_delay = 10;
                                     }
                                 }
@@ -368,7 +368,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                     if let Some(vdir) = disk.as_virtual_disk_mut() {
                                         vdir.source.rewind();
                                         vdir.next_sector_to_update = 1;
-                                        vdir.force_update_directory_sectors(&mut self.active_track.gcr_data);
+                                        vdir.force_update_directory_sectors(&mut self.active_track.gcr_data).await;
                                         vdir.treadmill_spinup_delay = 10;
                                     }
                                 }
@@ -429,7 +429,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                                 }
                                             }
                                             vdir.next_sector_to_update = 1;
-                                            vdir.force_update_directory_sectors(&mut self.active_track.gcr_data);
+                                            vdir.force_update_directory_sectors(&mut self.active_track.gcr_data).await;
                                             vdir.treadmill_spinup_delay = 10;
                                         }
                                     }
@@ -448,13 +448,13 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                         let copy_len = filename.len().min(16);
                                         entry_name[..copy_len].copy_from_slice(&filename[..copy_len]);
                                         
-                                        let shortcut = pico1541_common::storage::DirectoryEntry::new(&entry_name, 0x82, 1, 0);
+                                        let shortcut = pico1541_common::storage::DirectoryEntry::new(&entry_name, 0x82, 1, 1);
                                         let mut disk_opt = self.disk_image.lock().await;
                                         if let Some(disk) = disk_opt.as_mut() {
                                             if let Some(vdir) = disk.as_virtual_disk_mut() {
                                                 vdir.set_shortcut_entry(Some(shortcut));
                                                 vdir.file_storage = Some(file_storage);
-                                                vdir.force_update_directory_sectors(&mut self.active_track.gcr_data);
+                                                vdir.force_update_directory_sectors(&mut self.active_track.gcr_data).await;
                                             }
                                         }
                                     }
@@ -465,7 +465,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                             if let Some(vdir) = disk.as_virtual_disk_mut() {
                                                 vdir.set_shortcut_entry(None);
                                                 vdir.file_storage = None;
-                                                vdir.force_update_directory_sectors(&mut self.active_track.gcr_data);
+                                                vdir.force_update_directory_sectors(&mut self.active_track.gcr_data).await;
                                             }
                                         }
                                     }
