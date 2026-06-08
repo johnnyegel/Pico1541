@@ -186,6 +186,8 @@ pub enum DriveEvent {
     MotorChanged(bool),
     HeadStepped {
         new_half_track: u8,
+        drive_track: u8,
+        drive_sector: u8,
     },
     /// The Snooper has detected a secondary address byte addressed to this device
     IecSnoopSecondaryAddress(u8), // secondary address byte

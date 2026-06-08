@@ -155,10 +155,10 @@ impl DriveMechanics {
 
     /// Updates the drive mechanics state based on VIA2 Port B outputs.
     #[link_section = ".data.ram_func"]
-    pub fn update_state<H: HostInterface>(&mut self, orb: u8, ddrb: u8, hardware: &mut H) {
+    pub fn update_state<H: HostInterface>(&mut self, orb: u8, ddrb: u8, hardware: &mut H, drive_track: u8, drive_sector: u8) {
         let full_state = orb & ddrb & (MASK_HARDWARE_STATE | MASK_SPEED_ZONE);
         if full_state != self.last_state {
-            self.update_state_slow(full_state, hardware);
+            self.update_state_slow(full_state, hardware, drive_track, drive_sector);
         }
     }
 
@@ -196,16 +196,17 @@ impl DriveMechanics {
         let has_position = match layout {
             TrackLayout::Accurate(size) => {
                 // :? Has the track size changed?    
-                if size != self.track_byte_size && self.track_byte_size > 0 {
-                    // -> Yes, then calculate the new track byte position
-                    let new_track_position = (self.track_byte_pos_ix * size) 
-                            / self.track_byte_size;
+                if size != self.track_byte_size {
+                    if self.track_byte_size > 0 {
+                        // -> Yes, then calculate the new track byte position
+                        let new_track_position = (self.track_byte_pos_ix * size) 
+                                / self.track_byte_size;
 
-                    emu_debug!("[Accurate] Recalculated track [{}] position: {} / {} -> {} / {}", 
-                            self.halftrack_head_pos, self.track_byte_pos_ix, self.track_byte_size, new_track_position, size);
-                    
-                    // Update the byte position and size
-                    self.track_byte_pos_ix = new_track_position;
+                        emu_debug!("[Accurate] Recalculated track [{}] position: {} / {} -> {} / {}", 
+                                self.halftrack_head_pos, self.track_byte_pos_ix, self.track_byte_size, new_track_position, size);
+                        
+                        self.track_byte_pos_ix = new_track_position;
+                    }
                     self.track_byte_size = size;
                 }
                 
@@ -258,7 +259,7 @@ impl DriveMechanics {
     /// Updates the drive mechanics state, and issues events accordingly.
     #[link_section = ".data.ram_func"]
     #[inline(never)]
-    fn update_state_slow(&mut self, full_state: u8, hardware: &mut impl HostInterface) {
+    fn update_state_slow(&mut self, full_state: u8, hardware: &mut impl HostInterface, drive_track: u8, drive_sector: u8) {
         let last_state = self.last_state;
         let changed = last_state ^ full_state;
         self.last_state = full_state;
@@ -305,7 +306,11 @@ impl DriveMechanics {
                     .clamp(MIN_HALF_TRACK, MAX_HALF_TRACK);
 
             if self.halftrack_head_pos >= 0 && self.halftrack_head_pos <= MAX_HALF_TRACK {
-                hardware.send_event(DriveEvent::HeadStepped { new_half_track: self.halftrack_head_pos as u8} );
+                hardware.send_event(DriveEvent::HeadStepped { 
+                    new_half_track: self.halftrack_head_pos as u8,
+                    drive_track,
+                    drive_sector,
+                });
             }
         }
     }

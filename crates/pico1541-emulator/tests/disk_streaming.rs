@@ -26,7 +26,7 @@ fn test_disk_streaming_data() {
     // In our implementation Zone 0 (32 cycles) is bits 5,6 = 11 (0x60)
     via2.ddrb = 0xFF; // All bits are output
     via2.orb = (via2.orb & !0x60) | 0x60 | 0x04; // Zone 0 (32 cycles) + Motor ON
-    mechanics.update_state(via2.orb, via2.ddrb, &mut hardware);
+    mechanics.update_state(via2.orb, via2.ddrb, &mut hardware, 0, 0);
 
     // Set READ mode (CB2 out = true) AND enable SO (CA2 out = true)
 
@@ -73,7 +73,7 @@ fn test_disk_streaming_sync() {
     mechanics.halftrack_head_pos = 0; // Align head with Track 1 (half-track 0)
     via2.ddrb = 0xFF;
     via2.orb = (via2.orb & !0x60) | 0x60 | 0x04; // Zone 0 (32 cycles) + Motor ON
-    mechanics.update_state(via2.orb, via2.ddrb, &mut hardware);
+    mechanics.update_state(via2.orb, via2.ddrb, &mut hardware, 0, 0);
     
     // Set READ mode (CB2 out = true) AND enable SO (CA2 out = true)
     via2.pcr = 0b1110_1110;
@@ -124,7 +124,7 @@ fn test_disk_bitrate_zones() {
 
     // Test Zone 0: 32 cycles (bits 5,6 = 11 -> 0x60)
     via2.orb = 0x60 | 0x04; // Motor ON
-    mechanics.update_state(via2.orb, via2.ddrb, &mut hardware);
+    mechanics.update_state(via2.orb, via2.ddrb, &mut hardware, 0, 0);
     let mut ticks = 0;
     while !mechanics.tick(&mut hardware, &mut via1, &mut via2, 0) {
         ticks += 1;
@@ -134,7 +134,7 @@ fn test_disk_bitrate_zones() {
 
     // Test Zone 1: 30 cycles (bits 5,6 = 10 -> 0x40)
     via2.orb = 0x40 | 0x04;
-    mechanics.update_state(via2.orb, via2.ddrb, &mut hardware);
+    mechanics.update_state(via2.orb, via2.ddrb, &mut hardware, 0, 0);
     ticks = 0;
     while !mechanics.tick(&mut hardware, &mut via1, &mut via2, 0) {
         ticks += 1;
@@ -144,7 +144,7 @@ fn test_disk_bitrate_zones() {
 
     // Test Zone 2: 28 cycles (bits 5,6 = 01 -> 0x20)
     via2.orb = 0x20 | 0x04;
-    mechanics.update_state(via2.orb, via2.ddrb, &mut hardware);
+    mechanics.update_state(via2.orb, via2.ddrb, &mut hardware, 0, 0);
     ticks = 0;
     while !mechanics.tick(&mut hardware, &mut via1, &mut via2, 0) {
         ticks += 1;
@@ -154,7 +154,7 @@ fn test_disk_bitrate_zones() {
 
     // Test Zone 3: 26 cycles (bits 5,6 = 00 -> 0x00)
     via2.orb = 0x00 | 0x04;
-    mechanics.update_state(via2.orb, via2.ddrb, &mut hardware);
+    mechanics.update_state(via2.orb, via2.ddrb, &mut hardware, 0, 0);
     ticks = 0;
     while !mechanics.tick(&mut hardware, &mut via1, &mut via2, 0) {
         ticks += 1;
@@ -177,7 +177,7 @@ fn test_disk_write_streaming() {
     via2.ddrb = 0xFF;
     via2.orb |= 0x04; // Motor ON
     via2.orb |= 0x60; // Zone 0 (32 cycles)
-    mechanics.update_state(via2.orb, via2.ddrb, &mut hardware);
+    mechanics.update_state(via2.orb, via2.ddrb, &mut hardware, 0, 0);
 
     // Set Write mode: CB2 out = false (bits 7-5 = 110)
     // AND enable SO: CA2 out = true (bits 3-1 = 111)

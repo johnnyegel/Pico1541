@@ -202,7 +202,8 @@ impl HostInterface for TestBridge {
         self.events.push(event);
         log::info!("[DriveEvent] {:?}", event);
         match event {
-            DriveEvent::HeadStepped { new_half_track } => {
+            DriveEvent::HeadStepped { new_half_track, .. } => {
+                log::info!("Head stepped to {}", new_half_track);
                 self.track.half_track = new_half_track;
             }
             _ => {}

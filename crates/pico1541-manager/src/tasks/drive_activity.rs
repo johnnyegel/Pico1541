@@ -20,10 +20,10 @@ impl<I: IndicatorDriver> DriveActivityTask<I> {
                 DriveEvent::MotorChanged(active) => {
                     let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::MotorState(active));
                 }
-                DriveEvent::HeadStepped { new_half_track } => {
-                    info!("Drive head stepped to half_track {}", new_half_track);
+                DriveEvent::HeadStepped { new_half_track, drive_track, drive_sector } => {
+                    info!("Drive head stepped to half_track {} (ram: T={}, S={})", new_half_track, drive_track, drive_sector);
                     self.indicator.beep();
-                    let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::HeadStepped(new_half_track));
+                    let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::HeadStepped(new_half_track, drive_track, drive_sector));
                 }
                 DriveEvent::IecCommand { data, len } => {
                     let cmd_str =

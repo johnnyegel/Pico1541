@@ -251,7 +251,9 @@ impl<H: HostInterface> SystemBus<H> {
                 let reg = (addr & 0x0F) as usize;
                 self.via2.write(addr, value);
                 if reg == 0x00 || reg == 0x02 {
-                    self.mechanics.update_state(self.via2.orb, self.via2.ddrb, ctx);
+                    let drive_track = unsafe { *self.ram.get_unchecked(0x0022) };
+                    let drive_sector = unsafe { *self.ram.get_unchecked(0x0033) };
+                    self.mechanics.update_state(self.via2.orb, self.via2.ddrb, ctx, drive_track, drive_sector);
                 }
             }
             _ => {}

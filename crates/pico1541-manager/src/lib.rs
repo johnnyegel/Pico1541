@@ -39,7 +39,7 @@ pub static ACTIVITY_CHANNEL: Channel<CriticalSectionRawMutex, DriveEvent, 16> = 
 #[derive(Clone, Copy, Debug)]
 pub enum InternalCommand {
     LoadFile([u8; 16]),
-    HeadStepped(u8),
+    HeadStepped(u8, u8, u8),
     CloseChannel(u8),
     ImageMounted,
     ImageUnmounted,

@@ -262,8 +262,8 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                 }
                 Either::Second(cmd) => {
                     match cmd {
-                        InternalCommand::HeadStepped(half_track) => {
-                            info!("Manager loading track {}", half_track);
+                        InternalCommand::HeadStepped(half_track, drive_track, drive_sector) => {
+                            info!("Manager loading track {} (ram: T={}, S={})", half_track, drive_track, drive_sector);
                             let mut disk_opt = self.disk_image.lock().await;
                             if let Some(disk) = disk_opt.as_mut() {
                                 let inactive = self.inactive_track_mut();

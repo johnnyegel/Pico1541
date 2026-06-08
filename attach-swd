@@ -1,0 +1,10 @@
+#!/bin/bash
+ELF_FILE="target/thumbv6m-none-eabi/debug/pico1541-rp2040"
+
+if [ ! -f "$ELF_FILE" ]; then
+    echo "Error: Compiled ELF file not found at $ELF_FILE"
+    echo "Please ensure you have built the project before attaching."
+    exit 1
+fi
+
+probe-rs attach --chip RP2040 --speed 1000 "$ELF_FILE"

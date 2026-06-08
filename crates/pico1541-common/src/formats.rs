@@ -583,6 +583,13 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
             _ => 6250,
         };
 
+        while write_ptr < track_bytes as usize {
+            if write_ptr < dest.len() {
+                dest[write_ptr] = 0xAA;
+            }
+            write_ptr += 1;
+        }
+
         Ok(TrackLayout::Warp(track_bytes))
     }
 }
@@ -720,6 +727,14 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
             25..=30 => 6666,
             _ => 6250,
         };
+        
+        while write_ptr < track_bytes as usize {
+            if write_ptr < dest.len() {
+                dest[write_ptr] = 0xAA;
+            }
+            write_ptr += 1;
+        }
+
         Ok(TrackLayout::Accurate(track_bytes))
     }
 }
