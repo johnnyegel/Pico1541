@@ -101,6 +101,7 @@ where
     pub fat_fs: Option<FileSystem<PartitionedBlockDevice<B>>>,
     pub det_pin: Det,
     pub volume_label: Option<heapless::String<11>>,
+    pub partition_start: u64,
 }
 
 impl<B, Det> FatStorage<B, Det>
@@ -115,6 +116,7 @@ where
             fat_fs: None,
             det_pin,
             volume_label: None,
+            partition_start: 0,
         }
     }
 
@@ -163,6 +165,7 @@ where
             } else {
                 0
             };
+            self.partition_start = partition_start;
 
             let mut partitioned_dev = PartitionedBlockDevice::new(self.block_dev.clone(), partition_start as u64);
             let _ = partitioned_dev.seek(FatFsSeekFrom::Start(0)).map_err(|_| ManagerError::Io)?;
@@ -220,7 +223,18 @@ where
 {
     storage: StorageWrapper<B, Det>,
     path: heapless::String<128>,
-    offset: u64,
+    owned_file: Option<OwnedFatFile<B>>,
+}
+
+#[ouroboros::self_referencing]
+pub struct OwnedFatFile<B>
+where
+    B: fatfs::Read + fatfs::Write + fatfs::Seek + Send + Sync + Clone + 'static,
+{
+    fs: fatfs::FileSystem<PartitionedBlockDevice<B>>,
+    #[borrows(fs)]
+    #[covariant]
+    file: fatfs::File<'this, PartitionedBlockDevice<B>, fatfs::DefaultTimeProvider, fatfs::LossyOemCpConverter>,
 }
 
 impl<B, Det> embedded_io_async::ErrorType for FatFsFileWrapper<B, Det>
@@ -231,21 +245,55 @@ where
     type Error = CommonError;
 }
 
+impl<B, Det> FatFsFileWrapper<B, Det>
+where
+    B: fatfs::Read + fatfs::Write + fatfs::Seek + Send + Sync + Clone + 'static,
+    Det: InputPin + 'static,
+{
+    async fn ensure_open(&mut self) -> Result<(), CommonError> {
+        if self.owned_file.is_none() {
+            let mut storage = self.storage.0.lock().await;
+            if storage.fat_fs.is_none() {
+                let _ = storage.ensure_mounted().await.map_err(|_| CommonError::Io)?;
+            }
+            
+            // Create a completely new FileSystem instance for our private use
+            let mut block_dev = PartitionedBlockDevice::new(
+                storage.block_dev.clone(),
+                storage.partition_start,
+            );
+            let _ = block_dev.seek(FatFsSeekFrom::Start(0)).map_err(|_| CommonError::Io)?;
+            let fs = fatfs::FileSystem::new(block_dev, fatfs::FsOptions::new())
+                .map_err(|_| CommonError::Io)?;
+                
+            let path_str = self.path.clone();
+            
+            let owned = OwnedFatFileTryBuilder {
+                fs,
+                file_builder: |fs_ref| {
+                    fs_ref.root_dir().open_file(normalize_path(path_str.as_str()))
+                        .map_err(|_| CommonError::Io)
+                }
+            }.try_build()?;
+            
+            self.owned_file = Some(owned);
+        }
+        Ok(())
+    }
+}
+
 impl<B, Det> embedded_io_async::Read for FatFsFileWrapper<B, Det>
 where
     B: fatfs::Read + fatfs::Write + fatfs::Seek + Send + Sync + Clone + 'static,
     Det: InputPin + 'static,
 {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        let mut storage = self.storage.0.lock().await;
-        let fs = storage.ensure_mounted().await.map_err(|_| CommonError::Io)?;
+        self.ensure_open().await?;
         
-        let mut file = fs.root_dir().open_file(normalize_path(self.path.as_str())).map_err(|_| CommonError::Io)?;
-        
-        let _ = file.seek(FatFsSeekFrom::Start(self.offset)).map_err(|_| CommonError::Io)?;
-        
-        let read_len = file.read(buf).map_err(|_| CommonError::Io)?;
-        self.offset += read_len as u64;
+        let owned = self.owned_file.as_mut().unwrap();
+        let read_len = owned.with_file_mut(|f| f.read(buf))
+            .map_err(|_| CommonError::Io)?;
+            
         Ok(read_len)
     }
 }
@@ -256,18 +304,19 @@ where
     Det: InputPin + 'static,
 {
     async fn seek(&mut self, pos: embedded_io_async::SeekFrom) -> Result<u64, Self::Error> {
-        match pos {
-            embedded_io_async::SeekFrom::Start(n) => self.offset = n,
-            embedded_io_async::SeekFrom::Current(n) => self.offset = (self.offset as i64 + n) as u64,
-            embedded_io_async::SeekFrom::End(n) => {
-                let mut storage = self.storage.0.lock().await;
-                let fs = storage.ensure_mounted().await.map_err(|_| CommonError::Io)?;
-                let mut file = fs.root_dir().open_file(normalize_path(self.path.as_str())).map_err(|_| CommonError::Io)?;
-                let len = file.seek(FatFsSeekFrom::End(0)).map_err(|_| CommonError::Io)? as i64;
-                self.offset = (len + n) as u64;
-            }
-        }
-        Ok(self.offset)
+        self.ensure_open().await?;
+        
+        let fat_pos = match pos {
+            embedded_io_async::SeekFrom::Start(n) => FatFsSeekFrom::Start(n),
+            embedded_io_async::SeekFrom::Current(n) => FatFsSeekFrom::Current(n),
+            embedded_io_async::SeekFrom::End(n) => FatFsSeekFrom::End(n),
+        };
+        
+        let owned = self.owned_file.as_mut().unwrap();
+        let new_pos = owned.with_file_mut(|f| f.seek(fat_pos))
+            .map_err(|_| CommonError::Io)?;
+            
+        Ok(new_pos)
     }
 }
 
@@ -450,7 +499,7 @@ where
         FatFsFileWrapper {
             storage: *self,
             path: heapless::String::from_str(path).unwrap_or_default(),
-            offset: 0,
+            owned_file: None,
         }
     }
 
