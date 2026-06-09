@@ -270,8 +270,29 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                 }
                 Either::Second(cmd) => {
                     match cmd {
-                        InternalCommand::HeadStepped(half_track, drive_track, drive_sector) => {
+                        InternalCommand::HeadStepped(mut half_track, mut drive_track, mut drive_sector) => {
+                            // Drain any immediately pending HeadStepped commands from the channel
+                            // to skip intermediate tracks and avoid excessive SD card reads.
+                            let mut pending_cmds = heapless::Vec::<InternalCommand, 16>::new();
+                            while let Ok(next_cmd) = crate::CMD_CHANNEL.try_receive() {
+                                match next_cmd {
+                                    InternalCommand::HeadStepped(ht, dt, ds) => {
+                                        half_track = ht;
+                                        drive_track = dt;
+                                        drive_sector = ds;
+                                    }
+                                    _ => {
+                                        let _ = pending_cmds.push(next_cmd);
+                                    }
+                                }
+                            }
+
                             info!("Manager loading track {} (ram: T={}, S={})", half_track, drive_track, drive_sector);
+                            
+                            // Prevent DOS from reading the old track data (and wrong headers) by stalling it safely.
+                            let old_layout = self.active_track_mut().layout.clone();
+                            self.active_track_mut().layout = pico1541_common::formats::TrackLayout::SyncWait;
+
                             let mut disk_opt = self.disk_image.lock().await;
                             if let Some(disk) = disk_opt.as_mut() {
                                 let inactive = self.inactive_track_mut();
@@ -284,11 +305,17 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                     }
                                     Err(e) => {
                                         error!("Failed to read track: {:?}", &e);
+                                        self.active_track_mut().layout = old_layout;
                                     }
                                 }
                             } else {
                                 self.active_track_mut().layout = pico1541_common::formats::TrackLayout::Void;
                                 self.active_track_mut().half_track = half_track;
+                            }
+                            
+                            // Re-queue any non-HeadStepped commands we extracted
+                            for cmd in pending_cmds {
+                                let _ = crate::CMD_CHANNEL.try_send(cmd);
                             }
                         }
                         InternalCommand::MotorState(active) => {
