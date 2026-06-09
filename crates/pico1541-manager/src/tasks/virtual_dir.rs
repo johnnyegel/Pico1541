@@ -122,41 +122,56 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
     }
 
     async fn handle_track_event(&mut self, half_track: u8, drive_track: u8, drive_sector: u8) {
-        // Drain any immediately pending track events from the dedicated channel
-        // to skip intermediate tracks and avoid excessive SD card reads.
-        let mut final_half_track = half_track;
-        let mut final_drive_track = drive_track;
-        let mut final_drive_sector = drive_sector;
-        while let Ok((ht, dt, ds)) = TRACK_CHANNEL.try_receive() {
-            final_half_track = ht;
-            final_drive_track = dt;
-            final_drive_sector = ds;
-        }
+        let mut target_ht = half_track;
+        let mut target_dt = drive_track;
+        let mut target_ds = drive_sector;
 
-        info!("Manager loading track {} (ram: T={}, S={})", final_half_track, final_drive_track, final_drive_sector);
-        
-        // Prevent DOS from reading the old track data (and wrong headers) by stalling it safely.
-        let old_layout = self.active_track_mut().layout.clone();
-        self.active_track_mut().layout = pico1541_common::formats::TrackLayout::SyncWait;
-
-        let mut disk_opt = self.disk_image.lock().await;
-        if let Some(disk) = disk_opt.as_mut() {
-            let inactive = self.inactive_track_mut();
-            match disk.read_track(final_half_track, &mut inactive.gcr_data).await {
-                Ok(layout) => {
-                    inactive.layout = layout;
-                    inactive.half_track = final_half_track;
-                    inactive.is_dirty = false;
-                    self.track_buffers.swap();
-                }
-                Err(e) => {
-                    error!("Failed to read track: {:?}", &e);
-                    self.active_track_mut().layout = old_layout;
-                }
+        loop {
+            // Drain queue
+            while let Ok((ht, dt, ds)) = TRACK_CHANNEL.try_receive() {
+                target_ht = ht;
+                target_dt = dt;
+                target_ds = ds;
             }
-        } else {
-            self.active_track_mut().layout = pico1541_common::formats::TrackLayout::Void;
-            self.active_track_mut().half_track = final_half_track;
+
+            info!("Manager loading track {} (ram: T={}, S={})", target_ht, target_dt, target_ds);
+            
+            // Prevent DOS from reading the old track data by stalling it safely.
+            let old_layout = self.active_track_mut().layout.clone();
+            self.active_track_mut().layout = pico1541_common::formats::TrackLayout::SyncWait;
+
+            let mut disk_opt = self.disk_image.lock().await;
+            if let Some(disk) = disk_opt.as_mut() {
+                let inactive = self.inactive_track_mut();
+                
+                // Read track but CANCEL if the head steps again!
+                match select(disk.read_track(target_ht, &mut inactive.gcr_data), TRACK_CHANNEL.receive()).await {
+                    Either::First(Ok(layout)) => {
+                        inactive.layout = layout;
+                        inactive.half_track = target_ht;
+                        inactive.is_dirty = false;
+                        self.track_buffers.swap();
+                        break; // Success, done loading the track!
+                    }
+                    Either::First(Err(e)) => {
+                        error!("Failed to read track: {:?}", &e);
+                        self.active_track_mut().layout = old_layout;
+                        break;
+                    }
+                    Either::Second((new_ht, new_dt, new_ds)) => {
+                        // The head stepped WHILE we were reading from the SD card!
+                        // The read is aborted. We loop around to start reading the NEW track!
+                        target_ht = new_ht;
+                        target_dt = new_dt;
+                        target_ds = new_ds;
+                        continue;
+                    }
+                }
+            } else {
+                self.active_track_mut().layout = pico1541_common::formats::TrackLayout::Void;
+                self.active_track_mut().half_track = target_ht;
+                break;
+            }
         }
     }
 
