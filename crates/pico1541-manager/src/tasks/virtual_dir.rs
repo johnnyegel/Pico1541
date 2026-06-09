@@ -2,8 +2,8 @@ use embedded_io_async::{Read, Seek};
 use pico1541_common::formats::{AnyDiskImage, DiskImage};
 use pico1541_common::interface::ActiveTrack;
 use pico1541_common::storage::DirectorySource;
-use crate::{CMD_CHANNEL, InternalCommand};
-use embassy_futures::select::{select, Either};
+use crate::{CMD_CHANNEL, TRACK_CHANNEL, InternalCommand};
+use embassy_futures::select::{select, select3, Either, Either3};
 #[cfg(feature = "defmt")]
 use defmt::{info, warn, error};
 #[cfg(not(feature = "defmt"))]
@@ -121,14 +121,64 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
         unsafe { &mut *self.track_buffers.get_inactive_ptr() }
     }
 
+    async fn handle_track_event(&mut self, half_track: u8, drive_track: u8, drive_sector: u8) {
+        // Drain any immediately pending track events from the dedicated channel
+        // to skip intermediate tracks and avoid excessive SD card reads.
+        let mut final_half_track = half_track;
+        let mut final_drive_track = drive_track;
+        let mut final_drive_sector = drive_sector;
+        while let Ok((ht, dt, ds)) = TRACK_CHANNEL.try_receive() {
+            final_half_track = ht;
+            final_drive_track = dt;
+            final_drive_sector = ds;
+        }
+
+        info!("Manager loading track {} (ram: T={}, S={})", final_half_track, final_drive_track, final_drive_sector);
+        
+        // Prevent DOS from reading the old track data (and wrong headers) by stalling it safely.
+        let old_layout = self.active_track_mut().layout.clone();
+        self.active_track_mut().layout = pico1541_common::formats::TrackLayout::SyncWait;
+
+        let mut disk_opt = self.disk_image.lock().await;
+        if let Some(disk) = disk_opt.as_mut() {
+            let inactive = self.inactive_track_mut();
+            match disk.read_track(final_half_track, &mut inactive.gcr_data).await {
+                Ok(layout) => {
+                    inactive.layout = layout;
+                    inactive.half_track = final_half_track;
+                    inactive.is_dirty = false;
+                    self.track_buffers.swap();
+                }
+                Err(e) => {
+                    error!("Failed to read track: {:?}", &e);
+                    self.active_track_mut().layout = old_layout;
+                }
+            }
+        } else {
+            self.active_track_mut().layout = pico1541_common::formats::TrackLayout::Void;
+            self.active_track_mut().half_track = final_half_track;
+        }
+    }
+
     pub async fn run(&mut self) {
         let mut motor_on = false;
         loop {
+            // Check if there is a pending track event IMMEDIATELY.
+            // If so, handle it first to prevent select3 from randomly choosing the timer/cmd.
+            if let Ok((half_track, drive_track, drive_sector)) = TRACK_CHANNEL.try_receive() {
+                self.handle_track_event(half_track, drive_track, drive_sector).await;
+                continue;
+            }
+
+            let track_fut = TRACK_CHANNEL.receive();
             let timer_fut = embassy_time::Timer::after_millis(20);
             let cmd_fut = CMD_CHANNEL.receive();
 
-            match select(timer_fut, cmd_fut).await {
-                Either::First(_) => {
+            match select3(track_fut, timer_fut, cmd_fut).await {
+                Either3::First((half_track, drive_track, drive_sector)) => {
+                    self.handle_track_event(half_track, drive_track, drive_sector).await;
+                }
+                Either3::Second(_) => {
                     // (first_missing_block, batch_count)
                     let mut block_batch: Option<(usize, usize)> = None;
                     {
@@ -268,56 +318,8 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                         self.active_track_mut().layout = old_layout;
                     }
                 }
-                Either::Second(cmd) => {
+                Either3::Third(cmd) => {
                     match cmd {
-                        InternalCommand::HeadStepped(mut half_track, mut drive_track, mut drive_sector) => {
-                            // Drain any immediately pending HeadStepped commands from the channel
-                            // to skip intermediate tracks and avoid excessive SD card reads.
-                            let mut pending_cmds = heapless::Vec::<InternalCommand, 16>::new();
-                            while let Ok(next_cmd) = crate::CMD_CHANNEL.try_receive() {
-                                match next_cmd {
-                                    InternalCommand::HeadStepped(ht, dt, ds) => {
-                                        half_track = ht;
-                                        drive_track = dt;
-                                        drive_sector = ds;
-                                    }
-                                    _ => {
-                                        let _ = pending_cmds.push(next_cmd);
-                                    }
-                                }
-                            }
-
-                            info!("Manager loading track {} (ram: T={}, S={})", half_track, drive_track, drive_sector);
-                            
-                            // Prevent DOS from reading the old track data (and wrong headers) by stalling it safely.
-                            let old_layout = self.active_track_mut().layout.clone();
-                            self.active_track_mut().layout = pico1541_common::formats::TrackLayout::SyncWait;
-
-                            let mut disk_opt = self.disk_image.lock().await;
-                            if let Some(disk) = disk_opt.as_mut() {
-                                let inactive = self.inactive_track_mut();
-                                match disk.read_track(half_track, &mut inactive.gcr_data).await {
-                                    Ok(layout) => {
-                                        inactive.layout = layout;
-                                        inactive.half_track = half_track;
-                                        inactive.is_dirty = false;
-                                        self.track_buffers.swap();
-                                    }
-                                    Err(e) => {
-                                        error!("Failed to read track: {:?}", &e);
-                                        self.active_track_mut().layout = old_layout;
-                                    }
-                                }
-                            } else {
-                                self.active_track_mut().layout = pico1541_common::formats::TrackLayout::Void;
-                                self.active_track_mut().half_track = half_track;
-                            }
-                            
-                            // Re-queue any non-HeadStepped commands we extracted
-                            for cmd in pending_cmds {
-                                let _ = crate::CMD_CHANNEL.try_send(cmd);
-                            }
-                        }
                         InternalCommand::MotorState(active) => {
                             if active && !motor_on {
                                 let mut disk_opt = self.disk_image.lock().await;

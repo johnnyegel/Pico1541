@@ -39,7 +39,6 @@ pub static ACTIVITY_CHANNEL: Channel<CriticalSectionRawMutex, DriveEvent, 16> = 
 #[derive(Clone, Copy, Debug)]
 pub enum InternalCommand {
     LoadFile([u8; 16]),
-    HeadStepped(u8, u8, u8),
     CloseChannel(u8),
     ImageMounted,
     ImageUnmounted,
@@ -47,6 +46,7 @@ pub enum InternalCommand {
 }
 
 pub static CMD_CHANNEL: Channel<CriticalSectionRawMutex, InternalCommand, 128> = Channel::new();
+pub static TRACK_CHANNEL: Channel<CriticalSectionRawMutex, (u8, u8, u8), 1> = Channel::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
