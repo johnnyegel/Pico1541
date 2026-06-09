@@ -1,10 +1,19 @@
 #!/bin/bash
-ELF_FILE="target/thumbv6m-none-eabi/debug/pico1541-rp2040"
+
+# Default to debug build unless --release is specified
+PROFILE="debug"
+if [ "$1" == "--release" ]; then
+    PROFILE="release"
+fi
+
+ELF_FILE="target/thumbv6m-none-eabi/${PROFILE}/pico1541-rp2040"
 
 if [ ! -f "$ELF_FILE" ]; then
-    echo "Error: Compiled ELF file not found at $ELF_FILE"
-    echo "Please ensure you have built the project before attaching."
+    echo "ELF file not found at: $ELF_FILE"
+    echo "Please build the project first (e.g. 'cargo build --package pico1541-rp2040 --target thumbv6m-none-eabi')."
     exit 1
 fi
 
-probe-rs attach --chip RP2040 --speed 1000 "$ELF_FILE"
+echo "Attaching to SWD using: $ELF_FILE"
+# DEFMT_LOG="debug" is needed for probe-rs to show defmt logs correctly, just like in .cargo/config.toml
+DEFMT_LOG="debug" probe-rs attach --chip RP2040 --speed 1000 "$ELF_FILE"

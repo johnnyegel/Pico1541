@@ -114,7 +114,13 @@ impl DriveMechanics {
         if is_read_mode {
             // -> Yes, then get the byte
             let gcr_byte = if track.layout == pico1541_common::formats::TrackLayout::SyncWait {
-                BYTE_SYNC
+                // Emit a SYNC byte every 16 bytes to reset the 1541 DOS timeout,
+                // but emit 0x55 (garbage) otherwise so it doesn't get stuck in `bvc *`.
+                if (self.track_byte_pos_ix % 16) == 0 {
+                    BYTE_SYNC
+                } else {
+                    0x55
+                }
             } else {
                 gcr_pos
                     .map(|ix| track.gcr_data[ix])

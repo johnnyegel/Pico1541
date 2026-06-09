@@ -34,9 +34,9 @@ pub struct SystemBus<H: HostInterface> {
     impl<H: HostInterface> SystemBus<H> {
     pub fn new(rom: &'static [u8; ROM_SIZE], device_id: u8) -> Self {
         // :: Intialize VIA1
-        let mut via1 = Via6522::new();
+        let via1 = Via6522::new();
 
-        let systembus = Self {
+        let mut systembus = Self {
             ram: [0; RAM_SIZE],
             rom,
             via1,
@@ -54,8 +54,8 @@ pub struct SystemBus<H: HostInterface> {
         };
 
         // Set up the VIA1 initial state
-        via1.in_a = 0x0;
-        via1.in_b = systembus.calculate_combined_via_in_b(&IecBusState::default());
+        systembus.via1.in_a = 0x0;
+        systembus.via1.in_b = systembus.map_iec_to_via_in_b(&IecBusState::default());
 
         systembus
     }
@@ -113,7 +113,7 @@ pub struct SystemBus<H: HostInterface> {
         let pb_atna = (self.drive_iec_base & 0x04) != 0;
 
         // Map ONLY host lines to VIA inputs (Signal Isolation Mandate)
-        self.via1.in_b = self.calculate_combined_via_in_b(&self.last_host_iec);
+        self.via1.in_b = self.map_iec_to_via_in_b(&self.last_host_iec);
 
         // Calculate what the drive asserts on the bus
         let mut drive_combined_iec = IecBusState::default();
@@ -186,11 +186,13 @@ pub struct SystemBus<H: HostInterface> {
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    fn calculate_combined_via_in_b(&self, combined_iec: &IecBusState) -> u8 {
-        // Map the combined IEC state to the VIA1 input bits for PB0, PB2, and PB7.
-        let data = combined_iec.0 & IecBusState::DATA_BIT; // PB0 = DATA_IN
-        let clk = (combined_iec.0 & IecBusState::CLK_BIT) << 1; // PB2 = CLK_IN
-        let atn = (combined_iec.0 & IecBusState::ATN_BIT) << 5; // PB7 = ATN_IN
+    fn map_iec_to_via_in_b(&self, bus_state: &IecBusState) -> u8 {
+        // Map the physical IEC state to the VIA1 input bits for PB0, PB2, and PB7.
+        // The physical pins are an open-collector bus, so the Host and Drive signals
+        // are already combined in hardware. We just map them to the VIA here.
+        let data = bus_state.0 & IecBusState::DATA_BIT; // PB0 = DATA_IN
+        let clk = (bus_state.0 & IecBusState::CLK_BIT) << 1; // PB2 = CLK_IN
+        let atn = (bus_state.0 & IecBusState::ATN_BIT) << 5; // PB7 = ATN_IN
 
         // Or all together with cached device ID bits to get the full PB input value for VIA1.
         self.device_id_pb_bits | atn | clk | data
@@ -243,14 +245,14 @@ impl<H: HostInterface> SystemBus<H> {
             0x1800..=0x1BFF => {
                 let reg = (addr & 0x0F) as usize;
                 self.via1.write(addr, value);
-                if reg == 0x00 || reg == 0x02 {
+                if reg == 0x00 || reg == 0x02 || reg == 0x0F {
                     self.update_drive_iec_base(ctx);
                 }
             }
             0x1C00..=0x1FFF => {
                 let reg = (addr & 0x0F) as usize;
                 self.via2.write(addr, value);
-                if reg == 0x00 || reg == 0x02 {
+                if reg == 0x00 || reg == 0x02 || reg == 0x0F {
                     let drive_track = unsafe { *self.ram.get_unchecked(0x0022) };
                     let drive_sector = unsafe { *self.ram.get_unchecked(0x0033) };
                     self.mechanics.update_state(self.via2.orb, self.via2.ddrb, ctx, drive_track, drive_sector);

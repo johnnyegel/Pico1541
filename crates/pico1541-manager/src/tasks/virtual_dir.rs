@@ -247,10 +247,18 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                                 let _ = block_entries.push(*e);
                                             }
                                             paged.set_block(blocks_start + b, &block_entries);
-                                            
                                             if block_slice.len() < 16 {
                                                 break; // We reached the end of the directory, don't write trailing empty blocks!
                                             }
+                                        }
+
+                                        // We fetched new blocks. If the active track is 18, we must regenerate the GCR data!
+                                        let active_ht = self.active_track_mut().half_track;
+                                        if active_ht == 34 || active_ht == 35 {
+                                            vdir.next_sector_to_update = 1;
+                                            vdir.force_update_directory_sectors(&mut self.active_track_mut().gcr_data).await;
+                                            vdir.treadmill_spinup_delay = 10;
+                                            self.active_track_mut().is_dirty = false;
                                         }
                                     }
                                 }
