@@ -290,10 +290,15 @@ where
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         self.ensure_open().await?;
         
+        let chunk_size = buf.len().min(512);
         let owned = self.owned_file.as_mut().unwrap();
-        let read_len = owned.with_file_mut(|f| f.read(buf))
+        let read_len = owned.with_file_mut(|f| f.read(&mut buf[..chunk_size]))
             .map_err(|_| CommonError::Io)?;
             
+        // Yield to the executor so other tasks (like DriveActivityTask)
+        // can process events and we can cancel the read if the head steps.
+        embassy_futures::yield_now().await;
+        
         Ok(read_len)
     }
 }
@@ -316,6 +321,7 @@ where
         let new_pos = owned.with_file_mut(|f| f.seek(fat_pos))
             .map_err(|_| CommonError::Io)?;
             
+        embassy_futures::yield_now().await;
         Ok(new_pos)
     }
 }
