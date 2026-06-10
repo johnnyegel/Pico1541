@@ -7,6 +7,7 @@ pub mod iec_com;
 pub mod interface;
 pub mod snooper;
 pub mod storage;
+pub mod track_buffer;
 
 pub use formats::{AnyDiskImage, D64Image, DiskImage, Error, G64Image};
 pub use iec_com::{IecComHostBus, IecCommander, IecError, IecTransaction};
