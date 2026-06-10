@@ -109,13 +109,13 @@ impl ManagerHandle {
         self.core_buffer.active_index.store(!current_active, Ordering::Release);
     }
 
-    pub fn get_dormant_buffer_mut(&self) -> &mut TrackBuffer {
+    fn get_dormant_buffer_mut(&self) -> &mut TrackBuffer {
         let current_active = self.core_buffer.active_index.load(Ordering::Acquire);
         let back_idx = if current_active { 0 } else { 1 };
         unsafe { &mut (*self.core_buffer.buffers.get())[back_idx] }
     }
 
-    pub fn commit_dormant_buffer(&self) {
+    fn commit_dormant_buffer(&self) {
         let current_active = self.core_buffer.active_index.load(Ordering::Acquire);
         let back_idx = if current_active { 0 } else { 1 };
         self.core_buffer.dirty_flags[back_idx].store(false, Ordering::Release);
@@ -137,25 +137,26 @@ impl ManagerHandle {
         unsafe { (*self.core_buffer.buffers.get())[active_idx].layout }
     }
 
-    pub fn update_active_track<F>(&self, update_fn: F)
-    where F: FnOnce(&mut [u8; 8192])
-    {
-        let active_idx = if self.core_buffer.active_index.load(Ordering::Acquire) { 1 } else { 0 };
-        let buffer = unsafe { &mut (*self.core_buffer.buffers.get())[active_idx] };
-        update_fn(&mut buffer.data);
+    pub fn start_track_load(&self) -> &mut [u8] {
+        let current_active = self.core_buffer.active_index.load(Ordering::Acquire);
+        let back_idx = if current_active { 0 } else { 1 };
+        unsafe { &mut (*self.core_buffer.buffers.get())[back_idx].data }
     }
 
-    pub fn is_active_dirty(&self) -> bool {
-        let active_idx = if self.core_buffer.active_index.load(Ordering::Acquire) { 1 } else { 0 };
-        self.core_buffer.dirty_flags[active_idx].load(Ordering::Acquire)
+    pub fn commit_loaded_track(&self, track_id: u8, layout: TrackLayout, length: usize) {
+        let current_active = self.core_buffer.active_index.load(Ordering::Acquire);
+        let back_idx = if current_active { 0 } else { 1 };
+        let back_buffer = unsafe { &mut (*self.core_buffer.buffers.get())[back_idx] };
+        
+        back_buffer.layout = layout;
+        back_buffer.length = length;
+        back_buffer.track_id = track_id;
+        
+        self.core_buffer.dirty_flags[back_idx].store(false, Ordering::Release);
+        self.core_buffer.active_index.store(!current_active, Ordering::Release);
     }
 
-    pub fn clear_active_dirty_flag(&self) {
-        let active_idx = if self.core_buffer.active_index.load(Ordering::Acquire) { 1 } else { 0 };
-        self.core_buffer.dirty_flags[active_idx].store(false, Ordering::Release);
-    }
-
-    pub fn duplicate_active_to_inactive(&self) {
+    pub fn start_track_modification(&self) -> &mut [u8] {
         let current_active = self.core_buffer.active_index.load(Ordering::Acquire);
         let active_idx = if current_active { 1 } else { 0 };
         let back_idx = if current_active { 0 } else { 1 };
@@ -169,8 +170,29 @@ impl ManagerHandle {
             back_buffer.layout = active_buffer.layout;
             back_buffer.track_id = active_buffer.track_id;
             back_buffer.length = active_buffer.length;
+            
+            &mut back_buffer.data
         }
     }
+
+    pub fn commit_modified_track(&self) {
+        let current_active = self.core_buffer.active_index.load(Ordering::Acquire);
+        let back_idx = if current_active { 0 } else { 1 };
+        self.core_buffer.dirty_flags[back_idx].store(false, Ordering::Release);
+        self.core_buffer.active_index.store(!current_active, Ordering::Release);
+    }
+
+    pub fn is_active_dirty(&self) -> bool {
+        let active_idx = if self.core_buffer.active_index.load(Ordering::Acquire) { 1 } else { 0 };
+        self.core_buffer.dirty_flags[active_idx].load(Ordering::Acquire)
+    }
+
+    pub fn clear_active_dirty_flag(&self) {
+        let active_idx = if self.core_buffer.active_index.load(Ordering::Acquire) { 1 } else { 0 };
+        self.core_buffer.dirty_flags[active_idx].store(false, Ordering::Release);
+    }
+
+
 
     pub fn set_write_protected(&self, wp: bool) {
         self.core_buffer.is_write_protected.store(wp, Ordering::Release);

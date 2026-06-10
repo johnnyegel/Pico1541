@@ -132,16 +132,12 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
 
             let mut disk_opt = self.disk_image.lock().await;
             if let Some(disk) = disk_opt.as_mut() {
-                let inactive = self.track_handle.get_dormant_buffer_mut();
+                let data = self.track_handle.start_track_load();
                 
                 // Read track but CANCEL if the head steps again!
-                match select(disk.read_track(target_ht, &mut inactive.data), TRACK_CHANNEL.receive()).await {
+                match select(disk.read_track(target_ht, data), TRACK_CHANNEL.receive()).await {
                     Either::First(Ok(layout)) => {
-                        let inactive = self.track_handle.get_dormant_buffer_mut();
-                        inactive.layout = layout.0;
-                        inactive.length = layout.1;
-                        inactive.track_id = target_ht;
-                        self.track_handle.commit_dormant_buffer();
+                        self.track_handle.commit_loaded_track(target_ht, layout.0, layout.1);
                         break; // Success, done loading the track!
                     }
                     Either::First(Err(e)) => {
@@ -197,10 +193,9 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                     
                                     if vdir.file_storage.is_some() {
                                         // Track 1: File streaming (StriddenWarp)
-                                        self.track_handle.duplicate_active_to_inactive();
-                                        let inactive = self.track_handle.get_dormant_buffer_mut();
-                                        if vdir.update_dynamic_buffer(current_idx, &mut inactive.data).await {
-                                            self.track_handle.commit_dormant_buffer();
+                                        let data = self.track_handle.start_track_modification();
+                                        if vdir.update_dynamic_buffer(current_idx, data).await {
+                                            self.track_handle.commit_modified_track();
                                         }
                                     } else if !vdir.source.as_paged_mut().map(|p| p.is_exhausted()).unwrap_or(true) {
                                         // Track 18: Directory Listing (Accurate(7142))
@@ -215,10 +210,9 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                             if current_idx > s2_end && current_idx < s1_start {
                                                 if vdir.next_sector_to_update == 2 {
                                                     // Head has passed Sector 2. Swap to the next batch!
-                                                    self.track_handle.duplicate_active_to_inactive();
-                                                    let inactive = self.track_handle.get_dormant_buffer_mut();
-                                                    vdir.force_update_directory_sectors(&mut inactive.data).await;
-                                                    self.track_handle.commit_dormant_buffer();
+                                                    let data = self.track_handle.start_track_modification();
+                                                    vdir.force_update_directory_sectors(data).await;
+                                                    self.track_handle.commit_modified_track();
                                                     
                                                     // Prevent further swaps until we pass Sector 2 again
                                                     vdir.next_sector_to_update = 1;
@@ -317,10 +311,9 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                         let active_ht = self.track_handle.get_active_half_track();
                                         if active_ht == 34 || active_ht == 35 {
                                             vdir.next_sector_to_update = 1;
-                                            let inactive = self.track_handle.get_dormant_buffer_mut();
-                                            self.track_handle.duplicate_active_to_inactive();
-                                            vdir.force_update_directory_sectors(&mut inactive.data).await;
-                                            self.track_handle.commit_dormant_buffer();
+                                            let data = self.track_handle.start_track_modification();
+                                            vdir.force_update_directory_sectors(data).await;
+                                            self.track_handle.commit_modified_track();
                                             vdir.treadmill_spinup_delay = 10;
                                         }
                                     }
@@ -341,10 +334,9 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                         vdir.source.rewind();
                                         vdir.next_sector_to_update = 1;
                                         if self.track_handle.is_active_dirty() {
-                                            self.track_handle.duplicate_active_to_inactive();
-                                            let inactive = self.track_handle.get_dormant_buffer_mut();
-                                            vdir.force_update_directory_sectors(&mut inactive.data).await;
-                                            self.track_handle.commit_dormant_buffer();
+                                            let data = self.track_handle.start_track_modification();
+                                            vdir.force_update_directory_sectors(data).await;
+                                            self.track_handle.commit_modified_track();
                                             vdir.treadmill_spinup_delay = 10;
                                         }
                                     }
@@ -423,13 +415,10 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
 
                                 let mut disk_opt = self.disk_image.lock().await;
                                 if let Some(disk) = disk_opt.as_mut() {
-                                    let inactive = self.track_handle.get_dormant_buffer_mut();
-                                    match disk.read_track(half_track, &mut inactive.data).await {
+                                    let data = self.track_handle.start_track_load();
+                                    match disk.read_track(half_track, data).await {
                                         Ok(layout) => {
-                                            inactive.layout = layout.0;
-                                            inactive.length = layout.1;
-                                            inactive.track_id = half_track;
-                                            self.track_handle.commit_dormant_buffer();
+                                            self.track_handle.commit_loaded_track(half_track, layout.0, layout.1);
                                         }
                                         Err(e) => {
                                             error!("Failed to read track on mount: {:?}", &e);
@@ -459,10 +448,9 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                     if let Some(vdir) = disk.as_virtual_disk_mut() {
                                         vdir.source.rewind();
                                         vdir.next_sector_to_update = 1;
-                                        self.track_handle.duplicate_active_to_inactive();
-                                        let inactive = self.track_handle.get_dormant_buffer_mut();
-                                        vdir.force_update_directory_sectors(&mut inactive.data).await;
-                                        self.track_handle.commit_dormant_buffer();
+                                        let data = self.track_handle.start_track_modification();
+                                        vdir.force_update_directory_sectors(data).await;
+                                        self.track_handle.commit_modified_track();
                                         vdir.treadmill_spinup_delay = 10;
                                     }
                                 }
@@ -551,10 +539,9 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                             if let Some(vdir) = disk.as_virtual_disk_mut() {
                                                 vdir.set_shortcut_entry(Some(shortcut));
                                                 vdir.file_storage = Some(file_storage);
-                                                self.track_handle.duplicate_active_to_inactive();
-                                                let inactive = self.track_handle.get_dormant_buffer_mut();
-                                                vdir.force_update_directory_sectors(&mut inactive.data).await;
-                                                self.track_handle.commit_dormant_buffer();
+                                                let data = self.track_handle.start_track_modification();
+                                                vdir.force_update_directory_sectors(data).await;
+                                                self.track_handle.commit_modified_track();
                                             }
                                         }
                                     }
@@ -565,10 +552,9 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                             if let Some(vdir) = disk.as_virtual_disk_mut() {
                                                 vdir.set_shortcut_entry(None);
                                                 vdir.file_storage = None;
-                                                self.track_handle.duplicate_active_to_inactive();
-                                                let inactive = self.track_handle.get_dormant_buffer_mut();
-                                                vdir.force_update_directory_sectors(&mut inactive.data).await;
-                                                self.track_handle.commit_dormant_buffer();
+                                                let data = self.track_handle.start_track_modification();
+                                                vdir.force_update_directory_sectors(data).await;
+                                                self.track_handle.commit_modified_track();
                                             }
                                         }
                                     }
