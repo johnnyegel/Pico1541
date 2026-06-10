@@ -139,12 +139,8 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                     Either::First(Ok(layout)) => {
                         let inactive = self.track_handle.get_dormant_buffer_mut();
                         inactive.layout = layout.0;
+                        inactive.length = layout.1;
                         inactive.track_id = target_ht;
-                        // size? 
-                        // The track reading driver should have set the actual length. But the interface `read_track` returns `TrackLayout`. It doesn't tell us `length`.
-                        // Wait! The `read_track` currently returns TrackLayout. D64/G64 writes `length` bytes to `gcr_data`. But `TrackBuffer` needs `length` set correctly!
-                        // This is a bug in my previous design. `read_track` should return the layout AND the track length!
-                        // Let me put a placeholder here for now:
                         self.track_handle.commit_dormant_buffer();
                         break; // Success, done loading the track!
                     }
@@ -431,6 +427,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                     match disk.read_track(half_track, &mut inactive.data).await {
                                         Ok(layout) => {
                                             inactive.layout = layout.0;
+                                            inactive.length = layout.1;
                                             inactive.track_id = half_track;
                                             self.track_handle.commit_dormant_buffer();
                                         }
@@ -588,6 +585,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                     match disk.read_track(half_track, &mut inactive.data).await {
                                         Ok(layout) => {
                                             inactive.layout = layout.0;
+                                            inactive.length = layout.1;
                                             inactive.track_id = half_track;
                                             self.track_handle.commit_dormant_buffer();
                                         }
