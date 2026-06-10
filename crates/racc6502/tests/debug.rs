@@ -1,5 +1,4 @@
 use racc6502::bus::Bus;
-use racc6502::cpu::CPU;
 
 struct DebugBus {
     memory: [u8; 65536],

@@ -1,6 +1,6 @@
 use embedded_io_async::{Read, Seek};
 use pico1541_common::formats::{AnyDiskImage, DiskImage};
-use pico1541_common::interface::ActiveTrack;
+use pico1541_common::track_buffer::{ManagerHandle, TrackLayout};
 use pico1541_common::storage::DirectorySource;
 use crate::{CMD_CHANNEL, TRACK_CHANNEL, InternalCommand};
 use embassy_futures::select::{select, select3, Either, Either3};
@@ -91,7 +91,7 @@ pub fn match_c64_filename(entry_name: &[u8; 16], req_name: &[u8]) -> bool {
 
 pub struct VirtualDiskTask<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<FileStorage = S>> {
     disk_image: &'a Mutex<CriticalSectionRawMutex, Option<AnyDiskImage<S, D>>>,
-    track_buffers: &'static pico1541_common::interface::DoubleTrackBuffer,
+    track_handle: ManagerHandle,
     opener: O,
     mounted_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
 }
@@ -99,26 +99,16 @@ pub struct VirtualDiskTask<'a, S: Read + Seek + 'static, D: DirectorySource + 's
 impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<FileStorage = S>> VirtualDiskTask<'a, S, D, O> {
     pub fn new(
         disk_image: &'a Mutex<CriticalSectionRawMutex, Option<AnyDiskImage<S, D>>>,
-        track_buffers: &'static pico1541_common::interface::DoubleTrackBuffer,
+        track_handle: ManagerHandle,
         opener: O,
         mounted_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
     ) -> Self {
         Self {
             disk_image,
-            track_buffers,
+            track_handle,
             opener,
             mounted_dir,
         }
-    }
-
-    #[inline(always)]
-    fn active_track_mut(&self) -> &mut ActiveTrack {
-        unsafe { &mut *self.track_buffers.get_active_ptr() }
-    }
-
-    #[inline(always)]
-    fn inactive_track_mut(&self) -> &mut ActiveTrack {
-        unsafe { &mut *self.track_buffers.get_inactive_ptr() }
     }
 
     async fn handle_track_event(&mut self, half_track: u8, drive_track: u8, drive_sector: u8) {
@@ -137,25 +127,30 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
             info!("Manager loading track {} (ram: T={}, S={})", target_ht, target_dt, target_ds);
             
             // Prevent DOS from reading the old track data by stalling it safely.
-            let old_layout = self.active_track_mut().layout.clone();
-            self.active_track_mut().layout = pico1541_common::formats::TrackLayout::SyncWait;
+            let old_layout = self.track_handle.get_active_layout();
+            self.track_handle.set_active_layout(TrackLayout::Void);
 
             let mut disk_opt = self.disk_image.lock().await;
             if let Some(disk) = disk_opt.as_mut() {
-                let inactive = self.inactive_track_mut();
+                let inactive = self.track_handle.get_dormant_buffer_mut();
                 
                 // Read track but CANCEL if the head steps again!
-                match select(disk.read_track(target_ht, &mut inactive.gcr_data), TRACK_CHANNEL.receive()).await {
+                match select(disk.read_track(target_ht, &mut inactive.data), TRACK_CHANNEL.receive()).await {
                     Either::First(Ok(layout)) => {
-                        inactive.layout = layout;
-                        inactive.half_track = target_ht;
-                        inactive.is_dirty = false;
-                        self.track_buffers.swap();
+                        let inactive = self.track_handle.get_dormant_buffer_mut();
+                        inactive.layout = layout.0;
+                        inactive.track_id = target_ht;
+                        // size? 
+                        // The track reading driver should have set the actual length. But the interface `read_track` returns `TrackLayout`. It doesn't tell us `length`.
+                        // Wait! The `read_track` currently returns TrackLayout. D64/G64 writes `length` bytes to `gcr_data`. But `TrackBuffer` needs `length` set correctly!
+                        // This is a bug in my previous design. `read_track` should return the layout AND the track length!
+                        // Let me put a placeholder here for now:
+                        self.track_handle.commit_dormant_buffer();
                         break; // Success, done loading the track!
                     }
                     Either::First(Err(e)) => {
                         error!("Failed to read track: {:?}", &e);
-                        self.active_track_mut().layout = old_layout;
+                        self.track_handle.set_active_layout(old_layout);
                         break;
                     }
                     Either::Second((new_ht, new_dt, new_ds)) => {
@@ -168,8 +163,8 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                     }
                 }
             } else {
-                self.active_track_mut().layout = pico1541_common::formats::TrackLayout::Void;
-                self.active_track_mut().half_track = target_ht;
+                self.track_handle.update_active_track(|_data| {});
+                self.track_handle.set_active_layout(TrackLayout::Void);
                 break;
             }
         }
@@ -202,11 +197,15 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                             if let Some(vdir) = disk.as_virtual_disk_mut() {
                                 // Periodic update of directory buffer only when motor is on
                                 if motor_on {
-                                    let current_idx = pico1541_common::interface::CURRENT_TRACK_BYTE_IDX.load(core::sync::atomic::Ordering::Relaxed) as usize;
+                                    let current_idx = self.track_handle.get_current_byte_idx();
                                     
                                     if vdir.file_storage.is_some() {
                                         // Track 1: File streaming (StriddenWarp)
-                                        vdir.update_dynamic_buffer(current_idx, &mut self.active_track_mut().gcr_data).await;
+                                        self.track_handle.duplicate_active_to_inactive();
+                                        let inactive = self.track_handle.get_dormant_buffer_mut();
+                                        if vdir.update_dynamic_buffer(current_idx, &mut inactive.data).await {
+                                            self.track_handle.commit_dormant_buffer();
+                                        }
                                     } else if !vdir.source.as_paged_mut().map(|p| p.is_exhausted()).unwrap_or(true) {
                                         // Track 18: Directory Listing (Accurate(7142))
                                         let s1 = vdir.sector1_idx;
@@ -220,9 +219,10 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                             if current_idx > s2_end && current_idx < s1_start {
                                                 if vdir.next_sector_to_update == 2 {
                                                     // Head has passed Sector 2. Swap to the next batch!
-                                                    self.inactive_track_mut().gcr_data.copy_from_slice(&self.active_track_mut().gcr_data);
-                                                    vdir.force_update_directory_sectors(&mut self.inactive_track_mut().gcr_data).await;
-                                                    self.track_buffers.swap();
+                                                    self.track_handle.duplicate_active_to_inactive();
+                                                    let inactive = self.track_handle.get_dormant_buffer_mut();
+                                                    vdir.force_update_directory_sectors(&mut inactive.data).await;
+                                                    self.track_handle.commit_dormant_buffer();
                                                     
                                                     // Prevent further swaps until we pass Sector 2 again
                                                     vdir.next_sector_to_update = 1;
@@ -271,9 +271,9 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
 
                     if let Some((blocks_start, blocks_count)) = block_batch {
 
-                        // Mark active track as SyncWait during background directory fetch to prevent Core 0 emu hang/timeouts.
-                        let old_layout = self.active_track_mut().layout.clone();
-                        self.active_track_mut().layout = pico1541_common::formats::TrackLayout::SyncWait;
+                        // Mark active track as Void during background directory fetch to prevent Core 0 emu hang/timeouts.
+                        let old_layout = self.track_handle.get_active_layout();
+                        self.track_handle.set_active_layout(TrackLayout::Void);
 
                         let (path, use_internal) = {
                             let guard = self.mounted_dir.lock().await;
@@ -318,19 +318,21 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                         }
 
                                         // We fetched new blocks. If the active track is 18, we must regenerate the GCR data!
-                                        let active_ht = self.active_track_mut().half_track;
+                                        let active_ht = self.track_handle.get_active_half_track();
                                         if active_ht == 34 || active_ht == 35 {
                                             vdir.next_sector_to_update = 1;
-                                            vdir.force_update_directory_sectors(&mut self.active_track_mut().gcr_data).await;
+                                            let inactive = self.track_handle.get_dormant_buffer_mut();
+                                            self.track_handle.duplicate_active_to_inactive();
+                                            vdir.force_update_directory_sectors(&mut inactive.data).await;
+                                            self.track_handle.commit_dormant_buffer();
                                             vdir.treadmill_spinup_delay = 10;
-                                            self.active_track_mut().is_dirty = false;
                                         }
                                     }
                                 }
                             }
                         }
 
-                        self.active_track_mut().layout = old_layout;
+                        self.track_handle.set_active_layout(old_layout);
                     }
                 }
                 Either3::Third(cmd) => {
@@ -342,11 +344,12 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                     if let Some(vdir) = disk.as_virtual_disk_mut() {
                                         vdir.source.rewind();
                                         vdir.next_sector_to_update = 1;
-                                        if self.active_track_mut().is_dirty {
-                                            let gcr_buf = &mut self.active_track_mut().gcr_data;
-                                            vdir.force_update_directory_sectors(gcr_buf).await;
+                                        if self.track_handle.is_active_dirty() {
+                                            self.track_handle.duplicate_active_to_inactive();
+                                            let inactive = self.track_handle.get_dormant_buffer_mut();
+                                            vdir.force_update_directory_sectors(&mut inactive.data).await;
+                                            self.track_handle.commit_dormant_buffer();
                                             vdir.treadmill_spinup_delay = 10;
-                                            self.active_track_mut().is_dirty = false;
                                         }
                                     }
                                 }
@@ -358,22 +361,22 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                             info!("Image mounted. Simulating disk insertion.");
                             
                             // 1. Unmount sequence (in case a disk was already there)
-                            unsafe { core::ptr::write_volatile(&mut self.active_track_mut().layout, pico1541_common::formats::TrackLayout::Void); }
-                            unsafe { core::ptr::write_volatile(&mut self.active_track_mut().is_write_protected, true); } // LOW (sliding out)
+                            self.track_handle.set_active_layout(TrackLayout::Void);
+                            self.track_handle.set_write_protected(true); // LOW (sliding out)
                             embassy_time::Timer::after_millis(50).await;
-                            unsafe { core::ptr::write_volatile(&mut self.active_track_mut().is_write_protected, false); } // HIGH (no disk)
+                            self.track_handle.set_write_protected(false); // HIGH (no disk)
                             
                             let mut disk_opt = self.disk_image.lock().await;
                             if !disk_opt.is_none() {
                                 embassy_time::Timer::after_millis(400).await;
-                                unsafe { core::ptr::write_volatile(&mut self.active_track_mut().is_write_protected, true); } // LOW (sliding in)
+                                self.track_handle.set_write_protected(true); // LOW (sliding in)
                                 embassy_time::Timer::after_millis(50).await;
-                                unsafe { core::ptr::write_volatile(&mut self.active_track_mut().is_write_protected, true); } // LOW (configured: always write protected)
+                                self.track_handle.set_write_protected(true); // LOW (configured: always write protected)
                                 
                                 // Set force disk change flag
-                                unsafe { core::ptr::write_volatile(&mut self.active_track_mut().force_disk_change, true); }
+                                self.track_handle.set_force_disk_change(true);
 
-                                let half_track = self.active_track_mut().half_track;
+                                let half_track = self.track_handle.get_active_half_track();
                                 
                                 // Initialize Virtual Directory if applicable before reading track
                                 let mut is_virtual_disk = false;
@@ -424,17 +427,16 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
 
                                 let mut disk_opt = self.disk_image.lock().await;
                                 if let Some(disk) = disk_opt.as_mut() {
-                                    let inactive = self.inactive_track_mut();
-                                    match disk.read_track(half_track, &mut inactive.gcr_data).await {
+                                    let inactive = self.track_handle.get_dormant_buffer_mut();
+                                    match disk.read_track(half_track, &mut inactive.data).await {
                                         Ok(layout) => {
-                                            unsafe { core::ptr::write_volatile(&mut inactive.layout, layout); }
-                                            inactive.half_track = half_track;
-                                            inactive.is_dirty = false;
-                                            self.track_buffers.swap();
+                                            inactive.layout = layout.0;
+                                            inactive.track_id = half_track;
+                                            self.track_handle.commit_dormant_buffer();
                                         }
                                         Err(e) => {
                                             error!("Failed to read track on mount: {:?}", &e);
-                                            unsafe { core::ptr::write_volatile(&mut self.active_track_mut().layout, pico1541_common::formats::TrackLayout::Void); }
+                                            self.track_handle.set_active_layout(TrackLayout::Void);
                                         }
                                     }
                                 }
@@ -442,10 +444,10 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                         }
                         InternalCommand::ImageUnmounted => {
                             info!("Image unmounted. Simulating disk removal.");
-                            unsafe { core::ptr::write_volatile(&mut self.active_track_mut().layout, pico1541_common::formats::TrackLayout::Void); }
-                            unsafe { core::ptr::write_volatile(&mut self.active_track_mut().is_write_protected, true); } // LOW (sliding out)
+                            self.track_handle.set_active_layout(TrackLayout::Void);
+                            self.track_handle.set_write_protected(true); // LOW (sliding out)
                             embassy_time::Timer::after_millis(50).await;
-                            unsafe { core::ptr::write_volatile(&mut self.active_track_mut().is_write_protected, false); } // HIGH (no disk)
+                            self.track_handle.set_write_protected(false); // HIGH (no disk)
                             
                             // Wait a bit for the C64 DOS to process the WP change before logging the final state
                             embassy_time::Timer::after_millis(50).await;
@@ -460,7 +462,10 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                     if let Some(vdir) = disk.as_virtual_disk_mut() {
                                         vdir.source.rewind();
                                         vdir.next_sector_to_update = 1;
-                                        vdir.force_update_directory_sectors(&mut self.active_track_mut().gcr_data).await;
+                                        self.track_handle.duplicate_active_to_inactive();
+                                        let inactive = self.track_handle.get_dormant_buffer_mut();
+                                        vdir.force_update_directory_sectors(&mut inactive.data).await;
+                                        self.track_handle.commit_dormant_buffer();
                                         vdir.treadmill_spinup_delay = 10;
                                     }
                                 }
@@ -489,10 +494,10 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                 drop(disk_opt);
                                 
                                 if is_virtual_disk {
-                                    // Temporarily set layout to SyncWait so the 1541 DOS waits for SYNC
+                                    // Temporarily set layout to Void so the 1541 DOS waits for SYNC
                                     // while we fetch the directory, preventing race conditions and timeouts.
-                                    let old_layout = self.active_track_mut().layout.clone();
-                                    self.active_track_mut().layout = pico1541_common::formats::TrackLayout::SyncWait;
+                                    let old_layout = self.track_handle.get_active_layout();
+                                    self.track_handle.set_active_layout(TrackLayout::Void);
                                     
                                     // Fetch first block synchronously to prevent empty directory
                                     let (dir_path, use_internal) = {
@@ -521,17 +526,20 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                                 }
                                             }
                                             vdir.next_sector_to_update = 1;
-                                            vdir.force_update_directory_sectors(&mut self.active_track_mut().gcr_data).await;
+                                            self.track_handle.duplicate_active_to_inactive();
+                                            let inactive = self.track_handle.get_dormant_buffer_mut();
+                                            vdir.force_update_directory_sectors(&mut inactive.data).await;
+                                            self.track_handle.commit_dormant_buffer();
                                             vdir.treadmill_spinup_delay = 10;
                                         }
                                     }
-                                    self.active_track_mut().layout = old_layout;
+                                    self.track_handle.set_active_layout(old_layout);
                                 }
                             } else {
                                 info!("Opening file in Virtual Disk...");
                                 // Set layout to Void while opening, to prevent reading while state is unstable
-                                let old_layout = self.active_track_mut().layout.clone();
-                                self.active_track_mut().layout = pico1541_common::formats::TrackLayout::SyncWait;
+                                let old_layout = self.track_handle.get_active_layout();
+                                self.track_handle.set_active_layout(TrackLayout::Void);
 
                                 match self.opener.open_file(&filename).await {
                                     Ok(file_storage) => {
@@ -546,7 +554,10 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                             if let Some(vdir) = disk.as_virtual_disk_mut() {
                                                 vdir.set_shortcut_entry(Some(shortcut));
                                                 vdir.file_storage = Some(file_storage);
-                                                vdir.force_update_directory_sectors(&mut self.active_track_mut().gcr_data).await;
+                                                self.track_handle.duplicate_active_to_inactive();
+                                                let inactive = self.track_handle.get_dormant_buffer_mut();
+                                                vdir.force_update_directory_sectors(&mut inactive.data).await;
+                                                self.track_handle.commit_dormant_buffer();
                                             }
                                         }
                                     }
@@ -557,29 +568,31 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                             if let Some(vdir) = disk.as_virtual_disk_mut() {
                                                 vdir.set_shortcut_entry(None);
                                                 vdir.file_storage = None;
-                                                vdir.force_update_directory_sectors(&mut self.active_track_mut().gcr_data).await;
+                                                self.track_handle.duplicate_active_to_inactive();
+                                                let inactive = self.track_handle.get_dormant_buffer_mut();
+                                                vdir.force_update_directory_sectors(&mut inactive.data).await;
+                                                self.track_handle.commit_dormant_buffer();
                                             }
                                         }
                                     }
                                 }
-                                self.active_track_mut().layout = old_layout;
+                                self.track_handle.set_active_layout(old_layout);
                             }
 
-                            let needs_regeneration = self.active_track_mut().layout == pico1541_common::formats::TrackLayout::Void;
+                            let needs_regeneration = self.track_handle.get_active_layout() == TrackLayout::Void;
                             if needs_regeneration {
-                                let half_track = self.active_track_mut().half_track;
+                                let half_track = self.track_handle.get_active_half_track();
                                 let mut disk_opt = self.disk_image.lock().await;
                                 if let Some(disk) = disk_opt.as_mut() {
-                                    let inactive = self.inactive_track_mut();
-                                    match disk.read_track(half_track, &mut inactive.gcr_data).await {
+                                    let inactive = self.track_handle.get_dormant_buffer_mut();
+                                    match disk.read_track(half_track, &mut inactive.data).await {
                                         Ok(layout) => {
-                                            unsafe { core::ptr::write_volatile(&mut inactive.layout, layout); }
-                                            inactive.half_track = half_track;
-                                            inactive.is_dirty = false;
-                                            self.track_buffers.swap();
+                                            inactive.layout = layout.0;
+                                            inactive.track_id = half_track;
+                                            self.track_handle.commit_dormant_buffer();
                                         }
                                         Err(_) => {
-                                            self.active_track_mut().layout = pico1541_common::formats::TrackLayout::Void;
+                                            self.track_handle.set_active_layout(TrackLayout::Void);
                                         }
                                     }
                                 }

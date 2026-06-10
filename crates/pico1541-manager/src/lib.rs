@@ -11,7 +11,7 @@ pub use driver::{DisplayDriver, IndicatorDriver, InputDriver, RgbLedDriver, Stat
 
 // Disk format code lives in pico1541-common; re-exported here for API compatibility.
 pub use pico1541_common::gcr;
-pub use pico1541_common::interface::{ActiveTrack, DriveEvent};
+pub use pico1541_common::interface::DriveEvent;
 pub use pico1541_common::{AnyDiskImage, D64Image, DiskImage, Error, G64Image, MemoryStorage, VectorDirectorySource, PagedDirectorySource, PagedDirectorySourceTrait};
 
 

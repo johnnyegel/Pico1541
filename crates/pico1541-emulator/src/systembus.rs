@@ -32,7 +32,7 @@ pub struct SystemBus<H: HostInterface> {
 }
 
     impl<H: HostInterface> SystemBus<H> {
-    pub fn new(rom: &'static [u8; ROM_SIZE], device_id: u8) -> Self {
+    pub fn new(rom: &'static [u8; ROM_SIZE], device_id: u8, track_handle: pico1541_common::track_buffer::EmulatorHandle) -> Self {
         // :: Intialize VIA1
         let via1 = Via6522::new();
 
@@ -41,7 +41,7 @@ pub struct SystemBus<H: HostInterface> {
             rom,
             via1,
             via2: Via6522::new(),
-            mechanics: DriveMechanics::new(),
+            mechanics: DriveMechanics::new(track_handle),
             so_active: false,
             device_id,
             cycle_counter: 0,
@@ -156,14 +156,15 @@ pub struct SystemBus<H: HostInterface> {
                 crate::hle::HleManager::intercept_command(self);
                 self.update_physical_iec(hardware);
             }
-            
-            let track = hardware.get_active_track();
-            if unsafe { core::ptr::read_volatile(&track.force_disk_change) } {
-                unsafe { core::ptr::write_volatile(&mut track.force_disk_change, false); }
+            if self.mechanics.track_handle.pop_force_disk_change() {
                 self.ram[0x001C] = 1;
             }
             
-            let wp = unsafe { core::ptr::read_volatile(&track.is_write_protected) };
+            // 2. Read Write Protect sensor (Active LOW, but C64 logic expects inverted if necessary depending on schematic.
+            // On a real 1541: Light sensor logic -> LOW if notch present (write enabled).
+            // But we simulate standard `is_write_protected` boolean logic. 
+            // In typical emulator mapping: WP bit is 0x10. We follow standard VIA mappings.
+            let wp = self.mechanics.track_handle.is_write_protected();
             if wp {
                 self.via2.in_b &= !0x10; // LOW = Write protected
             } else {
@@ -303,11 +304,9 @@ impl<H: HostInterface> MemoryMonitor for SystemBus<H> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pico1541_common::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus};
-    struct MockHardware {
-        track: ActiveTrack,
-    }
-    
+    use pico1541_common::interface::{DriveEvent, HostInterface, IecBus};
+    struct MockHardware;
+
     impl IecBus for MockHardware {
         fn iec_host(&self) -> IecBusState {
             IecBusState::default()
@@ -316,18 +315,16 @@ mod tests {
     }
 
     impl HostInterface for MockHardware {
-        fn get_active_track(&mut self) -> &mut ActiveTrack {
-            &mut self.track
-        }
+        
         fn send_event(&mut self, _: DriveEvent) {}
         fn sync(&mut self, _: IecBusState) {}
     }
     #[test]
     fn test_ram_read_write() {
         static ROM: [u8; ROM_SIZE] = [0; ROM_SIZE];
-        let mut bus = SystemBus::<MockHardware>::new(&ROM, 8);
-        let mut hw = MockHardware {
-            track: ActiveTrack::new(),
+        let mut bus = SystemBus::<MockHardware>::new(&ROM, 8, Box::leak(Box::new(pico1541_common::track_buffer::DualCoreTrackBuffer::new())).split().1);
+        let mut hw = MockHardware { 
+            
         };
         bus.write(0x0100, 0xAB, &mut hw);
         assert_eq!(bus.read(0x0100, &mut hw), 0xAB);

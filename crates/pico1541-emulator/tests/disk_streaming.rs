@@ -1,25 +1,31 @@
 mod common;
 
 use common::TestBridge;
-use pico1541_common::formats::TrackLayout;
+use pico1541_common::track_buffer::TrackLayout;
 use pico1541_emulator::drivemechanics::DriveMechanics;
 use pico1541_emulator::via6522::Via6522;
 
 #[test]
 fn test_disk_streaming_data() {
     let track_bytes = 8000;
-    let mut hardware = TestBridge::new(8);
-    hardware.track.layout = TrackLayout::Accurate(track_bytes);
-    hardware.track.half_track = 0; // Match DriveMechanics default
-
-    // Set some test GCR data
-    hardware.track.gcr_data[0] = 0xAA;
-    hardware.track.gcr_data[1] = 0x55;
-    hardware.track.gcr_data[2] = 0x01;
-    hardware.track.gcr_data[3] = 0xFE;
+    let buffer = Box::leak(Box::new(pico1541_common::track_buffer::DualCoreTrackBuffer::new()));
+    let (manager, emulator) = buffer.split();
+    let mut hardware = TestBridge::new(8, buffer);
+    
+    {
+        let inactive = manager.get_dormant_buffer_mut();
+        inactive.layout = TrackLayout::Accurate;
+        inactive.length = track_bytes;
+        inactive.track_id = 0; // Match DriveMechanics default
+        inactive.data[0] = 0xAA;
+        inactive.data[1] = 0x55;
+        inactive.data[2] = 0x01;
+        inactive.data[3] = 0xFE;
+    }
+    manager.commit_dormant_buffer();
 
     let mut via1 = Via6522::new(); let mut via2 = Via6522::new();
-    let mut mechanics = DriveMechanics::new();
+    let mut mechanics = DriveMechanics::new(emulator);
     mechanics.halftrack_head_pos = 0; // Align head with Track 1 (half-track 0)
 
     // Set bitrate Zone 0 (32 cycles) explicitly
@@ -61,15 +67,24 @@ fn test_disk_streaming_data() {
 #[test]
 fn test_disk_streaming_sync() {
     let track_bytes = 8000;
-    let mut hardware = TestBridge::new(8);
-    hardware.track.layout = TrackLayout::Accurate(track_bytes);
-    hardware.track.half_track = 0;
-
-    hardware.track.gcr_data[0] = 0xFF; // SYNC
-    hardware.track.gcr_data[1] = 0x55;
+    let buffer = Box::leak(Box::new(pico1541_common::track_buffer::DualCoreTrackBuffer::new()));
+    let hardware = TestBridge::new(8, buffer);
+    let buffer = Box::leak(Box::new(pico1541_common::track_buffer::DualCoreTrackBuffer::new()));
+    let (manager, emulator) = buffer.split();
+    let mut hardware = TestBridge::new(8, buffer);
+    
+    {
+        let inactive = manager.get_dormant_buffer_mut();
+        inactive.layout = TrackLayout::Accurate;
+        inactive.length = track_bytes;
+        inactive.track_id = 0;
+        inactive.data[0] = 0xFF; // SYNC
+        inactive.data[1] = 0x55;
+    }
+    manager.commit_dormant_buffer();
 
     let mut via1 = Via6522::new(); let mut via2 = Via6522::new();
-    let mut mechanics = DriveMechanics::new();
+    let mut mechanics = DriveMechanics::new(emulator);
     mechanics.halftrack_head_pos = 0; // Align head with Track 1 (half-track 0)
     via2.ddrb = 0xFF;
     via2.orb = (via2.orb & !0x60) | 0x60 | 0x04; // Zone 0 (32 cycles) + Motor ON
@@ -111,13 +126,21 @@ fn test_disk_streaming_sync() {
 #[test]
 fn test_disk_bitrate_zones() {
     let track_bytes = 8000;
-    let mut hardware = TestBridge::new(8);
-    hardware.track.layout = TrackLayout::Accurate(track_bytes);
-    hardware.track.half_track = 0;
-    hardware.track.gcr_data.fill(0x55); // Use data, not SYNC
+    let buffer = Box::leak(Box::new(pico1541_common::track_buffer::DualCoreTrackBuffer::new()));
+    let (manager, emulator) = buffer.split();
+    let mut hardware = TestBridge::new(8, buffer);
+    
+    {
+        let inactive = manager.get_dormant_buffer_mut();
+        inactive.layout = TrackLayout::Accurate;
+        inactive.length = track_bytes;
+        inactive.track_id = 0;
+        inactive.data.fill(0x55); // Use data, not SYNC
+    }
+    manager.commit_dormant_buffer();
 
     let mut via1 = Via6522::new(); let mut via2 = Via6522::new();
-    let mut mechanics = DriveMechanics::new();
+    let mut mechanics = DriveMechanics::new(emulator);
     mechanics.halftrack_head_pos = 0; // Align head with Track 1 (half-track 0)
     via2.ddrb = 0xFF;
     via2.pcr = 0b1110_1110; // Enable SO
@@ -166,12 +189,20 @@ fn test_disk_bitrate_zones() {
 #[test]
 fn test_disk_write_streaming() {
     let track_bytes = 8000;
-    let mut hardware = TestBridge::new(8);
-    hardware.track.layout = TrackLayout::Accurate(track_bytes);
-    hardware.track.half_track = 0;
+    let buffer = Box::leak(Box::new(pico1541_common::track_buffer::DualCoreTrackBuffer::new()));
+    let (manager, emulator) = buffer.split();
+    let mut hardware = TestBridge::new(8, buffer);
+    
+    {
+        let inactive = manager.get_dormant_buffer_mut();
+        inactive.layout = TrackLayout::Accurate;
+        inactive.length = track_bytes;
+        inactive.track_id = 0;
+    }
+    manager.commit_dormant_buffer();
 
     let mut via1 = Via6522::new(); let mut via2 = Via6522::new();
-    let mut mechanics = DriveMechanics::new();
+    let mut mechanics = DriveMechanics::new(emulator);
     mechanics.halftrack_head_pos = 0; // Align head with Track 1 (half-track 0)
 
     via2.ddrb = 0xFF;
@@ -196,6 +227,8 @@ fn test_disk_write_streaming() {
     assert!(delivered);
 
     // Check if written to idx 0
-    assert_eq!(hardware.track.gcr_data[0], 0x5A);
-    assert!(hardware.track.is_dirty);
+    let manager = hardware.buffer.split().0;
+    manager.duplicate_active_to_inactive();
+    assert_eq!(manager.get_dormant_buffer_mut().data[0], 0x5A);
+    
 }

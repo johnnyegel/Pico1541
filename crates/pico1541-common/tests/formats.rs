@@ -1,4 +1,5 @@
-use pico1541_common::formats::{D64Image, DiskImage, G64Image, TrackLayout, VirtualDiskImage};
+use pico1541_common::formats::{D64Image, DiskImage, G64Image, VirtualDiskImage};
+use pico1541_common::track_buffer::TrackLayout;
 use pico1541_common::storage::{DirectoryEntry, DirectorySource, MemoryStorage};
 use pollster::block_on;
 
@@ -17,7 +18,7 @@ fn test_d64_image_read_track() {
 
     // Track 1.0 is half_track 2
     let result = block_on(img.read_track(2, &mut dest)).unwrap();
-    assert!(matches!(result, TrackLayout::Accurate(7692)));
+    assert!(matches!(result, (TrackLayout::Accurate, 7692)));
 
     // Check if we can find the GCR encoded sector 0
     assert!(dest.iter().any(|&b| b != 0));
@@ -47,7 +48,7 @@ fn test_g64_image_read_track() {
     let mut dest = vec![0u8; 100];
 
     let result = block_on(img.read_track(0, &mut dest)).unwrap();
-    assert!(matches!(result, TrackLayout::Accurate(50)));
+    assert!(matches!(result, (TrackLayout::Accurate, 50)));
     assert_eq!(dest[0], 0x55);
 }
 
@@ -83,6 +84,6 @@ fn test_virtual_disk_image() {
     let mut dest = vec![0u8; 10000];
 
     let result = block_on(img.read_track(34, &mut dest)).unwrap();
-    assert!(matches!(result, TrackLayout::Accurate(7142)));
+    assert!(matches!(result, (TrackLayout::Accurate, 7142)));
     assert!(dest.iter().any(|&b| b != 0));
 }

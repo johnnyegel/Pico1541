@@ -1,9 +1,9 @@
-use pico1541_common::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus, IecBusState};
+use pico1541_common::interface::{DriveEvent, HostInterface, IecBus, IecBusState};
 use pico1541_emulator::systembus::SystemBus;
 use pico1541_emulator::hle::HleManager;
 
 struct MockHardware {
-    track: ActiveTrack,
+    
 }
 
 impl IecBus for MockHardware {
@@ -12,14 +12,14 @@ impl IecBus for MockHardware {
 }
 
 impl HostInterface for MockHardware {
-    fn get_active_track(&mut self) -> &mut ActiveTrack { &mut self.track }
+    
     fn send_event(&mut self, _: DriveEvent) {}
 }
 
 #[test]
 fn test_hle_intercept_command_patches_ram() {
     static ROM: [u8; 0x4000] = [0; 0x4000];
-    let mut bus = SystemBus::<MockHardware>::new(&ROM, 8);
+    let mut bus = SystemBus::<MockHardware>::new(&ROM, 8, Box::leak(Box::new(pico1541_common::track_buffer::DualCoreTrackBuffer::new())).split().1);
     
     // 1. Simulate a "SYNTAX ERROR" state in RAM
     bus.ram[0x0255] = 1; // cmdwat: command waiting

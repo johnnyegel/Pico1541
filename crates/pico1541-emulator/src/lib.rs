@@ -52,8 +52,8 @@ pub struct Emulator<H: HostInterface> {
 }
 
 impl<H: HostInterface> Emulator<H> {
-    pub fn new(rom: &'static [u8; 16384], device_id: u8) -> Self {
-        let bus = SystemBus::new(rom, device_id);
+    pub fn new(rom: &'static [u8; 16384], device_id: u8, track_handle: pico1541_common::track_buffer::EmulatorHandle) -> Self {
+        let bus = SystemBus::new(rom, device_id, track_handle);
         Self {
             cpu: CPU::new(),
             memory: bus,

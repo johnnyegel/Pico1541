@@ -12,6 +12,7 @@ mod flash_storage;
 use core::sync::atomic::Ordering;
 use defmt::{info, error};
 use defmt_rtt as _;
+use panic_probe as _;
 
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
@@ -24,7 +25,7 @@ use embassy_rp::Peri;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 
-use pico1541_common::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus, IecBusState};
+use pico1541_common::interface::{DriveEvent, HostInterface, IecBus, IecBusState};
 use pico1541_common::snooper::{IecSnooper, IecSnoopByteHandler, SnooperConfig};
 use pico1541_common::formats::AnyDiskImage;
 use pico1541_common::storage::{PagedDirectorySource, RuntimeStorage};
@@ -230,7 +231,8 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
 
 
     // Initialize the shared double track buffers
-    pico1541_common::interface::TRACK_BUFFERS.init();
+    static DUAL_CORE_BUFFER: pico1541_common::track_buffer::DualCoreTrackBuffer = pico1541_common::track_buffer::DualCoreTrackBuffer::new();
+    let (manager_handle, emulator_handle) = DUAL_CORE_BUFFER.split();
 
     let stack = unsafe {
         CORE1_STACK.as_mut_ptr().write(Stack::new());
@@ -286,7 +288,7 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
     info!("Starting Emulator on Core 1...");
     embassy_rp::multicore::spawn_core1(p.CORE1, stack, move || {
         let drive = unsafe {
-            EMULATOR.as_mut_ptr().write(Emulator::new(unsafe { &ROM_BUFFER }, drive_id));
+            EMULATOR.as_mut_ptr().write(Emulator::new(unsafe { &ROM_BUFFER }, drive_id, emulator_handle));
             &mut *EMULATOR.as_mut_ptr()
         };
         drive.reset(&mut bridge);
@@ -295,7 +297,7 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
 
     // --- Run Manager on Core 0 ---
     spawner.spawn(settings_save_task(fs_storage_inst).unwrap());
-    core0_init_task(spawner, core1_pins, &SNOOPER_CONFIG, rom_name).await;
+    core0_init_task(spawner, core1_pins, &SNOOPER_CONFIG, rom_name, manager_handle).await;
 }
 
 struct IecPins {
@@ -367,12 +369,6 @@ impl IecBus for HardwareBridge {
 }
 
 impl HostInterface for HardwareBridge {
-    
-    #[inline(always)]
-    fn get_active_track(&mut self) -> &mut ActiveTrack {
-        unsafe { &mut *pico1541_common::interface::TRACK_BUFFERS.get_active_ptr() }
-    }
-
     
     #[inline(always)]
     fn send_event(&mut self, event: DriveEvent) {
@@ -718,6 +714,7 @@ async fn core0_init_task(
     pins: Core0Pins,
     config: &'static SnooperConfig,
     rom_name: heapless::String<32>,
+    manager_handle: pico1541_common::track_buffer::ManagerHandle,
 ) {
     info!("core0_init_task started!");
 
@@ -785,7 +782,7 @@ async fn core0_init_task(
 
     let vdisk_task = VirtualDiskTask::new(
         &*disk_image_mutex,
-        &pico1541_common::interface::TRACK_BUFFERS,
+        manager_handle,
         MyOpener { storage: StorageWrapper(sd_mutex) },
         &MOUNTED_DIR,
     );

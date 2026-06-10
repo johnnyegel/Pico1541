@@ -1,5 +1,6 @@
-use pico1541_common::formats::{D64Image, DiskImage, G64Image, TrackLayout};
-use pico1541_common::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus, IecBusState};
+use pico1541_common::formats::{D64Image, DiskImage, G64Image};
+use pico1541_common::track_buffer::TrackLayout;
+use pico1541_common::interface::{DriveEvent, HostInterface, IecBus, IecBusState};
 use pico1541_common::storage::MemoryStorage;
 use pico1541_emulator::drivemechanics::DriveMechanics;
 use pico1541_emulator::via6522::Via6522;
@@ -7,13 +8,13 @@ use pollster::block_on;
 use std::fs;
 
 struct MockHardware {
-    track: ActiveTrack,
+    
 }
 
 impl MockHardware {
     fn new() -> Self {
         Self {
-            track: ActiveTrack::new(),
+            
         }
     }
 
@@ -27,9 +28,7 @@ impl IecBus for MockHardware {
 }
 
 impl HostInterface for MockHardware {
-    fn get_active_track(&mut self) -> &mut ActiveTrack {
-        &mut self.track
-    }
+    
     fn send_event(&mut self, _event: DriveEvent) {}
     fn is_hijacked(&self) -> bool {
         false
@@ -45,7 +44,8 @@ impl HostInterface for MockHardware {
 fn test_g64_track_reading_low_level() {
     let mut hw = MockHardware::new();
     let mut via2 = Via6522::new();
-    let mut mechanics = DriveMechanics::new();
+    let hw_buffer = Box::leak(Box::new(pico1541_common::track_buffer::DualCoreTrackBuffer::new()));
+    let mut mechanics = DriveMechanics::new(hw_buffer.split().1);
     mechanics.halftrack_head_pos = 0; // Set track 0
 
     // 1. Load G64 Track 0 (HT 0)
@@ -53,16 +53,25 @@ fn test_g64_track_reading_low_level() {
     let mut storage = MemoryStorage::new(&g64_data);
     let mut g64 = G64Image::new(&mut storage);
 
-    let mut track_data = [0u8; pico1541_common::interface::MAX_TRACK_BYTES];
+    let mut track_data = [0u8; 8192];
     let layout = block_on(g64.read_track(0, &mut track_data)).expect("Failed to read track 0");
 
     log::trace!("Track layout from G64: {:?}", layout);
 
-    hw.track.gcr_data.copy_from_slice(&track_data);
-    hw.track.layout = layout;
+    {
+        let manager = hw_buffer.split().0;
+        let inactive = manager.get_dormant_buffer_mut();
+        inactive.data.copy_from_slice(&track_data);
+        inactive.layout = layout.0;
+        inactive.length = layout.1;
+        inactive.track_id = 2; // half-track 2 = track 1.0
+        manager.commit_dormant_buffer();
+    }
+    
+    mechanics.halftrack_head_pos = 2;
 
-    match layout {
-        TrackLayout::Accurate(size) => log::debug!("Track size: {}", size),
+    match layout.0 {
+        TrackLayout::Accurate => log::debug!("Track accurate layout"),
         _ => panic!("Expected accurate track layout for G64 (Layout was {:?})", layout)
     };
 
@@ -131,7 +140,7 @@ fn test_compare_d64_g64_track_18() {
     let mut storage_g64 = MemoryStorage::new(&g64_data);
     let mut g64 = G64Image::new(&mut storage_g64);
 
-    let mut g64_track_data = [0u8; pico1541_common::interface::MAX_TRACK_BYTES];
+    let mut g64_track_data = [0u8; 8192];
     // Track 18.0 is at half-track 34
     let g64_layout = block_on(g64.read_track(34, &mut g64_track_data)).expect("Failed to read G64 track 18");
 
@@ -140,7 +149,7 @@ fn test_compare_d64_g64_track_18() {
     let mut storage_d64 = MemoryStorage::new(&d64_data);
     let mut d64 = D64Image::new(&mut storage_d64);
     
-    let mut d64_track_data = [0u8; pico1541_common::interface::MAX_TRACK_BYTES];
+    let mut d64_track_data = [0u8; 8192];
     let d64_layout = block_on(d64.read_track(34, &mut d64_track_data)).expect("Failed to read D64 track 18");
 
     println!("G64 Track 18 layout: {:?}", g64_layout);

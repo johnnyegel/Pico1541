@@ -4,7 +4,7 @@ use pico1541_common::storage::Error as CommonError;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 
-use fatfs::{FileSystem, FsOptions, Dir, File, SeekFrom as FatFsSeekFrom, Read, Write, Seek};
+use fatfs::{FileSystem, FsOptions, SeekFrom as FatFsSeekFrom, Read, Seek};
 use embedded_hal::digital::InputPin;
 
 fn normalize_path(path: &str) -> &str {

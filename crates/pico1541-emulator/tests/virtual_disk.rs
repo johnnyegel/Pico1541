@@ -20,7 +20,7 @@ fn test_virtual_disk_skeleton_orientation() {
     }));
 
     // Start on Track 18 (HT 34)
-    assert_eq!(bridge.track.half_track, 34);
+    assert_eq!(bridge.buffer.split().0.get_active_half_track(), 34);
     
     // Patch ID in RAM to match the VirtualDiskImage default ID [0x56, 0x44] ("VD")
     // $12-$13 and $16-$17 are used for ID verification in 1541 ROM.
@@ -84,7 +84,12 @@ fn test_virtual_disk_stridden_warp() {
     // We'll force the state manually
     drive.bus_mut().ram[0x0022] = 1;
     drive.bus_mut().mechanics.halftrack_head_pos = 0;
-    bridge.track.half_track = 0;
+    {
+        let manager = bridge.buffer.split().0;
+        let inactive = manager.get_dormant_buffer_mut();
+        inactive.track_id = 0;
+        manager.commit_dormant_buffer();
+    }
     
     // Turn motor ON (VIA2 PB2)
     drive.bus_mut().via2.orb |= 0x04;

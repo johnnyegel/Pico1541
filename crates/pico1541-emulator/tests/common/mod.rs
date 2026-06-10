@@ -1,11 +1,12 @@
 #![allow(dead_code)]
 use log;
-use pico1541_common::formats::{AnyDiskImage, DiskImage, G64Image, TrackLayout};
+use pico1541_common::formats::{AnyDiskImage, DiskImage, G64Image};
+use pico1541_common::track_buffer::TrackLayout;
 use pico1541_common::iec_com::IecComHostBus;
 use pico1541_common::interface::IecBusState;
 use pico1541_common::storage::DummySource;
 use pico1541_common::snooper::{IecSnooper, IecSnoopByteHandler};
-use pico1541_common::interface::{ActiveTrack, DriveEvent, HostInterface, IecBus};
+use pico1541_common::interface::{DriveEvent, HostInterface, IecBus};
 use pico1541_emulator::Emulator;
 use pollster::block_on;
 
@@ -24,8 +25,11 @@ pub fn setup_drive(
         .parse_default_env()
         .try_init();
 
-    let mut drive = Emulator::<TestBridge>::new(&ROM_BYTES, device_id);
-    let mut bridge = TestBridge::new(device_id);
+    let buffer = Box::leak(Box::new(pico1541_common::track_buffer::DualCoreTrackBuffer::new()));
+    let (manager, emulator) = buffer.split();
+
+    let mut drive = Emulator::<TestBridge>::new(&ROM_BYTES, device_id, emulator);
+    let mut bridge = TestBridge::new(device_id, buffer);
 
     log::info!(
         "Drive setup complete (device ID {}, reset={})",
@@ -74,29 +78,33 @@ where
     S: embedded_io_async::Read + embedded_io_async::Seek + Send + 'static,
     D: pico1541_common::storage::DirectorySource
 {
-    pub fn sync(&mut self, track: &mut ActiveTrack) {
-        if track.half_track != self.last_half_track {
+    pub fn sync(&mut self, buffer: &'static pico1541_common::track_buffer::DualCoreTrackBuffer) {
+        let manager = buffer.split().0;
+        let track_ht = manager.get_active_half_track();
+        if track_ht != self.last_half_track {
             log::info!(
                 "[DiskRunner] Loading track data for half-track {}",
-                track.half_track
+                track_ht
             );
-            let mut gcr_data = [0u8; pico1541_common::interface::MAX_TRACK_BYTES];
-            let layout = block_on(self.image.read_track(track.half_track, &mut gcr_data))
-                .unwrap_or(TrackLayout::Void);
+            
+            manager.duplicate_active_to_inactive();
+            let inactive = manager.get_dormant_buffer_mut();
+            
+            let layout = block_on(self.image.read_track(track_ht, &mut inactive.data))
+                .unwrap_or((TrackLayout::Void, 0));
 
-            track.layout = layout;
+            inactive.layout = layout.0;
+            inactive.length = layout.1;
+            inactive.track_id = track_ht;
+            manager.commit_dormant_buffer();
 
-            if layout != TrackLayout::Void {
-                track.gcr_data.copy_from_slice(&gcr_data);
-            }
-
-            self.last_half_track = track.half_track;
+            self.last_half_track = track_ht;
         }
     }
 }
 
 pub struct TestBridge {
-    pub track: ActiveTrack,
+    pub buffer: &'static pico1541_common::track_buffer::DualCoreTrackBuffer,
     pub events: Vec<DriveEvent>,
     pub host_iec: IecBusState,
     pub drive_iec: IecBusState,
@@ -105,16 +113,13 @@ pub struct TestBridge {
     pub device_id: u8,
     pub discard_request: bool,
     pub total_cycles: u64,
-    pub sync_hook: Option<Box<dyn FnMut(&mut ActiveTrack)>>,
+    pub sync_hook: Option<Box<dyn FnMut(&'static pico1541_common::track_buffer::DualCoreTrackBuffer)>>,
 }
 
 impl TestBridge {
-    pub fn new(device_id: u8) -> Self {
-        let mut track = ActiveTrack::new();
-        track.half_track = 34; // INITIAL_HALF_TRACK
-
+    pub fn new(device_id: u8, buffer: &'static pico1541_common::track_buffer::DualCoreTrackBuffer) -> Self {
         Self {
-            track,
+            buffer,
             events: Vec::new(),
             host_iec: IecBusState::default(),
             drive_iec: IecBusState::default(),
@@ -128,7 +133,10 @@ impl TestBridge {
     }
 
     pub fn reset(&mut self) {
-        self.track.half_track = 34;
+        let manager = self.buffer.split().0;
+        let inactive = manager.get_dormant_buffer_mut();
+        inactive.track_id = 34;
+        manager.commit_dormant_buffer();
         self.events.clear();
         self.host_iec = IecBusState::default();
         self.drive_iec = IecBusState::default();
@@ -174,8 +182,8 @@ impl TestBridge {
             image: AnyDiskImage::<MemoryStorage<'static>, DummySource>::G64(img),
             last_half_track: 255,
         };
-        self.sync_hook = Some(Box::new(move |track| {
-            runner.sync(track);
+        self.sync_hook = Some(Box::new(move |buffer| {
+            runner.sync(buffer);
         }));
     }
 }
@@ -195,16 +203,17 @@ impl IecBus for TestBridge {
 }
 
 impl HostInterface for TestBridge {
-    fn get_active_track(&mut self) -> &mut ActiveTrack {
-        &mut self.track
-    }
     fn send_event(&mut self, event: DriveEvent) {
         self.events.push(event);
         log::info!("[DriveEvent] {:?}", event);
         match event {
             DriveEvent::HeadStepped { new_half_track, .. } => {
                 log::info!("Head stepped to {}", new_half_track);
-                self.track.half_track = new_half_track;
+                let manager = self.buffer.split().0;
+                manager.duplicate_active_to_inactive();
+                let inactive = manager.get_dormant_buffer_mut();
+                inactive.track_id = new_half_track;
+                manager.commit_dormant_buffer();
             }
             _ => {}
         }
@@ -257,8 +266,7 @@ impl HostInterface for TestBridge {
     fn step(&mut self) {
         self.total_cycles += 1;
         if let Some(mut hook) = self.sync_hook.take() {
-            let track = self.get_active_track();
-            hook(track);
+            hook(self.buffer);
             self.sync_hook = Some(hook);
         }
     }

@@ -1,4 +1,4 @@
-use pico1541_common::formats::TrackLayout;
+use pico1541_common::track_buffer::TrackLayout;
 use pollster::block_on;
 use pico1541_common::iec_com::{IecCommander, IecError};
 
@@ -156,21 +156,37 @@ fn test_dir_listing_virtual() {
         }
     }
 
-    let mut gcr_data = [0u8; pico1541_common::interface::MAX_TRACK_BYTES];
+    let mut gcr_data = [0u8; 8192];
     // Fill with noise
     gcr_data.fill(0x55);
 
     let layout = block_on(vdir.read_track(34, &mut gcr_data)).expect("read_track failed");
 
-    bridge.track.gcr_data.copy_from_slice(&gcr_data);
-    bridge.track.layout = layout;
+    {
+        let manager = bridge.buffer.split().0;
+        let inactive = manager.get_dormant_buffer_mut();
+        inactive.data.copy_from_slice(&gcr_data);
+        inactive.layout = layout.0;
+        inactive.length = layout.1;
+        manager.commit_dormant_buffer();
+    }
 
     // Use a sync hook to keep the virtual track in sync with head position
+    let mut last_ht = 0xFF;
     bridge.sync_hook = Some(Box::new(move |track| {
-        if track.half_track != 34 {
-            track.layout = TrackLayout::Void;
-        } else {
-            track.layout = layout;
+        let manager = track.split().0;
+        let current_ht = manager.get_active_half_track();
+        if current_ht != last_ht {
+            manager.duplicate_active_to_inactive();
+            let b = manager.get_dormant_buffer_mut();
+            if current_ht != 34 {
+                b.layout = TrackLayout::Void;
+            } else {
+                b.layout = layout.0;
+                b.length = layout.1;
+            }
+            manager.commit_dormant_buffer();
+            last_ht = current_ht;
         }
     }));
 
@@ -282,7 +298,8 @@ fn test_dir_listing_g64() {
 
 #[test]
 fn test_dir_listing_stable() {
-    use pico1541_common::formats::{DiskImage, TrackLayout, VirtualDiskImage};
+    use pico1541_common::formats::{DiskImage, VirtualDiskImage};
+    use pico1541_common::track_buffer::TrackLayout;
     use pico1541_common::storage::{DirectoryEntry, DirectorySource};
     use pollster::block_on;
 
@@ -350,11 +367,17 @@ fn test_dir_listing_stable() {
         }
     }
 
-    let mut gcr_data = [0u8; pico1541_common::interface::MAX_TRACK_BYTES];
+    let mut gcr_data = [0u8; 8192];
     let layout = block_on(vdir.read_track(34, &mut gcr_data)).expect("read_track failed");
 
-    bridge.track.gcr_data.copy_from_slice(&gcr_data);
-    bridge.track.layout = layout;
+    {
+        let manager = bridge.buffer.split().0;
+        let inactive = manager.get_dormant_buffer_mut();
+        inactive.data.copy_from_slice(&gcr_data);
+        inactive.layout = layout.0;
+        inactive.length = layout.1;
+        manager.commit_dormant_buffer();
+    }
 
     // Use a sync hook to keep the virtual track in sync with head position
     use std::cell::RefCell;
@@ -362,11 +385,22 @@ fn test_dir_listing_stable() {
     let layout_rc = Rc::new(RefCell::new(layout));
     let layout_clone = layout_rc.clone();
 
+    let mut last_ht = 0xFF;
     bridge.sync_hook = Some(Box::new(move |track| {
-        if track.half_track != 34 {
-            track.layout = TrackLayout::Void;
-        } else {
-            track.layout = *layout_clone.borrow();
+        let manager = track.split().0;
+        let current_ht = manager.get_active_half_track();
+        if current_ht != last_ht {
+            manager.duplicate_active_to_inactive();
+            let b = manager.get_dormant_buffer_mut();
+            if current_ht != 34 {
+                b.layout = TrackLayout::Void;
+            } else {
+                let lc = *layout_clone.borrow();
+                b.layout = lc.0;
+                b.length = lc.1;
+            }
+            manager.commit_dormant_buffer();
+            last_ht = current_ht;
         }
     }));
 
@@ -422,7 +456,14 @@ fn test_dir_listing_stable() {
 
     // Call read_track AGAIN to simulate the second load
     let layout2 = block_on(vdir.read_track(34, &mut gcr_data)).expect("read_track failed");
-    bridge.track.gcr_data.copy_from_slice(&gcr_data);
+    {
+        let manager = bridge.buffer.split().0;
+        let inactive = manager.get_dormant_buffer_mut();
+        inactive.data.copy_from_slice(&gcr_data);
+        inactive.layout = layout2.0;
+        inactive.length = layout2.1;
+        manager.commit_dormant_buffer();
+    }
     *layout_rc.borrow_mut() = layout2;
 
     // Second listing
