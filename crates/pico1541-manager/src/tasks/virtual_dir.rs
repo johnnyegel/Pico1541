@@ -158,7 +158,6 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                     }
                 }
             } else {
-                self.track_handle.update_active_track(|_data| {});
                 self.track_handle.set_active_layout(TrackLayout::Void);
                 break;
             }
@@ -514,10 +513,9 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                                 }
                                             }
                                             vdir.next_sector_to_update = 1;
-                                            self.track_handle.duplicate_active_to_inactive();
-                                            let inactive = self.track_handle.get_dormant_buffer_mut();
-                                            vdir.force_update_directory_sectors(&mut inactive.data).await;
-                                            self.track_handle.commit_dormant_buffer();
+                                            let data = self.track_handle.start_track_modification();
+                                            vdir.force_update_directory_sectors(data).await;
+                                            self.track_handle.commit_modified_track();
                                             vdir.treadmill_spinup_delay = 10;
                                         }
                                     }

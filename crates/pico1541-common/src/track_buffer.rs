@@ -109,18 +109,7 @@ impl ManagerHandle {
         self.core_buffer.active_index.store(!current_active, Ordering::Release);
     }
 
-    fn get_dormant_buffer_mut(&self) -> &mut TrackBuffer {
-        let current_active = self.core_buffer.active_index.load(Ordering::Acquire);
-        let back_idx = if current_active { 0 } else { 1 };
-        unsafe { &mut (*self.core_buffer.buffers.get())[back_idx] }
-    }
 
-    fn commit_dormant_buffer(&self) {
-        let current_active = self.core_buffer.active_index.load(Ordering::Acquire);
-        let back_idx = if current_active { 0 } else { 1 };
-        self.core_buffer.dirty_flags[back_idx].store(false, Ordering::Release);
-        self.core_buffer.active_index.store(!current_active, Ordering::Release);
-    }
 
     pub fn set_active_layout(&self, layout: TrackLayout) {
         let active_idx = if self.core_buffer.active_index.load(Ordering::Acquire) { 1 } else { 0 };
