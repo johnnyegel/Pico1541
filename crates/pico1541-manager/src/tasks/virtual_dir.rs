@@ -335,12 +335,11 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                     if let Some(vdir) = disk.as_virtual_disk_mut() {
                                         vdir.source.rewind();
                                         vdir.next_sector_to_update = 1;
-                                        if self.track_handle.is_active_dirty() {
-                                            let data = self.track_handle.start_track_modification();
-                                            vdir.force_update_directory_sectors(data).await;
-                                            self.track_handle.commit_modified_track();
-                                            vdir.treadmill_spinup_delay = 10;
-                                        }
+                                        
+                                        let data = self.track_handle.start_track_modification();
+                                        vdir.force_update_directory_sectors(data).await;
+                                        self.track_handle.commit_modified_track();
+                                        vdir.treadmill_spinup_delay = 10;
                                     }
                                 }
                             }

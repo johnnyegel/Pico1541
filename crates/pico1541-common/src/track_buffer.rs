@@ -49,7 +49,6 @@ pub struct DualCoreTrackBuffer {
     // Now holding our unified struct
     buffers: UnsafeCell<[TrackBuffer; 2]>,
     active_index: AtomicBool,
-    dirty_flags: [AtomicBool; 2],
     pub is_write_protected: AtomicBool,
     pub force_disk_change: AtomicBool,
     pub current_byte_idx: core::sync::atomic::AtomicUsize,
@@ -63,7 +62,6 @@ impl DualCoreTrackBuffer {
         Self {
             buffers: UnsafeCell::new([TrackBuffer::new(), TrackBuffer::new()]),
             active_index: AtomicBool::new(false),
-            dirty_flags: [AtomicBool::new(false), AtomicBool::new(false)],
             is_write_protected: AtomicBool::new(false),
             force_disk_change: AtomicBool::new(false),
             current_byte_idx: core::sync::atomic::AtomicUsize::new(0),
@@ -105,7 +103,6 @@ impl ManagerHandle {
         };
 
         fill_buffer(&mut back_buffer.data, &mut back_buffer.layout, &mut back_buffer.track_id);
-        self.core_buffer.dirty_flags[back_idx].store(false, Ordering::Release);
         self.core_buffer.active_index.store(!current_active, Ordering::Release);
     }
 
@@ -141,7 +138,6 @@ impl ManagerHandle {
         back_buffer.length = length;
         back_buffer.track_id = track_id;
         
-        self.core_buffer.dirty_flags[back_idx].store(false, Ordering::Release);
         self.core_buffer.active_index.store(!current_active, Ordering::Release);
     }
 
@@ -166,22 +162,39 @@ impl ManagerHandle {
 
     pub fn commit_modified_track(&self) {
         let current_active = self.core_buffer.active_index.load(Ordering::Acquire);
-        let back_idx = if current_active { 0 } else { 1 };
-        self.core_buffer.dirty_flags[back_idx].store(false, Ordering::Release);
         self.core_buffer.active_index.store(!current_active, Ordering::Release);
     }
 
-    pub fn is_active_dirty(&self) -> bool {
-        let active_idx = if self.core_buffer.active_index.load(Ordering::Acquire) { 1 } else { 0 };
-        self.core_buffer.dirty_flags[active_idx].load(Ordering::Acquire)
+    #[allow(dead_code)]
+    pub fn get_dormant_buffer_mut(&self) -> &mut TrackBuffer {
+        let current_active = self.core_buffer.active_index.load(Ordering::Acquire);
+        let back_idx = if current_active { 0 } else { 1 };
+        unsafe { &mut (*self.core_buffer.buffers.get())[back_idx] }
     }
 
-    pub fn clear_active_dirty_flag(&self) {
-        let active_idx = if self.core_buffer.active_index.load(Ordering::Acquire) { 1 } else { 0 };
-        self.core_buffer.dirty_flags[active_idx].store(false, Ordering::Release);
+    #[allow(dead_code)]
+    pub fn commit_dormant_buffer(&self) {
+        let current_active = self.core_buffer.active_index.load(Ordering::Acquire);
+        self.core_buffer.active_index.store(!current_active, Ordering::Release);
     }
 
+    #[allow(dead_code)]
+    pub fn duplicate_active_to_inactive(&self) {
+        let current_active = self.core_buffer.active_index.load(Ordering::Acquire);
+        let active_idx = if current_active { 1 } else { 0 };
+        let back_idx = if current_active { 0 } else { 1 };
+        
+        unsafe {
+            let buffers_ptr = self.core_buffer.buffers.get();
+            let active_buffer = &(*buffers_ptr)[active_idx];
+            let back_buffer = &mut (*buffers_ptr)[back_idx];
 
+            back_buffer.data.copy_from_slice(&active_buffer.data);
+            back_buffer.layout = active_buffer.layout;
+            back_buffer.track_id = active_buffer.track_id;
+            back_buffer.length = active_buffer.length;
+        }
+    }
 
     pub fn set_write_protected(&self, wp: bool) {
         self.core_buffer.is_write_protected.store(wp, Ordering::Release);
@@ -236,6 +249,9 @@ impl EmulatorHandle {
             TrackLayout::Accurate => {
                 if buffer.length != self.track_byte_size {
                     if self.track_byte_size > 0 {
+                        // NOTE: RP2040 uses an 8-cycle hardware SIO divider for this operation.
+                        // Executing this division once per track change is ~32ns, which is mathematically
+                        // optimal compared to adding fixed-point math overhead to the per-byte hot path!
                         self.track_byte_pos_ix = (self.track_byte_pos_ix * buffer.length) / self.track_byte_size;
                     }
                     self.track_byte_size = buffer.length;
@@ -260,7 +276,7 @@ impl EmulatorHandle {
 
         let current_byte_pos = self.track_byte_pos_ix;
         self.track_byte_pos_ix += 1;
-        self.core_buffer.current_byte_idx.store(self.track_byte_pos_ix, Ordering::Release);
+        self.core_buffer.current_byte_idx.store(self.track_byte_pos_ix, Ordering::Relaxed);
 
         if has_position {
             Some(current_byte_pos % buffer.length)
@@ -290,16 +306,14 @@ impl EmulatorHandle {
 
     /// Safely writes a GCR byte back to the disk buffer and flags it for background SD flush.
     #[inline(always)]
-    pub fn next_write_byte(&mut self, expected_track_id: u8, requested_sector: u8, data: u8) {
+    pub fn next_write_byte(&mut self, expected_track_id: u8, requested_sector: u8, _data: u8) {
         let active_idx = if self.core_buffer.active_index.load(Ordering::Acquire) { 1 } else { 0 };
         
         let buffer = unsafe { &mut (*self.core_buffer.buffers.get())[active_idx] };
 
-        if let Some(ix) = self.resolve_and_advance_index(buffer, expected_track_id, requested_sector) {
-            buffer.data[ix] = data;
-            // Mark this specific buffer as dirty so Core 0 knows to flush it later
-            self.core_buffer.dirty_flags[active_idx].store(true, Ordering::Release);
-        }
+        // FIXME! Write support is not yet implemented. 
+        // We only advance the index so the drive mechanics keep ticking correctly.
+        let _ = self.resolve_and_advance_index(buffer, expected_track_id, requested_sector);
     }
 
     /// Fetches the track layout to calculate bit-rates (Speed Zones).

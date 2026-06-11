@@ -457,11 +457,11 @@ async fn snooper_run(mut task: SnooperTask) {
     task.run().await;
 }
 
-struct MyOpener {
+struct PlatformStorageManager {
     storage: StorageWrapper<MyRawBlockIo, MyDet>,
 }
 
-impl pico1541_manager::tasks::virtual_dir::FileOpener for MyOpener {
+impl pico1541_manager::tasks::virtual_dir::FileOpener for PlatformStorageManager {
     type FileStorage = MyStorage;
 
     async fn open_file(&self, requested_petscii: &[u8]) -> Result<Self::FileStorage, pico1541_common::formats::Error> {
@@ -471,73 +471,50 @@ impl pico1541_manager::tasks::virtual_dir::FileOpener for MyOpener {
         };
         
         let mut found_filename = heapless::String::<64>::new();
-        
-        if use_internal {
-            use pico1541_manager::driver::FileStorageDriver;
-            let mut internal = littlefs_storage::LittleFsStorage;
-            
-            let mut found = false;
-            let _ = internal.list_dir_range(dir_path.as_str(), 0, 1000, |info| {
-                if !found {
-                    let mangled = pico1541_common::storage::mangle_filename(&info.name);
-                    if pico1541_manager::tasks::virtual_dir::match_c64_filename(&mangled, requested_petscii) {
-                        let name_len = info.name.iter().position(|&c| c == 0).unwrap_or(info.name.len());
-                        if let Ok(s) = core::str::from_utf8(&info.name[..name_len]) {
-                            let _ = found_filename.push_str(s);
-                            found = true;
-                        }
+        let mut found = false;
+
+        let find_file = |info: pico1541_manager::driver::FileInfo| {
+            if !found {
+                let mangled = pico1541_common::storage::mangle_filename(&info.name);
+                if pico1541_manager::tasks::virtual_dir::match_c64_filename(&mangled, requested_petscii) {
+                    let name_len = info.name.iter().position(|&c| c == 0).unwrap_or(info.name.len());
+                    if let Ok(s) = core::str::from_utf8(&info.name[..name_len]) {
+                        let _ = found_filename.push_str(s);
+                        found = true;
                     }
                 }
-            }).await;
-            
-            if !found {
-                return Err(pico1541_common::formats::Error::FileNotFound);
             }
-            
-            let mut full_path = heapless::String::<128>::new();
-            if dir_path == "/" || dir_path.is_empty() {
-                let _ = full_path.push_str("/");
-                let _ = full_path.push_str(found_filename.as_str());
-            } else {
-                let _ = full_path.push_str(&dir_path);
-                let _ = full_path.push_str("/");
-                let _ = full_path.push_str(found_filename.as_str());
-            }
-            
+        };
+
+        use pico1541_manager::driver::FileStorageDriver;
+        if use_internal {
+            let mut internal = littlefs_storage::LittleFsStorage;
+            let _ = internal.list_dir_range(dir_path.as_str(), 0, 1000, find_file).await;
+        } else {
+            let mut sd = self.storage.clone();
+            let _ = sd.list_dir_range(dir_path.as_str(), 0, 1000, find_file).await;
+        }
+        
+        if !found {
+            return Err(pico1541_common::formats::Error::FileNotFound);
+        }
+        
+        let mut full_path = heapless::String::<128>::new();
+        if dir_path == "/" || dir_path.is_empty() {
+            let _ = full_path.push_str("/");
+            let _ = full_path.push_str(found_filename.as_str());
+        } else {
+            let _ = full_path.push_str(&dir_path);
+            let _ = full_path.push_str("/");
+            let _ = full_path.push_str(found_filename.as_str());
+        }
+        
+        if use_internal {
+            let mut internal = littlefs_storage::LittleFsStorage;
             let file_handle = internal.open_file_handle(full_path.as_str());
             Ok(RuntimeStorage::File2(file_handle))
         } else {
-            use pico1541_manager::driver::FileStorageDriver;
             let mut sd = self.storage.clone();
-            
-            let mut found = false;
-            let _ = sd.list_dir_range(dir_path.as_str(), 0, 1000, |info| {
-                if !found {
-                    let mangled = pico1541_common::storage::mangle_filename(&info.name);
-                    if pico1541_manager::tasks::virtual_dir::match_c64_filename(&mangled, requested_petscii) {
-                        let name_len = info.name.iter().position(|&c| c == 0).unwrap_or(info.name.len());
-                        if let Ok(s) = core::str::from_utf8(&info.name[..name_len]) {
-                            let _ = found_filename.push_str(s);
-                            found = true;
-                        }
-                    }
-                }
-            }).await;
-            
-            if !found {
-                return Err(pico1541_common::formats::Error::FileNotFound);
-            }
-            
-            let mut full_path = heapless::String::<128>::new();
-            if dir_path == "/" || dir_path.is_empty() {
-                let _ = full_path.push_str("/");
-                let _ = full_path.push_str(found_filename.as_str());
-            } else {
-                let _ = full_path.push_str(&dir_path);
-                let _ = full_path.push_str("/");
-                let _ = full_path.push_str(found_filename.as_str());
-            }
-            
             let file_handle = sd.open_file_handle(full_path.as_str());
             Ok(RuntimeStorage::File(file_handle))
         }
@@ -553,34 +530,29 @@ impl pico1541_manager::tasks::virtual_dir::FileOpener for MyOpener {
         mut callback: impl FnMut(pico1541_common::storage::DirectoryEntry),
     ) -> Result<(), pico1541_common::formats::Error> {
         use pico1541_manager::driver::FileStorageDriver;
+        
+        let mut handle_info = |info: pico1541_manager::driver::FileInfo| {
+            let name_len = info.name.iter().position(|&c| c == 0).unwrap_or(info.name.len());
+            let entry = pico1541_common::storage::DirectoryEntry::from_file_info(
+                &info.name[..name_len],
+                info.is_dir,
+                info.size,
+            );
+            callback(entry);
+        };
+
         if use_internal {
             let mut internal = littlefs_storage::LittleFsStorage;
-            internal.list_dir_range(path, start_index, count, |info| {
-                let name_len = info.name.iter().position(|&c| c == 0).unwrap_or(info.name.len());
-                let entry = pico1541_common::storage::DirectoryEntry::from_file_info(
-                    &info.name[..name_len],
-                    info.is_dir,
-                    info.size,
-                );
-                callback(entry);
-            }).await
+            internal.list_dir_range(path, start_index, count, handle_info).await
         } else {
             let mut storage = self.storage.clone();
-            storage.list_dir_range(path, start_index, count, |info| {
-                let name_len = info.name.iter().position(|&c| c == 0).unwrap_or(info.name.len());
-                let entry = pico1541_common::storage::DirectoryEntry::from_file_info(
-                    &info.name[..name_len],
-                    info.is_dir,
-                    info.size,
-                );
-                callback(entry);
-            }).await
+            storage.list_dir_range(path, start_index, count, handle_info).await
         }
     }
 }
 
 #[embassy_executor::task]
-async fn vdisk_run(mut task: VirtualDiskTask<'static, MyStorage, MyDir, MyOpener>) {
+async fn vdisk_run(mut task: VirtualDiskTask<'static, MyStorage, MyDir, PlatformStorageManager>) {
     task.run().await;
 }
 
@@ -783,7 +755,7 @@ async fn core0_init_task(
     let vdisk_task = VirtualDiskTask::new(
         &*disk_image_mutex,
         manager_handle,
-        MyOpener { storage: StorageWrapper(sd_mutex) },
+        PlatformStorageManager { storage: StorageWrapper(sd_mutex) },
         &MOUNTED_DIR,
     );
 
