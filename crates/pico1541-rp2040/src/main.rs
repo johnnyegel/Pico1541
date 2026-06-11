@@ -235,8 +235,9 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
     let (manager_handle, emulator_handle) = DUAL_CORE_BUFFER.split();
 
     let stack = unsafe {
-        CORE1_STACK.as_mut_ptr().write(Stack::new());
-        &mut *CORE1_STACK.as_mut_ptr()
+        let ptr: *mut Stack<8192> = core::ptr::addr_of_mut!(CORE1_STACK).cast();
+        core::ptr::write(ptr, Stack::new());
+        &mut *ptr
     };
 
     #[link_section = ".sram3"]
@@ -288,8 +289,9 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
     info!("Starting Emulator on Core 1...");
     embassy_rp::multicore::spawn_core1(p.CORE1, stack, move || {
         let drive = unsafe {
-            EMULATOR.as_mut_ptr().write(Emulator::new(unsafe { &ROM_BUFFER }, drive_id, emulator_handle));
-            &mut *EMULATOR.as_mut_ptr()
+            let ptr: *mut Emulator<HardwareBridge> = core::ptr::addr_of_mut!(EMULATOR).cast();
+            core::ptr::write(ptr, Emulator::new(&*core::ptr::addr_of!(ROM_BUFFER), drive_id, emulator_handle));
+            &mut *ptr
         };
         drive.reset(&mut bridge);
         emulator_loop(drive, bridge);
@@ -510,11 +512,11 @@ impl pico1541_manager::tasks::virtual_dir::FileOpener for PlatformStorageManager
         }
         
         if use_internal {
-            let mut internal = littlefs_storage::LittleFsStorage;
+            let internal = littlefs_storage::LittleFsStorage;
             let file_handle = internal.open_file_handle(full_path.as_str());
             Ok(RuntimeStorage::File2(file_handle))
         } else {
-            let mut sd = self.storage.clone();
+            let sd = self.storage.clone();
             let file_handle = sd.open_file_handle(full_path.as_str());
             Ok(RuntimeStorage::File(file_handle))
         }
@@ -531,7 +533,7 @@ impl pico1541_manager::tasks::virtual_dir::FileOpener for PlatformStorageManager
     ) -> Result<(), pico1541_common::formats::Error> {
         use pico1541_manager::driver::FileStorageDriver;
         
-        let mut handle_info = |info: pico1541_manager::driver::FileInfo| {
+        let handle_info = |info: pico1541_manager::driver::FileInfo| {
             let name_len = info.name.iter().position(|&c| c == 0).unwrap_or(info.name.len());
             let entry = pico1541_common::storage::DirectoryEntry::from_file_info(
                 &info.name[..name_len],
@@ -973,7 +975,7 @@ fn emulator_loop(drive: &'static mut Emulator<HardwareBridge>, mut bridge: Hardw
         }
 
         if bridge.config.trigger_reset.load(Ordering::Relaxed) {
-            drive.update_rom(unsafe { &ROM_BUFFER });
+            drive.update_rom(unsafe { &*core::ptr::addr_of!(ROM_BUFFER) });
             drive.reset(&mut bridge);
             bridge.config.trigger_reset.store(false, Ordering::Relaxed);
         }

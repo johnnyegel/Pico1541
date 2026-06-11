@@ -77,6 +77,7 @@ impl DualCoreTrackBuffer {
                 track_byte_pos_ix: 0,
                 track_byte_size: 0,
                 last_requested_sector: 0xFF,
+                last_is_listening: false,
             },
         )
     }
@@ -217,6 +218,7 @@ pub struct EmulatorHandle {
     pub track_byte_pos_ix: usize,
     pub track_byte_size: usize,
     last_requested_sector: u8,
+    last_is_listening: bool,
 }
 
 impl EmulatorHandle {
@@ -238,7 +240,7 @@ impl EmulatorHandle {
     }
 
     #[inline(always)]
-    fn resolve_and_advance_index(&mut self, buffer: &TrackBuffer, expected_track_id: u8, requested_sector: u8) -> Option<usize> {
+    fn resolve_and_advance_index(&mut self, buffer: &TrackBuffer, expected_track_id: u8, requested_sector: u8, just_started_reading: bool) -> Option<usize> {
         if buffer.track_id != expected_track_id || buffer.length == 0 {
             self.last_requested_sector = 0xFF;
             return None;
@@ -259,7 +261,7 @@ impl EmulatorHandle {
             },
             TrackLayout::Warped(stride) => {
                 self.track_byte_size = buffer.length;
-                if requested_sector != self.last_requested_sector {
+                if requested_sector != self.last_requested_sector || just_started_reading {
                     self.track_byte_pos_ix = (requested_sector as usize) * stride;
                     self.last_requested_sector = requested_sector;
                 }
@@ -289,7 +291,11 @@ impl EmulatorHandle {
     /// Automatically handles the modulo math and returns 0x55 noise 
     /// if the head is in transit or unformatted.
     #[inline(always)]
-    pub fn next_read_byte(&mut self, expected_track_id: u8, requested_sector: u8) -> u8 {
+    pub fn next_read_byte(&mut self, expected_track_id: u8, requested_sector: u8, is_listening: bool) -> u8 {
+        // Detect transition
+        let just_started_listening = is_listening && !self.last_is_listening;
+        self.last_is_listening = is_listening;
+
         // 1. Lock-free active buffer resolution
         let active_idx = if self.core_buffer.active_index.load(Ordering::Acquire) { 1 } else { 0 };
 
@@ -297,7 +303,7 @@ impl EmulatorHandle {
         // Core 0 guarantees it only ever mutates the dormant index.
         let buffer = unsafe { &(*self.core_buffer.buffers.get())[active_idx] };
 
-        if let Some(ix) = self.resolve_and_advance_index(buffer, expected_track_id, requested_sector) {
+        if let Some(ix) = self.resolve_and_advance_index(buffer, expected_track_id, requested_sector, just_started_listening) {
             buffer.data[ix]
         } else {
             VOID_BYTE
@@ -313,7 +319,7 @@ impl EmulatorHandle {
 
         // FIXME! Write support is not yet implemented. 
         // We only advance the index so the drive mechanics keep ticking correctly.
-        let _ = self.resolve_and_advance_index(buffer, expected_track_id, requested_sector);
+        let _ = self.resolve_and_advance_index(buffer, expected_track_id, requested_sector, false);
     }
 
     /// Fetches the track layout to calculate bit-rates (Speed Zones).

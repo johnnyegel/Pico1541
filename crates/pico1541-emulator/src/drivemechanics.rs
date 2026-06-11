@@ -89,10 +89,12 @@ impl DriveMechanics {
     fn tick_slow<H: HostInterface>(&mut self, _hardware: &mut H, via2: &mut Via6522, requested_sector: u8) -> bool {
         // Determine read mode from CB2 (Manual High = Read)
         let is_read_mode = via2.get_cb2_out().unwrap_or(true);
+        let is_so_enabled = via2.get_ca2_out().unwrap_or(false);
+        let is_reading = is_read_mode && is_so_enabled;
 
         // :? Is Read mode enabled?
         if is_read_mode {
-            let gcr_byte = self.track_handle.next_read_byte(self.halftrack_head_pos as u8, requested_sector);
+            let gcr_byte = self.track_handle.next_read_byte(self.halftrack_head_pos as u8, requested_sector, is_reading);
 
             // SYNC signal is Active LOW (0 = SYNC found, 1 = No SYNC)
             if gcr_byte == BYTE_SYNC {
