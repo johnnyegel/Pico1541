@@ -10,10 +10,10 @@ const INITIAL_HALF_TRACK: i8 = 34; // Start at track 18 (Half-track 34)
 const BYTE_SYNC: u8 = 0xFF;
 
 // Speed Zones (Cycles per byte @ 1MHz)
-const CYCLES_ZONE_0: u32 = 32; // Tracks 1-17
-const CYCLES_ZONE_1: u32 = 30; // Tracks 18-24
-const CYCLES_ZONE_2: u32 = 28; // Tracks 25-30
-const CYCLES_ZONE_3: u32 = 26; // Tracks 31-35
+const CYCLES_ZONE_0: u32 = 26; // Tracks 1-17
+const CYCLES_ZONE_1: u32 = 28; // Tracks 18-24
+const CYCLES_ZONE_2: u32 = 30; // Tracks 25-30
+const CYCLES_ZONE_3: u32 = 32; // Tracks 31-35
 
 // Masks for individual hardware state bits on VIA2 Port B
 const MASK_MOTOR: u8 = 0x04;

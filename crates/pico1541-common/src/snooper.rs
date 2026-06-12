@@ -201,7 +201,7 @@ impl IecSnooper {
             if is_sa {
                 if self.is_listening {
                     self.secondary_address = byte;
-                    if (byte & 0xE0) == 0xE0 {
+                    if (byte & 0xF0) == 0xE0 {
                         dispatch(DriveEvent::IecCloseChannel(byte & 0x0F));
                     } else {
                         dispatch(DriveEvent::IecSnoopSecondaryAddress(byte));

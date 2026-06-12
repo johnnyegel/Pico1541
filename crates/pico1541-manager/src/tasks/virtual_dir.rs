@@ -139,7 +139,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                 match select(disk.read_track(target_ht, data), TRACK_CHANNEL.receive()).await {
                     Either::First(Ok(layout)) => {
                         let elapsed = start_time.elapsed().as_millis();
-                        log::info!("Track load took {} ms", elapsed);
+                        info!("Track load took {} ms", elapsed);
                         self.track_handle.commit_loaded_track(target_ht, layout.0, layout.1);
                         break; // Success, done loading the track!
                     }
@@ -573,7 +573,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                     match disk.read_track(half_track, data).await {
                                         Ok(layout) => {
                                             let elapsed = start_time.elapsed().as_millis();
-                                            log::info!("Track load took {} ms", elapsed);
+                                            info!("Track load took {} ms", elapsed);
                                             self.track_handle.commit_loaded_track(half_track, layout.0, layout.1);
                                         }
                                         Err(_) => {

@@ -425,27 +425,27 @@ impl HostInterface for HardwareBridge {
 
     
     #[inline(always)]
-    fn sync(&mut self, host: IecBusState) {
+    fn sync(&mut self, _host: IecBusState) {
         // The snooper is only updated if something changed on the bus.
         // This call is fast in the "no change" case inside the snooper itself.
-        let config = self.config;
-        let handler = &mut self.handler;
+        let _config = self.config;
+        let _handler = &mut self.handler;
         
-        self.snooper.update(host, |event| {
-            let _ = pico1541_manager::EVENT_CHANNEL.try_send(event);
-            handler.handle(event, &mut |e| {
-                 let _ = pico1541_manager::EVENT_CHANNEL.try_send(e);
-            });
-            if handler.is_hijacked() {
-                config.hijack_active.store(true, Ordering::Relaxed);
-                config.should_drive_data.store(true, Ordering::Relaxed);
-            }
-            if handler.should_discard() {
-                config.discard_request.store(true, Ordering::Relaxed);
-                config.hijack_active.store(false, Ordering::Relaxed);
-                config.should_drive_data.store(false, Ordering::Relaxed);
-            }
-        });
+        // self.snooper.update(host, |event| {
+        //     let _ = pico1541_manager::EVENT_CHANNEL.try_send(event);
+        //     handler.handle(event, &mut |e| {
+        //          let _ = pico1541_manager::EVENT_CHANNEL.try_send(e);
+        //     });
+        //     if handler.is_hijacked() {
+        //         config.hijack_active.store(true, Ordering::Relaxed);
+        //         config.should_drive_data.store(true, Ordering::Relaxed);
+        //     }
+        //     if handler.should_discard() {
+        //         config.discard_request.store(true, Ordering::Relaxed);
+        //         config.hijack_active.store(false, Ordering::Relaxed);
+        //         config.should_drive_data.store(false, Ordering::Relaxed);
+        //     }
+        // });
     }
 }
 
