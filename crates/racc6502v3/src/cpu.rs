@@ -15,6 +15,8 @@ pub struct CPU {
     pub pc: u16,
     pub p: u8,
     pub pending_interrupt: Option<Interrupt>,
+    pub pending_so: bool,
+    last_so_pin: bool,
 }
 
 const FLAG_C: u8 = 0x01;
@@ -42,6 +44,8 @@ impl CPU {
             pc: 0,
             p: 0x24,
             pending_interrupt: Some(Interrupt::Reset),
+            pending_so: false,
+            last_so_pin: false,
         }
     }
 
@@ -50,6 +54,13 @@ impl CPU {
         self.step(bus, ctx);
     }
     
+    pub fn set_so_pin(&mut self, active: bool) {
+        if active && !self.last_so_pin {
+            self.pending_so = true;
+        }
+        self.last_so_pin = active;
+    }
+
     #[inline]
     fn read<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, addr: u16) -> u8 {
         bus.read(addr, ctx)

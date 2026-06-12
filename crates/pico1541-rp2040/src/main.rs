@@ -31,7 +31,7 @@ use pico1541_common::formats::AnyDiskImage;
 use pico1541_common::storage::{PagedDirectorySource, RuntimeStorage};
 use pico1541_emulator::Emulator;
 use pico1541_manager::tasks::{
-    ActionTask, DisplayTask, DriveActivityTask, KeyboardTask, MainMenuTask, SnooperTask, VirtualDiskTask,
+    ActionTask, DiskTask, DisplayTask, DriveActivityTask, KeyboardTask, MainMenuTask, SnooperTask
 };
 use panic_probe as _;
 
@@ -475,7 +475,7 @@ struct PlatformStorageManager {
     storage: StorageWrapper<MyRawBlockIo, MyDet>,
 }
 
-impl pico1541_manager::tasks::virtual_dir::FileOpener for PlatformStorageManager {
+impl pico1541_manager::tasks::disk_task::FileOpener for PlatformStorageManager {
     type FileStorage = MyStorage;
 
     async fn open_file(&self, requested_petscii: &[u8]) -> Result<Self::FileStorage, pico1541_common::formats::Error> {
@@ -490,7 +490,7 @@ impl pico1541_manager::tasks::virtual_dir::FileOpener for PlatformStorageManager
         let find_file = |info: pico1541_manager::driver::FileInfo| {
             if !found {
                 let mangled = pico1541_common::storage::mangle_filename(&info.name);
-                if pico1541_manager::tasks::virtual_dir::match_c64_filename(&mangled, requested_petscii) {
+                if pico1541_manager::tasks::disk_task::match_c64_filename(&mangled, requested_petscii) {
                     let name_len = info.name.iter().position(|&c| c == 0).unwrap_or(info.name.len());
                     if let Ok(s) = core::str::from_utf8(&info.name[..name_len]) {
                         let _ = found_filename.push_str(s);
@@ -566,7 +566,7 @@ impl pico1541_manager::tasks::virtual_dir::FileOpener for PlatformStorageManager
 }
 
 #[embassy_executor::task]
-async fn vdisk_run(mut task: VirtualDiskTask<'static, MyStorage, MyDir, PlatformStorageManager>) {
+async fn vdisk_run(mut task: DiskTask<'static, MyStorage, MyDir, PlatformStorageManager>) {
     task.run().await;
 }
 
@@ -766,7 +766,7 @@ async fn core0_init_task(
     static DISK_IMAGE: StaticCell<Mutex<CriticalSectionRawMutex, Option<MyDisk>>> = StaticCell::new();
     let disk_image_mutex = DISK_IMAGE.init(Mutex::new(None));
 
-    let vdisk_task = VirtualDiskTask::new(
+    let vdisk_task = DiskTask::new(
         &*disk_image_mutex,
         manager_handle,
         PlatformStorageManager { storage: StorageWrapper(sd_mutex) },
