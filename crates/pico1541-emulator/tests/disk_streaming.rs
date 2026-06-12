@@ -28,10 +28,10 @@ fn test_disk_streaming_data() {
     let mut mechanics = DriveMechanics::new(emulator);
     mechanics.halftrack_head_pos = 0; // Align head with Track 1 (half-track 0)
 
-    // Set bitrate Zone 0 (32 cycles) explicitly
-    // In our implementation Zone 0 (32 cycles) is bits 5,6 = 11 (0x60)
+    // Set bitrate Zone 3 (26 cycles) explicitly
+    // In our implementation Zone 3 (26 cycles) is bits 5,6 = 11 (0x60)
     via2.ddrb = 0xFF; // All bits are output
-    via2.orb = (via2.orb & !0x60) | 0x60 | 0x04; // Zone 0 (32 cycles) + Motor ON
+    via2.orb = (via2.orb & !0x60) | 0x60 | 0x04; // Zone 3 (26 cycles) + Motor ON
     mechanics.update_state(via2.orb, via2.ddrb, &mut hardware, 0, 0);
 
     // Set READ mode (CB2 out = true) AND enable SO (CA2 out = true)
@@ -39,7 +39,7 @@ fn test_disk_streaming_data() {
     // PCR: CB2=111 (Manual High), CA2=111 (Manual High) -> 0b1110_1110
     via2.pcr = 0b1110_1110;
 
-    // First byte delivered should be idx 0: 0xAA. Should take exactly 32 ticks.
+    // First byte delivered should be idx 0: 0xAA. Should take exactly 26 ticks.
     let mut ticks = 0;
     while !mechanics.tick(&mut hardware, &mut via1, &mut via2, 0) {
         ticks += 1;
@@ -47,12 +47,12 @@ fn test_disk_streaming_data() {
             panic!("Timeout waiting for idx 0");
         }
     }
-    assert_eq!(ticks + 1, 32);
+    assert_eq!(ticks + 1, 26);
     assert_eq!(via2.in_a, 0xAA, "Should have delivered idx 0");
     assert!(via2.ifr & 0x02 != 0, "VIA2 CA1 should have been pulsed");
     via2.ifr &= !0x02; // Clear it
 
-    // Second byte idx 1: 0x55. Exactly 32 ticks.
+    // Second byte idx 1: 0x55. Exactly 26 ticks.
     ticks = 0;
     while !mechanics.tick(&mut hardware, &mut via1, &mut via2, 0) {
         ticks += 1;
@@ -60,7 +60,7 @@ fn test_disk_streaming_data() {
             panic!("Timeout waiting for idx 1");
         }
     }
-    assert_eq!(ticks + 1, 32);
+    assert_eq!(ticks + 1, 26);
     assert_eq!(via2.in_a, 0x55);
 }
 
@@ -87,15 +87,15 @@ fn test_disk_streaming_sync() {
     let mut mechanics = DriveMechanics::new(emulator);
     mechanics.halftrack_head_pos = 0; // Align head with Track 1 (half-track 0)
     via2.ddrb = 0xFF;
-    via2.orb = (via2.orb & !0x60) | 0x60 | 0x04; // Zone 0 (32 cycles) + Motor ON
+    via2.orb = (via2.orb & !0x60) | 0x60 | 0x04; // Zone 3 (26 cycles) + Motor ON
     mechanics.update_state(via2.orb, via2.ddrb, &mut hardware, 0, 0);
     
     // Set READ mode (CB2 out = true) AND enable SO (CA2 out = true)
     via2.pcr = 0b1110_1110;
 
     // First byte idx 0: 0xFF (SYNC)
-    // Run for 32 cycles. SYNC suppresses SO, so tick() must return false.
-    for i in 0..32 {
+    // Run for 26 cycles. SYNC suppresses SO, so tick() must return false.
+    for i in 0..26 {
         assert!(
             !mechanics.tick(&mut hardware, &mut via1, &mut via2, 0),
             "SYNC should NOT pulse SO (cycle {})", i
@@ -110,7 +110,7 @@ fn test_disk_streaming_sync() {
     assert_eq!(via2.in_a, 0xFF, "Port A should be updated even for SYNC");
 
     // Next byte idx 1: 0x55 (Data)
-    // This one IS data, so it should return true on the 32nd cycle.
+    // This one IS data, so it should return true on the 26th cycle.
     let mut ticks = 0;
     while !mechanics.tick(&mut hardware, &mut via1, &mut via2, 0) {
         ticks += 1;
@@ -118,7 +118,7 @@ fn test_disk_streaming_sync() {
              panic!("Timeout waiting for data byte after SYNC");
         }
     }
-    assert_eq!(ticks + 1, 32);
+    assert_eq!(ticks + 1, 26);
     assert_eq!(via2.in_a, 0x55);
     assert!(via2.in_b & 0x80 != 0, "SYNC should be cleared");
 }
@@ -145,28 +145,18 @@ fn test_disk_bitrate_zones() {
     via2.ddrb = 0xFF;
     via2.pcr = 0b1110_1110; // Enable SO
 
-    // Test Zone 0: 32 cycles (bits 5,6 = 11 -> 0x60)
+    // Test Zone 3: 26 cycles (bits 5,6 = 11 -> 0x60)
     via2.orb = 0x60 | 0x04; // Motor ON
     mechanics.update_state(via2.orb, via2.ddrb, &mut hardware, 0, 0);
     let mut ticks = 0;
     while !mechanics.tick(&mut hardware, &mut via1, &mut via2, 0) {
         ticks += 1;
-        if ticks > 100 { panic!("Timeout Zone 0"); }
+        if ticks > 100 { panic!("Timeout Zone 3"); }
     }
-    assert_eq!(ticks + 1, 32, "Zone 0 should take 32 cycles");
+    assert_eq!(ticks + 1, 26, "Zone 3 should take 26 cycles");
 
-    // Test Zone 1: 30 cycles (bits 5,6 = 10 -> 0x40)
+    // Test Zone 2: 28 cycles (bits 5,6 = 10 -> 0x40)
     via2.orb = 0x40 | 0x04;
-    mechanics.update_state(via2.orb, via2.ddrb, &mut hardware, 0, 0);
-    ticks = 0;
-    while !mechanics.tick(&mut hardware, &mut via1, &mut via2, 0) {
-        ticks += 1;
-        if ticks > 100 { panic!("Timeout Zone 1"); }
-    }
-    assert_eq!(ticks + 1, 30, "Zone 1 should take 30 cycles");
-
-    // Test Zone 2: 28 cycles (bits 5,6 = 01 -> 0x20)
-    via2.orb = 0x20 | 0x04;
     mechanics.update_state(via2.orb, via2.ddrb, &mut hardware, 0, 0);
     ticks = 0;
     while !mechanics.tick(&mut hardware, &mut via1, &mut via2, 0) {
@@ -175,14 +165,24 @@ fn test_disk_bitrate_zones() {
     }
     assert_eq!(ticks + 1, 28, "Zone 2 should take 28 cycles");
 
-    // Test Zone 3: 26 cycles (bits 5,6 = 00 -> 0x00)
+    // Test Zone 1: 30 cycles (bits 5,6 = 01 -> 0x20)
+    via2.orb = 0x20 | 0x04;
+    mechanics.update_state(via2.orb, via2.ddrb, &mut hardware, 0, 0);
+    ticks = 0;
+    while !mechanics.tick(&mut hardware, &mut via1, &mut via2, 0) {
+        ticks += 1;
+        if ticks > 100 { panic!("Timeout Zone 1"); }
+    }
+    assert_eq!(ticks + 1, 30, "Zone 1 should take 30 cycles");
+
+    // Test Zone 0: 32 cycles (bits 5,6 = 00 -> 0x00)
     via2.orb = 0x00 | 0x04;
     mechanics.update_state(via2.orb, via2.ddrb, &mut hardware, 0, 0);
     ticks = 0;
     while !mechanics.tick(&mut hardware, &mut via1, &mut via2, 0) {
         ticks += 1;
-        if ticks > 100 { panic!("Timeout Zone 3"); }
+        if ticks > 100 { panic!("Timeout Zone 0"); }
     }
-    assert_eq!(ticks + 1, 26, "Zone 3 should take 26 cycles");
+    assert_eq!(ticks + 1, 32, "Zone 0 should take 32 cycles");
 }
 

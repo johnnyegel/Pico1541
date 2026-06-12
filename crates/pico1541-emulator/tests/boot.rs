@@ -160,7 +160,7 @@ fn test_dir_listing_virtual() {
     // Fill with noise
     gcr_data.fill(0x55);
 
-    let layout = block_on(vdir.read_track(34, &mut gcr_data)).expect("read_track failed");
+    let layout = block_on(vdir.read_track(36, &mut gcr_data)).expect("read_track failed");
 
     {
         let manager = bridge.buffer.split().0;
@@ -179,7 +179,7 @@ fn test_dir_listing_virtual() {
         if current_ht != last_ht {
             manager.duplicate_active_to_inactive();
             let b = manager.get_dormant_buffer_mut();
-            if current_ht != 34 {
+            if current_ht != 36 {
                 b.layout = TrackLayout::Void;
             } else {
                 b.layout = layout.0;
@@ -241,9 +241,9 @@ fn test_dir_listing_g64() {
     bridge.mount_g64("tests/data/test.g64");
 
     /*
-    // Move physical head to Track 18.0 (HT 34)
-    drive.bus_mut().mechanics.halftrack_head_pos = 34;
-    bridge.track.half_track = 34;
+    // Move physical head to Track 18.0 (HT 36)
+    drive.bus_mut().mechanics.halftrack_head_pos = 36;
+    bridge.track.half_track = 36;
     */
 
     log::info!("Waiting for drive to reach idle loop...");
@@ -368,7 +368,7 @@ fn test_dir_listing_stable() {
     }
 
     let mut gcr_data = [0u8; 8192];
-    let layout = block_on(vdir.read_track(34, &mut gcr_data)).expect("read_track failed");
+    let layout = block_on(vdir.read_track(36, &mut gcr_data)).expect("read_track failed");
 
     {
         let manager = bridge.buffer.split().0;
@@ -392,7 +392,7 @@ fn test_dir_listing_stable() {
         if current_ht != last_ht {
             manager.duplicate_active_to_inactive();
             let b = manager.get_dormant_buffer_mut();
-            if current_ht != 34 {
+            if current_ht != 36 {
                 b.layout = TrackLayout::Void;
             } else {
                 let lc = *layout_clone.borrow();
@@ -455,7 +455,7 @@ fn test_dir_listing_stable() {
     bridge.ticks(&mut drive, 500_000);
 
     // Call read_track AGAIN to simulate the second load
-    let layout2 = block_on(vdir.read_track(34, &mut gcr_data)).expect("read_track failed");
+    let layout2 = block_on(vdir.read_track(36, &mut gcr_data)).expect("read_track failed");
     {
         let manager = bridge.buffer.split().0;
         let inactive = manager.get_dormant_buffer_mut();

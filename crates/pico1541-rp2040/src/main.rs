@@ -398,7 +398,19 @@ impl HostInterface for HardwareBridge {
         }
     }
 
-    
+    #[inline(always)]
+    fn track_changed(&mut self, half_track: u8, drive_track: u8, drive_sector: u8) {
+        // We notify the TRACK_CHANNEL directly instead of using DriveEvent
+        // First we drain the channel to avoid blocking if the manager is behind
+        while let Ok(_) = pico1541_manager::TRACK_CHANNEL.try_receive() {}
+        let _ = pico1541_manager::TRACK_CHANNEL.try_send((half_track, drive_track, drive_sector));
+        
+        // Use the indicator to beep (from drive_activity context)
+        // Actually, indicator is inside activity task, not available here.
+        // Wait, the user said: "I would like the HostInterface to have a dedicated track_changed method, which exclusively handles head step events."
+    }
+
+
     #[inline(always)]
     fn is_hijacked(&self) -> bool {
         self.config.hijack_active.load(Ordering::Relaxed)

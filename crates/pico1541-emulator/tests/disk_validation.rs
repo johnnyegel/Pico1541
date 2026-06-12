@@ -141,16 +141,16 @@ fn test_compare_d64_g64_track_18() {
     let mut g64 = G64Image::new(&mut storage_g64);
 
     let mut g64_track_data = [0u8; 8192];
-    // Track 18.0 is at half-track 34
-    let g64_layout = block_on(g64.read_track(34, &mut g64_track_data)).expect("Failed to read G64 track 18");
+    // Track 18.0 is at half-track 36
+    let g64_layout = block_on(g64.read_track(36, &mut g64_track_data)).expect("Failed to read G64 track 18");
 
-    // 2. Load D64 Track 18 (HT 34)
+    // 2. Load D64 Track 18 (HT 36)
     let d64_data = fs::read("tests/data/test.d64").expect("Failed to read D64");
     let mut storage_d64 = MemoryStorage::new(&d64_data);
     let mut d64 = D64Image::new(&mut storage_d64);
     
     let mut d64_track_data = [0u8; 8192];
-    let d64_layout = block_on(d64.read_track(34, &mut d64_track_data)).expect("Failed to read D64 track 18");
+    let d64_layout = block_on(d64.read_track(36, &mut d64_track_data)).expect("Failed to read D64 track 18");
 
     println!("G64 Track 18 layout: {:?}", g64_layout);
     println!("D64 Track 18 layout: {:?}", d64_layout);

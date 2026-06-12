@@ -135,7 +135,7 @@ impl TestBridge {
     pub fn reset(&mut self) {
         let manager = self.buffer.split().0;
         let inactive = manager.get_dormant_buffer_mut();
-        inactive.track_id = 34;
+        inactive.track_id = 36;
         manager.commit_dormant_buffer();
         self.events.clear();
         self.host_iec = IecBusState::default();
@@ -206,17 +206,15 @@ impl HostInterface for TestBridge {
     fn send_event(&mut self, event: DriveEvent) {
         self.events.push(event);
         log::info!("[DriveEvent] {:?}", event);
-        match event {
-            DriveEvent::HeadStepped { new_half_track, .. } => {
-                log::info!("Head stepped to {}", new_half_track);
-                let manager = self.buffer.split().0;
-                manager.duplicate_active_to_inactive();
-                let inactive = manager.get_dormant_buffer_mut();
-                inactive.track_id = new_half_track;
-                manager.commit_dormant_buffer();
-            }
-            _ => {}
-        }
+    }
+    
+    fn track_changed(&mut self, half_track: u8, _drive_track: u8, _drive_sector: u8) {
+        log::info!("Head stepped to {}", half_track);
+        let manager = self.buffer.split().0;
+        manager.duplicate_active_to_inactive();
+        let inactive = manager.get_dormant_buffer_mut();
+        inactive.track_id = half_track;
+        manager.commit_dormant_buffer();
     }
     fn is_hijacked(&self) -> bool {
         self.snoop_handler.is_hijacked()

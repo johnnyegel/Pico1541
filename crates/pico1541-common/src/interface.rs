@@ -106,11 +106,6 @@ impl Display for IecBusState {
 pub enum DriveEvent {
     LedChanged(bool),
     MotorChanged(bool),
-    HeadStepped {
-        new_half_track: u8,
-        drive_track: u8,
-        drive_sector: u8,
-    },
     /// The Snooper has detected a secondary address byte addressed to this device
     IecSnoopSecondaryAddress(u8), // secondary address byte
     /// Byte received to this device, on the previous secondary address
@@ -176,7 +171,6 @@ pub trait HostInterface: IecBus {
     /// Usually called by the emulator when it detects a change in drive RAM.
     fn update_iec_addresses(&mut self, _listen: u8, _talk: u8) { }
 
-
     fn get_device_id(&self) -> u8 {
         8
     }
@@ -185,4 +179,7 @@ pub trait HostInterface: IecBus {
     fn get_pc(&self) -> u16 {
         0
     }
+
+    /// Called when the read/write head moves to a new half-track.
+    fn track_changed(&mut self, _half_track: u8, _drive_track: u8, _drive_sector: u8) {}
 }

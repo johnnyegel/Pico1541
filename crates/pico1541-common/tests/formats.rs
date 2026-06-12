@@ -83,7 +83,7 @@ fn test_virtual_disk_image() {
     let mut img = VirtualDiskImage::<MemoryStorage<'static>, MockSource>::new(source, b"TEST");
     let mut dest = vec![0u8; 10000];
 
-    let result = block_on(img.read_track(34, &mut dest)).unwrap();
+    let result = block_on(img.read_track(36, &mut dest)).unwrap();
     assert!(matches!(result, (TrackLayout::Accurate, 7142)));
     assert!(dest.iter().any(|&b| b != 0));
 }

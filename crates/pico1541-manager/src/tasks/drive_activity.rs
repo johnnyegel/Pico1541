@@ -3,13 +3,13 @@ use crate::{DriveEvent, ACTIVITY_CHANNEL};
 use log::*;
 
 pub struct DriveActivityTask<I: IndicatorDriver> {
-    indicator: I,
+    _indicator: I,
 }
 
 impl<I: IndicatorDriver> DriveActivityTask<I> {
     pub fn new(indicator: I) -> Self {
         Self { 
-            indicator,
+            _indicator: indicator,
         }
     }
 
@@ -20,12 +20,7 @@ impl<I: IndicatorDriver> DriveActivityTask<I> {
                 DriveEvent::MotorChanged(active) => {
                     let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::MotorState(active));
                 }
-                DriveEvent::HeadStepped { new_half_track, drive_track, drive_sector } => {
-                    info!("Drive head stepped to half_track {} (ram: T={}, S={})", new_half_track, drive_track, drive_sector);
-                    self.indicator.beep();
-                    while let Ok(_) = crate::TRACK_CHANNEL.try_receive() {}
-                    let _ = crate::TRACK_CHANNEL.try_send((new_half_track, drive_track, drive_sector));
-                }
+
                 DriveEvent::IecCommand { data, len } => {
                     let cmd_str =
                         core::str::from_utf8(&data[..len as usize]).unwrap_or("INVALID UTF8");

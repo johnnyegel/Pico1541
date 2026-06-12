@@ -19,8 +19,8 @@ fn test_virtual_disk_skeleton_orientation() {
         runner.sync(track);
     }));
 
-    // Start on Track 18 (HT 34)
-    assert_eq!(bridge.buffer.split().0.get_active_half_track(), 34);
+    // Start on Track 18 (HT 36)
+    assert_eq!(bridge.buffer.split().0.get_active_half_track(), 36);
     
     // Patch ID in RAM to match the VirtualDiskImage default ID [0x56, 0x44] ("VD")
     // $12-$13 and $16-$17 are used for ID verification in 1541 ROM.
@@ -40,6 +40,10 @@ fn test_virtual_disk_skeleton_orientation() {
     
     drive.bus_mut().ram[0x0008] = track_10; // Track for job 1
     drive.bus_mut().ram[0x0009] = sector_0; // Sector for job 1
+    
+    log::info!("Current DOS track ($22): {}", drive.bus_mut().ram[0x0022]);
+    drive.bus_mut().ram[0x0022] = 18; // FORCE it to 18 so it knows to step!
+
     drive.bus_mut().ram[0x0001] = 0x80;     // Execute READ job (0x80 = Read)
 
     // Run for a while. The drive should:
@@ -83,11 +87,11 @@ fn test_virtual_disk_stridden_warp() {
     // Step to Track 1 (HT 0)
     // We'll force the state manually
     drive.bus_mut().ram[0x0022] = 1;
-    drive.bus_mut().mechanics.halftrack_head_pos = 0;
+    drive.bus_mut().mechanics.halftrack_head_pos = 2;
     {
         let manager = bridge.buffer.split().0;
         let inactive = manager.get_dormant_buffer_mut();
-        inactive.track_id = 0;
+        inactive.track_id = 2;
         manager.commit_dormant_buffer();
     }
     
@@ -174,6 +178,6 @@ fn test_virtual_disk_shortcut_generation() {
     assert_eq!(vdir.shortcut_entry.unwrap().filename[0..6], *b"MYGAME");
     
     let mut dest = vec![0u8; 10000];
-    let result = pollster::block_on(vdir.read_track(34, &mut dest)); // HT 34 = Track 18
+    let result = pollster::block_on(vdir.read_track(36, &mut dest)); // HT 36 = Track 18
     assert!(result.is_ok());
 }

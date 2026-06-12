@@ -271,7 +271,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
         // Ensure no old bytes are left behind when the track is completely regenerated
         dest.fill(0x55);
 
-        let track = half_track / 2 + 1;
+        let track = half_track / 2;
 
         if track == 1 {
             // Track 1: Infinite File Track
@@ -357,7 +357,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
             return Ok((TrackLayout::Warped(372), 10000));
         }
 
-        if half_track == 34 || half_track == 35 {
+        if half_track == 36 || half_track == 37 {
             // Track 18: Generate BAM and initial directory sectors
             let sectors = 19;
             let mut write_ptr = 0;
@@ -613,7 +613,7 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
         if !half_track.is_multiple_of(2) {
             return Ok((TrackLayout::Void, 0));
         }
-        let track = half_track / 2 + 1;
+        let track = half_track / 2;
         if !(1..=40).contains(&track) {
             return Err(Error::InvalidTrack);
         }

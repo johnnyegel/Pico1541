@@ -2,18 +2,23 @@ use crate::via6522::Via6522;
 use pico1541_common::{track_buffer::EmulatorHandle, interface::{DriveEvent, HostInterface}};
 
 // 35 tracks + 7 tracks more that can be physically reached (MAX 42)
-// NOTE! Min track is -2, since the physical head can move slightly beyond the 
-//       outer most track of the disk before hitting the physical head-stop.
-const MIN_HALF_TRACK: i8 = -2;
+// The read head steps in half-track increments, so we represent the head position in half-tracks (0.5 track steps).
+// We also keep a half-track position for the head, where Half-track 0 corresponds to Track 0, 
+// Half-track 1 corresponds to Track 0.5, Half-track 2 corresponds to Track 1, and so on.
+// Track 18 (the directory track) then corresponds to Half-track 36 (2 * 18).
+// NOTE! Min track is 0, which represent a non-existing Track 0. This accomodates the fact that
+//       the head can be stepped outwards beyond Track 1. It also makes it simple to convert from
+//       half-track to actual track number, by simply dividing the half-track number by 2 (integer division). 
+const MIN_HALF_TRACK: i8 = 0;
 const MAX_HALF_TRACK: i8 = (35 + 7) * 2;
-const INITIAL_HALF_TRACK: i8 = 34; // Start at track 18 (Half-track 34)
+const INITIAL_HALF_TRACK: i8 = 18 * 2; // Start at track 18 (Half-track 36)
 const BYTE_SYNC: u8 = 0xFF;
 
 // Speed Zones (Cycles per byte @ 1MHz)
-const CYCLES_ZONE_0: u32 = 26; // Tracks 1-17
-const CYCLES_ZONE_1: u32 = 28; // Tracks 18-24
-const CYCLES_ZONE_2: u32 = 30; // Tracks 25-30
-const CYCLES_ZONE_3: u32 = 32; // Tracks 31-35
+const CYCLES_ZONE_3: u32 = 26; // Tracks 1-17
+const CYCLES_ZONE_2: u32 = 28; // Tracks 18-24
+const CYCLES_ZONE_1: u32 = 30; // Tracks 25-30
+const CYCLES_ZONE_0: u32 = 32; // Tracks 31-35
 
 // Masks for individual hardware state bits on VIA2 Port B
 const MASK_MOTOR: u8 = 0x04;
@@ -46,7 +51,7 @@ impl DriveMechanics {
             halftrack_head_pos: INITIAL_HALF_TRACK,
             track_handle,
             byte_cycle_counter: 0,
-            byte_cycle_limit: CYCLES_ZONE_0, // Track 1 default
+            byte_cycle_limit: CYCLES_ZONE_2, // Track 18 default
             last_state: 0,
             last_requested_sector: 0xFF,
         }
@@ -176,18 +181,16 @@ impl DriveMechanics {
         }
 
         // 4. Update stepper motor and tracking
-        if state_changes != 0 {
-            // Did speed-zone change? (PB5, PB6)
-            if (state_changes & MASK_SPEED_ZONE) != 0 {
-                let speed_zone = (full_state & MASK_SPEED_ZONE) >> SHIFT_SPEED_ZONE;
-                
-                self.byte_cycle_limit = match speed_zone {
-                    3 => CYCLES_ZONE_0,
-                    2 => CYCLES_ZONE_1,
-                    1 => CYCLES_ZONE_2,
-                    _ => CYCLES_ZONE_3,
-                };
-            }
+        // Did speed-zone change? (PB5, PB6)
+        if (state_changes & MASK_SPEED_ZONE) != 0 {
+            let speed_zone = (full_state & MASK_SPEED_ZONE) >> SHIFT_SPEED_ZONE;
+            
+            self.byte_cycle_limit = match speed_zone {
+                3 => CYCLES_ZONE_3,
+                2 => CYCLES_ZONE_2,
+                1 => CYCLES_ZONE_1,
+                _ => CYCLES_ZONE_0,
+            };
         }
         
         let is_track_step = state_changes & MASK_STEP != 0;
@@ -197,7 +200,7 @@ impl DriveMechanics {
             let delta = (new_phase.wrapping_sub(last_phase) & MASK_STEP) as i8;
             
             let last_half_track_pos = self.halftrack_head_pos;
-            let step = match delta {
+            let step: i8 = match delta {
                 1 => 1,  // Step IN
                 3 => -1, // Step OUT
                 _ => 0,
@@ -207,11 +210,7 @@ impl DriveMechanics {
                     .clamp(MIN_HALF_TRACK, MAX_HALF_TRACK);
 
             if self.halftrack_head_pos >= 0 && self.halftrack_head_pos <= MAX_HALF_TRACK {
-                hardware.send_event(DriveEvent::HeadStepped { 
-                    new_half_track: self.halftrack_head_pos as u8,
-                    drive_track,
-                    drive_sector,
-                });
+                hardware.track_changed(self.halftrack_head_pos as u8, drive_track, drive_sector);
             }
         }
     }
