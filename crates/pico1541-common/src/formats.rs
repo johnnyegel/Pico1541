@@ -22,6 +22,19 @@ pub trait DiskImage {
     async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<(TrackLayout, usize), Error>;
 }
 
+#[derive(Clone, Debug)]
+pub struct TrackLookupTable {
+    pub offsets: [Option<u32>; 86],
+}
+
+impl TrackLookupTable {
+    pub fn new() -> Self {
+        Self {
+            offsets: [None; 86],
+        }
+    }
+}
+
 #[inline(always)]
 pub const fn sectors_per_track(track: u8) -> u8 {
     match track {
@@ -275,7 +288,7 @@ impl<S: Read + Seek, D: DirectorySource> VirtualDiskImage<S, D> {
 
 impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
     async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<(TrackLayout, usize), Error> {
-        if half_track < 2 || half_track > 85 || (half_track % 2) != 0 {
+        if half_track > 85 || (half_track % 2) != 0 {
             return Ok((TrackLayout::Void, 0));
         }
 
@@ -569,13 +582,23 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
 pub struct D64Image<S: Read + Seek> {
     storage: S,
     id: [u8; 2],
+    lookup_table: TrackLookupTable,
 }
 
 impl<S: Read + Seek> D64Image<S> {
     pub fn new(storage: S) -> Self {
+        let mut lookup_table = TrackLookupTable::new();
+        for half_track in 0..=84 {
+            if half_track % 2 == 0 {
+                let track = half_track / 2 + 1;
+                lookup_table.offsets[half_track as usize] = Some(Self::get_track_offset(track));
+            }
+        }
+        
         Self {
             storage,
             id: [0x31, 0x31],
+            lookup_table,
         }
     }
     pub fn set_id(&mut self, id: [u8; 2]) {
@@ -593,18 +616,19 @@ impl<S: Read + Seek> D64Image<S> {
 
 impl<S: Read + Seek> DiskImage for D64Image<S> {
     async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<(TrackLayout, usize), Error> {
-        if (half_track % 2) != 0 {
+        let track_offset = self.lookup_table.offsets.get(half_track as usize).copied().flatten();
+        if track_offset.is_none() {
             return Ok((TrackLayout::Void, 0));
         }
         dest.fill(0x55);
-        let track = (half_track / 2) + 1;
+        let track = half_track / 2 + 1;
+        let offset = track_offset.unwrap();
         if !(1..=40).contains(&track) {
             return Err(Error::InvalidTrack);
         }
         let sectors = sectors_per_track(track);
-        let track_offset = Self::get_track_offset(track);
         self.storage
-            .seek(SeekFrom::Start(track_offset as u64))
+            .seek(SeekFrom::Start(offset as u64))
             .await
             .map_err(|_| Error::Io)?;
             
@@ -693,34 +717,44 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
 
 pub struct G64Image<S: Read + Seek> {
     storage: S,
+    lookup_table: TrackLookupTable,
 }
 impl<S: Read + Seek> G64Image<S> {
-    pub fn new(storage: S) -> Self {
-        Self { storage }
+    pub async fn from_storage(mut storage: S) -> Result<Self, Error> {
+        let mut lookup_table = TrackLookupTable::new();
+        
+        // Read the 84 track pointers
+        storage.seek(SeekFrom::Start(12)).await.map_err(|_| Error::Io)?;
+        let mut ptr_bytes = [0u8; 84 * 4];
+        storage.read_exact(&mut ptr_bytes).await.map_err(|_| Error::Io)?;
+        
+        for i in 0..84 {
+            let offset = u32::from_le_bytes([
+                ptr_bytes[i * 4],
+                ptr_bytes[i * 4 + 1],
+                ptr_bytes[i * 4 + 2],
+                ptr_bytes[i * 4 + 3],
+            ]);
+            if offset != 0 {
+                lookup_table.offsets[i] = Some(offset);
+            }
+        }
+        
+        Ok(Self { storage, lookup_table })
     }
 }
 impl<S: Read + Seek> DiskImage for G64Image<S> {
     async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<(TrackLayout, usize), Error> {
         log::info!("Reading G64 track {}", half_track);
         
-        let g64_idx = half_track; // (0..83)
-        let track_ptr_offset = 12 + (g64_idx as u64) * 4;
-        self.storage
-            .seek(SeekFrom::Start(track_ptr_offset))
-            .await
-            .map_err(|_| Error::Io)?;
-        let mut ptr_bytes = [0u8; 4];
-        self.storage
-            .read_exact(&mut ptr_bytes)
-            .await
-            .map_err(|_| Error::Io)?;
-        let track_offset = u32::from_le_bytes(ptr_bytes);
-        
-        if track_offset == 0 {
+        let track_offset = self.lookup_table.offsets.get(half_track as usize).copied().flatten();
+        if track_offset.is_none() {
             return Ok((TrackLayout::Void, 0));
         }
+        let offset = track_offset.unwrap();
+        
         self.storage
-            .seek(SeekFrom::Start(track_offset as u64))
+            .seek(SeekFrom::Start(offset as u64))
             .await
             .map_err(|_| Error::Io)?;
         let mut len_bytes = [0u8; 2];

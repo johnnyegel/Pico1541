@@ -72,8 +72,8 @@ fn test_get_status_mode() {
     assert_eq!(get_status_mode(Some(&disk)), StatusLedMode::NonAccurateDisk);
 
     // 4. G64 (Accurate)
-    let g64_data = [0u8; 100];
-    let g64 = G64Image::new(MemoryStorage::new(&g64_data));
+    let g64_data = [0u8; 400];
+    let g64 = block_on(G64Image::from_storage(MemoryStorage::new(&g64_data))).unwrap();
     let disk: AnyDiskImage<MemoryStorage, StaticDirectorySource> = AnyDiskImage::G64(g64);
     assert_eq!(get_status_mode(Some(&disk)), StatusLedMode::AccurateDisk);
 }

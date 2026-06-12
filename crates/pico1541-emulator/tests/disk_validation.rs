@@ -51,7 +51,7 @@ fn test_g64_track_reading_low_level() {
     // 1. Load G64 Track 0 (HT 0)
     let g64_data = fs::read("tests/data/test.g64").expect("Failed to read G64");
     let mut storage = MemoryStorage::new(&g64_data);
-    let mut g64 = G64Image::new(&mut storage);
+    let mut g64 = block_on(G64Image::from_storage(storage)).expect("Failed to initialize G64Image");
 
     let mut track_data = [0u8; 8192];
     let layout = block_on(g64.read_track(0, &mut track_data)).expect("Failed to read track 0");
@@ -138,7 +138,7 @@ fn test_compare_d64_g64_track_18() {
     // 1. Load G64 Track 18
     let g64_data = fs::read("tests/data/test.g64").expect("Failed to read G64");
     let mut storage_g64 = MemoryStorage::new(&g64_data);
-    let mut g64 = G64Image::new(&mut storage_g64);
+    let mut g64 = block_on(G64Image::from_storage(storage_g64)).expect("Failed to initialize G64Image");
 
     let mut g64_track_data = [0u8; 8192];
     // Track 18.0 is at half-track 36

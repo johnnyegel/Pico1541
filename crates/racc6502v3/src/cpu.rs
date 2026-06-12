@@ -170,6 +170,11 @@ impl CPU {
             self.pending_interrupt = Some(Interrupt::Irq);
         }
 
+        if self.pending_so {
+            self.p |= FLAG_V;
+            self.pending_so = false;
+        }
+
         let opcode = self.read_pc(bus, ctx);
         let mut cycles = 0;
         let mut page_cross = false;

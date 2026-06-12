@@ -177,7 +177,7 @@ impl TestBridge {
         use std::fs;
         let data = fs::read(path).expect("Failed to read G64");
         let data_ref: &'static [u8] = Box::leak(data.into_boxed_slice());
-        let img = G64Image::new(MemoryStorage::new(data_ref));
+        let img = futures::executor::block_on(G64Image::from_storage(MemoryStorage::new(data_ref))).unwrap();
         let mut runner = DiskRunner {
             image: AnyDiskImage::<MemoryStorage<'static>, DummySource>::G64(img),
             last_half_track: 255,

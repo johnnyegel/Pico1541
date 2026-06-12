@@ -688,7 +688,7 @@ where
                             if use_internal {
                                 let file = self.internal.open_file_handle(full_path.as_str());
                                 let runtime_storage = pico1541_common::storage::RuntimeStorage::File2(file);
-                                let g64 = pico1541_common::formats::G64Image::new(runtime_storage);
+                                if let Ok(g64) = pico1541_common::formats::G64Image::from_storage(runtime_storage).await {
                                     {
                                         let mut disk = self._disk_image.lock().await;
                                         *disk = Some(pico1541_common::formats::AnyDiskImage::G64(g64));
@@ -696,18 +696,20 @@ where
                                     }
                                     self.leds.set_status(StatusLedMode::AccurateDisk);
                                     self.mounted_file_path = Some(full_path.clone());
-                                    continue;
+                                }
+                                continue;
                             } else {
                                 let file_handle = self.storage.open_file_handle(full_path.as_str());
                                 let runtime_storage = pico1541_common::storage::RuntimeStorage::File(file_handle);
-                                let g64 = pico1541_common::formats::G64Image::new(runtime_storage);
-                                {
-                                    let mut disk = self._disk_image.lock().await;
-                                    *disk = Some(pico1541_common::formats::AnyDiskImage::G64(g64));
-                                    let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::ImageMounted);
+                                if let Ok(g64) = pico1541_common::formats::G64Image::from_storage(runtime_storage).await {
+                                    {
+                                        let mut disk = self._disk_image.lock().await;
+                                        *disk = Some(pico1541_common::formats::AnyDiskImage::G64(g64));
+                                        let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::ImageMounted);
+                                    }
+                                    self.leds.set_status(StatusLedMode::AccurateDisk);
+                                    self.mounted_file_path = Some(full_path.clone());
                                 }
-                                self.leds.set_status(StatusLedMode::AccurateDisk);
-                                self.mounted_file_path = Some(full_path.clone());
                                 continue;
                             }
                         } else {

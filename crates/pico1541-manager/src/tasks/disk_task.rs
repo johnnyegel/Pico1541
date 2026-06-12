@@ -123,9 +123,10 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                 target_dt = dt;
                 target_ds = ds;
             }
-
-            info!("Manager loading track {} (ram: T={}, S={})", target_ht, target_dt, target_ds);
             
+            info!("Manager loading half-track: {} (ram: T={}, S={})", 
+                    target_ht, target_dt, target_ds);
+
             // Prevent DOS from reading the old track data by stalling it safely.
             let old_layout = self.track_handle.get_active_layout();
             self.track_handle.set_active_layout(TrackLayout::Void);

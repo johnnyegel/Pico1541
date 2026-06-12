@@ -84,9 +84,7 @@ impl<H: HostInterface> Emulator<H> {
         
         for _ in 0..elapsed {
             self.memory.tick_cycle(hw);
-            if self.memory.so_pending() {
-                self.cpu.p |= 0x40; // FLAG_V
-            }
+            self.cpu.set_so_pin(self.memory.so_pending());
         }
         
         elapsed as u32

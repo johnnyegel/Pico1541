@@ -45,7 +45,7 @@ fn test_g64_image_read_track() {
     }
 
     let storage = MemoryStorage::new(&data);
-    let mut img = G64Image::new(storage);
+    let mut img = block_on(G64Image::from_storage(storage)).unwrap();
     let mut dest = vec![0u8; 100];
 
     let result = block_on(img.read_track(0, &mut dest)).unwrap();
