@@ -313,7 +313,7 @@ struct IecPins {
 
 struct HardwareBridge {
     _pins: IecPins,
-    snooper: IecSnooper,
+    _snooper: IecSnooper,
     handler: IecSnoopByteHandler,
     config: &'static SnooperConfig,
     activity_led: ActivityLed,
@@ -326,7 +326,7 @@ impl HardwareBridge {
         let device_id = config.device_id.load(Ordering::Relaxed);
         Self {
             _pins: pins,
-            snooper: IecSnooper::new(device_id),
+            _snooper: IecSnooper::new(device_id),
             handler: IecSnoopByteHandler::new(),
             config,
             activity_led,

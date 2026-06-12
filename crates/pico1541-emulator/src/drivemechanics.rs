@@ -1,17 +1,15 @@
 use crate::via6522::Via6522;
 use pico1541_common::{track_buffer::EmulatorHandle, interface::{DriveEvent, HostInterface}};
 
-// 35 tracks + 7 tracks more that can be physically reached (MAX 42)
 // The read head steps in half-track increments, so we represent the head position in half-tracks (0.5 track steps).
 // We also keep a half-track position for the head, where Half-track 0 corresponds to Track 0, 
-// Half-track 1 corresponds to Track 0.5, Half-track 2 corresponds to Track 1, and so on.
+// Half-track -2 corresponds to Track 0, Half-track 0 corresponds to Track 1, and so on.
 // Track 18 (the directory track) then corresponds to Half-track 36 (2 * 18).
-// NOTE! Min track is 0, which represent a non-existing Track 0. This accomodates the fact that
-//       the head can be stepped outwards beyond Track 1. It also makes it simple to convert from
-//       half-track to actual track number, by simply dividing the half-track number by 2 (integer division). 
-const MIN_HALF_TRACK: i8 = 0;
-const MAX_HALF_TRACK: i8 = (35 + 7) * 2;
-const INITIAL_HALF_TRACK: i8 = 18 * 2; // Start at track 18 (Half-track 36)
+// NOTE! Min track is -2, which represent a non-existing Track 0. This accomodates the fact that
+//       the head can be stepped outwards beyond Track 1.
+const MIN_HALF_TRACK: i8 = -2;
+const MAX_HALF_TRACK: i8 = 85; // Half-track 85 corresponds to Track 42.5, which is the maximum physical reach of the head on a 1541 drive.
+const INITIAL_HALF_TRACK: i8 = 34; // Start at track 18 (Half-track 34)
 const BYTE_SYNC: u8 = 0xFF;
 
 // Speed Zones (Cycles per byte @ 1MHz)

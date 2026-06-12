@@ -275,7 +275,7 @@ impl<S: Read + Seek, D: DirectorySource> VirtualDiskImage<S, D> {
 
 impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
     async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<(TrackLayout, usize), Error> {
-        if half_track > 83 {
+        if half_track < 2 || half_track > 85 || (half_track % 2) != 0 {
             return Ok((TrackLayout::Void, 0));
         }
 
@@ -368,7 +368,8 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
             return Ok((TrackLayout::Warped(372), 10000));
         }
 
-        if half_track == 36 || half_track == 37 {
+        // FIXME! Why is this needed?
+        if half_track == 34 || half_track == 35 {
             // Track 18: Generate BAM and initial directory sectors
             let sectors = 19;
             let mut write_ptr = 0;
@@ -594,10 +595,10 @@ impl<S: Read + Seek> D64Image<S> {
 
 impl<S: Read + Seek> DiskImage for D64Image<S> {
     async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<(TrackLayout, usize), Error> {
-        if !half_track.is_multiple_of(2) {
+        if (half_track % 2) != 0 {
             return Ok((TrackLayout::Void, 0));
         }
-        let track = half_track / 2;
+        let track = (half_track / 2) + 1;
         if !(1..=40).contains(&track) {
             return Err(Error::InvalidTrack);
         }
@@ -702,11 +703,7 @@ impl<S: Read + Seek> G64Image<S> {
 impl<S: Read + Seek> DiskImage for G64Image<S> {
     async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<(TrackLayout, usize), Error> {
         log::info!("Reading G64 track {}", half_track);
-        // G64 images typically only have full tracks (even half_track indices).
-        // Track 1.0 = HT 0, Track 18.0 = HT 34.
-        if half_track > 83 {
-            return Ok((TrackLayout::Void, 0));
-        }
+        
         let g64_idx = half_track; // (0..83)
         let track_ptr_offset = 12 + (g64_idx as u64) * 4;
         self.storage
