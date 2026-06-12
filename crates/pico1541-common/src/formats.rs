@@ -22,6 +22,17 @@ pub trait DiskImage {
     async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<(TrackLayout, usize), Error>;
 }
 
+#[inline(always)]
+pub const fn sectors_per_track(track: u8) -> u8 {
+    match track {
+        1..=17 => 21,
+        18..=24 => 19,
+        25..=30 => 18,
+        31..=40 => 17,
+        _ => 0,
+    }
+}
+
 pub struct VirtualDiskImage<S, D: DirectorySource> {
     pub source: D,
     pub file_storage: Option<S>,
@@ -482,17 +493,11 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
 
             self.source.rewind();
             self.force_update_directory_sectors(dest).await;
-            return Ok((TrackLayout::Accurate, 7142));
+            return Ok((TrackLayout::Accurate, write_ptr));
         }
 
         // Generate Skeleton Track for other tracks
-        let sectors = match track {
-            1..=17 => 21,
-            18..=24 => 19,
-            25..=30 => 18,
-            31..=40 => 17,
-            _ => 17,
-        };
+        let sectors = sectors_per_track(track);
 
         let mut write_ptr = 0;
         // Lead-in
@@ -557,20 +562,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
             }
         }
 
-        let track_bytes = match track {
-            1..=17 => 7692,
-            18..=24 => 7142,
-            25..=30 => 6666,
-            _ => 6250,
-        };
-
-        while write_ptr < track_bytes as usize {
-            if write_ptr < dest.len() {
-                dest[write_ptr] = 0xAA;
-            }
-            write_ptr += 1;
-        }
-
+        let track_bytes = write_ptr;
         Ok((TrackLayout::Accurate, track_bytes))
     }
 }
@@ -590,19 +582,11 @@ impl<S: Read + Seek> D64Image<S> {
     pub fn set_id(&mut self, id: [u8; 2]) {
         self.id = id;
     }
-    fn get_sectors_per_track(track: u8) -> u8 {
-        match track {
-            1..=17 => 21,
-            18..=24 => 19,
-            25..=30 => 18,
-            31..=40 => 17,
-            _ => 0,
-        }
-    }
+    
     fn get_track_offset(track: u8) -> u32 {
         let mut offset = 0u32;
         for t in 1..track {
-            offset += (Self::get_sectors_per_track(t) as u32) * 256;
+            offset += (sectors_per_track(t) as u32) * 256;
         }
         offset
     }
@@ -617,7 +601,7 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
         if !(1..=40).contains(&track) {
             return Err(Error::InvalidTrack);
         }
-        let sectors = Self::get_sectors_per_track(track);
+        let sectors = sectors_per_track(track);
         let track_offset = Self::get_track_offset(track);
         self.storage
             .seek(SeekFrom::Start(track_offset as u64))
@@ -702,20 +686,7 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
                 }
             }
         }
-        let track_bytes = match track {
-            1..=17 => 7692,
-            18..=24 => 7142,
-            25..=30 => 6666,
-            _ => 6250,
-        };
-        
-        while write_ptr < track_bytes as usize {
-            if write_ptr < dest.len() {
-                dest[write_ptr] = 0xAA;
-            }
-            write_ptr += 1;
-        }
-
+        let track_bytes = write_ptr;
         Ok((TrackLayout::Accurate, track_bytes))
     }
 }
