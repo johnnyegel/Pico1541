@@ -41,6 +41,7 @@ pub struct DriveMechanics {
 
     last_state: u8,
     last_requested_sector: u8,
+    so_pulse_cycles: u8,
 }
 
 impl DriveMechanics {
@@ -52,6 +53,7 @@ impl DriveMechanics {
             byte_cycle_limit: CYCLES_ZONE_2, // Track 18 default
             last_state: 0,
             last_requested_sector: 0xFF,
+            so_pulse_cycles: 0,
         }
     }
 }
@@ -124,8 +126,15 @@ impl DriveMechanics {
             // Trigger SO pulse (stay active for 1 cycle to ensure CPU sees it)
             // 1541-II hardware uses CA2=HIGH to ENABLE SO signals.
             let is_so_enabled = via2.get_ca2_out().unwrap_or(false);
-            return is_so_enabled;
+            if is_so_enabled {
+                self.so_pulse_cycles = 2;
+            }
         }   
+
+        if self.so_pulse_cycles > 0 {
+            self.so_pulse_cycles -= 1;
+            return self.so_pulse_cycles > 0;
+        }
 
         false
     }

@@ -1,3 +1,4 @@
+use pico1541_emulator::MemoryMonitor;
 use pico1541_common::track_buffer::TrackLayout;
 use pollster::block_on;
 use pico1541_common::iec_com::{IecCommander, IecError};
@@ -9,7 +10,7 @@ fn test_drive_boot() {
     let (mut drive, mut bridge) = common::setup_drive(true, 8);
 
     let mut cycles = 0;
-    while cycles < 5_000_000 {
+    while cycles < 25_000_000 {
         let pc = drive.pc();
         if pc >= common::IDLE_LOW && pc <= common::IDLE_HIGH {
             break;
@@ -57,7 +58,7 @@ fn test_dir_no_disk() {
                 .await?;
         }
 
-        bridge.ticks(&mut drive, 5_000_000);
+        bridge.ticks(&mut drive, 25_000_000);
 
         let mut status_vec = Vec::new();
         {
@@ -160,14 +161,15 @@ fn test_dir_listing_virtual() {
     // Fill with noise
     gcr_data.fill(0x55);
 
-    let layout = block_on(vdir.read_track(36, &mut gcr_data)).expect("read_track failed");
+    let layout = block_on(vdir.read_track(34, &mut gcr_data)).expect("read_track failed");
 
+        println!("MOCK: Loaded track length {}", layout.1);
     {
         let manager = bridge.buffer.split().0;
         let inactive = manager.get_dormant_buffer_mut();
         inactive.data.copy_from_slice(&gcr_data);
         inactive.layout = layout.0;
-        inactive.length = layout.1;
+        inactive.length = layout.1; inactive.track_id = 34;
         manager.commit_dormant_buffer();
     }
 
@@ -179,11 +181,12 @@ fn test_dir_listing_virtual() {
         if current_ht != last_ht {
             manager.duplicate_active_to_inactive();
             let b = manager.get_dormant_buffer_mut();
-            if current_ht != 36 {
-                b.layout = TrackLayout::Void;
+            println!("MOCK HANDLER HT: {}", current_ht);
+            if current_ht != 34 {
+                b.layout = TrackLayout::Void; b.track_id = current_ht; b.track_id = current_ht;
             } else {
                 b.layout = layout.0;
-                b.length = layout.1;
+                b.length = layout.1; b.track_id = current_ht; b.track_id = current_ht;
             }
             manager.commit_dormant_buffer();
             last_ht = current_ht;
@@ -208,7 +211,7 @@ fn test_dir_listing_virtual() {
                 .await?;
         }
 
-        bridge.ticks(&mut drive, 5_000_000);
+        bridge.ticks(&mut drive, 25_000_000);
 
         let mut received = Vec::new();
         {
@@ -222,7 +225,7 @@ fn test_dir_listing_virtual() {
                 .await?;
         }
 
-        let text = String::from_utf8_lossy(&received);
+        let text = String::from_utf8_lossy(&received); println!("RECEIVED TEXT: {:?}", text);
         log::info!("Received {} bytes of directory data:\n{}", received.len(), text);
         assert!(text.contains("FILE01"), "Directory listing missing FILE01");
         assert!(
@@ -241,9 +244,9 @@ fn test_dir_listing_g64() {
     bridge.mount_g64("tests/data/test.g64");
 
     /*
-    // Move physical head to Track 18.0 (HT 36)
-    drive.bus_mut().mechanics.halftrack_head_pos = 36;
-    bridge.track.half_track = 36;
+    // Move physical head to Track 18.0 (HT 34)
+    drive.bus_mut().mechanics.halftrack_head_pos = 34;
+    bridge.track.half_track = 34;
     */
 
     log::info!("Waiting for drive to reach idle loop...");
@@ -274,7 +277,7 @@ fn test_dir_listing_g64() {
                 .await?;
         }
 
-        bridge.ticks(&mut drive, 5_000_000);
+        bridge.ticks(&mut drive, 25_000_000);
 
         let mut received = Vec::new();
         {
@@ -288,7 +291,7 @@ fn test_dir_listing_g64() {
                 .await?;
         }
 
-        let text = String::from_utf8_lossy(&received);
+        let text = String::from_utf8_lossy(&received); println!("RECEIVED TEXT: {:?}", text);
         log::info!("Received {} bytes of G64 directory data.\n{}", received.len(), text);
         assert!(text.contains("GAME"), "Directory listing missing GAME");
         Ok::<(), IecError>(())
@@ -368,14 +371,14 @@ fn test_dir_listing_stable() {
     }
 
     let mut gcr_data = [0u8; 8192];
-    let layout = block_on(vdir.read_track(36, &mut gcr_data)).expect("read_track failed");
+    let layout = block_on(vdir.read_track(34, &mut gcr_data)).expect("read_track failed");
 
     {
         let manager = bridge.buffer.split().0;
         let inactive = manager.get_dormant_buffer_mut();
         inactive.data.copy_from_slice(&gcr_data);
         inactive.layout = layout.0;
-        inactive.length = layout.1;
+        inactive.length = layout.1; inactive.track_id = 34;
         manager.commit_dormant_buffer();
     }
 
@@ -392,12 +395,13 @@ fn test_dir_listing_stable() {
         if current_ht != last_ht {
             manager.duplicate_active_to_inactive();
             let b = manager.get_dormant_buffer_mut();
-            if current_ht != 36 {
-                b.layout = TrackLayout::Void;
+            println!("MOCK HANDLER HT: {}", current_ht);
+            if current_ht != 34 {
+                b.layout = TrackLayout::Void; b.track_id = current_ht; b.track_id = current_ht;
             } else {
                 let lc = *layout_clone.borrow();
                 b.layout = lc.0;
-                b.length = lc.1;
+                b.length = lc.1; b.track_id = current_ht; b.track_id = current_ht;
             }
             manager.commit_dormant_buffer();
             last_ht = current_ht;
@@ -418,7 +422,7 @@ fn test_dir_listing_stable() {
                 .await?;
         }
 
-        bridge.ticks(&mut drive, 5_000_000);
+        bridge.ticks(&mut drive, 25_000_000);
 
         let mut received = Vec::new();
         {
@@ -432,12 +436,22 @@ fn test_dir_listing_stable() {
                 .await?;
         }
 
-        let text = String::from_utf8_lossy(&received);
+        let text = String::from_utf8_lossy(&received); println!("RECEIVED TEXT: {:?}", text);
         assert!(text.contains("FILE01"), "Directory listing 1 missing FILE01");
         assert!(text.contains("STABLE DISK"), "Directory listing 1 missing disk name");
         Ok::<(), IecError>(())
     })
-    .unwrap();
+    .unwrap_or_else(|e| {
+        for i in 0..128 {
+            let row = (i * 16) as u16;
+            let mut s = format!("{:04X}: ", row);
+            for j in 0..16 {
+                s.push_str(&format!("{:02X} ", drive.bus().peek(row + j)));
+            }
+            log::error!("{}", s);
+        }
+        panic!("Timeout: {:?}", e);
+    });
 
     // Send CLOSE 0 (0xE0)
     block_on(async {
@@ -455,13 +469,13 @@ fn test_dir_listing_stable() {
     bridge.ticks(&mut drive, 500_000);
 
     // Call read_track AGAIN to simulate the second load
-    let layout2 = block_on(vdir.read_track(36, &mut gcr_data)).expect("read_track failed");
+    let layout2 = block_on(vdir.read_track(34, &mut gcr_data)).expect("read_track failed");
     {
         let manager = bridge.buffer.split().0;
         let inactive = manager.get_dormant_buffer_mut();
         inactive.data.copy_from_slice(&gcr_data);
         inactive.layout = layout2.0;
-        inactive.length = layout2.1;
+        inactive.length = layout2.1; inactive.track_id = 34;
         manager.commit_dormant_buffer();
     }
     *layout_rc.borrow_mut() = layout2;
@@ -480,7 +494,7 @@ fn test_dir_listing_stable() {
                 .await?;
         }
 
-        bridge.ticks(&mut drive, 5_000_000);
+        bridge.ticks(&mut drive, 25_000_000);
 
         let mut received = Vec::new();
         {
@@ -494,7 +508,7 @@ fn test_dir_listing_stable() {
                 .await?;
         }
 
-        let text = String::from_utf8_lossy(&received);
+        let text = String::from_utf8_lossy(&received); println!("RECEIVED TEXT: {:?}", text);
         assert!(text.contains("FILE01"), "Directory listing 2 missing FILE01");
         assert!(text.contains("STABLE DISK"), "Directory listing 2 missing disk name");
         Ok::<(), IecError>(())

@@ -279,10 +279,8 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
             return Ok((TrackLayout::Void, 0));
         }
 
-        // Ensure no old bytes are left behind when the track is completely regenerated
         dest.fill(0x55);
-
-        let track = half_track / 2;
+        let track = half_track / 2 + 1;
 
         if track == 1 {
             // Track 1: Infinite File Track
@@ -301,7 +299,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
             }
 
             for physical_sector in 0..sectors {
-                let sector = ((physical_sector as u32 * 3) % (sectors as u32)) as u8;
+                let sector = ((physical_sector as u32 * 5) % (sectors as u32)) as u8;
                 let sector_data = [0u8; 256];
 
                 if sector == 1 {
@@ -384,7 +382,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
             self.source.rewind();
 
             for physical_sector in 0..sectors {
-                let sector = ((physical_sector as u32 * 3) % (sectors as u32)) as u8;
+                let sector = ((physical_sector as u32 * 5) % (sectors as u32)) as u8;
                 let mut sector_data = [0u8; 256];
 
                 if sector == 0 {
@@ -394,7 +392,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                     for b in sector_data.iter_mut().take(144).skip(4) {
                         *b = 0;
                     }
-                    sector_data[144..160].copy_from_slice(self.source.name());
+                    log::info!("BAM NAME: {:?}", self.source.name()); sector_data[144..160].copy_from_slice(self.source.name());
                     sector_data[160..162].copy_from_slice(b"\xA0\xA0");
                     sector_data[162..164].copy_from_slice(&self.id);
                     sector_data[164] = 0xA0;
@@ -598,6 +596,7 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
         if (half_track % 2) != 0 {
             return Ok((TrackLayout::Void, 0));
         }
+        dest.fill(0x55);
         let track = (half_track / 2) + 1;
         if !(1..=40).contains(&track) {
             return Err(Error::InvalidTrack);
@@ -625,7 +624,7 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
         for physical_sector in 0..sectors {
             let mut sector_data = [0u8; 256];
             // Read sectors sequentially, interleave is NOT applied physically
-            let sector = physical_sector;
+            let sector = (physical_sector * 5) % sectors;
             let src_offset = buffer_start + (sector as usize) * 256;
             sector_data.copy_from_slice(&dest[src_offset..src_offset + 256]);
                 
