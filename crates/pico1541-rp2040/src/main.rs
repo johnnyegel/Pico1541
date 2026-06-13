@@ -930,6 +930,7 @@ async fn settings_save_task(mut flash_storage: FlashStorage<'static>) {
 
 #[link_section = ".data.ram_func"]
 fn emulator_loop(drive: &'static mut Emulator<HardwareBridge>, mut bridge: HardwareBridge) -> ! {
+    cortex_m::interrupt::disable(); // Guarantee no IRQs preempt the emulator core
     let timer = embassy_rp::pac::TIMER;
     let mut idle_counter = 0u32;
     let mut cycle_counter = 0u32;
@@ -995,6 +996,7 @@ fn emulator_loop(drive: &'static mut Emulator<HardwareBridge>, mut bridge: Hardw
         let mut caught_up = 0;
         let is_reset = bridge._pins.reset_rx.is_high();
 
+        let t1_while = cortex_m::peripheral::SYST::get_current();
         while (now.wrapping_sub(last_tick) as i32) > 0 && caught_up < 100 {
             if is_reset {
                 last_tick = last_tick.wrapping_add(1);
@@ -1012,33 +1014,22 @@ fn emulator_loop(drive: &'static mut Emulator<HardwareBridge>, mut bridge: Hardw
                     was_reset = false;
                 }
                 
-                let t1 = cortex_m::peripheral::SYST::get_current();
                 let elapsed = drive.tick(&mut bridge);
-                let t3 = cortex_m::peripheral::SYST::get_current();
-                
                 last_tick = last_tick.wrapping_add(elapsed);
                 cycle_counter += elapsed;
-                
-                // SYST is a 24-bit down counter
-                let total_cycles = t1.wrapping_sub(t3) & 0x00FFFFFF;
-                cpu_cycles_acc += total_cycles as u64;
             }
             caught_up += 1;
         }
+        let t2_while = cortex_m::peripheral::SYST::get_current();
+        cpu_cycles_acc += (t1_while.wrapping_sub(t2_while) & 0x00FFFFFF) as u64;
 
         // Update performance metrics every second
         if now.wrapping_sub(last_perf_update) >= 1_000_000 {
             let config = bridge.config;
             
-            // Calculate average SYST cycles per 1541-tick
-            let new_avg = if cycle_counter > 0 {
-                (cpu_cycles_acc / cycle_counter as u64) as u32
-            } else {
-                0
-            };
-            
             config.emu_speed_hz.store(cycle_counter, Ordering::Relaxed);
-            config.core0_avg_raw.store(new_avg, Ordering::Relaxed);
+            // Store the total busy SYST cycles for this second instead of average
+            config.core0_avg_raw.store(cpu_cycles_acc as u32, Ordering::Relaxed);
 
             cpu_cycles_acc = 0;
 

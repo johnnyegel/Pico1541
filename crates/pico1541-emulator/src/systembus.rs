@@ -237,13 +237,13 @@ impl<H: HostInterface> SystemBus<H> {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn read_with_cycle(&mut self, addr: u16, cycle: u32, hw: &mut H) -> u8 {
-        self.catch_up(cycle, hw);
         if addr >= 0x8000 {
             return unsafe { *self.rom.get_unchecked((addr & 0x3FFF) as usize) };
         }
         if addr < 0x1800 {
             return unsafe { *self.ram.get_unchecked((addr as usize) & (RAM_SIZE - 1)) };
         }
+        self.catch_up(cycle, hw);
         match addr {
             0x1800..=0x1BFF => self.via1.read(addr),
             0x1C00..=0x1FFF => self.via2.read(addr),
@@ -254,7 +254,6 @@ impl<H: HostInterface> SystemBus<H> {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn write_with_cycle(&mut self, addr: u16, value: u8, cycle: u32, ctx: &mut H) {
-        self.catch_up(cycle, ctx);
         if addr < 0x1800 {
             unsafe { *self.ram.get_unchecked_mut((addr as usize) & (RAM_SIZE - 1)) = value };
             if addr == 0x0077 || addr == 0x0078 {
@@ -265,6 +264,8 @@ impl<H: HostInterface> SystemBus<H> {
         if addr >= 0x8000 {
             return;
         }
+
+        self.catch_up(cycle, ctx);
         match addr {
             0x1800..=0x1BFF => {
                 let reg = (addr & 0x0F) as usize;
