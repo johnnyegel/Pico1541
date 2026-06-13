@@ -40,6 +40,7 @@ pub struct DriveMechanics {
     byte_cycle_limit: u32,
 
     last_state: u8,
+    last_gcr_byte: u8,
     last_requested_sector: u8,
     so_pulse_cycles: u8,
 }
@@ -52,6 +53,7 @@ impl DriveMechanics {
             byte_cycle_counter: 0,
             byte_cycle_limit: CYCLES_ZONE_2, // Track 18 default
             last_state: 0,
+            last_gcr_byte: 0,
             last_requested_sector: 0xFF,
             so_pulse_cycles: 0,
         }
@@ -102,12 +104,14 @@ impl DriveMechanics {
             let gcr_byte = self.track_handle.next_read_byte(self.halftrack_head_pos as u8, requested_sector, is_reading);
 
             // SYNC signal is Active LOW (0 = SYNC found, 1 = No SYNC)
-            if gcr_byte == BYTE_SYNC {
+            // A valid SYNC mark in G64 must be at least 10 ones, so an isolated 0xFF is data!
+            if gcr_byte == BYTE_SYNC && self.last_gcr_byte == BYTE_SYNC {
                 via2.in_b &= !MASK_SYNC; // Assert SYNC (Pull PB7 Low)
             } else {
                 via2.in_b |= MASK_SYNC;  // Release SYNC (Let PB7 float High)
             }                
 
+            self.last_gcr_byte = gcr_byte;
             via2.in_a = gcr_byte;
         } 
         else {

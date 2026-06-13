@@ -310,6 +310,20 @@ impl EmulatorHandle {
         }
     }
 
+    #[inline(always)]
+    pub fn peek_next_byte(&mut self) -> u8 {
+        let active_idx = if self.core_buffer.active_index.load(Ordering::Acquire) { 1 } else { 0 };
+        let buffer = unsafe { &(*self.core_buffer.buffers.get())[active_idx] };
+        if buffer.length == 0 {
+            return VOID_BYTE;
+        }
+        let mut ix = self.track_byte_pos_ix;
+        if ix >= buffer.length {
+            ix = 0;
+        }
+        buffer.data[ix]
+    }
+
     /// Safely writes a GCR byte back to the disk buffer and flags it for background SD flush.
     #[inline(always)]
     pub fn next_write_byte(&mut self, expected_track_id: u8, requested_sector: u8, _data: u8) {
