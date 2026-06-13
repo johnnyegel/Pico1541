@@ -41,7 +41,7 @@ fn test_disk_streaming_data() {
 
     // First byte delivered should be idx 0: 0xAA. Should take exactly 26 ticks.
     let mut ticks = 0;
-    while !mechanics.tick(&mut hardware, &mut via1, &mut via2, 0) {
+    while !mechanics.tick_cycles(&mut hardware, &mut via1, &mut via2, 0, 1) {
         ticks += 1;
         if ticks > 100 {
             panic!("Timeout waiting for idx 0");
@@ -54,7 +54,7 @@ fn test_disk_streaming_data() {
 
     // Second byte idx 1: 0x55. Exactly 26 ticks.
     ticks = 0;
-    while !mechanics.tick(&mut hardware, &mut via1, &mut via2, 0) {
+    while !mechanics.tick_cycles(&mut hardware, &mut via1, &mut via2, 0, 1) {
         ticks += 1;
         if ticks > 100 {
             panic!("Timeout waiting for idx 1");
@@ -89,7 +89,7 @@ fn test_disk_streaming_sync() {
     // First byte idx 0: 0xFF
     // Due to the new SYNC logic, the FIRST 0xFF is treated as data and pulses SO!
     let mut ticks = 0;
-    while !mechanics.tick(&mut hardware, &mut via1, &mut via2, 0) {
+    while !mechanics.tick_cycles(&mut hardware, &mut via1, &mut via2, 0, 1) {
         ticks += 1;
         if ticks > 100 {
              panic!("Timeout waiting for first byte");
@@ -98,13 +98,13 @@ fn test_disk_streaming_sync() {
     assert!(via2.in_b & 0x80 != 0, "SYNC should NOT be indicated yet");
     
     // Wait for the SO pulse to clear
-    while mechanics.tick(&mut hardware, &mut via1, &mut via2, 0) {}
+    while mechanics.tick_cycles(&mut hardware, &mut via1, &mut via2, 0, 1) {}
 
     // Second byte idx 1: 0xFF
     // Now last_gcr_byte == 0xFF, so it establishes SYNC!
     for i in 0..26 {
         assert!(
-            !mechanics.tick(&mut hardware, &mut via1, &mut via2, 0),
+            !mechanics.tick_cycles(&mut hardware, &mut via1, &mut via2, 0, 1),
             "SYNC should NOT pulse SO (cycle {})", i
         );
     }
@@ -113,7 +113,7 @@ fn test_disk_streaming_sync() {
     // Third byte idx 2: 0x55 (Data)
     // This one IS data, so it should return true on the 26th cycle.
     let mut ticks = 0;
-    while !mechanics.tick(&mut hardware, &mut via1, &mut via2, 0) {
+    while !mechanics.tick_cycles(&mut hardware, &mut via1, &mut via2, 0, 1) {
         ticks += 1;
         if ticks > 100 {
              panic!("Timeout waiting for data byte after SYNC");
@@ -152,7 +152,7 @@ fn test_disk_bitrate_zones() {
     via2.orb = 0x60 | 0x04; // Motor ON
     mechanics.update_state(via2.orb, via2.ddrb, &mut hardware, 0, 0);
     let mut ticks = 0;
-    while !mechanics.tick(&mut hardware, &mut via1, &mut via2, 0) {
+    while !mechanics.tick_cycles(&mut hardware, &mut via1, &mut via2, 0, 1) {
         ticks += 1;
         if ticks > 100 { panic!("Timeout Zone 3"); }
     }
@@ -162,7 +162,7 @@ fn test_disk_bitrate_zones() {
     via2.orb = 0x40 | 0x04;
     mechanics.update_state(via2.orb, via2.ddrb, &mut hardware, 0, 0);
     ticks = 0;
-    while !mechanics.tick(&mut hardware, &mut via1, &mut via2, 0) {
+    while !mechanics.tick_cycles(&mut hardware, &mut via1, &mut via2, 0, 1) {
         ticks += 1;
         if ticks > 100 { panic!("Timeout Zone 2"); }
     }
@@ -172,7 +172,7 @@ fn test_disk_bitrate_zones() {
     via2.orb = 0x20 | 0x04;
     mechanics.update_state(via2.orb, via2.ddrb, &mut hardware, 0, 0);
     ticks = 0;
-    while !mechanics.tick(&mut hardware, &mut via1, &mut via2, 0) {
+    while !mechanics.tick_cycles(&mut hardware, &mut via1, &mut via2, 0, 1) {
         ticks += 1;
         if ticks > 100 { panic!("Timeout Zone 1"); }
     }
@@ -182,7 +182,7 @@ fn test_disk_bitrate_zones() {
     via2.orb = 0x00 | 0x04;
     mechanics.update_state(via2.orb, via2.ddrb, &mut hardware, 0, 0);
     ticks = 0;
-    while !mechanics.tick(&mut hardware, &mut via1, &mut via2, 0) {
+    while !mechanics.tick_cycles(&mut hardware, &mut via1, &mut via2, 0, 1) {
         ticks += 1;
         if ticks > 100 { panic!("Timeout Zone 0"); }
     }

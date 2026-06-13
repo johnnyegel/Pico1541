@@ -220,43 +220,47 @@ impl Via6522 {
     /// This method is called on each CPU cycle.
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn tick_cycle(&mut self) {
+    pub fn tick_cycles(&mut self, delta: u32) {
+        if delta == 0 { return; }
+        let delta16 = delta as u16;
+
         // --- Timer 1 ---
         if (self.active_mask & Self::T1_ACTIVE) != 0 {
-            let (next_t1c, overflow) = self.t1c.overflowing_sub(1);
-            if overflow {
+            if self.t1c < delta16 {
                 self.ifr |= 0x40;
                 self.t1_pb7 = !self.t1_pb7;
                 if (self.acr & 0x40) != 0 {
-                    self.t1c = self.t1l;
+                    let remainder = delta16 - self.t1c - 1;
+                    self.t1c = self.t1l.wrapping_sub(remainder);
                 } else {
                     self.active_mask &= !Self::T1_ACTIVE;
                     self.t1c = 0xFFFF;
                 }
                 self.update_irq();
             } else {
-                self.t1c = next_t1c;
+                self.t1c -= delta16;
             }
         }
 
         // --- Timer 2 ---
         if (self.active_mask & Self::T2_ACTIVE) != 0 && (self.acr & 0x20) == 0 {
-            let (next_t2c, overflow) = self.t2c.overflowing_sub(1);
-            if overflow {
+            if self.t2c < delta16 {
                 self.ifr |= 0x20;
                 self.active_mask &= !Self::T2_ACTIVE;
                 self.update_irq();
                 self.t2c = 0xFFFF;
             } else {
-                self.t2c = next_t2c;
+                self.t2c -= delta16;
             }
         }
 
         // --- Shift Register (Simplified) ---
         if (self.active_mask & Self::SR_ACTIVE) != 0 {
-            if self.sr_count > 0 {
-                self.sr_count -= 1;
+            let delta8 = delta16 as u8;
+            if self.sr_count >= delta8 {
+                self.sr_count -= delta8;
             } else {
+                self.sr_count = 0;
                 self.ifr |= 0x04;
                 self.active_mask &= !Self::SR_ACTIVE;
                 self.update_irq();
@@ -439,7 +443,7 @@ mod tests {
         via.write(0x05, 0x00);
         assert!(via.active_mask & Via6522::T1_ACTIVE != 0);
         for _ in 0..11 {
-            via.tick_cycle();
+            via.tick_cycles(1);
         }
         assert!(via.ifr & 0x40 != 0);
         assert!(via.irq);

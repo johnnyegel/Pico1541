@@ -75,20 +75,22 @@ impl DriveMechanics {
     /// Returns true if a new byte is ready to be processed by the CPU, and the SO pin should be set
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn tick<H: HostInterface>(&mut self, hardware: &mut H, _via1: &mut crate::via6522::Via6522, via2: &mut Via6522, requested_sector: u8) -> bool {
+    pub fn tick_cycles<H: HostInterface>(&mut self, hardware: &mut H, _via1: &mut crate::via6522::Via6522, via2: &mut Via6522, requested_sector: u8, delta: u32) -> bool {
+        if delta == 0 { return false; }
         // :? Is the motor off? (PB2)
         if (self.last_state & MASK_MOTOR) == 0 {
             return false;
         }
 
         // :? Did the byte-cycle counter reach the limit?
-        self.byte_cycle_counter += 1;
+        self.byte_cycle_counter += delta;
         if self.byte_cycle_counter < self.byte_cycle_limit {
             return false;
         }
 
         // E-> Yes, reset and process incoming byte
-        self.byte_cycle_counter = 0;
+        // Actually subtract the limit, in case delta jumped past it
+        self.byte_cycle_counter -= self.byte_cycle_limit;
         self.tick_slow(hardware, via2, requested_sector)
     }
 

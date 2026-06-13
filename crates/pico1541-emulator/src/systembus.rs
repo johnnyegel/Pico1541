@@ -134,8 +134,10 @@ pub struct SystemBus<H: HostInterface> {
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn tick_cycle(&mut self, hardware: &mut H) {
-        // Resolve the Host IecBusState once per cycle
+    pub fn tick_cycles(&mut self, hardware: &mut H, delta: u32) {
+        if delta == 0 { return; }
+
+        // Resolve the Host IecBusState once per cycle batch
         let host_iec = hardware.iec_host();
         
         // Update physical bus and VIA inputs if host OR drive changed
@@ -151,8 +153,9 @@ pub struct SystemBus<H: HostInterface> {
         hardware.step();
 
         // Check for hardware configuration changes every 1024 cycles (~1ms)
-        self.cycle_counter = self.cycle_counter.wrapping_add(1);
-        if (self.cycle_counter & 0x3FF) == 0 {
+        let old_cc = self.cycle_counter;
+        self.cycle_counter = self.cycle_counter.wrapping_add(delta);
+        if (old_cc ^ self.cycle_counter) & !0x3FF != 0 {
             self.device_id = hardware.get_device_id();
             self.device_id_pb_bits = (self.device_id & 0x03) << 5;
 
@@ -178,15 +181,15 @@ pub struct SystemBus<H: HostInterface> {
 
         // Execute the VIA cycles only if active
         if self.via1.any_active() {
-            self.via1.tick_cycle();
+            self.via1.tick_cycles(delta);
         }
         if self.via2.any_active() {
-            self.via2.tick_cycle();
+            self.via2.tick_cycles(delta);
         }
 
         // Progress the drive mechanics and update SO pin status
         let requested_sector = self.ram[0x000C];
-        self.so_active = self.mechanics.tick(hardware, &mut self.via1, &mut self.via2, requested_sector);
+        self.so_active = self.mechanics.tick_cycles(hardware, &mut self.via1, &mut self.via2, requested_sector, delta);
     }
 
     #[link_section = ".data.ram_func"]
@@ -225,8 +228,8 @@ impl<H: HostInterface> SystemBus<H> {
     #[inline(always)]
     pub fn catch_up(&mut self, current_cycle: u32, hw: &mut H) {
         let delta = current_cycle.wrapping_sub(self.last_cycle);
-        for _ in 0..delta {
-            self.tick_cycle(hw);
+        if delta > 0 {
+            self.tick_cycles(hw, delta);
             if self.so_pending() {
                 self.so_pulsed = true;
             }
