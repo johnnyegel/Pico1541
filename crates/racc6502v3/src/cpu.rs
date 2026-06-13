@@ -17,6 +17,7 @@ pub struct CPU {
     pub pending_interrupt: Option<Interrupt>,
     pub pending_so: bool,
     last_so_pin: bool,
+    pub cycles: u32,
 }
 
 const FLAG_C: u8 = 0x01;
@@ -46,6 +47,7 @@ impl CPU {
             pending_interrupt: Some(Interrupt::Reset),
             pending_so: false,
             last_so_pin: false,
+            cycles: 0,
         }
     }
 
@@ -63,25 +65,31 @@ impl CPU {
 
     #[inline]
     fn read<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, addr: u16) -> u8 {
-        bus.read(addr, ctx)
+        let val = bus.read(addr, self.cycles, ctx);
+        self.cycles = self.cycles.wrapping_add(1);
+        val
     }
 
     #[inline]
     fn write<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, addr: u16, val: u8) {
-        bus.write(addr, val, ctx)
+        bus.write(addr, val, self.cycles, ctx);
+        self.cycles = self.cycles.wrapping_add(1);
     }
 
     #[inline]
     fn read_pc<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) -> u8 {
-        let val = bus.read(self.pc, ctx);
+        let val = bus.read(self.pc, self.cycles, ctx);
+        self.cycles = self.cycles.wrapping_add(1);
         self.pc = self.pc.wrapping_add(1);
         val
     }
 
     #[inline]
     fn read_word<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, addr: u16) -> u16 {
-        let lo = bus.read(addr, ctx) as u16;
-        let hi = bus.read(addr.wrapping_add(1), ctx) as u16;
+        let lo = bus.read(addr, self.cycles, ctx) as u16;
+        self.cycles = self.cycles.wrapping_add(1);
+        let hi = bus.read(addr.wrapping_add(1), self.cycles, ctx) as u16;
+        self.cycles = self.cycles.wrapping_add(1);
         (hi << 8) | lo
     }
 

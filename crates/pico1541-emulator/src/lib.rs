@@ -48,7 +48,7 @@ pub trait MemoryMonitor {
 pub struct Emulator<H: HostInterface> {
     pub cpu: CPU,
     pub memory: SystemBus<H>,
-    pub cycles: u64,
+    pub cycles: u32,
 }
 
 impl<H: HostInterface> Emulator<H> {
@@ -78,22 +78,30 @@ impl<H: HostInterface> Emulator<H> {
         if self.memory.via1.irq || self.memory.via2.irq {
             self.cpu.pending_interrupt = Some(racc6502v3::cpu::Interrupt::Irq);
         }
-        
-        let elapsed = self.cpu.step(&mut self.memory, hw);
-        self.cycles += elapsed as u64;
-        
-        for _ in 0..elapsed {
-            self.memory.tick_cycle(hw);
-            self.cpu.set_so_pin(self.memory.so_pending());
+        if self.memory.so_pulsed {
+            self.cpu.pending_so = true;
+            self.memory.so_pulsed = false;
         }
         
+        let start_cycle = self.cpu.cycles;
+        let elapsed = self.cpu.step(&mut self.memory, hw);
+        self.cpu.cycles = start_cycle.wrapping_add(elapsed as u32);
+        
+        self.memory.catch_up(self.cpu.cycles, hw);
+        
+        if self.memory.so_pulsed {
+            self.cpu.pending_so = true;
+            self.memory.so_pulsed = false;
+        }
+        
+        self.cycles = self.cpu.cycles;
         elapsed as u32
     }
 
     /// Executes the given number of CPU cycles.
     pub fn run_for(&mut self, hw: &mut H, cycles: u32) {
         let start = self.cycles;
-        while self.cycles.saturating_sub(start) < (cycles as u64) {
+        while self.cycles.wrapping_sub(start) < cycles {
             self.tick(hw);
         }
     }

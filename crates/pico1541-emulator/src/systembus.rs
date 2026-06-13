@@ -28,6 +28,8 @@ pub struct SystemBus<H: HostInterface> {
     last_host_iec: IecBusState,
     last_drive_iec: IecBusState,
     pub current_hw: *mut H,
+    pub last_cycle: u32,
+    pub so_pulsed: bool,
     _phantom: PhantomData<H>,
 }
 
@@ -50,6 +52,8 @@ pub struct SystemBus<H: HostInterface> {
             last_host_iec: IecBusState::default(),
             last_drive_iec: IecBusState::default(),
             current_hw: core::ptr::null_mut(),
+            last_cycle: 0,
+            so_pulsed: false,
             _phantom: PhantomData,
         };
 
@@ -204,19 +208,36 @@ impl<H: HostInterface> racc6502v3::Bus for SystemBus<H> {
     type Ctx = H;
 
     #[link_section = ".data.ram_func"]
-    fn read(&mut self, addr: u16, ctx: &mut Self::Ctx) -> u8 {
-        self.read(addr, ctx)
+    #[inline(always)]
+    fn read(&mut self, addr: u16, cycle: u32, ctx: &mut Self::Ctx) -> u8 {
+        self.read_with_cycle(addr, cycle, ctx)
     }
 
     #[link_section = ".data.ram_func"]
-    fn write(&mut self, addr: u16, value: u8, ctx: &mut Self::Ctx) {
-        self.write(addr, value, ctx)
+    #[inline(always)]
+    fn write(&mut self, addr: u16, value: u8, cycle: u32, ctx: &mut Self::Ctx) {
+        self.write_with_cycle(addr, value, cycle, ctx)
     }
 }
 
 impl<H: HostInterface> SystemBus<H> {
     #[link_section = ".data.ram_func"]
-    pub fn read(&mut self, addr: u16, _ctx: &mut H) -> u8 {
+    #[inline(always)]
+    pub fn catch_up(&mut self, current_cycle: u32, hw: &mut H) {
+        let delta = current_cycle.wrapping_sub(self.last_cycle);
+        for _ in 0..delta {
+            self.tick_cycle(hw);
+            if self.so_pending() {
+                self.so_pulsed = true;
+            }
+        }
+        self.last_cycle = current_cycle;
+    }
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    pub fn read_with_cycle(&mut self, addr: u16, cycle: u32, hw: &mut H) -> u8 {
+        self.catch_up(cycle, hw);
         if addr >= 0x8000 {
             return unsafe { *self.rom.get_unchecked((addr & 0x3FFF) as usize) };
         }
@@ -231,7 +252,9 @@ impl<H: HostInterface> SystemBus<H> {
     }
 
     #[link_section = ".data.ram_func"]
-    pub fn write(&mut self, addr: u16, value: u8, ctx: &mut H) {
+    #[inline(always)]
+    pub fn write_with_cycle(&mut self, addr: u16, value: u8, cycle: u32, ctx: &mut H) {
+        self.catch_up(cycle, ctx);
         if addr < 0x1800 {
             unsafe { *self.ram.get_unchecked_mut((addr as usize) & (RAM_SIZE - 1)) = value };
             if addr == 0x0077 || addr == 0x0078 {
@@ -326,8 +349,8 @@ mod tests {
         let mut hw = MockHardware { 
             
         };
-        bus.write(0x0100, 0xAB, &mut hw);
-        assert_eq!(bus.read(0x0100, &mut hw), 0xAB);
-        assert_eq!(bus.read(0x0900, &mut hw), 0xAB);
+        bus.write_with_cycle(0x0100, 0xAB, 0, &mut hw);
+        assert_eq!(bus.read_with_cycle(0x0100, 0, &mut hw), 0xAB);
+        assert_eq!(bus.read_with_cycle(0x0900, 0, &mut hw), 0xAB);
     }
 }

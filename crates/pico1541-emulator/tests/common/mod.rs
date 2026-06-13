@@ -167,7 +167,7 @@ impl TestBridge {
 
     pub fn ticks(&mut self, drive: &mut Emulator<TestBridge>, n: u32) {
         let start = drive.cycles;
-        while drive.cycles.saturating_sub(start) < (n as u64) {
+        while drive.cycles.wrapping_sub(start) < (n as u32) {
             drive.tick(self);
         }
     }
@@ -306,7 +306,7 @@ impl<'a> IecComHostBus for IecTestBridge<'a> {
 
     async fn delay_us(&mut self, us: u32) {
         let start = self.drive.cycles;
-        while self.drive.cycles.saturating_sub(start) < (us as u64) {
+        while self.drive.cycles.wrapping_sub(start) < (us as u32) {
             self.drive.tick(self.bridge);
         }
     }
