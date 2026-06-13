@@ -8,6 +8,7 @@ static HEAP: embedded_alloc::LlffHeap = embedded_alloc::LlffHeap::empty();
 
 mod driver;
 mod flash_storage;
+use embassy_rp::interrupt;
 
 use core::sync::atomic::Ordering;
 use defmt::{info, error};
@@ -66,6 +67,15 @@ static SNOOPER_CONFIG: SnooperConfig = SnooperConfig::new(DEFAULT_DRIVE_ID);
 
 static CURRENT_DIR: Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)> = Mutex::new((heapless::String::new(), false));
 static MOUNTED_DIR: Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)> = Mutex::new((heapless::String::new(), false));
+
+static EXECUTOR_HIGH: embassy_executor::InterruptExecutor = embassy_executor::InterruptExecutor::new();
+
+#[embassy_rp::interrupt]
+unsafe fn TIMER_IRQ_3() {
+    embassy_rp::pac::TIMER.intf().write(|w| w.set_alarm(3, false));
+    EXECUTOR_HIGH.on_interrupt();
+}
+
 
 // Core 1 Stack
 #[link_section = ".sram3"]
@@ -404,6 +414,11 @@ impl HostInterface for HardwareBridge {
         // First we drain the channel to avoid blocking if the manager is behind
         while let Ok(_) = pico1541_manager::TRACK_CHANNEL.try_receive() {}
         let _ = pico1541_manager::TRACK_CHANNEL.try_send((half_track, drive_track, drive_sector));
+        
+        // Pend TIMER_IRQ_3 on Core 0 to wake up the DiskTask!
+        unsafe {
+            embassy_rp::pac::TIMER.intf().write(|w| w.set_alarm(3, true));
+        }
         
         // Use the indicator to beep (from drive_activity context)
         // Actually, indicator is inside activity task, not available here.
@@ -795,7 +810,11 @@ async fn core0_init_task(
 
     spawner.spawn(display_run(display_task).unwrap());
     spawner.spawn(snooper_run(snooper_task).unwrap());
-    spawner.spawn(vdisk_run(vdisk_task).unwrap());
+    use embassy_rp::interrupt::{InterruptExt, Priority};
+    embassy_rp::interrupt::TIMER_IRQ_3.set_priority(Priority::P2);
+    EXECUTOR_HIGH.start(embassy_rp::interrupt::TIMER_IRQ_3);
+    let spawner_high = EXECUTOR_HIGH.spawner();
+    spawner_high.spawn(vdisk_run(vdisk_task).unwrap());
     spawner.spawn(blinky(pins.pin25).unwrap());
     spawner.spawn(core1_load_run(config).unwrap());
 }

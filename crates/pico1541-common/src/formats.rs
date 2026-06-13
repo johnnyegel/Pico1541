@@ -800,3 +800,6 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for AnyDiskImage<S, D> {
         }
     }
 }
+
+unsafe impl<S: embedded_io_async::Read + embedded_io_async::Seek, D: crate::storage::DirectorySource> Send for AnyDiskImage<S, D> {}
+
