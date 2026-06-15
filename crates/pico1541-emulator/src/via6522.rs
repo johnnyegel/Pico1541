@@ -275,6 +275,7 @@ impl Via6522 {
         match self.pcr & 0b0000_1110 {
             0b0000_1100 => Option::Some(false),
             0b0000_1110 => Option::Some(true),
+            0b0000_1010 => Option::Some(true), // Pulse output (goes low on read, high on CA1)
             _ => Option::None
         }
     }

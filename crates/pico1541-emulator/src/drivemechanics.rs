@@ -82,20 +82,38 @@ impl DriveMechanics {
             return false;
         }
 
+        let mut pulsed = false;
+        if self.so_pulse_cycles > 0 {
+            if delta >= self.so_pulse_cycles as u32 {
+                self.so_pulse_cycles = 0;
+                hardware.debug_pin_1(false);
+            } else {
+                self.so_pulse_cycles -= delta as u8;
+            }
+            pulsed = self.so_pulse_cycles > 0;
+        }
+
         // :? Did the byte-cycle counter reach the limit?
         self.byte_cycle_counter += delta;
         if self.byte_cycle_counter < self.byte_cycle_limit {
-            return false;
+            return pulsed;
         }
 
         // E-> Yes, reset and process incoming byte
         // Actually subtract the limit, in case delta jumped past it
         self.byte_cycle_counter -= self.byte_cycle_limit;
-        self.tick_slow(hardware, via2, requested_sector)
+        
+        // Remember if we were already pulsing to avoid double-triggering the CPU
+        let was_pulsing = self.so_pulse_cycles > 0;
+        
+        self.tick_slow(hardware, via2, requested_sector);
+        
+        // Only return true (trigger CPU SO) if we just started a new pulse this tick
+        !was_pulsing && self.so_pulse_cycles > 0
     }
 
     #[link_section = ".data.ram_func"]
-    fn tick_slow<H: HostInterface>(&mut self, hardware: &mut H, via2: &mut Via6522, requested_sector: u8) -> bool {
+    fn tick_slow<H: HostInterface>(&mut self, hardware: &mut H, via2: &mut Via6522, requested_sector: u8) {
         // Determine read mode from CB2 (Manual High = Read)
         let is_read_mode = via2.get_cb2_out().unwrap_or(true);
         let is_so_enabled = via2.get_ca2_out().unwrap_or(false);
@@ -135,20 +153,10 @@ impl DriveMechanics {
             // 1541-II hardware uses CA2=HIGH to ENABLE SO signals.
             let is_so_enabled = via2.get_ca2_out().unwrap_or(false);
             if is_so_enabled {
-                self.so_pulse_cycles = 2;
+                self.so_pulse_cycles = 3; // 3 CPU cycles
                 hardware.debug_pin_1(true);
             }
         }   
-
-        if self.so_pulse_cycles > 0 {
-            self.so_pulse_cycles -= 1;
-            if self.so_pulse_cycles == 0 {
-                hardware.debug_pin_1(false);
-            }
-            return self.so_pulse_cycles > 0;
-        }
-
-        false
     }
 
     /// Updates the drive mechanics state based on VIA2 Port B outputs.
