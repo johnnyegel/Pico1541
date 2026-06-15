@@ -95,7 +95,7 @@ impl DriveMechanics {
     }
 
     #[link_section = ".data.ram_func"]
-    fn tick_slow<H: HostInterface>(&mut self, _hardware: &mut H, via2: &mut Via6522, requested_sector: u8) -> bool {
+    fn tick_slow<H: HostInterface>(&mut self, hardware: &mut H, via2: &mut Via6522, requested_sector: u8) -> bool {
         // Determine read mode from CB2 (Manual High = Read)
         let is_read_mode = via2.get_cb2_out().unwrap_or(true);
         let is_so_enabled = via2.get_ca2_out().unwrap_or(false);
@@ -109,8 +109,10 @@ impl DriveMechanics {
             // A valid SYNC mark in G64 must be at least 10 ones, so an isolated 0xFF is data!
             if gcr_byte == BYTE_SYNC && self.last_gcr_byte == BYTE_SYNC {
                 via2.in_b &= !MASK_SYNC; // Assert SYNC (Pull PB7 Low)
+                hardware.debug_pin_0(true);
             } else {
                 via2.in_b |= MASK_SYNC;  // Release SYNC (Let PB7 float High)
+                hardware.debug_pin_0(false);
             }                
 
             self.last_gcr_byte = gcr_byte;
@@ -134,11 +136,15 @@ impl DriveMechanics {
             let is_so_enabled = via2.get_ca2_out().unwrap_or(false);
             if is_so_enabled {
                 self.so_pulse_cycles = 2;
+                hardware.debug_pin_1(true);
             }
         }   
 
         if self.so_pulse_cycles > 0 {
             self.so_pulse_cycles -= 1;
+            if self.so_pulse_cycles == 0 {
+                hardware.debug_pin_1(false);
+            }
             return self.so_pulse_cycles > 0;
         }
 

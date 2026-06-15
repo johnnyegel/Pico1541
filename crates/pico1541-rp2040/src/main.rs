@@ -287,6 +287,8 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
         _data_tx: Output::new(p.PIN_19, Level::Low),
         _clk_tx: Output::new(p.PIN_20, Level::Low),
         reset_rx: Input::new(p.PIN_21, Pull::Up),
+        debug_0: Output::new(p.PIN_0, Level::Low),
+        debug_1: Output::new(p.PIN_1, Level::Low),
     };
 
     let activity_led = ActivityLed::new(
@@ -319,6 +321,8 @@ struct IecPins {
     _data_tx: Output<'static>,
     _clk_tx: Output<'static>,
     reset_rx: Input<'static>,
+    debug_0: Output<'static>,
+    debug_1: Output<'static>,
 }
 
 struct HardwareBridge {
@@ -405,6 +409,24 @@ impl HostInterface for HardwareBridge {
         if !matches!(event, DriveEvent::LedChanged(_)) {
             // try_send is non-blocking and safe for Core 0.
             let _ = pico1541_manager::EVENT_CHANNEL.try_send(event);
+        }
+    }
+
+    #[inline(always)]
+    fn debug_pin_0(&mut self, state: bool) {
+        if state {
+            self._pins.debug_0.set_high();
+        } else {
+            self._pins.debug_0.set_low();
+        }
+    }
+
+    #[inline(always)]
+    fn debug_pin_1(&mut self, state: bool) {
+        if state {
+            self._pins.debug_1.set_high();
+        } else {
+            self._pins.debug_1.set_low();
         }
     }
 

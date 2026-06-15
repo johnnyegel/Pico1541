@@ -167,6 +167,9 @@ pub trait HostInterface: IecBus {
     /// Called every emulator tick cycle, independent of bus changes.
     fn step(&mut self) {}
 
+    fn debug_pin_0(&mut self, _state: bool) {}
+    fn debug_pin_1(&mut self, _state: bool) {}
+
     /// Update the IEC addresses (LISTEN and TALK) snooped by the manager.
     /// Usually called by the emulator when it detects a change in drive RAM.
     fn update_iec_addresses(&mut self, _listen: u8, _talk: u8) { }

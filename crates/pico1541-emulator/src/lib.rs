@@ -25,6 +25,7 @@ macro_rules! emu_warn { ($($arg:tt)*) => { log::warn!($($arg)*) } }
 macro_rules! emu_debug { ($($arg:tt)*) => { log::debug!($($arg)*) } }
 
 pub mod drivemechanics;
+pub mod flight_recorder;
 pub mod hle;
 pub mod systembus;
 pub mod via6522;
@@ -92,6 +93,17 @@ impl<H: HostInterface> Emulator<H> {
         if self.memory.so_pulsed {
             self.cpu.pending_so = true;
             self.memory.so_pulsed = false;
+        }
+        
+        unsafe {
+            crate::flight_recorder::FLIGHT_RECORDER.record(crate::flight_recorder::FlightRecord {
+                cycle: self.cpu.cycles,
+                event_type: 0,
+                via1_pb: self.memory.via1.in_b,
+                via2_pb: self.memory.via2.in_b,
+                pcr1: self.memory.via1.pcr,
+                pcr2: self.memory.via2.pcr,
+            });
         }
         
         self.cycles = self.cpu.cycles;
