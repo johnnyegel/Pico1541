@@ -190,11 +190,7 @@ impl TestBridge {
 
 impl IecBus for TestBridge {
     fn iec_host(&self) -> IecBusState {
-        let mut combined = self.host_iec;
-        if self.drive_iec.get_data() { combined.set_data(true); }
-        if self.drive_iec.get_clk() { combined.set_clk(true); }
-        if self.drive_iec.get_atn() { combined.set_atn(true); }
-        combined
+        self.host_iec
     }
     
     fn iec_drive(&mut self, state: IecBusState) {

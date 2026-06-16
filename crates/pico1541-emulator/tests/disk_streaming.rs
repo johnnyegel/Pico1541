@@ -1,3 +1,16 @@
+
+fn wait_for_pulse(mechanics: &mut DriveMechanics, hardware: &mut TestBridge, via1: &mut Via6522, via2: &mut Via6522, mut last_pulse: bool) -> (u32, bool) {
+    let mut ticks = 0;
+    loop {
+        ticks += 1;
+        let pulse = mechanics.tick_cycles(hardware, via1, via2, 0, 1);
+        if pulse && !last_pulse {
+            return (ticks, pulse);
+        }
+        last_pulse = pulse;
+        if ticks > 100 { panic!("Timeout"); }
+    }
+}
 mod common;
 
 use common::TestBridge;
@@ -40,27 +53,15 @@ fn test_disk_streaming_data() {
     via2.pcr = 0b1110_1110;
 
     // First byte delivered should be idx 0: 0xAA. Should take exactly 26 ticks.
-    let mut ticks = 0;
-    while !mechanics.tick_cycles(&mut hardware, &mut via1, &mut via2, 0, 1) {
-        ticks += 1;
-        if ticks > 100 {
-            panic!("Timeout waiting for idx 0");
-        }
-    }
-    assert_eq!(ticks + 1, 26);
+    let (ticks, mut last_pulse) = wait_for_pulse(&mut mechanics, &mut hardware, &mut via1, &mut via2, false);
+    assert_eq!(ticks, 26);
     assert_eq!(via2.in_a, 0xAA, "Should have delivered idx 0");
     assert!(via2.ifr & 0x02 != 0, "VIA2 CA1 should have been pulsed");
     via2.ifr &= !0x02; // Clear it
 
     // Second byte idx 1: 0x55. Exactly 26 ticks.
-    ticks = 0;
-    while !mechanics.tick_cycles(&mut hardware, &mut via1, &mut via2, 0, 1) {
-        ticks += 1;
-        if ticks > 100 {
-            panic!("Timeout waiting for idx 1");
-        }
-    }
-    assert_eq!(ticks + 1, 26);
+    let (ticks, _) = wait_for_pulse(&mut mechanics, &mut hardware, &mut via1, &mut via2, last_pulse);
+    assert_eq!(ticks, 26);
     assert_eq!(via2.in_a, 0x55);
 }
 
@@ -151,41 +152,25 @@ fn test_disk_bitrate_zones() {
     // Test Zone 3: 26 cycles (bits 5,6 = 11 -> 0x60)
     via2.orb = 0x60 | 0x04; // Motor ON
     mechanics.update_state(via2.orb, via2.ddrb, &mut hardware, 0, 0);
-    let mut ticks = 0;
-    while !mechanics.tick_cycles(&mut hardware, &mut via1, &mut via2, 0, 1) {
-        ticks += 1;
-        if ticks > 100 { panic!("Timeout Zone 3"); }
-    }
-    assert_eq!(ticks + 1, 26, "Zone 3 should take 26 cycles");
+    let (ticks, lp3) = wait_for_pulse(&mut mechanics, &mut hardware, &mut via1, &mut via2, false);
+    assert_eq!(ticks, 26, "Zone 3 should take 26 cycles");
 
     // Test Zone 2: 28 cycles (bits 5,6 = 10 -> 0x40)
     via2.orb = 0x40 | 0x04;
     mechanics.update_state(via2.orb, via2.ddrb, &mut hardware, 0, 0);
-    ticks = 0;
-    while !mechanics.tick_cycles(&mut hardware, &mut via1, &mut via2, 0, 1) {
-        ticks += 1;
-        if ticks > 100 { panic!("Timeout Zone 2"); }
-    }
-    assert_eq!(ticks + 1, 28, "Zone 2 should take 28 cycles");
+    let (ticks, lp2) = wait_for_pulse(&mut mechanics, &mut hardware, &mut via1, &mut via2, lp3);
+    assert_eq!(ticks, 28, "Zone 2 should take 28 cycles");
 
     // Test Zone 1: 30 cycles (bits 5,6 = 01 -> 0x20)
     via2.orb = 0x20 | 0x04;
     mechanics.update_state(via2.orb, via2.ddrb, &mut hardware, 0, 0);
-    ticks = 0;
-    while !mechanics.tick_cycles(&mut hardware, &mut via1, &mut via2, 0, 1) {
-        ticks += 1;
-        if ticks > 100 { panic!("Timeout Zone 1"); }
-    }
-    assert_eq!(ticks + 1, 30, "Zone 1 should take 30 cycles");
+    let (ticks, lp1) = wait_for_pulse(&mut mechanics, &mut hardware, &mut via1, &mut via2, lp2);
+    assert_eq!(ticks, 30, "Zone 1 should take 30 cycles");
 
     // Test Zone 0: 32 cycles (bits 5,6 = 00 -> 0x00)
     via2.orb = 0x00 | 0x04;
     mechanics.update_state(via2.orb, via2.ddrb, &mut hardware, 0, 0);
-    ticks = 0;
-    while !mechanics.tick_cycles(&mut hardware, &mut via1, &mut via2, 0, 1) {
-        ticks += 1;
-        if ticks > 100 { panic!("Timeout Zone 0"); }
-    }
-    assert_eq!(ticks + 1, 32, "Zone 0 should take 32 cycles");
+    let (ticks, _) = wait_for_pulse(&mut mechanics, &mut hardware, &mut via1, &mut via2, lp1);
+    assert_eq!(ticks, 32, "Zone 0 should take 32 cycles");
 }
 
