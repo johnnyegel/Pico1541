@@ -302,7 +302,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
 
             for _ in 0..40 {
                 if write_ptr < dest.len() {
-                    dest[write_ptr] = 0xAA;
+                    dest[write_ptr] = 0x55;
                     write_ptr += 1;
                 }
             }
@@ -312,7 +312,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
             }
 
             for physical_sector in 0..sectors {
-                let sector = ((physical_sector as u32 * 5) % (sectors as u32)) as u8;
+                let sector = physical_sector as u8;
                 let sector_data = [0u8; 256];
 
                 if sector == 1 {
@@ -341,7 +341,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                 }
                 for _ in 0..9 {
                     if write_ptr < dest.len() {
-                        dest[write_ptr] = 0xAA;
+                        dest[write_ptr] = 0x55;
                         write_ptr += 1;
                     }
                 }
@@ -367,9 +367,9 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                         write_ptr += 5;
                     }
                 }
-                for _ in 0..8 {
+                for _ in 0..16 {
                     if write_ptr < dest.len() {
-                        dest[write_ptr] = 0xAA;
+                        dest[write_ptr] = 0x55;
                         write_ptr += 1;
                     }
                 }
@@ -387,7 +387,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
 
             for _ in 0..40 {
                 if write_ptr < dest.len() {
-                    dest[write_ptr] = 0xAA;
+                    dest[write_ptr] = 0x55;
                     write_ptr += 1;
                 }
             }
@@ -395,7 +395,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
             self.source.rewind();
 
             for physical_sector in 0..sectors {
-                let sector = ((physical_sector as u32 * 5) % (sectors as u32)) as u8;
+                let sector = physical_sector as u8;
                 let mut sector_data = [0u8; 256];
 
                 if sector == 0 {
@@ -469,7 +469,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                 }
                 for _ in 0..9 {
                     if write_ptr < dest.len() {
-                        dest[write_ptr] = 0xAA;
+                        dest[write_ptr] = 0x55;
                         write_ptr += 1;
                     }
                 }
@@ -495,9 +495,9 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                         write_ptr += 5;
                     }
                 }
-                for _ in 0..8 {
+                for _ in 0..16 {
                     if write_ptr < dest.len() {
-                        dest[write_ptr] = 0xAA;
+                        dest[write_ptr] = 0x55;
                         write_ptr += 1;
                     }
                 }
@@ -515,7 +515,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
         // Lead-in
         for _ in 0..40 {
             if write_ptr < dest.len() {
-                dest[write_ptr] = 0xAA;
+                dest[write_ptr] = 0x55;
                 write_ptr += 1;
             }
         }
@@ -543,7 +543,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
             // Header-to-Data Gap
             for _ in 0..9 {
                 if write_ptr < dest.len() {
-                    dest[write_ptr] = 0xAA;
+                    dest[write_ptr] = 0x55;
                     write_ptr += 1;
                 }
             }
@@ -566,9 +566,9 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                 }
             }
             // Inter-sector gap
-            for _ in 0..8 {
+            for _ in 0..16 {
                 if write_ptr < dest.len() {
-                    dest[write_ptr] = 0xAA;
+                    dest[write_ptr] = 0x55;
                     write_ptr += 1;
                 }
             }
@@ -636,13 +636,13 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
         let mut write_ptr = 0;
         for _ in 0..40 {
             if write_ptr < dest.len() {
-                dest[write_ptr] = 0xAA;
+                dest[write_ptr] = 0x55;
                 write_ptr += 1;
             }
         }
         for physical_sector in 0..sectors {
             let mut sector_data = [0u8; 256];
-            let sector = (physical_sector * 5) % sectors;
+            let sector = physical_sector;
             
             self.read_sector_data(offset as u64 + (sector as u64 * 256), &mut sector_data).await?;
                 
@@ -672,7 +672,7 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
             }
             for _ in 0..9 {
                 if write_ptr < dest.len() {
-                    dest[write_ptr] = 0xAA;
+                    dest[write_ptr] = 0x55;
                     write_ptr += 1;
                 }
             }
@@ -698,9 +698,9 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
                     write_ptr += 5;
                 }
             }
-            for _ in 0..8 {
+            for _ in 0..16 {
                 if write_ptr < dest.len() {
-                    dest[write_ptr] = 0xAA;
+                    dest[write_ptr] = 0x55;
                     write_ptr += 1;
                 }
             }
