@@ -327,7 +327,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                     self.sector2_idx = write_ptr + 39;
                 }
 
-                for _ in 0..10 {
+                for _ in 0..5 {
                     if write_ptr < dest.len() {
                         dest[write_ptr] = 0xFF;
                         write_ptr += 1;
@@ -351,7 +351,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                         write_ptr += 1;
                     }
                 }
-                for _ in 0..10 {
+                for _ in 0..5 {
                     if write_ptr < dest.len() {
                         dest[write_ptr] = 0xFF;
                         write_ptr += 1;
@@ -645,7 +645,7 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
         }
         let sectors = sectors_per_track(track);
         let speed_zone_len: usize = if track <= 17 { 7692 } else if track <= 24 { 7142 } else if track <= 30 { 6666 } else { 6250 };
-        let base_sector_len = 10 + 10 + 9 + 10 + 325; // 10 sync + 10 header + 9 gap + 10 sync + 325 data
+        let base_sector_len = 5 + 10 + 9 + 5 + 325; // 5 sync + 10 header + 9 gap + 5 sync + 325 data
         let total_base_len = sectors as usize * base_sector_len;
         let remaining_gap = speed_zone_len.saturating_sub(total_base_len);
         let gap_per_sector = remaining_gap / sectors as usize;
@@ -668,7 +668,7 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
                 self.id[1] = sector_data[163];
             }
 
-            for _ in 0..10 {
+            for _ in 0..5 {
                 if write_ptr < dest.len() {
                     dest[write_ptr] = 0xFF;
                     write_ptr += 1;
@@ -692,7 +692,7 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
                     write_ptr += 1;
                 }
             }
-            for _ in 0..10 {
+            for _ in 0..5 {
                 if write_ptr < dest.len() {
                     dest[write_ptr] = 0xFF;
                     write_ptr += 1;
