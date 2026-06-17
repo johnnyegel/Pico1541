@@ -99,7 +99,8 @@ impl<H: HostInterface> Emulator<H> {
         }
         
         unsafe {
-            crate::flight_recorder::FLIGHT_RECORDER.record(crate::flight_recorder::FlightRecord {
+            let ptr = core::ptr::addr_of_mut!(crate::flight_recorder::FLIGHT_RECORDER);
+            (*ptr).record(crate::flight_recorder::FlightRecord {
                 cycle: self.cpu.cycles,
                 event_type: 0,
                 via1_pb: self.memory.via1.in_b,

@@ -90,6 +90,8 @@ pub struct SystemBus<H: HostInterface> {
         hardware.iec_drive(self.last_drive_iec);
         hardware.send_event(pico1541_common::interface::DriveEvent::LedChanged(false));
         hardware.send_event(pico1541_common::interface::DriveEvent::MotorChanged(false));
+        // Force the track manager to load the reset track
+        hardware.track_changed(self.mechanics.half_track(), 18, 0);
     }
 
     #[link_section = ".data.ram_func"]
