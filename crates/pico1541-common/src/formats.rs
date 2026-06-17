@@ -635,6 +635,12 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
             return Err(Error::InvalidTrack);
         }
         let sectors = sectors_per_track(track);
+        let speed_zone_len: usize = if track <= 17 { 7692 } else if track <= 24 { 7142 } else if track <= 30 { 6666 } else { 6250 };
+        let base_sector_len = 10 + 10 + 9 + 10 + 325; // 10 sync + 10 header + 9 gap + 10 sync + 325 data
+        let total_base_len = sectors as usize * base_sector_len;
+        let remaining_gap = speed_zone_len.saturating_sub(total_base_len);
+        let gap_per_sector = remaining_gap / sectors as usize;
+
         let mut write_ptr = 0;
         for _ in 0..40 {
             if write_ptr < dest.len() {
@@ -642,13 +648,11 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
                 write_ptr += 1;
             }
         }
-        for physical_sector in 0..sectors {
+        for logical_sector in 0..sectors {
             let mut sector_data = [0u8; 256];
-            let interleave = if track == 18 { 3 } else if sectors == 18 { 11 } else { 10 };
-            let sector = (physical_sector * interleave) % sectors;
+            let sector = logical_sector;
             
             self.read_sector_data(offset as u64 + (sector as u64 * 256), &mut sector_data).await?;
-                
                 
             if track == 18 && sector == 0 {
                 self.id[0] = sector_data[162];
@@ -701,7 +705,7 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
                     write_ptr += 5;
                 }
             }
-            for _ in 0..16 {
+            for _ in 0..gap_per_sector {
                 if write_ptr < dest.len() {
                     dest[write_ptr] = 0x55;
                     write_ptr += 1;
