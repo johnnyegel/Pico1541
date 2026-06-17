@@ -184,5 +184,5 @@ pub trait HostInterface: IecBus {
     }
 
     /// Called when the read/write head moves to a new half-track.
-    fn track_changed(&mut self, _half_track: u8, _drive_track: u8, _drive_sector: u8) {}
+    fn track_changed(&mut self, _half_track: u8) {}
 }

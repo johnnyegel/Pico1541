@@ -91,7 +91,7 @@ pub struct SystemBus<H: HostInterface> {
         hardware.send_event(pico1541_common::interface::DriveEvent::LedChanged(false));
         hardware.send_event(pico1541_common::interface::DriveEvent::MotorChanged(false));
         // Force the track manager to load the reset track
-        hardware.track_changed(self.mechanics.half_track(), 18, 0);
+        hardware.track_changed(self.mechanics.half_track());
     }
 
     #[link_section = ".data.ram_func"]
@@ -287,9 +287,7 @@ impl<H: HostInterface> SystemBus<H> {
                 let reg = (addr & 0x0F) as usize;
                 self.via2.write(addr, value);
                 if reg == 0x00 || reg == 0x02 || reg == 0x0F {
-                    let drive_track = unsafe { *self.ram.get_unchecked(0x0022) };
-                    let drive_sector = unsafe { *self.ram.get_unchecked(0x0023) };
-                    self.mechanics.update_state(self.via2.orb, self.via2.ddrb, ctx, drive_track, drive_sector);
+                    self.mechanics.update_state(self.via2.orb, self.via2.ddrb, ctx);
                 }
             }
             _ => {}

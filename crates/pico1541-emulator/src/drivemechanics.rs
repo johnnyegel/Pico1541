@@ -161,10 +161,10 @@ impl DriveMechanics {
 
     /// Updates the drive mechanics state based on VIA2 Port B outputs.
     #[link_section = ".data.ram_func"]
-    pub fn update_state<H: HostInterface>(&mut self, orb: u8, ddrb: u8, hardware: &mut H, drive_track: u8, drive_sector: u8) {
+    pub fn update_state<H: HostInterface>(&mut self, orb: u8, ddrb: u8, hardware: &mut H) {
         let full_state = orb & ddrb & (MASK_HARDWARE_STATE | MASK_SPEED_ZONE);
         if full_state != self.last_state {
-            self.update_state_slow(full_state, hardware, drive_track, drive_sector);
+            self.update_state_slow(full_state, hardware);
         }
     }
 
@@ -192,7 +192,7 @@ impl DriveMechanics {
     /// Updates the drive mechanics state, and issues events accordingly.
     #[link_section = ".data.ram_func"]
     #[inline(never)]
-    fn update_state_slow(&mut self, full_state: u8, hardware: &mut impl HostInterface, drive_track: u8, drive_sector: u8) {
+    fn update_state_slow(&mut self, full_state: u8, hardware: &mut impl HostInterface) {
         let last_state = self.last_state;
         let state_changes = last_state ^ full_state;
         self.last_state = full_state;
@@ -237,7 +237,7 @@ impl DriveMechanics {
                     .clamp(MIN_HALF_TRACK, MAX_HALF_TRACK);
 
             if self.halftrack_head_pos >= 0 && self.halftrack_head_pos <= MAX_HALF_TRACK {
-                hardware.track_changed(self.halftrack_head_pos as u8, drive_track, drive_sector);
+                hardware.track_changed(self.halftrack_head_pos as u8);
             }
         }
     }

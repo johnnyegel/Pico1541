@@ -111,21 +111,16 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
         }
     }
 
-    async fn handle_track_event(&mut self, half_track: u8, drive_track: u8, drive_sector: u8) {
+    async fn handle_track_event(&mut self, half_track: u8) {
         let mut target_ht = half_track;
-        let mut target_dt = drive_track;
-        let mut target_ds = drive_sector;
 
         loop {
             // Drain queue
-            while let Ok((ht, dt, ds)) = TRACK_CHANNEL.try_receive() {
+            while let Ok(ht) = TRACK_CHANNEL.try_receive() {
                 target_ht = ht;
-                target_dt = dt;
-                target_ds = ds;
             }
             
-            info!("Manager loading half-track: {} (ram: T={}, S={})", 
-                    target_ht, target_dt, target_ds);
+            info!("Manager loading half-track: {}", target_ht);
 
             // Prevent DOS from reading the old track data by stalling it safely.
             let old_layout = self.track_handle.get_active_layout();
@@ -149,12 +144,10 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                         self.track_handle.set_active_layout(old_layout);
                         break;
                     }
-                    Either::Second((new_ht, new_dt, new_ds)) => {
+                    Either::Second(new_ht) => {
                         // The head stepped WHILE we were reading from the SD card!
                         // The read is aborted. We loop around to start reading the NEW track!
                         target_ht = new_ht;
-                        target_dt = new_dt;
-                        target_ds = new_ds;
                         continue;
                     }
                 }
@@ -170,8 +163,8 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
         loop {
             // Check if there is a pending track event IMMEDIATELY.
             // If so, handle it first to prevent select3 from randomly choosing the timer/cmd.
-            if let Ok((half_track, drive_track, drive_sector)) = TRACK_CHANNEL.try_receive() {
-                self.handle_track_event(half_track, drive_track, drive_sector).await;
+            if let Ok(half_track) = TRACK_CHANNEL.try_receive() {
+                self.handle_track_event(half_track).await;
                 continue;
             }
 
@@ -180,8 +173,8 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
             let cmd_fut = CMD_CHANNEL.receive();
 
             match select3(track_fut, timer_fut, cmd_fut).await {
-                Either3::First((half_track, drive_track, drive_sector)) => {
-                    self.handle_track_event(half_track, drive_track, drive_sector).await;
+                Either3::First(half_track) => {
+                    self.handle_track_event(half_track).await;
                 }
                 Either3::Second(_) => {
                     // (first_missing_block, batch_count)

@@ -204,7 +204,7 @@ impl HostInterface for TestBridge {
         log::info!("[DriveEvent] {:?}", event);
     }
     
-    fn track_changed(&mut self, half_track: u8, _drive_track: u8, _drive_sector: u8) {
+    fn track_changed(&mut self, half_track: u8) {
         log::info!("Head stepped to {}", half_track);
         let manager = self.buffer.split().0;
         manager.duplicate_active_to_inactive();

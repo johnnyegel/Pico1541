@@ -431,11 +431,11 @@ impl HostInterface for HardwareBridge {
     }
 
     #[inline(always)]
-    fn track_changed(&mut self, half_track: u8, drive_track: u8, drive_sector: u8) {
+    fn track_changed(&mut self, half_track: u8) {
         // We notify the TRACK_CHANNEL directly instead of using DriveEvent
         // First we drain the channel to avoid blocking if the manager is behind
         while let Ok(_) = pico1541_manager::TRACK_CHANNEL.try_receive() {}
-        let _ = pico1541_manager::TRACK_CHANNEL.try_send((half_track, drive_track, drive_sector));
+        let _ = pico1541_manager::TRACK_CHANNEL.try_send(half_track);
         
         // Pend TIMER_IRQ_3 on Core 0 to wake up the DiskTask!
         unsafe {
