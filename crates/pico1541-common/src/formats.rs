@@ -288,7 +288,7 @@ impl<S: Read + Seek, D: DirectorySource> VirtualDiskImage<S, D> {
 
 impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
     async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<(TrackLayout, usize), Error> {
-        if half_track > 85 {
+        if half_track > 85 || (half_track % 2) != 0 {
             return Ok((TrackLayout::Void, 0));
         }
 
@@ -595,9 +595,9 @@ pub struct D64Image<S: Read + Seek> {
 impl<S: Read + Seek> D64Image<S> {
     pub fn new(storage: S) -> Self {
         let mut lookup_table = TrackLookupTable::new();
-        for half_track in 0..=85 {
-            let track = half_track / 2 + 1;
-            if track <= 40 {
+        for half_track in 0..=84 {
+            if half_track % 2 == 0 {
+                let track = half_track / 2 + 1;
                 lookup_table.offsets[half_track as usize] = Some(Self::get_track_offset(track));
             }
         }
