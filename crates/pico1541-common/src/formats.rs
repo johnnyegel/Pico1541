@@ -312,7 +312,8 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
             }
 
             for physical_sector in 0..sectors {
-                let sector = physical_sector as u8;
+                let interleave = if sectors == 18 { 11 } else { 10 };
+                let sector = ((physical_sector * interleave) % sectors) as u8;
                 let sector_data = [0u8; 256];
 
                 if sector == 1 {
@@ -395,7 +396,8 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
             self.source.rewind();
 
             for physical_sector in 0..sectors {
-                let sector = physical_sector as u8;
+                let interleave = if sectors == 18 { 11 } else { 10 };
+                let sector = ((physical_sector * interleave) % sectors) as u8;
                 let mut sector_data = [0u8; 256];
 
                 if sector == 0 {
@@ -642,7 +644,8 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
         }
         for physical_sector in 0..sectors {
             let mut sector_data = [0u8; 256];
-            let sector = physical_sector;
+            let interleave = if sectors == 18 { 11 } else { 10 };
+            let sector = (physical_sector * interleave) % sectors;
             
             self.read_sector_data(offset as u64 + (sector as u64 * 256), &mut sector_data).await?;
                 
