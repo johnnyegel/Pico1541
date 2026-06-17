@@ -78,7 +78,7 @@ pub struct SystemBus<H: HostInterface> {
         self.mechanics.motor_on(&self.via2)
     }
 
-    pub fn reset(&mut self) {
+    pub fn reset(&mut self, hardware: &mut H) {
         self.ram = [0; RAM_SIZE];
         self.via1.reset();
         self.via2.reset();
@@ -86,6 +86,10 @@ pub struct SystemBus<H: HostInterface> {
         self.so_active = false;
         self.device_id_pb_bits = (self.device_id & 0x03) << 5;
         self.drive_iec_base = 0;
+        self.last_drive_iec = IecBusState::default();
+        hardware.iec_drive(self.last_drive_iec);
+        hardware.send_event(pico1541_common::interface::DriveEvent::LedChanged(false));
+        hardware.send_event(pico1541_common::interface::DriveEvent::MotorChanged(false));
     }
 
     #[link_section = ".data.ram_func"]
@@ -282,7 +286,7 @@ impl<H: HostInterface> SystemBus<H> {
                 self.via2.write(addr, value);
                 if reg == 0x00 || reg == 0x02 || reg == 0x0F {
                     let drive_track = unsafe { *self.ram.get_unchecked(0x0022) };
-                    let drive_sector = unsafe { *self.ram.get_unchecked(0x0033) };
+                    let drive_sector = unsafe { *self.ram.get_unchecked(0x0023) };
                     self.mechanics.update_state(self.via2.orb, self.via2.ddrb, ctx, drive_track, drive_sector);
                 }
             }

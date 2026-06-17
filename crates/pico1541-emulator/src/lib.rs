@@ -69,8 +69,11 @@ impl<H: HostInterface> Emulator<H> {
     /// Resets the 6502 CPU and VIAs.
     pub fn reset(&mut self, hw: &mut H) {
         emu_debug!("Emulator Reset");
-        self.memory.reset();
+        self.memory.reset(hw);
         self.cpu.reset(&mut self.memory, hw);
+        let drive_track = self.memory.ram[0x0022];
+        let drive_sector = self.memory.ram[0x0023];
+        self.memory.mechanics.update_state(self.memory.via2.orb, self.memory.via2.ddrb, hw, drive_track, drive_sector);
     }
 
     #[link_section = ".data.ram_func"]

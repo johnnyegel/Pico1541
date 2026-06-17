@@ -1,0 +1,45 @@
+--- D64 Analysis of temp/Cauldron.d64 - Track 18 ---
+Sequential Logical Sectors as they appear in the file:
+  File offset 016500 -> Logical Sector 00 | Next Pointer: T=18, S=01
+  File offset 016600 -> Logical Sector 01 | Next Pointer: T=00, S=255
+  File offset 016700 -> Logical Sector 02 | Next Pointer: T=00, S=00
+  File offset 016800 -> Logical Sector 03 | Next Pointer: T=00, S=00
+  File offset 016900 -> Logical Sector 04 | Next Pointer: T=00, S=00
+  File offset 016A00 -> Logical Sector 05 | Next Pointer: T=00, S=00
+  File offset 016B00 -> Logical Sector 06 | Next Pointer: T=00, S=00
+  File offset 016C00 -> Logical Sector 07 | Next Pointer: T=00, S=00
+  File offset 016D00 -> Logical Sector 08 | Next Pointer: T=00, S=00
+  File offset 016E00 -> Logical Sector 09 | Next Pointer: T=00, S=00
+  File offset 016F00 -> Logical Sector 10 | Next Pointer: T=00, S=00
+  File offset 017000 -> Logical Sector 11 | Next Pointer: T=00, S=00
+  File offset 017100 -> Logical Sector 12 | Next Pointer: T=00, S=00
+  File offset 017200 -> Logical Sector 13 | Next Pointer: T=00, S=00
+  File offset 017300 -> Logical Sector 14 | Next Pointer: T=00, S=00
+  File offset 017400 -> Logical Sector 15 | Next Pointer: T=00, S=00
+  File offset 017500 -> Logical Sector 16 | Next Pointer: T=00, S=00
+  File offset 017600 -> Logical Sector 17 | Next Pointer: T=00, S=00
+  File offset 017700 -> Logical Sector 18 | Next Pointer: T=00, S=00
+
+--- D64 Analysis of temp/Cauldron.d64 - Track 17 ---
+Sequential Logical Sectors as they appear in the file:
+  File offset 015000 -> Logical Sector 00 | Next Pointer: T=17, S=10
+  File offset 015100 -> Logical Sector 01 | Next Pointer: T=17, S=11
+  File offset 015200 -> Logical Sector 02 | Next Pointer: T=17, S=12
+  File offset 015300 -> Logical Sector 03 | Next Pointer: T=17, S=13
+  File offset 015400 -> Logical Sector 04 | Next Pointer: T=17, S=14
+  File offset 015500 -> Logical Sector 05 | Next Pointer: T=17, S=15
+  File offset 015600 -> Logical Sector 06 | Next Pointer: T=17, S=16
+  File offset 015700 -> Logical Sector 07 | Next Pointer: T=17, S=17
+  File offset 015800 -> Logical Sector 08 | Next Pointer: T=17, S=18
+  File offset 015900 -> Logical Sector 09 | Next Pointer: T=17, S=19
+  File offset 015A00 -> Logical Sector 10 | Next Pointer: T=17, S=20
+  File offset 015B00 -> Logical Sector 11 | Next Pointer: T=17, S=03
+  File offset 015C00 -> Logical Sector 12 | Next Pointer: T=17, S=01
+  File offset 015D00 -> Logical Sector 13 | Next Pointer: T=17, S=05
+  File offset 015E00 -> Logical Sector 14 | Next Pointer: T=17, S=02
+  File offset 015F00 -> Logical Sector 15 | Next Pointer: T=17, S=07
+  File offset 016000 -> Logical Sector 16 | Next Pointer: T=17, S=04
+  File offset 016100 -> Logical Sector 17 | Next Pointer: T=17, S=09
+  File offset 016200 -> Logical Sector 18 | Next Pointer: T=17, S=06
+  File offset 016300 -> Logical Sector 19 | Next Pointer: T=16, S=07
+  File offset 016400 -> Logical Sector 20 | Next Pointer: T=17, S=08
