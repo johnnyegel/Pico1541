@@ -379,10 +379,10 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                         write_ptr += 1;
                     }
                 }
-        while write_ptr < speed_zone_len && write_ptr < dest.len() {
-            dest[write_ptr] = 0x55;
-            write_ptr += 1;
-        }
+            }
+            while write_ptr < speed_zone_len && write_ptr < dest.len() {
+                dest[write_ptr] = 0x55;
+                write_ptr += 1;
             }
 
             log::info!("VirtualDiskImage: Returning StriddenWarp for track 1");
@@ -720,10 +720,10 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
                     write_ptr += 1;
                 }
             }
+        }
         while write_ptr < speed_zone_len && write_ptr < dest.len() {
             dest[write_ptr] = 0x55;
             write_ptr += 1;
-        }
         }
         let track_bytes = write_ptr;
         Ok((TrackLayout::Accurate, track_bytes))
