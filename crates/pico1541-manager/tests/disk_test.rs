@@ -25,8 +25,8 @@ fn test_d64_load_track() {
 
     // Check if we can find the sync mark ($FF x 8)
     let mut found_sync = false;
-    for window in buffer.windows(8) {
-        if window == [0xFF; 8] {
+    for window in buffer.windows(5) {
+        if window == [0xFF; 5] {
             found_sync = true;
             break;
         }

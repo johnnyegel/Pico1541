@@ -298,6 +298,12 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
         if track == 1 {
             // Track 1: Infinite File Track
             let sectors = 21;
+            let speed_zone_len: usize = 7692;
+            let base_sector_len = 10 + 10 + 9 + 10 + 325; // 364
+            let total_base_len = sectors as usize * base_sector_len;
+            let remaining_gap = speed_zone_len.saturating_sub(total_base_len);
+            let gap_per_sector = remaining_gap / sectors as usize;
+
             let mut write_ptr = 0;
 
             for _ in 0..40 {
@@ -312,8 +318,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
             }
 
             for physical_sector in 0..sectors {
-                let interleave = if track == 18 { 3 } else if sectors == 18 { 11 } else { 10 };
-                let sector = ((physical_sector * interleave) % sectors) as u8;
+                let sector = physical_sector as u8;
                 let sector_data = [0u8; 256];
 
                 if sector == 1 {
@@ -368,7 +373,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                         write_ptr += 5;
                     }
                 }
-                for _ in 0..16 {
+                for _ in 0..gap_per_sector {
                     if write_ptr < dest.len() {
                         dest[write_ptr] = 0x55;
                         write_ptr += 1;
@@ -377,7 +382,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
             }
 
             log::info!("VirtualDiskImage: Returning StriddenWarp for track 1");
-            return Ok((TrackLayout::Warped(372), 10000));
+            return Ok((TrackLayout::Warped(366), 10000));
         }
 
         // FIXME! Why is this needed?
