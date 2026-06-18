@@ -150,12 +150,10 @@ impl DriveMechanics {
             via2.ca1_irq();
 
             // Trigger SO pulse (stay active for 1 cycle to ensure CPU sees it)
-            // 1541-II hardware uses CA2=HIGH to ENABLE SO signals.
-            let is_so_enabled = via2.get_ca2_out().unwrap_or(false);
-            if is_so_enabled {
-                self.so_pulse_cycles = 3; // 3 CPU cycles
-                hardware.debug_pin_1(true);
-            }
+            // Original 1541 hardware does not gate SO with CA2. 
+            // Only 1541-II gates SO with CA2, which breaks many older fast loaders.
+            self.so_pulse_cycles = 3; // 3 CPU cycles
+            hardware.debug_pin_1(true);
         }   
     }
 
