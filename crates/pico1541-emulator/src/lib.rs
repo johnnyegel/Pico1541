@@ -105,6 +105,7 @@ impl<H: HostInterface> Emulator<H> {
                 via2_pb: self.memory.via2.in_b,
                 pcr1: self.memory.via1.pcr,
                 pcr2: self.memory.via2.pcr,
+                pc: self.cpu.pc,
             });
         }
         
