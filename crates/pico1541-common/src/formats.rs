@@ -393,6 +393,12 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
         if half_track == 34 || half_track == 35 {
             // Track 18: Generate BAM and initial directory sectors
             let sectors = 19;
+            let speed_zone_len: usize = 7142;
+            let base_sector_len = 5 + 10 + 9 + 5 + 325;
+            let total_base_len = sectors as usize * base_sector_len;
+            let remaining_gap = speed_zone_len.saturating_sub(total_base_len);
+            let gap_per_sector = remaining_gap / sectors as usize;
+
             let mut write_ptr = 0;
 
             for _ in 0..40 {
@@ -506,12 +512,16 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                         write_ptr += 5;
                     }
                 }
-                for _ in 0..16 {
+                for _ in 0..gap_per_sector {
                     if write_ptr < dest.len() {
                         dest[write_ptr] = 0x55;
                         write_ptr += 1;
                     }
                 }
+            }
+            while write_ptr < speed_zone_len && write_ptr < dest.len() {
+                dest[write_ptr] = 0x55;
+                write_ptr += 1;
             }
 
             self.source.rewind();
@@ -521,6 +531,11 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
 
         // Generate Skeleton Track for other tracks
         let sectors = sectors_per_track(track);
+        let speed_zone_len: usize = if track <= 17 { 7692 } else if track <= 24 { 7142 } else if track <= 30 { 6666 } else { 6250 };
+        let base_sector_len = 5 + 10 + 9 + 5 + 325;
+        let total_base_len = sectors as usize * base_sector_len;
+        let remaining_gap = speed_zone_len.saturating_sub(total_base_len);
+        let gap_per_sector = remaining_gap / sectors as usize;
 
         let mut write_ptr = 0;
         // Lead-in
@@ -577,12 +592,16 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                 }
             }
             // Inter-sector gap
-            for _ in 0..16 {
+            for _ in 0..gap_per_sector {
                 if write_ptr < dest.len() {
                     dest[write_ptr] = 0x55;
                     write_ptr += 1;
                 }
             }
+        }
+        while write_ptr < speed_zone_len && write_ptr < dest.len() {
+            dest[write_ptr] = 0x55;
+            write_ptr += 1;
         }
 
         let track_bytes = write_ptr;

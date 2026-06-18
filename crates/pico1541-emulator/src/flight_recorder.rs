@@ -15,8 +15,15 @@ pub struct FlightRecorder {
 
 impl FlightRecorder {
     pub fn record(&mut self, record: FlightRecord) {
-        self.buffer[self.index] = record;
-        self.index = (self.index + 1) % 512;
+        unsafe {
+            let prev_idx = if self.index == 0 { 511 } else { self.index - 1 };
+            let prev = core::ptr::read_volatile(self.buffer.as_ptr().add(prev_idx));
+            
+            if prev.via1_pb != record.via1_pb || prev.via2_pb != record.via2_pb || prev.pcr1 != record.pcr1 || prev.pcr2 != record.pcr2 || record.event_type != 0 {
+                core::ptr::write_volatile(self.buffer.as_mut_ptr().add(self.index), record);
+                core::ptr::write_volatile(&mut self.index, (self.index + 1) % 512);
+            }
+        }
     }
 }
 
