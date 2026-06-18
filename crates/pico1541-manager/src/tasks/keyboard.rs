@@ -1,28 +1,81 @@
 use crate::driver::InputDriver;
-use crate::KEYBOARD_CHANNEL;
-use crate::tasks::button::ButtonManager;
-use embassy_time::{Duration, Timer};
+use crate::{Button, ButtonEvent, KEYBOARD_CHANNEL};
+use embassy_time::{Duration, Timer, with_timeout};
 
 pub struct KeyboardTask<I: InputDriver> {
     input: I,
-    manager: ButtonManager,
 }
 
 impl<I: InputDriver> KeyboardTask<I> {
     pub fn new(input: I) -> Self {
-        Self {
-            input,
-            manager: ButtonManager::new(),
-        }
+        Self { input }
     }
 
     pub async fn run(&mut self) -> ! {
+        let mut current_state = 0;
+        let mut hold_time = Duration::from_millis(300);
+        
         loop {
-            let current_state = self.input.scan();
-            self.manager.update(current_state, |event| {
-                let _ = KEYBOARD_CHANNEL.try_send(event);
-            });
-            Timer::after(Duration::from_millis(10)).await;
+            let timeout_occurred = if current_state == 0 {
+                // No buttons pressed, wait indefinitely (avoids Duration::MAX overflow!)
+                self.input.wait_for_change().await;
+                false
+            } else {
+                // Button(s) pressed, wait with timeout to trigger Hold events
+                let result = with_timeout(
+                    hold_time, 
+                    self.input.wait_for_change()
+                ).await;
+                result.is_err()
+            };
+            
+            if timeout_occurred {
+                // Timeout occurred! Button(s) are being held.
+                for i in 0..4 {
+                    if (current_state >> i) & 1 == 1 {
+                        let button = match i {
+                            0 => Button::Back,
+                            1 => Button::Down,
+                            2 => Button::Select,
+                            3 => Button::Up,
+                            _ => unreachable!(),
+                        };
+                        let _ = KEYBOARD_CHANNEL.try_send(ButtonEvent::Hold(button));
+                    }
+                }
+                hold_time = Duration::from_millis(30); // Repeat hold timer
+            } else {
+                // IRQ fired! A hardware state change occurred.
+                Timer::after(Duration::from_millis(15)).await; // debounce
+                let new_state = self.input.scan();
+                
+                if new_state == current_state {
+                    continue; // just bounce noise, ignore
+                }
+                
+                let changes = current_state ^ new_state;
+                for i in 0..4 {
+                    if (changes >> i) & 1 == 1 {
+                        let button = match i {
+                            0 => Button::Back,
+                            1 => Button::Down,
+                            2 => Button::Select,
+                            3 => Button::Up,
+                            _ => unreachable!(),
+                        };
+                        if (new_state >> i) & 1 == 1 {
+                            let _ = KEYBOARD_CHANNEL.try_send(ButtonEvent::Pressed(button));
+                        } else {
+                            let _ = KEYBOARD_CHANNEL.try_send(ButtonEvent::Released(button));
+                        }
+                    }
+                }
+                
+                current_state = new_state;
+                if current_state != 0 {
+                    hold_time = Duration::from_millis(300); // Start initial hold timer
+                }
+            }
         }
     }
 }
