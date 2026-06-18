@@ -770,7 +770,8 @@ impl<S: Read + Seek> G64Image<S> {
                 ptr_bytes[i * 4 + 3],
             ]);
             if offset != 0 {
-                lookup_table.offsets[i] = Some(offset);
+                // G64 track pointer 0 corresponds to Track 1.0 (half-track 2)
+                lookup_table.offsets[i + 2] = Some(offset);
             }
         }
         
