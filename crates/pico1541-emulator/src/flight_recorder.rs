@@ -1,3 +1,4 @@
+#[repr(C)]
 #[derive(Clone, Copy)]
 pub struct FlightRecord {
     pub cycle: u32,
