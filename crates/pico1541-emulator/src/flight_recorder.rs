@@ -20,7 +20,4 @@ impl FlightRecorder {
     }
 }
 
-pub static mut FLIGHT_RECORDER: FlightRecorder = FlightRecorder {
-    buffer: [FlightRecord { cycle: 0, event_type: 0, via1_pb: 0, via2_pb: 0, pcr1: 0, pcr2: 0 }; 512],
-    index: 0,
-};
+pub static mut FLIGHT_RECORDER: core::mem::MaybeUninit<FlightRecorder> = core::mem::MaybeUninit::uninit();

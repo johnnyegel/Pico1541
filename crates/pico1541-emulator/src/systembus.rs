@@ -139,7 +139,7 @@ pub struct SystemBus<H: HostInterface> {
     }
 
     #[link_section = ".data.ram_func"]
-    #[inline(always)]
+    #[inline]
     pub fn tick_cycles(&mut self, hardware: &mut H, delta: u32) {
         if delta == 0 { return; }
 
@@ -231,7 +231,7 @@ impl<H: HostInterface> racc6502v3::Bus for SystemBus<H> {
 
 impl<H: HostInterface> SystemBus<H> {
     #[link_section = ".data.ram_func"]
-    #[inline(always)]
+    #[inline]
     pub fn catch_up(&mut self, current_cycle: u32, hw: &mut H) {
         let delta = current_cycle.wrapping_sub(self.last_cycle);
         if delta > 0 {
@@ -244,7 +244,7 @@ impl<H: HostInterface> SystemBus<H> {
     }
 
     #[link_section = ".data.ram_func"]
-    #[inline(always)]
+    #[inline]
     pub fn read_with_cycle(&mut self, addr: u16, cycle: u32, hw: &mut H) -> u8 {
         if addr >= 0x8000 {
             return unsafe { *self.rom.get_unchecked((addr & 0x3FFF) as usize) };
@@ -261,7 +261,7 @@ impl<H: HostInterface> SystemBus<H> {
     }
 
     #[link_section = ".data.ram_func"]
-    #[inline(always)]
+    #[inline]
     pub fn write_with_cycle(&mut self, addr: u16, value: u8, cycle: u32, ctx: &mut H) {
         if addr < 0x1800 {
             unsafe { *self.ram.get_unchecked_mut((addr as usize) & (RAM_SIZE - 1)) = value };
