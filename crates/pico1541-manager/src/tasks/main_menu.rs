@@ -969,11 +969,11 @@ where
             }
             self.display.print(1, &s_speed).await;
 
-            // core0_avg_raw now stores the total busy SYST cycles for the last second.
-            // 250,000,000 SYST cycles = 100% load (since 250MHz sys clock)
-            let c0_load = ((c0_avg as u64 * 100) / 250_000_000) as u32;
+            // core0_avg_raw now stores the MAX busy SYST cycles over any 20ms window (within a 500ms update window).
+            // 5,000,000 SYST cycles = 100% load for a 20ms window at 250MHz sys clock
+            let c0_load = ((c0_avg as u64 * 100) / 5_000_000) as u32;
             let mut s_c0 = String::<32>::new();
-            let _ = core::fmt::write(&mut s_c0, format_args!("Emu load: {}%", c0_load));
+            let _ = core::fmt::write(&mut s_c0, format_args!("Emu max : {}%", c0_load));
             self.display.print(2, &s_c0).await;
 
             let c1_load = if c1_max > 0 {

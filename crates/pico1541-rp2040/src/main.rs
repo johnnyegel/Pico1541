@@ -1017,7 +1017,9 @@ fn emulator_loop(drive: &'static mut Emulator<HardwareBridge>, mut bridge: Hardw
     let mut last_perf_update = last_tick;
     let mut was_reset = false;
 
-    let mut cpu_cycles_acc = 0u64;
+    let mut cpu_cycles_sub = 0u64;
+    let mut max_cpu_cycles_sub = 0u64;
+    let mut last_sub_update = last_tick;
 
     loop {
         let now = timer.timelr().read();
@@ -1038,7 +1040,7 @@ fn emulator_loop(drive: &'static mut Emulator<HardwareBridge>, mut bridge: Hardw
         let is_reset = bridge._pins.reset_rx.is_high();
 
         let t1_while = cortex_m::peripheral::SYST::get_current();
-        while (now.wrapping_sub(last_tick) as i32) > 0 && caught_up < 100 {
+        while (now.wrapping_sub(last_tick) as i32) > 0 && caught_up < 500 {
             if is_reset {
                 last_tick = last_tick.wrapping_add(1);
                 cycle_counter += 1;
@@ -1062,17 +1064,30 @@ fn emulator_loop(drive: &'static mut Emulator<HardwareBridge>, mut bridge: Hardw
             caught_up += 1;
         }
         let t2_while = cortex_m::peripheral::SYST::get_current();
-        cpu_cycles_acc += (t1_while.wrapping_sub(t2_while) & 0x00FFFFFF) as u64;
+        
+        let diff = (t1_while.wrapping_sub(t2_while) & 0x00FFFFFF) as u64;
+        cpu_cycles_sub += diff;
 
-        // Update performance metrics every second
-        if now.wrapping_sub(last_perf_update) >= 1_000_000 {
+        // Update max load over 20ms sub-windows
+        if now.wrapping_sub(last_sub_update) >= 20_000 {
+            if cpu_cycles_sub > max_cpu_cycles_sub {
+                max_cpu_cycles_sub = cpu_cycles_sub;
+            }
+            cpu_cycles_sub = 0;
+            last_sub_update = now;
+        }
+
+        // Update performance metrics every 500ms
+        if now.wrapping_sub(last_perf_update) >= 500_000 {
             let config = bridge.config;
             
-            config.emu_speed_hz.store(cycle_counter, Ordering::Relaxed);
-            // Store the total busy SYST cycles for this second instead of average
-            config.core0_avg_raw.store(cpu_cycles_acc as u32, Ordering::Relaxed);
+            // Multiply by 2 because our window is half a second
+            config.emu_speed_hz.store(cycle_counter * 2, Ordering::Relaxed);
+            
+            // Store the max busy SYST cycles over any 20ms period
+            config.core0_avg_raw.store(max_cpu_cycles_sub as u32, Ordering::Relaxed);
 
-            cpu_cycles_acc = 0;
+            max_cpu_cycles_sub = 0;
 
             // We no longer auto-calibrate max_raw upwards here, 
             // because the baseline idle was calculated accurately at startup.

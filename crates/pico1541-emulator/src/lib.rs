@@ -96,6 +96,8 @@ impl<H: HostInterface> Emulator<H> {
             self.memory.so_pulsed = false;
         }
         
+        /* 
+        // Disabled to improve emulation performance (crucial for fastloaders)
         unsafe {
             let ptr = core::ptr::addr_of_mut!(crate::flight_recorder::FLIGHT_RECORDER) as *mut crate::flight_recorder::FlightRecorder;
             (*ptr).record(crate::flight_recorder::FlightRecord {
@@ -108,6 +110,7 @@ impl<H: HostInterface> Emulator<H> {
                 pc: self.cpu.pc,
             });
         }
+        */
         
         self.cycles = self.cpu.cycles;
         elapsed as u32
