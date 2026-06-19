@@ -119,18 +119,29 @@ impl DriveMechanics {
         let is_so_enabled = via2.get_ca2_out().unwrap_or(false);
         let is_reading = is_read_mode && is_so_enabled;
 
+        let mut suppress_ca1 = false;
+
         // :? Is Read mode enabled?
         if is_read_mode {
             let gcr_byte = self.track_handle.next_read_byte(self.halftrack_head_pos as u8, requested_sector, is_reading);
             let next_gcr_byte = self.track_handle.peek_next_byte();
 
             // SYNC signal is Active LOW (0 = SYNC found, 1 = No SYNC)
-            // A valid SYNC mark in G64 must be at least 10 ones, so an isolated 0xFF is data!
-            if gcr_byte == BYTE_SYNC && (self.last_gcr_byte == BYTE_SYNC || next_gcr_byte == BYTE_SYNC) {
+            if gcr_byte == BYTE_SYNC && next_gcr_byte == BYTE_SYNC {
+                // Starting or continuing SYNC mark
                 via2.in_b &= !MASK_SYNC; // Assert SYNC (Pull PB7 Low)
                 hardware.debug_pin_0(true);
-            } else {
+                suppress_ca1 = true;
+            } else if gcr_byte == BYTE_SYNC && (via2.in_b & MASK_SYNC) == 0 {
+                // We are at the end of the SYNC mark. The next byte is data.
+                // Release SYNC immediately (matching the first 0 bit), but suppress CA1 
+                // because this byte was part of the sync and the shifter was held.
                 via2.in_b |= MASK_SYNC;  // Release SYNC (Let PB7 float High)
+                hardware.debug_pin_0(false);
+                suppress_ca1 = true;
+            } else {
+                // Normal data or isolated 0xFF read error
+                via2.in_b |= MASK_SYNC;  // Ensure released
                 hardware.debug_pin_0(false);
             }
 
@@ -146,7 +157,7 @@ impl DriveMechanics {
         // On real 1541 hardware, the bit-shifter is held while SYNC is asserted,
         // so no Byte Ready pulses are generated during SYNC.
         let sync_active = (via2.in_b & MASK_SYNC) == 0;
-        if !sync_active {
+        if !sync_active && !suppress_ca1 {
             // Signal CA1 on every byte ready
             via2.ca1_irq();
 
