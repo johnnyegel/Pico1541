@@ -152,7 +152,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                     }
                 }
             } else {
-                self.track_handle.set_active_layout(TrackLayout::Void);
+                self.track_handle.commit_loaded_track(target_ht, TrackLayout::Void, 0);
                 break;
             }
         }
