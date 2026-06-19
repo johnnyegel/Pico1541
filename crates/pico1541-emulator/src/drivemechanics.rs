@@ -122,16 +122,17 @@ impl DriveMechanics {
         // :? Is Read mode enabled?
         if is_read_mode {
             let gcr_byte = self.track_handle.next_read_byte(self.halftrack_head_pos as u8, requested_sector, is_reading);
+            let next_gcr_byte = self.track_handle.peek_next_byte();
 
             // SYNC signal is Active LOW (0 = SYNC found, 1 = No SYNC)
             // A valid SYNC mark in G64 must be at least 10 ones, so an isolated 0xFF is data!
-            if gcr_byte == BYTE_SYNC && self.last_gcr_byte == BYTE_SYNC {
+            if gcr_byte == BYTE_SYNC && (self.last_gcr_byte == BYTE_SYNC || next_gcr_byte == BYTE_SYNC) {
                 via2.in_b &= !MASK_SYNC; // Assert SYNC (Pull PB7 Low)
                 hardware.debug_pin_0(true);
             } else {
                 via2.in_b |= MASK_SYNC;  // Release SYNC (Let PB7 float High)
                 hardware.debug_pin_0(false);
-            }                
+            }
 
             self.last_gcr_byte = gcr_byte;
             via2.in_a = gcr_byte;

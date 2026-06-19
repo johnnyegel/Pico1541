@@ -801,11 +801,68 @@ impl<S: Read + Seek> DiskImage for G64Image<S> {
         if track_len > dest.len() {
             return Err(Error::TrackTooLarge);
         }
-        self.storage
-            .read_exact(&mut dest[0..track_len])
-            .await
-            .map_err(|_| Error::Io)?;
-        Ok((TrackLayout::Accurate, track_len))
+        // Zero out dest buffer first
+        for b in dest.iter_mut() {
+            *b = 0;
+        }
+
+        let mut dest_bit_idx = 0;
+        let mut sync_len = 0;
+        let mut remaining = track_len;
+        let mut chunk = [0u8; 256];
+        
+        while remaining > 0 {
+            let to_read = remaining.min(256);
+            self.storage.read_exact(&mut chunk[..to_read]).await.map_err(|_| Error::Io)?;
+            
+            for &byte in &chunk[..to_read] {
+                for i in (0..8).rev() {
+                    let bit = (byte >> i) & 1;
+                    if bit == 1 {
+                        sync_len += 1;
+                        if dest_bit_idx / 8 < dest.len() {
+                            dest[dest_bit_idx / 8] |= 1 << (7 - (dest_bit_idx % 8));
+                            dest_bit_idx += 1;
+                        }
+                    } else {
+                        if sync_len >= 10 {
+                            // Pad to byte boundary
+                            while dest_bit_idx % 8 != 0 {
+                                if dest_bit_idx / 8 < dest.len() {
+                                    dest[dest_bit_idx / 8] |= 1 << (7 - (dest_bit_idx % 8));
+                                    dest_bit_idx += 1;
+                                }
+                                sync_len += 1;
+                            }
+                            // Guarantee at least two full 0xFF bytes (16 aligned ones)
+                            // We pad until sync_len >= 24 to ensure Emulator sees it reliably.
+                            while sync_len < 24 {
+                                for _ in 0..8 {
+                                    if dest_bit_idx / 8 < dest.len() {
+                                        dest[dest_bit_idx / 8] |= 1 << (7 - (dest_bit_idx % 8));
+                                        dest_bit_idx += 1;
+                                    }
+                                }
+                                sync_len += 8;
+                            }
+                        }
+                        sync_len = 0;
+                        if dest_bit_idx / 8 < dest.len() {
+                            // bit is 0, just advance index (buffer is already 0)
+                            dest_bit_idx += 1;
+                        }
+                    }
+                }
+            }
+            remaining -= to_read;
+        }
+
+        let mut out_bytes = (dest_bit_idx + 7) / 8;
+        if out_bytes > dest.len() {
+            out_bytes = dest.len();
+        }
+
+        Ok((TrackLayout::Accurate, out_bytes))
     }
 }
 
