@@ -359,7 +359,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                 // Set force disk change flag
                                 self.track_handle.set_force_disk_change(true);
 
-                                let half_track = self.track_handle.get_active_half_track();
+                                let half_track = self.track_handle.get_head_half_track();
                                 
                                 // Initialize Virtual Directory if applicable before reading track
                                 let mut is_virtual_disk = false;
@@ -558,7 +558,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
 
                             let needs_regeneration = self.track_handle.get_active_layout() == TrackLayout::Void;
                             if needs_regeneration {
-                                let half_track = self.track_handle.get_active_half_track();
+                                let half_track = self.track_handle.get_head_half_track();
                                 let mut disk_opt = self.disk_image.lock().await;
                                 if let Some(disk) = disk_opt.as_mut() {
                                     let data = self.track_handle.start_track_load();

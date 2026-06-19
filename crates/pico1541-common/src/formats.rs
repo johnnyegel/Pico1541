@@ -676,11 +676,16 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
                 write_ptr += 1;
             }
         }
+        
+        let track_len = sectors as usize * 256;
+        let mut track_data = [0u8; 21 * 256];
+        self.read_sector_data(offset as u64, &mut track_data[..track_len]).await?;
+
         for logical_sector in 0..sectors {
             let mut sector_data = [0u8; 256];
             let sector = logical_sector;
-            
-            self.read_sector_data(offset as u64 + (sector as u64 * 256), &mut sector_data).await?;
+            let sector_offset = sector as usize * 256;
+            sector_data.copy_from_slice(&track_data[sector_offset..sector_offset + 256]);
                 
             if track == 18 && sector == 0 {
                 self.id[0] = sector_data[162];
@@ -808,14 +813,13 @@ impl<S: Read + Seek> DiskImage for G64Image<S> {
 
         let mut dest_bit_idx = 0;
         let mut sync_len = 0;
-        let mut remaining = track_len;
-        let mut chunk = [0u8; 256];
+        let mut track_data = [0u8; 8192];
+        if track_len > track_data.len() {
+            return Err(Error::TrackTooLarge);
+        }
+        self.storage.read_exact(&mut track_data[..track_len]).await.map_err(|_| Error::Io)?;
         
-        while remaining > 0 {
-            let to_read = remaining.min(256);
-            self.storage.read_exact(&mut chunk[..to_read]).await.map_err(|_| Error::Io)?;
-            
-            for &byte in &chunk[..to_read] {
+        for &byte in &track_data[..track_len] {
                 for i in (0..8).rev() {
                     let bit = (byte >> i) & 1;
                     if bit == 1 {
@@ -854,8 +858,6 @@ impl<S: Read + Seek> DiskImage for G64Image<S> {
                     }
                 }
             }
-            remaining -= to_read;
-        }
 
         let mut out_bytes = (dest_bit_idx + 7) / 8;
         if out_bytes > dest.len() {

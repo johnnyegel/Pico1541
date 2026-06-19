@@ -247,6 +247,7 @@ impl DriveMechanics {
                     .clamp(MIN_HALF_TRACK, MAX_HALF_TRACK);
 
             if self.halftrack_head_pos >= 0 && self.halftrack_head_pos <= MAX_HALF_TRACK {
+                self.track_handle.update_head_half_track(self.halftrack_head_pos as u8);
                 hardware.track_changed(self.halftrack_head_pos as u8);
             }
         }

@@ -103,12 +103,13 @@ impl<H: HostInterface> Emulator<H> {
             let ptr = core::ptr::addr_of_mut!(crate::flight_recorder::FLIGHT_RECORDER) as *mut crate::flight_recorder::FlightRecorder;
             (*ptr).record(crate::flight_recorder::FlightRecord {
                 cycle: self.cpu.cycles,
+                pc: self.cpu.pc as u32,
                 event_type: 0,
                 via1_pb: self.memory.via1.in_b,
                 via2_pb: self.memory.via2.in_b,
                 pcr1: self.memory.via1.pcr,
                 pcr2: self.memory.via2.pcr,
-                pc: self.cpu.pc,
+                _padding: [0; 3],
             });
         }
         

@@ -52,6 +52,7 @@ pub struct DualCoreTrackBuffer {
     pub is_write_protected: AtomicBool,
     pub force_disk_change: AtomicBool,
     pub current_byte_idx: core::sync::atomic::AtomicUsize,
+    pub current_head_half_track: core::sync::atomic::AtomicU8,
 }
 
 unsafe impl Sync for DualCoreTrackBuffer {}
@@ -65,6 +66,7 @@ impl DualCoreTrackBuffer {
             is_write_protected: AtomicBool::new(false),
             force_disk_change: AtomicBool::new(false),
             current_byte_idx: core::sync::atomic::AtomicUsize::new(0),
+            current_head_half_track: core::sync::atomic::AtomicU8::new(34),
         }
     }
 
@@ -91,6 +93,10 @@ pub struct ManagerHandle {
 }
 
 impl ManagerHandle {
+    pub fn get_head_half_track(&self) -> u8 {
+        self.core_buffer.current_head_half_track.load(Ordering::Relaxed)
+    }
+
     pub fn load_next_track<F>(&self, fill_buffer: F)
     where
         F: FnOnce(&mut [u8; TRACK_SIZE], &mut TrackLayout, &mut u8),
@@ -222,6 +228,10 @@ pub struct EmulatorHandle {
 }
 
 impl EmulatorHandle {
+    pub fn update_head_half_track(&self, ht: u8) {
+        self.core_buffer.current_head_half_track.store(ht, Ordering::Relaxed);
+    }
+
     pub fn is_write_protected(&self) -> bool {
         self.core_buffer.is_write_protected.load(Ordering::Acquire)
     }

@@ -46,11 +46,11 @@ def main():
     print(f"Found FLIGHT_RECORDER at address: 0x{addr:08X}")
     
     # Calculate sizes based on #[repr(C)]
-    # FlightRecord: cycle(u32: 4), event_type(u8: 1), via1(u8: 1), via2(u8: 1), pcr1(u8: 1), pcr2(u8: 1), pc(u16: 2), padding(1) = 12 bytes
-    # buffer: [FlightRecord; 512] = 512 * 12 = 6144 bytes
+    # FlightRecord: cycle(u32: 4), pc(u32: 4), event_type(u8: 1), via1(u8: 1), via2(u8: 1), pcr1(u8: 1), pcr2(u8: 1), _padding(3) = 16 bytes
+    # buffer: [FlightRecord; 512] = 512 * 16 = 8192 bytes
     # index: usize(4 bytes)
-    # Total size = 6148 bytes
-    total_size = 6148
+    # Total size = 8196 bytes
+    total_size = 8196
     
     print(f"Reading {total_size} bytes via probe-rs...")
     # probe-rs read b8 <ADDR> <WORDS> --output /tmp/fr.bin -f binary
@@ -74,22 +74,22 @@ def main():
     # Read the buffer
     records = []
     for i in range(512):
-        offset = i * 12
-        record_data = data[offset:offset+12]
-        # <I B B B B B H x
-        cycle, evt, v1, v2, pcr1, pcr2, pc = struct.unpack("<IBBBBBHx", record_data)
+        offset = i * 16
+        record_data = data[offset:offset+16]
+        # <I I B B B B B 3x
+        cycle, pc, evt, v1, v2, pcr1, pcr2 = struct.unpack("<IIBBBBB3x", record_data)
         records.append({
             "cycle": cycle,
+            "pc": pc,
             "event": evt,
             "via1": v1,
             "via2": v2,
             "pcr1": pcr1,
-            "pcr2": pcr2,
-            "pc": pc
+            "pcr2": pcr2
         })
         
     # Read the index
-    index_data = data[6144:6148]
+    index_data = data[8192:8196]
     current_index = struct.unpack("<I", index_data)[0]
     
     print(f"\n--- FLIGHT RECORDER DUMP (Current Index: {current_index}) ---\n")

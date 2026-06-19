@@ -2,12 +2,13 @@
 #[derive(Clone, Copy)]
 pub struct FlightRecord {
     pub cycle: u32,
+    pub pc: u32,
     pub event_type: u8,
     pub via1_pb: u8,
     pub via2_pb: u8,
     pub pcr1: u8,
     pub pcr2: u8,
-    pub pc: u16,
+    pub _padding: [u8; 3],
 }
 
 pub struct FlightRecorder {
