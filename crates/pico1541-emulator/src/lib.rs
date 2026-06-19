@@ -25,6 +25,7 @@ macro_rules! emu_warn { ($($arg:tt)*) => { log::warn!($($arg)*) } }
 macro_rules! emu_debug { ($($arg:tt)*) => { log::debug!($($arg)*) } }
 
 pub mod drivemechanics;
+#[cfg(feature = "flight-recorder")]
 pub mod flight_recorder;
 pub mod hle;
 pub mod systembus;
@@ -97,6 +98,7 @@ impl<H: HostInterface> Emulator<H> {
         }
         
         // Flight recorder re-enabled, optimized to waste minimal cycles
+        #[cfg(feature = "flight-recorder")]
         unsafe {
             let ptr = core::ptr::addr_of_mut!(crate::flight_recorder::FLIGHT_RECORDER) as *mut crate::flight_recorder::FlightRecorder;
             (*ptr).record(crate::flight_recorder::FlightRecord {
