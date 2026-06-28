@@ -14,11 +14,24 @@ pub trait MagneticSurface {
 pub struct SoftwareMagneticSurface {
     pub track_handle: EmulatorHandle,
     is_sync: bool,
+    bit_shift_reg: u8,
+    bits_in_reg: u8,
+    sync_counter: u8,
+    pending_bits: u16,
+    pending_bit_count: u8,
 }
 
 impl SoftwareMagneticSurface {
     pub fn new(track_handle: EmulatorHandle) -> Self {
-        Self { track_handle, is_sync: false }
+        Self { 
+            track_handle, 
+            is_sync: false,
+            bit_shift_reg: 0,
+            bits_in_reg: 0,
+            sync_counter: 0,
+            pending_bits: 0,
+            pending_bit_count: 0,
+        }
     }
 }
 
@@ -28,21 +41,47 @@ impl MagneticSurface for SoftwareMagneticSurface {
     }
 
     fn try_read_byte(&mut self) -> Option<u8> {
-        // Provide a dummy sector for now, as is_listening is the crucial part for bit-shifting.
-        // We assume try_read_byte is called when reading is active.
         let expected_track_id = self.track_handle.get_head_half_track();
-        let gcr_byte = self.track_handle.next_read_byte(expected_track_id, 0xFF, true);
-        let next_gcr_byte = self.track_handle.peek_next_byte();
         
-        // SYNC is 0xFF. If we see two in a row, we are in SYNC.
-        if gcr_byte == 0xFF && next_gcr_byte == 0xFF {
-            self.is_sync = true;
-        } else if gcr_byte != 0xFF && self.is_sync {
-            // End of SYNC mark.
-            self.is_sync = false;
+        for _ in 0..8 {
+            if self.pending_bit_count == 0 {
+                let byte = self.track_handle.next_read_byte(expected_track_id, 0xFF, true);
+                self.pending_bits = byte as u16;
+                self.pending_bit_count = 8;
+            }
+            
+            self.pending_bit_count -= 1;
+            let bit = ((self.pending_bits >> self.pending_bit_count) & 1) as u8;
+            
+            if bit == 1 {
+                self.sync_counter += 1;
+            } else {
+                self.sync_counter = 0;
+            }
+            
+            if self.sync_counter >= 10 {
+                self.is_sync = true;
+                self.bits_in_reg = 0;
+            } else {
+                if self.is_sync && bit == 0 {
+                    self.is_sync = false;
+                    self.bits_in_reg = 0;
+                }
+                
+                if !self.is_sync {
+                    self.bit_shift_reg = (self.bit_shift_reg << 1) | bit;
+                    self.bits_in_reg += 1;
+                }
+            }
         }
         
-        Some(gcr_byte)
+        if self.bits_in_reg >= 8 {
+            let output = self.bit_shift_reg;
+            self.bits_in_reg -= 8;
+            Some(output)
+        } else {
+            None
+        }
     }
 
     fn get_absolute_head_position(&self, _master_clock: u32) -> u32 {
@@ -81,40 +120,27 @@ mod tests {
         let (manager, emulator) = dual_buffer.split();
 
         let active_buf = manager.start_track_modification();
-        active_buf[0] = 0xFF;
-        active_buf[1] = 0xFF;
-        active_buf[2] = 0xFF;
-        active_buf[3] = 0x55;
-        active_buf[4] = 0xFF;
-        active_buf[5] = 0x55;
-        manager.commit_loaded_track(0, crate::track_buffer::TrackLayout::Accurate, 6);
+        // Misaligned SYNC test: 0x7F, 0xFF, 0xFE
+        active_buf[0] = 0x7F; // 01111111 (7 ones)
+        active_buf[1] = 0xFF; // 11111111 (8 ones) -> 15 ones total
+        active_buf[2] = 0xFE; // 11111110 (7 ones, then a 0)
+        active_buf[3] = 0x55; // 01010101
+        active_buf[4] = 0x55;
+        manager.commit_loaded_track(0, crate::track_buffer::TrackLayout::Accurate, 5);
 
         let mut surface = SoftwareMagneticSurface::new(emulator);
-        
         surface.start_reading(0, 0);
         
-        let b0 = surface.try_read_byte().unwrap();
-        assert_eq!(b0, 0xFF);
+        let out0 = surface.try_read_byte(); 
+        assert_eq!(out0, Some(0x7F)); // The first byte is pushed normally
+
+        let out1 = surface.try_read_byte();
+        assert_eq!(out1, None); // We hit 10 ones, entered SYNC, no output
+
         assert_eq!(surface.is_sync_active(), true);
 
-        let b1 = surface.try_read_byte().unwrap();
-        assert_eq!(b1, 0xFF);
-        assert_eq!(surface.is_sync_active(), true);
-
-        let b2 = surface.try_read_byte().unwrap();
-        assert_eq!(b2, 0xFF);
-        assert_eq!(surface.is_sync_active(), true);
-
-        let b3 = surface.try_read_byte().unwrap();
-        assert_eq!(b3, 0x55);
+        let out2 = surface.try_read_byte(); // Reading 0xFE. At the end, hits 0, exits sync!
         assert_eq!(surface.is_sync_active(), false);
-
-        let b4 = surface.try_read_byte().unwrap();
-        assert_eq!(b4, 0xFF);
-        assert_eq!(surface.is_sync_active(), false);
-        
-        let b5 = surface.try_read_byte().unwrap();
-        assert_eq!(b5, 0x55);
-        assert_eq!(surface.is_sync_active(), false);
+        assert_eq!(out2, None); // The 0 is shifted in, but we don't have 8 bits yet.
     }
 }

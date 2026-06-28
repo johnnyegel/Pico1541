@@ -89,7 +89,6 @@ impl MagneticSurface for PioMagneticSurface {
             let irq_val = pio.irq().read().irq();
             if (irq_val & 1) != 0 {
                 self.is_sync.store(true, Ordering::Release);
-                pio.irq().write(|w| w.set_irq(1));
             } else {
                 self.is_sync.store(false, Ordering::Release);
             }

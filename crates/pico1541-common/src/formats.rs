@@ -811,60 +811,14 @@ impl<S: Read + Seek> DiskImage for G64Image<S> {
             *b = 0;
         }
 
-        let mut dest_bit_idx = 0;
-        let mut sync_len = 0;
         let mut track_data = [0u8; 8192];
         if track_len > track_data.len() {
             return Err(Error::TrackTooLarge);
         }
         self.storage.read_exact(&mut track_data[..track_len]).await.map_err(|_| Error::Io)?;
-        
-        for &byte in &track_data[..track_len] {
-                for i in (0..8).rev() {
-                    let bit = (byte >> i) & 1;
-                    if bit == 1 {
-                        sync_len += 1;
-                        if dest_bit_idx / 8 < dest.len() {
-                            dest[dest_bit_idx / 8] |= 1 << (7 - (dest_bit_idx % 8));
-                            dest_bit_idx += 1;
-                        }
-                    } else {
-                        if sync_len >= 10 {
-                            // Pad to byte boundary
-                            while dest_bit_idx % 8 != 0 {
-                                if dest_bit_idx / 8 < dest.len() {
-                                    dest[dest_bit_idx / 8] |= 1 << (7 - (dest_bit_idx % 8));
-                                    dest_bit_idx += 1;
-                                }
-                                sync_len += 1;
-                            }
-                            // Guarantee at least two full 0xFF bytes (16 aligned ones)
-                            // We pad until sync_len >= 24 to ensure Emulator sees it reliably.
-                            while sync_len < 24 {
-                                for _ in 0..8 {
-                                    if dest_bit_idx / 8 < dest.len() {
-                                        dest[dest_bit_idx / 8] |= 1 << (7 - (dest_bit_idx % 8));
-                                        dest_bit_idx += 1;
-                                    }
-                                }
-                                sync_len += 8;
-                            }
-                        }
-                        sync_len = 0;
-                        if dest_bit_idx / 8 < dest.len() {
-                            // bit is 0, just advance index (buffer is already 0)
-                            dest_bit_idx += 1;
-                        }
-                    }
-                }
-            }
+        dest[..track_len].copy_from_slice(&track_data[..track_len]);
 
-        let mut out_bytes = (dest_bit_idx + 7) / 8;
-        if out_bytes > dest.len() {
-            out_bytes = dest.len();
-        }
-
-        Ok((TrackLayout::Accurate, out_bytes))
+        Ok((TrackLayout::Accurate, track_len))
     }
 }
 

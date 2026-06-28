@@ -1430,6 +1430,8 @@ dependencies = [
  "pico1541-common",
  "pico1541-emulator",
  "pico1541-manager",
+ "pio",
+ "pio-proc",
  "portable-atomic",
  "rp-pac",
  "rp2040-boot2",
