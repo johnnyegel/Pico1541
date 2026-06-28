@@ -84,7 +84,7 @@ impl MagneticSurface for PioMagneticSurface {
         let pio = pac::PIO0;
         let fstat = pio.fstat().read();
         
-        if fstat.rxempty() == 0 {
+        if (fstat.rxempty() & 1) == 0 {
             let data = pio.rxf(0).read() as u8;
             
             let irq_val = pio.irq().read().irq();
