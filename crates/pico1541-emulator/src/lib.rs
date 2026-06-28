@@ -32,6 +32,7 @@ pub mod systembus;
 pub mod via6522;
 
 use pico1541_common::interface::HostInterface;
+use pico1541_common::magnetic_surface::MagneticSurface;
 use racc6502v3::CPU;
 use systembus::SystemBus;
 
@@ -47,15 +48,15 @@ pub trait MemoryMonitor {
 /// `Emulator` holds only the CPU registers and the memory bus (RAM, ROM, VIAs).
 /// The `HostInterface` implementation is **not** stored here — callers own it
 /// and pass it as `&mut H` to every [`tick`](Self::tick) / [`step`](Self::step) call.
-pub struct Emulator<H: HostInterface> {
+pub struct Emulator<H: HostInterface, S: MagneticSurface> {
     pub cpu: CPU,
-    pub memory: SystemBus<H>,
+    pub memory: SystemBus<H, S>,
     pub cycles: u32,
 }
 
-impl<H: HostInterface> Emulator<H> {
-    pub fn new(rom: &'static [u8; 16384], device_id: u8, track_handle: pico1541_common::track_buffer::EmulatorHandle) -> Self {
-        let bus = SystemBus::new(rom, device_id, track_handle);
+impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
+    pub fn new(rom: &'static [u8; 16384], device_id: u8, surface: S) -> Self {
+        let bus = SystemBus::new(rom, device_id, surface);
         Self {
             cpu: CPU::new(),
             memory: bus,
@@ -147,12 +148,12 @@ impl<H: HostInterface> Emulator<H> {
     }
 
     /// Direct access to the internal memory bus (e.g. for inspection or peek/poke).
-    pub fn bus(&self) -> &SystemBus<H> {
+    pub fn bus(&self) -> &SystemBus<H, S> {
         &self.memory
     }
 
     /// Mutable access to the internal memory bus.
-    pub fn bus_mut(&mut self) -> &mut SystemBus<H> {
+    pub fn bus_mut(&mut self) -> &mut SystemBus<H, S> {
         &mut self.memory
     }
 }

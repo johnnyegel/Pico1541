@@ -3,6 +3,7 @@ use crate::via6522::Via6522;
 #[cfg(feature = "debug")]
 use crate::MemoryMonitor;
 use pico1541_common::interface::{HostInterface, IecBusState};
+use pico1541_common::magnetic_surface::MagneticSurface;
 use core::marker::PhantomData;
 
 const RAM_SIZE: usize = 0x0800; // 2KB
@@ -14,12 +15,12 @@ const ROM_SIZE: usize = 0x4000; // 16KB
 /// site.  No instance of `H` is stored here — it is passed into every
 /// `read` / `write` call via the `Bus::Ctx` mechanism and forwarded to
 /// `tick_cycle`.
-pub struct SystemBus<H: HostInterface> {
+pub struct SystemBus<H: HostInterface, S: MagneticSurface> {
     pub ram: [u8; RAM_SIZE],
     rom: &'static [u8; ROM_SIZE],
     pub via1: Via6522,
     pub via2: Via6522,
-    pub mechanics: DriveMechanics,
+    pub mechanics: DriveMechanics<S>,
     pub so_active: bool,
     pub device_id: u8,
     cycle_counter: u32,
@@ -33,8 +34,8 @@ pub struct SystemBus<H: HostInterface> {
     _phantom: PhantomData<H>,
 }
 
-    impl<H: HostInterface> SystemBus<H> {
-    pub fn new(rom: &'static [u8; ROM_SIZE], device_id: u8, track_handle: pico1541_common::track_buffer::EmulatorHandle) -> Self {
+impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
+    pub fn new(rom: &'static [u8; ROM_SIZE], device_id: u8, surface: S) -> Self {
         // :: Intialize VIA1
         let via1 = Via6522::new();
 
@@ -43,7 +44,7 @@ pub struct SystemBus<H: HostInterface> {
             rom,
             via1,
             via2: Via6522::new(),
-            mechanics: DriveMechanics::new(track_handle),
+            mechanics: DriveMechanics::new(surface),
             so_active: false,
             device_id,
             cycle_counter: 0,
@@ -169,7 +170,7 @@ pub struct SystemBus<H: HostInterface> {
                 crate::hle::HleManager::intercept_command(self);
                 self.update_physical_iec(hardware);
             }
-            if self.mechanics.track_handle.pop_force_disk_change() {
+            if self.mechanics.surface.pop_force_disk_change() {
                 self.ram[0x001C] = 1;
             }
             
@@ -177,7 +178,7 @@ pub struct SystemBus<H: HostInterface> {
             // On a real 1541: Light sensor logic -> LOW if notch present (write enabled).
             // But we simulate standard `is_write_protected` boolean logic. 
             // In typical emulator mapping: WP bit is 0x10. We follow standard VIA mappings.
-            let wp = self.mechanics.track_handle.is_write_protected();
+            let wp = self.mechanics.surface.is_write_protected();
             if wp {
                 self.via2.in_b &= !0x10; // LOW = Write protected
             } else {
@@ -213,7 +214,7 @@ pub struct SystemBus<H: HostInterface> {
     }
 }
 
-impl<H: HostInterface> racc6502v3::Bus for SystemBus<H> {
+impl<H: HostInterface, S: MagneticSurface> racc6502v3::Bus for SystemBus<H, S> {
     type Ctx = H;
 
     #[link_section = ".data.ram_func"]
@@ -229,7 +230,7 @@ impl<H: HostInterface> racc6502v3::Bus for SystemBus<H> {
     }
 }
 
-impl<H: HostInterface> SystemBus<H> {
+impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     #[link_section = ".data.ram_func"]
     #[inline]
     pub fn catch_up(&mut self, current_cycle: u32, hw: &mut H) {
@@ -315,7 +316,7 @@ impl<H: HostInterface> SystemBus<H> {
 
 /// Implement MemoryMonitor for SystemBus to allow peeking at memory without affecting timing.
 #[cfg(feature = "debug")]
-impl<H: HostInterface> MemoryMonitor for SystemBus<H> {
+impl<H: HostInterface, S: MagneticSurface> MemoryMonitor for SystemBus<H, S> {
     fn peek(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x17FF => self.ram[(addr as usize) % RAM_SIZE],
@@ -353,7 +354,9 @@ mod tests {
     #[test]
     fn test_ram_read_write() {
         static ROM: [u8; ROM_SIZE] = [0; ROM_SIZE];
-        let mut bus = SystemBus::<MockHardware>::new(&ROM, 8, Box::leak(Box::new(pico1541_common::track_buffer::DualCoreTrackBuffer::new())).split().1);
+        let handle = Box::leak(Box::new(pico1541_common::track_buffer::DualCoreTrackBuffer::new())).split().1;
+        let surface = pico1541_common::magnetic_surface::SoftwareMagneticSurface::new(handle);
+        let mut bus = SystemBus::<MockHardware, _>::new(&ROM, 8, surface);
         let mut hw = MockHardware { 
             
         };

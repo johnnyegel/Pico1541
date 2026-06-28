@@ -7,6 +7,8 @@ pub trait MagneticSurface {
     fn write_byte_at(&mut self, index: u32, data: u8);
     fn start_reading(&mut self, track_id: u8, rotation_fixed: u32);
     fn stop_reading(&mut self);
+    fn is_write_protected(&self) -> bool;
+    fn pop_force_disk_change(&mut self) -> bool;
 }
 
 pub struct SoftwareMagneticSurface {
@@ -28,7 +30,8 @@ impl MagneticSurface for SoftwareMagneticSurface {
     fn try_read_byte(&mut self) -> Option<u8> {
         // Provide a dummy sector for now, as is_listening is the crucial part for bit-shifting.
         // We assume try_read_byte is called when reading is active.
-        let gcr_byte = self.track_handle.next_read_byte(0, 0xFF, true);
+        let expected_track_id = self.track_handle.get_head_half_track();
+        let gcr_byte = self.track_handle.next_read_byte(expected_track_id, 0xFF, true);
         let next_gcr_byte = self.track_handle.peek_next_byte();
         
         // SYNC is 0xFF. If we see two in a row, we are in SYNC.
@@ -48,7 +51,8 @@ impl MagneticSurface for SoftwareMagneticSurface {
 
     fn write_byte_at(&mut self, index: u32, data: u8) {
         self.track_handle.seek_to_byte(index);
-        self.track_handle.next_write_byte(0, 0xFF, data);
+        let expected_track_id = self.track_handle.get_head_half_track();
+        self.track_handle.next_write_byte(expected_track_id, 0xFF, data);
     }
 
     fn start_reading(&mut self, track_id: u8, _rotation_fixed: u32) {
@@ -56,6 +60,14 @@ impl MagneticSurface for SoftwareMagneticSurface {
     }
 
     fn stop_reading(&mut self) {}
+
+    fn is_write_protected(&self) -> bool {
+        self.track_handle.is_write_protected()
+    }
+
+    fn pop_force_disk_change(&mut self) -> bool {
+        self.track_handle.pop_force_disk_change()
+    }
 }
 
 #[cfg(test)]

@@ -1,5 +1,6 @@
+use pico1541_common::magnetic_surface::{MagneticSurface, SoftwareMagneticSurface};
 
-fn wait_for_pulse(mechanics: &mut DriveMechanics, hardware: &mut TestBridge, via1: &mut Via6522, via2: &mut Via6522, mut last_pulse: bool) -> (u32, bool) {
+fn wait_for_pulse(mechanics: &mut DriveMechanics<SoftwareMagneticSurface>, hardware: &mut TestBridge, via1: &mut Via6522, via2: &mut Via6522, mut last_pulse: bool) -> (u32, bool) {
     let mut ticks = 0;
     loop {
         ticks += 1;
@@ -38,8 +39,10 @@ fn test_disk_streaming_data() {
     manager.commit_dormant_buffer();
 
     let mut via1 = Via6522::new(); let mut via2 = Via6522::new();
-    let mut mechanics = DriveMechanics::new(emulator);
+    let surface = SoftwareMagneticSurface::new(emulator);
+    let mut mechanics = DriveMechanics::new(surface);
     mechanics.halftrack_head_pos = 0; // Align head with Track 1 (half-track 0)
+    mechanics.surface.start_reading(0, 0);
 
     // Set bitrate Zone 3 (26 cycles) explicitly
     // In our implementation Zone 3 (26 cycles) is bits 5,6 = 11 (0x60)
@@ -53,7 +56,7 @@ fn test_disk_streaming_data() {
     via2.pcr = 0b1110_1110;
 
     // First byte delivered should be idx 0: 0xAA. Should take exactly 26 ticks.
-    let (ticks, mut last_pulse) = wait_for_pulse(&mut mechanics, &mut hardware, &mut via1, &mut via2, false);
+    let (ticks, last_pulse) = wait_for_pulse(&mut mechanics, &mut hardware, &mut via1, &mut via2, false);
     assert_eq!(ticks, 26);
     assert_eq!(via2.in_a, 0xAA, "Should have delivered idx 0");
     assert!(via2.ifr & 0x02 != 0, "VIA2 CA1 should have been pulsed");
@@ -68,7 +71,7 @@ fn test_disk_streaming_data() {
 #[test]
 fn test_disk_streaming_sync() {
     let buffer = Box::leak(Box::new(pico1541_common::track_buffer::DualCoreTrackBuffer::new()));
-    let (mut manager, emulator) = buffer.split();
+    let (manager, emulator) = buffer.split();
     let mut hardware = TestBridge::new(8, buffer);
     
     let inactive = manager.start_track_load();
@@ -78,8 +81,10 @@ fn test_disk_streaming_sync() {
     manager.commit_loaded_track(0, TrackLayout::Accurate, 3);
 
     let mut via1 = Via6522::new(); let mut via2 = Via6522::new();
-    let mut mechanics = DriveMechanics::new(emulator);
+    let surface = SoftwareMagneticSurface::new(emulator);
+    let mut mechanics = DriveMechanics::new(surface);
     mechanics.halftrack_head_pos = 0; // Align head with Track 1 (half-track 0)
+    mechanics.surface.start_reading(0, 0);
     via2.ddrb = 0xFF;
     via2.orb = (via2.orb & !0x60) | 0x60 | 0x04; // Zone 3 (26 cycles) + Motor ON
     mechanics.update_state(via2.orb, via2.ddrb, &mut hardware);
@@ -144,8 +149,10 @@ fn test_disk_bitrate_zones() {
     manager.commit_dormant_buffer();
 
     let mut via1 = Via6522::new(); let mut via2 = Via6522::new();
-    let mut mechanics = DriveMechanics::new(emulator);
+    let surface = SoftwareMagneticSurface::new(emulator);
+    let mut mechanics = DriveMechanics::new(surface);
     mechanics.halftrack_head_pos = 0; // Align head with Track 1 (half-track 0)
+    mechanics.surface.start_reading(0, 0);
     via2.ddrb = 0xFF;
     via2.pcr = 0b1110_1110; // Enable SO
 

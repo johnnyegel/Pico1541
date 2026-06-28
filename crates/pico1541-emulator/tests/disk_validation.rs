@@ -1,5 +1,6 @@
 use pico1541_common::formats::{D64Image, DiskImage, G64Image};
 use pico1541_common::track_buffer::TrackLayout;
+use pico1541_common::magnetic_surface::{MagneticSurface, SoftwareMagneticSurface};
 use pico1541_common::interface::{DriveEvent, HostInterface, IecBus, IecBusState};
 use pico1541_common::storage::MemoryStorage;
 use pico1541_emulator::drivemechanics::DriveMechanics;
@@ -45,12 +46,14 @@ fn test_g64_track_reading_low_level() {
     let mut hw = MockHardware::new();
     let mut via2 = Via6522::new();
     let hw_buffer = Box::leak(Box::new(pico1541_common::track_buffer::DualCoreTrackBuffer::new()));
-    let mut mechanics = DriveMechanics::new(hw_buffer.split().1);
+    let surface = SoftwareMagneticSurface::new(hw_buffer.split().1);
+    let mut mechanics = DriveMechanics::new(surface);
     mechanics.halftrack_head_pos = 0; // Set track 0
+    mechanics.surface.start_reading(0, 0);
 
     // 1. Load G64 Track 0 (HT 0)
     let g64_data = fs::read("tests/data/test.g64").expect("Failed to read G64");
-    let mut storage = MemoryStorage::new(&g64_data);
+    let storage = MemoryStorage::new(&g64_data);
     let mut g64 = block_on(G64Image::from_storage(storage)).expect("Failed to initialize G64Image");
 
     let mut track_data = [0u8; 8192];
@@ -69,6 +72,7 @@ fn test_g64_track_reading_low_level() {
     }
     
     mechanics.halftrack_head_pos = 2;
+    mechanics.surface.start_reading(2, 0);
 
     match layout.0 {
         TrackLayout::Accurate => log::debug!("Track accurate layout"),
@@ -137,7 +141,7 @@ fn test_g64_track_reading_low_level() {
 fn test_compare_d64_g64_track_18() {
     // 1. Load G64 Track 18
     let g64_data = fs::read("tests/data/test.g64").expect("Failed to read G64");
-    let mut storage_g64 = MemoryStorage::new(&g64_data);
+    let storage_g64 = MemoryStorage::new(&g64_data);
     let mut g64 = block_on(G64Image::from_storage(storage_g64)).expect("Failed to initialize G64Image");
 
     let mut g64_track_data = [0u8; 8192];

@@ -1,5 +1,5 @@
 use crate::via6522::Via6522;
-use pico1541_common::{track_buffer::EmulatorHandle, interface::{DriveEvent, HostInterface}};
+use pico1541_common::{magnetic_surface::MagneticSurface, interface::{DriveEvent, HostInterface}};
 
 // The read head steps in half-track increments, so we represent the head position in half-tracks (0.5 track steps).
 // We also keep a half-track position for the head, where Half-track 0 corresponds to Track 0, 
@@ -10,7 +10,6 @@ use pico1541_common::{track_buffer::EmulatorHandle, interface::{DriveEvent, Host
 const MIN_HALF_TRACK: i8 = -2;
 const MAX_HALF_TRACK: i8 = 85; // Half-track 85 corresponds to Track 42.5, which is the maximum physical reach of the head on a 1541 drive.
 const INITIAL_HALF_TRACK: i8 = 34; // Start at track 18 (Half-track 34)
-const BYTE_SYNC: u8 = 0xFF;
 
 // Speed Zones (Cycles per byte @ 1MHz)
 const CYCLES_ZONE_3: u32 = 26; // Tracks 1-17
@@ -30,11 +29,11 @@ const MASK_SYNC: u8 = 0x80;
 const SHIFT_SPEED_ZONE: u8 = 5;
 
 /// DriveMechanics struct to represent the state of the drive's mechanical components, such as the head position and motor state.
-pub struct DriveMechanics {
+pub struct DriveMechanics<S: MagneticSurface> {
     /// The Track the head is positioned over (not necessarily the track being read)
     pub halftrack_head_pos: i8,
     
-    pub track_handle: EmulatorHandle,
+    pub surface: S,
     
     byte_cycle_counter: u32,
     byte_cycle_limit: u32,
@@ -45,11 +44,11 @@ pub struct DriveMechanics {
     so_pulse_cycles: u8,
 }
 
-impl DriveMechanics {
-    pub fn new(track_handle: EmulatorHandle) -> Self {
+impl<S: MagneticSurface> DriveMechanics<S> {
+    pub fn new(surface: S) -> Self {
         Self {
             halftrack_head_pos: INITIAL_HALF_TRACK,
-            track_handle,
+            surface,
             byte_cycle_counter: 0,
             byte_cycle_limit: CYCLES_ZONE_2, // Track 18 default
             last_state: 0,
@@ -62,7 +61,7 @@ impl DriveMechanics {
 
 
 
-impl DriveMechanics {
+impl<S: MagneticSurface> DriveMechanics<S> {
     pub fn reset(&mut self) {
         self.halftrack_head_pos = INITIAL_HALF_TRACK;
         self.byte_cycle_counter = 0;
@@ -113,58 +112,40 @@ impl DriveMechanics {
     }
 
     #[link_section = ".data.ram_func"]
-    fn tick_slow<H: HostInterface>(&mut self, hardware: &mut H, via2: &mut Via6522, requested_sector: u8) {
-        // Determine read mode from CB2 (Manual High = Read)
+    fn tick_slow<H: HostInterface>(&mut self, hardware: &mut H, via2: &mut Via6522, _requested_sector: u8) {
         let is_read_mode = via2.get_cb2_out().unwrap_or(true);
         let is_so_enabled = via2.get_ca2_out().unwrap_or(false);
         let is_reading = is_read_mode && is_so_enabled;
-
         let mut suppress_ca1 = false;
 
-        // :? Is Read mode enabled?
         if is_read_mode {
-            let gcr_byte = self.track_handle.next_read_byte(self.halftrack_head_pos as u8, requested_sector, is_reading);
-            let next_gcr_byte = self.track_handle.peek_next_byte();
-
-            // SYNC signal is Active LOW (0 = SYNC found, 1 = No SYNC)
-            if gcr_byte == BYTE_SYNC && next_gcr_byte == BYTE_SYNC {
-                // Starting or continuing SYNC mark
+            if is_reading {
+                if let Some(gcr_byte) = self.surface.try_read_byte() {
+                    via2.in_a = gcr_byte;
+                    self.last_gcr_byte = gcr_byte;
+                }
+            }
+            
+            if self.surface.is_sync_active() {
                 via2.in_b &= !MASK_SYNC; // Assert SYNC (Pull PB7 Low)
                 hardware.debug_pin_0(true);
                 suppress_ca1 = true;
-            } else if gcr_byte == BYTE_SYNC && (via2.in_b & MASK_SYNC) == 0 {
-                // We are at the end of the SYNC mark. The next byte is data.
-                // Release SYNC immediately (matching the first 0 bit), but suppress CA1 
-                // because this byte was part of the sync and the shifter was held.
-                via2.in_b |= MASK_SYNC;  // Release SYNC (Let PB7 float High)
-                hardware.debug_pin_0(false);
-                suppress_ca1 = true;
             } else {
-                // Normal data or isolated 0xFF read error
-                via2.in_b |= MASK_SYNC;  // Ensure released
+                via2.in_b |= MASK_SYNC;  // Release SYNC
                 hardware.debug_pin_0(false);
             }
-
-            self.last_gcr_byte = gcr_byte;
-            via2.in_a = gcr_byte;
-        } 
-        else {
-            // WRITE mode: take from ORA and put to disk
-            self.track_handle.next_write_byte(self.halftrack_head_pos as u8, requested_sector, via2.ora);
+        } else {
+            // WRITE mode
+            self.surface.stop_reading();
+            // We use 0 as master clock for now, as host tests don't have a reliable master clock
+            let index = self.surface.get_absolute_head_position(0);
+            self.surface.write_byte_at(index, via2.ora);
         }
 
-        // Signal CA1 and SO ONLY if SYNC is NOT active.
-        // On real 1541 hardware, the bit-shifter is held while SYNC is asserted,
-        // so no Byte Ready pulses are generated during SYNC.
         let sync_active = (via2.in_b & MASK_SYNC) == 0;
         if !sync_active && !suppress_ca1 {
-            // Signal CA1 on every byte ready
             via2.ca1_irq();
-
-            // Trigger SO pulse (stay active for 1 cycle to ensure CPU sees it)
-            // Original 1541 hardware does not gate SO with CA2. 
-            // Only 1541-II gates SO with CA2, which breaks many older fast loaders.
-            self.so_pulse_cycles = 3; // 3 CPU cycles
+            self.so_pulse_cycles = 3; 
             hardware.debug_pin_1(true);
         }   
     }
@@ -184,7 +165,7 @@ impl DriveMechanics {
     }
 
     pub fn track_byte_pos_ix(&self) -> usize {
-        self.track_handle.get_current_byte_idx()
+        self.surface.get_absolute_head_position(0) as usize
     }
 
     #[cfg(feature = "debug")]
@@ -247,7 +228,7 @@ impl DriveMechanics {
                     .clamp(MIN_HALF_TRACK, MAX_HALF_TRACK);
 
             if self.halftrack_head_pos >= 0 && self.halftrack_head_pos <= MAX_HALF_TRACK {
-                self.track_handle.update_head_half_track(self.halftrack_head_pos as u8);
+                self.surface.start_reading(self.halftrack_head_pos as u8, 0);
                 hardware.track_changed(self.halftrack_head_pos as u8);
             }
         }

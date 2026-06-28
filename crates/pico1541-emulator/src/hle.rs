@@ -1,5 +1,6 @@
 use crate::systembus::SystemBus;
 use pico1541_common::interface::HostInterface;
+use pico1541_common::magnetic_surface::MagneticSurface;
 
 /// Manages High-Level Emulation (HLE) interventions.
 ///
@@ -12,7 +13,7 @@ impl HleManager {
     /// Intercepts and discards the current DOS command buffer, 
     /// silencing any "SYNTAX ERROR" or other failure status that would
     /// normally result from a partially received or hijacked command.
-    pub fn intercept_command<H: HostInterface>(bus: &mut SystemBus<H>) {
+    pub fn intercept_command<H: HostInterface, S: MagneticSurface>(bus: &mut SystemBus<H, S>) {
         log::info!("intercept_command executed!");
         // 1. Clear the command waiting flag (found at $0255 in 1541-II ROM)
         // This stops the ROM from trying to parse the buffer.

@@ -1,6 +1,7 @@
 use pico1541_common::interface::{DriveEvent, HostInterface, IecBus, IecBusState};
 use pico1541_emulator::systembus::SystemBus;
 use pico1541_emulator::hle::HleManager;
+use pico1541_common::magnetic_surface::SoftwareMagneticSurface;
 
 struct MockHardware {
     
@@ -19,7 +20,9 @@ impl HostInterface for MockHardware {
 #[test]
 fn test_hle_intercept_command_patches_ram() {
     static ROM: [u8; 0x4000] = [0; 0x4000];
-    let mut bus = SystemBus::<MockHardware>::new(&ROM, 8, Box::leak(Box::new(pico1541_common::track_buffer::DualCoreTrackBuffer::new())).split().1);
+    let handle = Box::leak(Box::new(pico1541_common::track_buffer::DualCoreTrackBuffer::new())).split().1;
+    let surface = SoftwareMagneticSurface::new(handle);
+    let mut bus = SystemBus::<MockHardware, _>::new(&ROM, 8, surface);
     
     // 1. Simulate a "SYNTAX ERROR" state in RAM
     bus.ram[0x0255] = 1; // cmdwat: command waiting

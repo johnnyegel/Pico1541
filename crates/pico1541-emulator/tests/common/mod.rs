@@ -7,6 +7,7 @@ use pico1541_common::interface::IecBusState;
 use pico1541_common::storage::DummySource;
 use pico1541_common::snooper::{IecSnooper, IecSnoopByteHandler};
 use pico1541_common::interface::{DriveEvent, HostInterface, IecBus};
+use pico1541_common::magnetic_surface::SoftwareMagneticSurface;
 use pico1541_emulator::Emulator;
 use pollster::block_on;
 
@@ -19,16 +20,17 @@ pub const IDLE_HIGH: u16 = 0xEC9B;
 pub fn setup_drive(
     reset: bool,
     device_id: u8,
-) -> (Emulator<TestBridge>, TestBridge) {
+) -> (Emulator<TestBridge, SoftwareMagneticSurface>, TestBridge) {
     let _ = env_logger::builder()
         .is_test(true)
         .parse_default_env()
         .try_init();
 
     let buffer = Box::leak(Box::new(pico1541_common::track_buffer::DualCoreTrackBuffer::new()));
-    let (manager, emulator) = buffer.split();
+    let (_manager, emulator) = buffer.split();
 
-    let mut drive = Emulator::<TestBridge>::new(&ROM_BYTES, device_id, emulator);
+    let surface = SoftwareMagneticSurface::new(emulator);
+    let mut drive = Emulator::<TestBridge, SoftwareMagneticSurface>::new(&ROM_BYTES, device_id, surface);
     let mut bridge = TestBridge::new(device_id, buffer);
 
     log::info!(
@@ -44,7 +46,7 @@ pub fn setup_drive(
     (drive, bridge)
 }
 
-pub fn reset_drive(drive: &mut Emulator<TestBridge>, bridge: &mut TestBridge) {
+pub fn reset_drive(drive: &mut Emulator<TestBridge, SoftwareMagneticSurface>, bridge: &mut TestBridge) {
     bridge.reset();
     drive.reset(bridge);
 
@@ -151,7 +153,7 @@ impl TestBridge {
         self.total_cycles
     }
 
-    pub fn is_idle(&self, drive: &Emulator<TestBridge>) -> bool {
+    pub fn is_idle(&self, drive: &Emulator<TestBridge, SoftwareMagneticSurface>) -> bool {
         drive.pc() >= IDLE_LOW && drive.pc() <= IDLE_HIGH
     }
 
@@ -165,7 +167,7 @@ impl TestBridge {
         self.host_iec.set_data(v);
     }
 
-    pub fn ticks(&mut self, drive: &mut Emulator<TestBridge>, n: u32) {
+    pub fn ticks(&mut self, drive: &mut Emulator<TestBridge, SoftwareMagneticSurface>, n: u32) {
         let start = drive.cycles;
         while drive.cycles.wrapping_sub(start) < (n as u32) {
             drive.tick(self);
@@ -267,7 +269,7 @@ impl HostInterface for TestBridge {
 }
 
 pub struct IecTestBridge<'a> {
-    pub drive: &'a mut Emulator<TestBridge>,
+    pub drive: &'a mut Emulator<TestBridge, SoftwareMagneticSurface>,
     pub bridge: &'a mut TestBridge,
 }
 

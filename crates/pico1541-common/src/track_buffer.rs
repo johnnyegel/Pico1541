@@ -232,6 +232,10 @@ impl EmulatorHandle {
         self.core_buffer.current_head_half_track.store(ht, Ordering::Relaxed);
     }
 
+    pub fn get_head_half_track(&self) -> u8 {
+        self.core_buffer.current_head_half_track.load(Ordering::Relaxed)
+    }
+
     pub fn is_write_protected(&self) -> bool {
         self.core_buffer.is_write_protected.load(Ordering::Acquire)
     }
