@@ -253,6 +253,12 @@ impl EmulatorHandle {
         self.core_buffer.current_byte_idx.load(Ordering::Acquire)
     }
 
+    pub fn get_active_buffer_slice(&self) -> &[u8] {
+        let active_idx = if self.core_buffer.active_index.load(Ordering::Acquire) { 1 } else { 0 };
+        let buffer = unsafe { &(*self.core_buffer.buffers.get())[active_idx] };
+        &buffer.data[..buffer.length]
+    }
+
     pub fn seek_to_byte(&mut self, byte_index: u32) {
         self.track_byte_pos_ix = byte_index as usize;
         self.core_buffer.current_byte_idx.store(self.track_byte_pos_ix, Ordering::Relaxed);
