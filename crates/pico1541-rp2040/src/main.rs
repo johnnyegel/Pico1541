@@ -19,7 +19,7 @@ use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::i2c::{Config, InterruptHandler};
-use embassy_rp::peripherals::{I2C0, SPI1, DMA_CH0, DMA_CH1};
+use embassy_rp::peripherals::{I2C0, SPI1, DMA_CH0, DMA_CH1, PIO0};
 use embassy_rp::spi::{Config as SpiConfig, Spi, Blocking};
 use embassy_rp::multicore::Stack;
 use embassy_rp::Peri;
@@ -30,7 +30,6 @@ use pico1541_common::interface::{DriveEvent, HostInterface, IecBus, IecBusState}
 use pico1541_common::snooper::{IecSnooper, IecSnoopByteHandler, SnooperConfig};
 use pico1541_common::formats::AnyDiskImage;
 use pico1541_common::storage::{PagedDirectorySource, RuntimeStorage};
-use pico1541_common::magnetic_surface::SoftwareMagneticSurface;
 use pico1541_emulator::Emulator;
 use pico1541_manager::tasks::{
     ActionTask, DiskTask, DisplayTask, DriveActivityTask, KeyboardTask, MainMenuTask, SnooperTask
@@ -59,12 +58,15 @@ pub mod pio {
 }
 
 pub mod littlefs_storage;
+pub mod magnetic_surface;
 use littlefs_storage::LittleFsStorage;
 use flash_storage::FlashStorage;
+use magnetic_surface::PioMagneticSurface;
 
 bind_interrupts!(struct Irqs {
     I2C0_IRQ => InterruptHandler<I2C0>;
     DMA_IRQ_0 => embassy_rp::dma::InterruptHandler<DMA_CH0>, embassy_rp::dma::InterruptHandler<DMA_CH1>;
+    PIO0_IRQ_0 => embassy_rp::pio::InterruptHandler<PIO0>;
 });
 
 const DEFAULT_DRIVE_ID: u8 = 8;
@@ -258,7 +260,7 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
     };
 
     #[link_section = ".sram3"]
-    static mut EMULATOR: core::mem::MaybeUninit<Emulator<HardwareBridge, SoftwareMagneticSurface>> = core::mem::MaybeUninit::uninit();
+    static mut EMULATOR: core::mem::MaybeUninit<Emulator<HardwareBridge, PioMagneticSurface>> = core::mem::MaybeUninit::uninit();
 
     // Pack peripherals for Core 1
     let core1_pins = Core0Pins {
@@ -275,8 +277,6 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
         miso: p.PIN_12.into(),
         cs: p.PIN_13.into(),
         det: p.PIN_11.into(),
-        dma_ch0: p.DMA_CH0.into(),
-        dma_ch1: p.DMA_CH1.into(),
         kbd_row1: p.PIN_6.into(),
         kbd_row2: p.PIN_7.into(),
         kbd_col1: p.PIN_8.into(),
@@ -304,12 +304,14 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
     );
     let mut bridge = HardwareBridge::new(pins, &SNOOPER_CONFIG, activity_led);
 
+    let pio0 = embassy_rp::pio::Pio::new(p.PIO0, Irqs);
+
     // --- Spawn Core 1 ---
     info!("Starting Emulator on Core 1...");
     embassy_rp::multicore::spawn_core1(p.CORE1, stack, move || {
         let drive = unsafe {
-            let ptr: *mut Emulator<HardwareBridge, SoftwareMagneticSurface> = core::ptr::addr_of_mut!(EMULATOR).cast();
-            let surface = SoftwareMagneticSurface::new(emulator_handle);
+            let ptr: *mut Emulator<HardwareBridge, PioMagneticSurface> = core::ptr::addr_of_mut!(EMULATOR).cast();
+            let surface = PioMagneticSurface::new(pio0, emulator_handle);
             core::ptr::write(ptr, Emulator::new(&*core::ptr::addr_of!(ROM_BUFFER), drive_id, surface));
             &mut *ptr
         };
@@ -701,8 +703,6 @@ pub struct Core0Pins {
     pub miso: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_12>,
     pub cs: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_13>,
     pub det: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_11>,
-    pub dma_ch0: embassy_rp::Peri<'static, embassy_rp::peripherals::DMA_CH0>,
-    pub dma_ch1: embassy_rp::Peri<'static, embassy_rp::peripherals::DMA_CH1>,
 
     pub kbd_row1: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_6>,
     pub kbd_row2: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_7>,
@@ -976,7 +976,7 @@ async fn settings_save_task(mut flash_storage: FlashStorage<'static>) {
 
 
 #[link_section = ".data.ram_func"]
-fn emulator_loop(drive: &'static mut Emulator<HardwareBridge, SoftwareMagneticSurface>, mut bridge: HardwareBridge) -> ! {
+fn emulator_loop(drive: &'static mut Emulator<HardwareBridge, PioMagneticSurface>, mut bridge: HardwareBridge) -> ! {
     cortex_m::interrupt::disable(); // Guarantee no IRQs preempt the emulator core
     let timer = embassy_rp::pac::TIMER;
     let mut idle_counter = 0u32;
@@ -1107,3 +1107,5 @@ fn emulator_loop(drive: &'static mut Emulator<HardwareBridge, SoftwareMagneticSu
         }
     }
 }
+
+
