@@ -30,6 +30,7 @@ use pico1541_common::interface::{DriveEvent, HostInterface, IecBus, IecBusState}
 use pico1541_common::snooper::{IecSnooper, IecSnoopByteHandler, SnooperConfig};
 use pico1541_common::formats::AnyDiskImage;
 use pico1541_common::storage::{PagedDirectorySource, RuntimeStorage};
+use pico1541_common::magnetic_surface::SoftwareMagneticSurface;
 use pico1541_emulator::Emulator;
 use pico1541_manager::tasks::{
     ActionTask, DiskTask, DisplayTask, DriveActivityTask, KeyboardTask, MainMenuTask, SnooperTask
@@ -251,7 +252,7 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
     };
 
     #[link_section = ".sram3"]
-    static mut EMULATOR: core::mem::MaybeUninit<Emulator<HardwareBridge>> = core::mem::MaybeUninit::uninit();
+    static mut EMULATOR: core::mem::MaybeUninit<Emulator<HardwareBridge, SoftwareMagneticSurface>> = core::mem::MaybeUninit::uninit();
 
     // Pack peripherals for Core 1
     let core1_pins = Core0Pins {
@@ -301,8 +302,9 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
     info!("Starting Emulator on Core 1...");
     embassy_rp::multicore::spawn_core1(p.CORE1, stack, move || {
         let drive = unsafe {
-            let ptr: *mut Emulator<HardwareBridge> = core::ptr::addr_of_mut!(EMULATOR).cast();
-            core::ptr::write(ptr, Emulator::new(&*core::ptr::addr_of!(ROM_BUFFER), drive_id, emulator_handle));
+            let ptr: *mut Emulator<HardwareBridge, SoftwareMagneticSurface> = core::ptr::addr_of_mut!(EMULATOR).cast();
+            let surface = SoftwareMagneticSurface::new(emulator_handle);
+            core::ptr::write(ptr, Emulator::new(&*core::ptr::addr_of!(ROM_BUFFER), drive_id, surface));
             &mut *ptr
         };
         drive.reset(&mut bridge);
@@ -970,7 +972,7 @@ async fn settings_save_task(mut flash_storage: FlashStorage<'static>) {
 
 
 #[link_section = ".data.ram_func"]
-fn emulator_loop(drive: &'static mut Emulator<HardwareBridge>, mut bridge: HardwareBridge) -> ! {
+fn emulator_loop(drive: &'static mut Emulator<HardwareBridge, SoftwareMagneticSurface>, mut bridge: HardwareBridge) -> ! {
     cortex_m::interrupt::disable(); // Guarantee no IRQs preempt the emulator core
     let timer = embassy_rp::pac::TIMER;
     let mut idle_counter = 0u32;
