@@ -59,7 +59,8 @@ impl PioMagneticSurface {
         ch_a.write_addr().write_value(pio_pac.txf(0).as_ptr() as u32);
         
         let mut ctrl_a = ch_a.ctrl_trig().read();
-        ctrl_a.set_data_size(pac::dma::vals::DataSize::SIZE_BYTE);
+        ctrl_a.set_data_size(pac::dma::vals::DataSize::SIZE_WORD);
+        ctrl_a.set_bswap(true);
         ctrl_a.set_incr_read(true);
         ctrl_a.set_incr_write(false);
         ctrl_a.set_chain_to(1);
@@ -122,7 +123,7 @@ impl MagneticSurface for PioMagneticSurface {
         let data = self.track_handle.get_active_buffer_slice();
         
         unsafe {
-            DMA_CTRL_BLOCK[0] = data.len() as u32;
+            DMA_CTRL_BLOCK[0] = ((data.len() + 3) / 4) as u32; // Transfer count in 32-bit words
             DMA_CTRL_BLOCK[1] = data.as_ptr() as u32;
         }
 

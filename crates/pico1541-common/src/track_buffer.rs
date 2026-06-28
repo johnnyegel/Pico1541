@@ -26,6 +26,7 @@ pub enum TrackLayout {
 
 /// Represents a single track buffer which holds the GCR-encoded data for a track,
 /// along with metadata about the track such as its ID and layout.
+#[repr(C, align(4))]
 pub struct TrackBuffer {
     pub data: [u8; 8192],
     pub track_id: u8,       // The half-track index (0-83)
