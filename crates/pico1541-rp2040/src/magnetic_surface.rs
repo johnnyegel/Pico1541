@@ -4,7 +4,6 @@ use embassy_rp::pac;
 use pico1541_common::track_buffer::EmulatorHandle;
 
 static SYNC_ACTIVE: AtomicBool = AtomicBool::new(false);
-static mut DMA_CTRL_BLOCK: [u32; 2] = [0; 2];
 
 pub struct PioMagneticSurface {
     is_sync: &'static AtomicBool,
@@ -38,20 +37,6 @@ impl PioMagneticSurface {
 
         let dma = pac::DMA;
         let ch_a = dma.ch(0);
-        let ch_b = dma.ch(1);
-
-        // Channel B config (Reloader)
-        ch_b.read_addr().write_value(core::ptr::addr_of!(DMA_CTRL_BLOCK) as u32);
-        ch_b.write_addr().write_value(ch_a.al3_trans_count().as_ptr() as u32);
-        
-        let mut ctrl_b = ch_b.ctrl_trig().read();
-        ctrl_b.set_data_size(pac::dma::vals::DataSize::SIZE_WORD);
-        ctrl_b.set_incr_read(true);
-        ctrl_b.set_incr_write(true);
-        ctrl_b.set_ring_sel(false);
-        ctrl_b.set_ring_size(3);
-        ctrl_b.set_en(false);
-        ch_b.ctrl_trig().write_value(ctrl_b);
 
         // Channel A config (Worker)
         let pio_pac = pac::PIO0;
@@ -63,7 +48,6 @@ impl PioMagneticSurface {
         ctrl_a.set_bswap(true);
         ctrl_a.set_incr_read(true);
         ctrl_a.set_incr_write(false);
-        ctrl_a.set_chain_to(1);
         ctrl_a.set_treq_sel(pac::dma::vals::TreqSel::PIO0_TX0);
         ctrl_a.set_en(false);
         ch_a.ctrl_trig().write_value(ctrl_a);
@@ -84,6 +68,13 @@ impl MagneticSurface for PioMagneticSurface {
         let pio = pac::PIO0;
         let fstat = pio.fstat().read();
         
+        if !pac::DMA.ch(0).ctrl_trig().read().busy() {
+            let data = self.track_handle.get_active_buffer_slice();
+            pac::DMA.ch(0).read_addr().write_value(data.as_ptr() as u32);
+            // We must use al3_trans_count to trigger, or just write trans_count and then trigger!
+            pac::DMA.ch(0).al3_trans_count().write_value(((data.len() + 3) / 4) as u32);
+        }
+
         if (fstat.rxempty() & 1) == 0 {
             let data = pio.rxf(0).read() as u8;
             
@@ -121,30 +112,18 @@ impl MagneticSurface for PioMagneticSurface {
     fn start_reading(&mut self, track_id: u8, _rotation_fixed: u32) {
         self.track_handle.update_head_half_track(track_id);
         let data = self.track_handle.get_active_buffer_slice();
-        
-        unsafe {
-            DMA_CTRL_BLOCK[0] = ((data.len() + 3) / 4) as u32; // Transfer count in 32-bit words
-            DMA_CTRL_BLOCK[1] = data.as_ptr() as u32;
-        }
 
         let dma = pac::DMA;
         let ch_a = dma.ch(0);
-        let ch_b = dma.ch(1);
 
-        // Update transfer count and start DMA
-        ch_b.read_addr().write_value(core::ptr::addr_of!(DMA_CTRL_BLOCK) as u32);
+        ch_a.read_addr().write_value(data.as_ptr() as u32);
         
-        // Ensure channels are enabled
         let mut ctrl_a = ch_a.ctrl_trig().read();
         ctrl_a.set_en(true);
         ch_a.ctrl_trig().write_value(ctrl_a);
-
-        let mut ctrl_b = ch_b.ctrl_trig().read();
-        ctrl_b.set_en(true);
-        ch_b.ctrl_trig().write_value(ctrl_b);
-
-        // Trigger channel B to start the loop
-        ch_b.ctrl_trig().write_value(ctrl_b);
+        
+        // This triggers the channel
+        ch_a.al3_trans_count().write_value(((data.len() + 3) / 4) as u32);
     }
     
     fn stop_reading(&mut self) {
@@ -152,10 +131,6 @@ impl MagneticSurface for PioMagneticSurface {
         let mut ctrl_a = dma.ch(0).ctrl_trig().read();
         ctrl_a.set_en(false);
         dma.ch(0).ctrl_trig().write_value(ctrl_a);
-
-        let mut ctrl_b = dma.ch(1).ctrl_trig().read();
-        ctrl_b.set_en(false);
-        dma.ch(1).ctrl_trig().write_value(ctrl_b);
     }
 
     fn is_write_protected(&self) -> bool {
