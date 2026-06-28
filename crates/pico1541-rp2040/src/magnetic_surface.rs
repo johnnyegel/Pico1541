@@ -71,8 +71,10 @@ impl MagneticSurface for PioMagneticSurface {
         if !pac::DMA.ch(0).ctrl_trig().read().busy() {
             let data = self.track_handle.get_active_buffer_slice();
             pac::DMA.ch(0).read_addr().write_value(data.as_ptr() as u32);
-            // We must use al3_trans_count to trigger, or just write trans_count and then trigger!
-            pac::DMA.ch(0).al3_trans_count().write_value(((data.len() + 3) / 4) as u32);
+            pac::DMA.ch(0).trans_count().write_value(((data.len() + 3) / 4) as u32);
+            let mut ctrl = pac::DMA.ch(0).ctrl_trig().read();
+            ctrl.set_en(true);
+            pac::DMA.ch(0).ctrl_trig().write_value(ctrl);
         }
 
         if (fstat.rxempty() & 1) == 0 {
@@ -117,13 +119,11 @@ impl MagneticSurface for PioMagneticSurface {
         let ch_a = dma.ch(0);
 
         ch_a.read_addr().write_value(data.as_ptr() as u32);
+        ch_a.trans_count().write_value(((data.len() + 3) / 4) as u32);
         
         let mut ctrl_a = ch_a.ctrl_trig().read();
         ctrl_a.set_en(true);
         ch_a.ctrl_trig().write_value(ctrl_a);
-        
-        // This triggers the channel
-        ch_a.al3_trans_count().write_value(((data.len() + 3) / 4) as u32);
     }
     
     fn stop_reading(&mut self) {
