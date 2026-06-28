@@ -77,17 +77,15 @@ impl MagneticSurface for PioMagneticSurface {
             pac::DMA.ch(0).ctrl_trig().write_value(ctrl);
         }
 
+        let irq_val = pio.irq().read().irq();
+        if (irq_val & 1) != 0 {
+            self.is_sync.store(true, Ordering::Release);
+        } else {
+            self.is_sync.store(false, Ordering::Release);
+        }
+
         if (fstat.rxempty() & 1) == 0 {
-            let data = pio.rxf(0).read() as u8;
-            
-            let irq_val = pio.irq().read().irq();
-            if (irq_val & 1) != 0 {
-                self.is_sync.store(true, Ordering::Release);
-            } else {
-                self.is_sync.store(false, Ordering::Release);
-            }
-            
-            Some(data)
+            Some(pio.rxf(0).read() as u8)
         } else {
             None
         }
