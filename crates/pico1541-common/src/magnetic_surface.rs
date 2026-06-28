@@ -5,7 +5,7 @@ pub trait MagneticSurface {
     fn try_read_byte(&mut self) -> Option<u8>;
     fn get_absolute_head_position(&self, master_clock: u32) -> u32;
     fn write_byte_at(&mut self, index: u32, data: u8);
-    fn start_reading(&mut self, track_id: u8, rotation_percentage: f64);
+    fn start_reading(&mut self, track_id: u8, rotation_fixed: u32);
     fn stop_reading(&mut self);
 }
 
@@ -34,7 +34,7 @@ impl MagneticSurface for SoftwareMagneticSurface {
         // SYNC is 0xFF. If we see two in a row, we are in SYNC.
         if gcr_byte == 0xFF && next_gcr_byte == 0xFF {
             self.is_sync = true;
-        } else if gcr_byte == 0xFF && !self.is_sync {
+        } else if gcr_byte != 0xFF && self.is_sync {
             // End of SYNC mark.
             self.is_sync = false;
         }
@@ -46,13 +46,63 @@ impl MagneticSurface for SoftwareMagneticSurface {
         self.track_handle.get_current_byte_idx() as u32
     }
 
-    fn write_byte_at(&mut self, _index: u32, data: u8) {
+    fn write_byte_at(&mut self, index: u32, data: u8) {
+        self.track_handle.seek_to_byte(index);
         self.track_handle.next_write_byte(0, 0xFF, data);
     }
 
-    fn start_reading(&mut self, track_id: u8, _rotation_percentage: f64) {
+    fn start_reading(&mut self, track_id: u8, _rotation_fixed: u32) {
         self.track_handle.update_head_half_track(track_id);
     }
 
     fn stop_reading(&mut self) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::track_buffer::DualCoreTrackBuffer;
+
+    #[test]
+    fn test_is_sync_logic() {
+        let dual_buffer = Box::leak(Box::new(DualCoreTrackBuffer::new()));
+        let (manager, emulator) = dual_buffer.split();
+
+        let active_buf = manager.start_track_modification();
+        active_buf[0] = 0xFF;
+        active_buf[1] = 0xFF;
+        active_buf[2] = 0xFF;
+        active_buf[3] = 0x55;
+        active_buf[4] = 0xFF;
+        active_buf[5] = 0x55;
+        manager.commit_loaded_track(0, crate::track_buffer::TrackLayout::Accurate, 6);
+
+        let mut surface = SoftwareMagneticSurface::new(emulator);
+        
+        surface.start_reading(0, 0);
+        
+        let b0 = surface.try_read_byte().unwrap();
+        assert_eq!(b0, 0xFF);
+        assert_eq!(surface.is_sync_active(), true);
+
+        let b1 = surface.try_read_byte().unwrap();
+        assert_eq!(b1, 0xFF);
+        assert_eq!(surface.is_sync_active(), true);
+
+        let b2 = surface.try_read_byte().unwrap();
+        assert_eq!(b2, 0xFF);
+        assert_eq!(surface.is_sync_active(), true);
+
+        let b3 = surface.try_read_byte().unwrap();
+        assert_eq!(b3, 0x55);
+        assert_eq!(surface.is_sync_active(), false);
+
+        let b4 = surface.try_read_byte().unwrap();
+        assert_eq!(b4, 0xFF);
+        assert_eq!(surface.is_sync_active(), false);
+        
+        let b5 = surface.try_read_byte().unwrap();
+        assert_eq!(b5, 0x55);
+        assert_eq!(surface.is_sync_active(), false);
+    }
 }

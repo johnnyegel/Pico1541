@@ -249,6 +249,11 @@ impl EmulatorHandle {
         self.core_buffer.current_byte_idx.load(Ordering::Acquire)
     }
 
+    pub fn seek_to_byte(&mut self, byte_index: u32) {
+        self.track_byte_pos_ix = byte_index as usize;
+        self.core_buffer.current_byte_idx.store(self.track_byte_pos_ix, Ordering::Relaxed);
+    }
+
     #[inline(always)]
     fn resolve_and_advance_index(&mut self, buffer: &TrackBuffer, expected_track_id: u8, requested_sector: u8, just_started_reading: bool) -> Option<usize> {
         if buffer.track_id != expected_track_id || buffer.length == 0 {
