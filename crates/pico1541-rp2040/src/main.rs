@@ -52,6 +52,12 @@ use pico1541_manager::driver::file_storage::{FatFsFileWrapper, FatStorage, Stora
 
 
 use static_cell::StaticCell;
+pub mod pio {
+    pub fn magnetic_surface_program() -> ::pio::Program<32> {
+        ::pio::pio_file!("src/pio/magnetic_surface.pio").program
+    }
+}
+
 pub mod littlefs_storage;
 use littlefs_storage::LittleFsStorage;
 use flash_storage::FlashStorage;
@@ -440,9 +446,7 @@ impl HostInterface for HardwareBridge {
         let _ = pico1541_manager::TRACK_CHANNEL.try_send(half_track);
         
         // Pend TIMER_IRQ_3 on Core 0 to wake up the DiskTask!
-        unsafe {
-            embassy_rp::pac::TIMER.intf().write(|w| w.set_alarm(3, true));
-        }
+        embassy_rp::pac::TIMER.intf().write(|w| w.set_alarm(3, true));
         
         // Use the indicator to beep (from drive_activity context)
         // Actually, indicator is inside activity task, not available here.
