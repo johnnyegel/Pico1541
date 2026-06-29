@@ -139,7 +139,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                         if layout.1 >= 16 {
                             info!("Track {} loaded!", target_ht);
                         }
-                        self.track_handle.commit_loaded_track(target_ht, layout.0, layout.1);
+                        self.track_handle.commit_loaded_track(target_ht, layout.0, layout.1, layout.2);
                         break; // Success, done loading the track!
                     }
                     Either::First(Err(e)) => {
@@ -155,7 +155,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                     }
                 }
             } else {
-                self.track_handle.commit_loaded_track(target_ht, TrackLayout::Void, 0);
+                self.track_handle.commit_loaded_track(target_ht, TrackLayout::Void, 0, None);
                 break;
             }
         }
@@ -416,7 +416,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                     let data = self.track_handle.start_track_load();
                                     match disk.read_track(half_track, data).await {
                                         Ok(layout) => {
-                                            self.track_handle.commit_loaded_track(half_track, layout.0, layout.1);
+                                            self.track_handle.commit_loaded_track(half_track, layout.0, layout.1, layout.2);
                                         }
                                         Err(e) => {
                                             error!("Failed to read track on mount: {:?}", &e);
@@ -574,7 +574,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                             if data.len() >= 16 {
                                                 info!("Track {} loaded!", half_track);
                                             }
-                                            self.track_handle.commit_loaded_track(half_track, layout.0, layout.1);
+                                            self.track_handle.commit_loaded_track(half_track, layout.0, layout.1, layout.2);
                                         }
                                         Err(_) => {
                                             self.track_handle.set_active_layout(TrackLayout::Void);

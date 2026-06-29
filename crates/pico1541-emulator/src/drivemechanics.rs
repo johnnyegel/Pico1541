@@ -117,20 +117,21 @@ impl<S: MagneticSurface> DriveMechanics<S> {
     fn tick_slow<H: HostInterface>(&mut self, hardware: &mut H, via2: &mut Via6522, _requested_sector: u8) {
         let is_read_mode = via2.get_cb2_out().unwrap_or(true);
         let is_so_enabled = via2.get_ca2_out().unwrap_or(false);
-        let is_reading = is_read_mode && is_so_enabled;
         let mut suppress_ca1 = false;
 
         if is_read_mode {
-            if is_reading {
-                if let Some(word) = self.surface.try_read_byte() {
-                    if word == 0xFFFFFFFF {
-                        self.is_sync = true;
-                    } else {
-                        self.is_sync = false;
-                        let gcr_byte = word as u8;
-                        via2.in_a = gcr_byte;
-                        self.last_gcr_byte = gcr_byte;
-                    }
+            let mut new_byte_arrived = false;
+            if let Some(word) = self.surface.try_read_byte() {
+                if word == 0xFFFFFFFF {
+                    self.is_sync = true;
+                } else if word == 0x00000000 {
+                    self.is_sync = false;
+                } else {
+                    self.is_sync = false;
+                    let gcr_byte = word as u8;
+                    via2.in_a = gcr_byte;
+                    self.last_gcr_byte = gcr_byte;
+                    new_byte_arrived = true;
                 }
             }
             
@@ -142,19 +143,22 @@ impl<S: MagneticSurface> DriveMechanics<S> {
                 via2.in_b |= MASK_SYNC;  // Release SYNC
                 hardware.debug_pin_0(false);
             }
+            
+            let sync_active = (via2.in_b & MASK_SYNC) == 0;
+            if new_byte_arrived {
+                log::info!("new_byte: {:#04X}, sync_active: {}, suppress_ca1: {}, is_so_enabled: {}", self.last_gcr_byte, sync_active, suppress_ca1, is_so_enabled);
+            }
+            if !sync_active && !suppress_ca1 && new_byte_arrived && is_so_enabled {
+                via2.ca1_irq();
+                self.so_pulse_cycles = 3; 
+                hardware.debug_pin_1(true);
+            }
         } else {
             // WRITE mode
             self.surface.stop_reading();
             // We use 0 as master clock for now, as host tests don't have a reliable master clock
             let index = self.surface.get_absolute_head_position(0);
             self.surface.write_byte_at(index, via2.ora);
-        }
-
-        let sync_active = (via2.in_b & MASK_SYNC) == 0;
-        if !sync_active && !suppress_ca1 {
-            via2.ca1_irq();
-            self.so_pulse_cycles = 3; 
-            hardware.debug_pin_1(true);
         }   
     }
 

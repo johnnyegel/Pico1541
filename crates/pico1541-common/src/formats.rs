@@ -19,18 +19,20 @@ use crate::track_buffer::TrackLayout;
 pub trait DiskImage {
     /// Loads a specific half-track into the provided buffer.
     /// Returns the layout of the loaded track.
-    async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<(TrackLayout, usize), Error>;
+    async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<(TrackLayout, usize, Option<u8>), Error>;
 }
 
 #[derive(Clone, Debug)]
 pub struct TrackLookupTable {
     pub offsets: [Option<u32>; 86],
+    pub speed_zones: [Option<u8>; 86],
 }
 
 impl TrackLookupTable {
     pub fn new() -> Self {
         Self {
             offsets: [None; 86],
+            speed_zones: [None; 86],
         }
     }
 }
@@ -219,6 +221,11 @@ impl<S: Read + Seek, D: DirectorySource> VirtualDiskImage<S, D> {
                 );
             }
             
+            // Reverse bits for the PIO DMA (LSB first shifting)
+            for byte in dest_gcr.iter_mut() {
+                *byte = byte.reverse_bits();
+            }
+            
             if idx + 325 <= gcr_data.len() {
                 gcr_data[idx..idx + 325].copy_from_slice(&dest_gcr);
                 self.next_sector_to_update = next_after;
@@ -265,6 +272,11 @@ impl<S: Read + Seek, D: DirectorySource> VirtualDiskImage<S, D> {
         let mut dest_gcr = [0u8; 325];
         self.encode_directory_sector_gcr(&entries[..count], next_t, next_s, &mut dest_gcr);
 
+        // Reverse bits for the PIO DMA (LSB first shifting)
+        for byte in dest_gcr.iter_mut() {
+            *byte = byte.reverse_bits();
+        }
+
         if idx + 325 <= gcr_data.len() {
             gcr_data[idx..idx + 325].copy_from_slice(&dest_gcr);
             self.next_sector_to_update = next_after;
@@ -287,9 +299,11 @@ impl<S: Read + Seek, D: DirectorySource> VirtualDiskImage<S, D> {
 }
 
 impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
-    async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<(TrackLayout, usize), Error> {
-        if half_track > 85 || (half_track % 2) != 0 {
-            return Ok((TrackLayout::Void, 0));
+    async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<(TrackLayout, usize, Option<u8>), Error> {
+        log::info!("Reading VirtualDisk track {}", half_track);
+        
+        if half_track % 2 != 0 || half_track == 0 || half_track > 84 {
+            return Ok((TrackLayout::Void, 0, None));
         }
 
         
@@ -322,9 +336,9 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                 let sector_data = [0u8; 256];
 
                 if sector == 1 {
-                    self.sector1_idx = write_ptr + 39;
+                    self.sector1_idx = write_ptr + 29;
                 } else if sector == 2 {
-                    self.sector2_idx = write_ptr + 39;
+                    self.sector2_idx = write_ptr + 29;
                 }
 
                 for _ in 0..5 {
@@ -386,7 +400,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
             }
 
             log::info!("VirtualDiskImage: Returning StriddenWarp for track 1");
-            return Ok((TrackLayout::Warped(366), 10000));
+            return Ok((TrackLayout::Warped(366), 10000, None));
         }
 
         // FIXME! Why is this needed?
@@ -430,9 +444,9 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                     sector_data[166] = 0x41;
                 } else if sector == 1 || sector == 2 {
                     if sector == 1 {
-                        self.sector1_idx = write_ptr + 39;
+                        self.sector1_idx = write_ptr + 29;
                     } else {
-                        self.sector2_idx = write_ptr + 39;
+                        self.sector2_idx = write_ptr + 29;
                     }
 
                     if let Some(entry) = self.shortcut_entry {
@@ -526,7 +540,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
 
             self.source.rewind();
             self.force_update_directory_sectors(dest).await;
-            return Ok((TrackLayout::Accurate, write_ptr));
+            return Ok((TrackLayout::Accurate, write_ptr, None));
         }
 
         // Generate Skeleton Track for other tracks
@@ -605,7 +619,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
         }
 
         let track_bytes = write_ptr;
-        Ok((TrackLayout::Accurate, track_bytes))
+        Ok((TrackLayout::Accurate, track_bytes, None))
     }
 }
 
@@ -651,10 +665,10 @@ impl<S: Read + Seek> D64Image<S> {
 }
 
 impl<S: Read + Seek> DiskImage for D64Image<S> {
-    async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<(TrackLayout, usize), Error> {
+    async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<(TrackLayout, usize, Option<u8>), Error> {
         let track_offset = self.lookup_table.offsets.get(half_track as usize).copied().flatten();
         if track_offset.is_none() {
-            return Ok((TrackLayout::Void, 0));
+            return Ok((TrackLayout::Void, 0, None));
         }
         
         let track = half_track / 2 + 1;
@@ -750,7 +764,7 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
             write_ptr += 1;
         }
         let track_bytes = write_ptr;
-        Ok((TrackLayout::Accurate, track_bytes))
+        Ok((TrackLayout::Accurate, track_bytes, None))
     }
 }
 
@@ -779,18 +793,30 @@ impl<S: Read + Seek> G64Image<S> {
             }
         }
         
+        storage.seek(SeekFrom::Start(0x015C)).await.map_err(|_| Error::Io)?;
+        let mut speed_bytes = [0u8; 84];
+        storage.read_exact(&mut speed_bytes).await.map_err(|_| Error::Io)?;
+        
+        for i in 0..84 {
+            let speed = speed_bytes[i];
+            if speed < 4 {
+                lookup_table.speed_zones[i] = Some(speed);
+            }
+        }
+        
         Ok(Self { storage, lookup_table })
     }
 }
 impl<S: Read + Seek> DiskImage for G64Image<S> {
-    async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<(TrackLayout, usize), Error> {
+    async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<(TrackLayout, usize, Option<u8>), Error> {
         log::info!("Reading G64 track {}", half_track);
         
         let track_offset = self.lookup_table.offsets.get(half_track as usize).copied().flatten();
         if track_offset.is_none() {
-            return Ok((TrackLayout::Void, 0));
+            return Ok((TrackLayout::Void, 0, None));
         }
         let offset = track_offset.unwrap();
+        let speed_zone = self.lookup_table.speed_zones.get(half_track as usize).copied().flatten();
         
         self.storage
             .seek(SeekFrom::Start(offset as u64))
@@ -818,7 +844,7 @@ impl<S: Read + Seek> DiskImage for G64Image<S> {
         self.storage.read_exact(&mut track_data[..track_len]).await.map_err(|_| Error::Io)?;
         dest[..track_len].copy_from_slice(&track_data[..track_len]);
 
-        Ok((TrackLayout::Accurate, track_len))
+        Ok((TrackLayout::Accurate, track_len, speed_zone))
     }
 }
 
@@ -839,7 +865,7 @@ impl<S: Read + Seek, D: DirectorySource> AnyDiskImage<S, D> {
 }
 
 impl<S: Read + Seek, D: DirectorySource> DiskImage for AnyDiskImage<S, D> {
-    async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<(TrackLayout, usize), Error> {
+    async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<(TrackLayout, usize, Option<u8>), Error> {
         match self {
             Self::D64(img) => img.read_track(half_track, dest).await,
             Self::G64(img) => img.read_track(half_track, dest).await,

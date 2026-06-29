@@ -1,5 +1,5 @@
 use pico1541_common::magnetic_surface::MagneticSurface;
-use core::sync::atomic::{AtomicBool, Ordering};
+
 use embassy_rp::pac;
 use pico1541_common::track_buffer::EmulatorHandle;
 
@@ -32,9 +32,8 @@ impl PioMagneticSurface {
         cfg.shift_out.threshold = 8; // Pull every 8 bits for byte-level streaming
         cfg.shift_out.direction = embassy_rp::pio::ShiftDirection::Right; // LSB first (since we bit-reverse in TrackBuffer)
         
-        cfg.clock_divider = (1_u8).into();
 
-        let mut sync_pio_pin = pio.common.make_pio_pin(sync_pin);
+        let sync_pio_pin = pio.common.make_pio_pin(sync_pin);
         sm.set_pin_dirs(embassy_rp::pio::Direction::Out, &[&sync_pio_pin]);
         sm.set_pins(embassy_rp::gpio::Level::High, &[&sync_pio_pin]); // Initial state: HIGH (Inactive)
         
@@ -178,11 +177,14 @@ impl MagneticSurface for PioMagneticSurface {
         // 1541 uses 4 different bitrates depending on the track zone.
         // The PIO bit loop takes 4 clock cycles per bit.
         // We set the PIO clock such that 4 cycles equal the exact bitrate duration.
-        let (clk_int, clk_frac) = match full_track {
-            1..=17 => (101, 144), // Zone 1: 307.692 kbps
-            18..=24 => (109, 96),  // Zone 2: 285.714 kbps
-            25..=30 => (117, 48),  // Zone 3: 266.666 kbps
-            _ => (125, 0),         // Zone 4: 250.000 kbps
+        let default_zone = if full_track <= 17 { 3 } else if full_track <= 24 { 2 } else if full_track <= 30 { 1 } else { 0 };
+        let speed_zone = self.track_handle.get_active_speed_zone().unwrap_or(default_zone);
+        
+        let (clk_int, clk_frac) = match speed_zone {
+            3 => (101, 144), // Zone 3: 307.692 kbps
+            2 => (109, 96),  // Zone 2: 285.714 kbps
+            1 => (117, 48),  // Zone 1: 266.666 kbps
+            _ => (125, 0),   // Zone 0: 250.000 kbps
         };
 
         // Clear the PIO RX and TX FIFOs
@@ -193,13 +195,15 @@ impl MagneticSurface for PioMagneticSurface {
             w.set_frac(clk_frac);
         });
 
-        pio.ctrl().write(|w| w.set_sm_restart(1)); // Restart SM to reset its internal state (Y, ISR, OSR)
-        pio.ctrl().write(|w| w.set_sm_enable(1));
+        // CLEAR PIO FIFOS
+        let shiftctrl = pio.sm(0).shiftctrl();
+        shiftctrl.modify(|w| { w.set_fjoin_rx(!w.fjoin_rx()); });
+        shiftctrl.modify(|w| { w.set_fjoin_rx(!w.fjoin_rx()); });
         
-        // Drain any lingering data in RX FIFO
-        while (pio.fstat().read().rxempty() & 1) == 0 {
-            let _ = pio.rxf(0).read();
-        }
+        pio.ctrl().write(|w| {
+            w.set_sm_restart(1); 
+            w.set_sm_enable(1);
+        });
         
         // Setup Worker (Channel A) with the exact byte count!
         // try_read_byte will poll the busy flag and reload it instantly when it completes.

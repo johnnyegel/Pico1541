@@ -32,6 +32,7 @@ pub struct TrackBuffer {
     pub track_id: u8,       // The half-track index (0-83)
     pub length: usize,      // Valid bytes in the buffer
     pub layout: TrackLayout,
+    pub speed_zone: Option<u8>,
 }
 
 impl TrackBuffer {
@@ -41,6 +42,7 @@ impl TrackBuffer {
             track_id: 0xFF, // 0xFF represents invalid/unloaded
             length: 0,
             layout: TrackLayout::Void,
+            speed_zone: None,
         }
     }
 }
@@ -137,7 +139,7 @@ impl ManagerHandle {
         unsafe { &mut (*self.core_buffer.buffers.get())[back_idx].data }
     }
 
-    pub fn commit_loaded_track(&self, track_id: u8, layout: TrackLayout, length: usize) {
+    pub fn commit_loaded_track(&self, track_id: u8, layout: TrackLayout, length: usize, speed_zone: Option<u8>) {
         let current_active = self.core_buffer.active_index.load(Ordering::Acquire);
         let back_idx = if current_active { 0 } else { 1 };
         let back_buffer = unsafe { &mut (*self.core_buffer.buffers.get())[back_idx] };
@@ -145,6 +147,7 @@ impl ManagerHandle {
         back_buffer.layout = layout;
         back_buffer.length = length;
         back_buffer.track_id = track_id;
+        back_buffer.speed_zone = speed_zone;
         
         // Reverse bits in software to solve RP2040 APB unaligned DMA byte write limitations
         for byte in &mut back_buffer.data[..length] {
@@ -406,6 +409,12 @@ impl EmulatorHandle {
         } else {
             None
         }
+    }
+
+    pub fn get_active_speed_zone(&self) -> Option<u8> {
+        let active_idx = if self.core_buffer.active_index.load(Ordering::Acquire) { 1 } else { 0 };
+        let active_buffer = unsafe { &(*self.core_buffer.buffers.get())[active_idx] };
+        active_buffer.speed_zone
     }
 }
 

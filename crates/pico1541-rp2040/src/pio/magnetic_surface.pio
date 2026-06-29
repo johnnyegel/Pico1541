@@ -2,35 +2,41 @@
 
 ; Operates with:
 ; - Autopush enabled (threshold 8)
-; - Autopull enabled (threshold 8)  ; <-- CHANGED to 8 for byte transfers
+; - Autopull enabled (threshold 8)
 ; - Shift direction: Left (MSB first, typical for GCR)
 
-    set pindirs, 1      ; Ensure GPIO 10 is an output (survives SM restarts)
-    set pins, 1         ; Ensure GPIO 10 is HIGH (inactive) on startup/restart
+    set pindirs, 1      
+    set pins, 1         
 .wrap_target
 sync_search:
-    out x, 1            ; reads 1st bit
-    jmp !x bit_is_zero  ; jumps if 0, reset search
+    out x, 1            
+    jmp !x bit_is_zero  
     
-    ; Bit is 1. Shift it into ISR and check if we hit 10 consecutive
     in x, 1
     
-    jmp y-- sync_search ; Y is our counter. Decrement and loop if non-zero.
+    jmp y-- sync_search 
     
-    ; If we fall through, Y reached 0 (we found 10 consecutive 1s).
 in_sync:
-    mov isr, !null      ; Fill ISR with 1s
-    push                ; Push 0xFFFFFFFF to RX FIFO as a SYNC token, resets shift count
-    set pins, 0         ; SET GPIO 10 LOW (SYNC ACTIVE)
+    mov isr, !null      
+    push                
+    set pins, 0         
     
 sync_loop:
+    set y, 7            
+sync_loop_inner:
     out x, 1
-    jmp !x sync_broken  ; SYNC broken, start assembling data byte
+    jmp !x sync_broken  
+    jmp y-- sync_loop_inner
+    
+    mov isr, !null
+    push
     jmp sync_loop
     
 sync_broken:
-    set pins, 1         ; SET GPIO 10 HIGH (SYNC INACTIVE)
+    set pins, 1         
+    mov isr, null
+    push                ; Push 0x00000000 as SYNC_BROKEN token
 bit_is_zero:
-    set y, 8            ; Reset counter to 9 (0-8 = 9 decrements, plus initial check = 10 bits)
-    in null, 1          ; Shift a 0 into ISR
+    set y, 8            
+    in null, 1          
 .wrap
