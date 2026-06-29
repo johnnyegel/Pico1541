@@ -27,7 +27,7 @@ impl PioMagneticSurface {
         cfg.shift_in.direction = embassy_rp::pio::ShiftDirection::Left;
         
         cfg.shift_out.auto_fill = true;
-        cfg.shift_out.threshold = 8; // SIZE_BYTE writes to top of FIFO requires shifting exactly 1 byte.
+        cfg.shift_out.threshold = 32;
         cfg.shift_out.direction = embassy_rp::pio::ShiftDirection::Left;
         
         cfg.clock_divider = (1_u8).into();
@@ -44,13 +44,11 @@ impl PioMagneticSurface {
         // Channel A config (Worker)
         let pio_pac = pac::PIO0;
         ch_a.read_addr().write_value(0);
-        // Write to TXF + 3 (most significant byte) because RP2040 replicates narrow writes to all 4 bytes.
-        // This ensures the byte is placed in bits 31-24 so out_shiftdir=Left shifts it correctly MSB first!
-        ch_a.write_addr().write_value(pio_pac.txf(0).as_ptr() as u32 + 3);
+        ch_a.write_addr().write_value(pio_pac.txf(0).as_ptr() as u32);
         
         let mut ctrl_a = ch_a.ctrl_trig().read();
-        ctrl_a.set_data_size(pac::dma::vals::DataSize::SIZE_BYTE);
-        ctrl_a.set_bswap(false); // No bswap needed for SIZE_BYTE narrow writes
+        ctrl_a.set_data_size(pac::dma::vals::DataSize::SIZE_WORD);
+        ctrl_a.set_bswap(true);
         ctrl_a.set_incr_read(true);
         ctrl_a.set_incr_write(false);
         ctrl_a.set_treq_sel(pac::dma::vals::TreqSel::PIO0_TX0);
@@ -133,7 +131,7 @@ impl MagneticSurface for PioMagneticSurface {
         dma.ch(1).ctrl_trig().write_value(ctrl_b);
         
         unsafe {
-            DMA_RELOAD_DATA[0] = data.len() as u32; // SIZE_BYTE transfers
+            DMA_RELOAD_DATA[0] = ((data.len() + 3) / 4) as u32; // SIZE_WORD transfers
             DMA_RELOAD_DATA[1] = data.as_ptr() as u32;
         }
 
