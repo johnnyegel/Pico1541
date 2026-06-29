@@ -12,7 +12,6 @@ static mut DMA_RELOAD_DATA: DmaReloadData = DmaReloadData([0, 0]);
 
 pub struct PioMagneticSurface {
     track_handle: EmulatorHandle,
-    _dbg_pin: embassy_rp::gpio::Output<'static>,
 }
 
 impl PioMagneticSurface {
@@ -38,8 +37,10 @@ impl PioMagneticSurface {
         
         cfg.clock_divider = (1_u8).into();
 
-        // SET GPIO 10 HIGH IN SOFTWARE
-        let dbg_pin = embassy_rp::gpio::Output::new(sync_pin, embassy_rp::gpio::Level::High);
+        let mut sync_pio_pin = pio.common.make_pio_pin(sync_pin);
+        sm.set_pin_dirs(embassy_rp::pio::Direction::Out, &[&sync_pio_pin]);
+        cfg.set_set_pins(&[&sync_pio_pin]);
+        cfg.set_out_pins(&[&sync_pio_pin]);
 
         sm.set_config(&cfg);
         sm.set_enable(true);
@@ -83,7 +84,6 @@ impl PioMagneticSurface {
 
         Self {
             track_handle,
-            _dbg_pin: dbg_pin,
         }
     }
 }
