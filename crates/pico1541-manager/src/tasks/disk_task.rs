@@ -137,7 +137,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                         let elapsed = start_time.elapsed().as_millis();
                         info!("Track load took {} ms", elapsed);
                         if layout.1 >= 16 {
-                            info!("Track {} loaded! First 16 bytes: {=[u8]:x}", target_ht, &data[..16]);
+                            info!("Track {} loaded!", target_ht);
                         }
                         self.track_handle.commit_loaded_track(target_ht, layout.0, layout.1);
                         break; // Success, done loading the track!
@@ -572,7 +572,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                             let elapsed = start_time.elapsed().as_millis();
                                             info!("Track load took {} ms", elapsed);
                                             if data.len() >= 16 {
-                                                info!("Track {} loaded! First 16 bytes: {=[u8]:x}", half_track, &data[..16]);
+                                                info!("Track {} loaded!", half_track);
                                             }
                                             self.track_handle.commit_loaded_track(half_track, layout.0, layout.1);
                                         }

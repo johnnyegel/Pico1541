@@ -42,6 +42,8 @@ impl MagneticSurface for SoftwareMagneticSurface {
 
     fn try_read_byte(&mut self) -> Option<u32> {
         let expected_track_id = self.track_handle.get_head_half_track();
+        let mut assembled_byte = None;
+        let mut sync_trigger = false;
         
         for _ in 0..8 {
             if self.pending_bit_count == 0 {
@@ -64,7 +66,7 @@ impl MagneticSurface for SoftwareMagneticSurface {
                 self.is_sync = true;
                 self.bits_in_reg = 0;
                 if just_entered_sync {
-                    return Some(0xFFFFFFFF);
+                    sync_trigger = true;
                 }
             } else {
                 if self.is_sync && bit == 0 {
@@ -75,16 +77,19 @@ impl MagneticSurface for SoftwareMagneticSurface {
                 if !self.is_sync {
                     self.bit_shift_reg = (self.bit_shift_reg << 1) | bit;
                     self.bits_in_reg += 1;
+                    
+                    if self.bits_in_reg == 8 {
+                        assembled_byte = Some(self.bit_shift_reg as u32);
+                        self.bits_in_reg = 0;
+                    }
                 }
             }
         }
         
-        if self.bits_in_reg >= 8 {
-            let output = self.bit_shift_reg;
-            self.bits_in_reg -= 8;
-            Some(output as u32)
+        if sync_trigger {
+            Some(0xFFFFFFFF)
         } else {
-            None
+            assembled_byte
         }
     }
 
@@ -139,7 +144,7 @@ mod tests {
         assert_eq!(out0, Some(0x7F)); // The first byte is pushed normally
 
         let out1 = surface.try_read_byte();
-        assert_eq!(out1, None); // We hit 10 ones, entered SYNC, no output
+        assert_eq!(out1, Some(0xFFFFFFFF));
 
         assert_eq!(surface.is_sync_active(), true);
 

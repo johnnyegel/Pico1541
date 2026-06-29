@@ -95,10 +95,7 @@ where
             let layout = block_on(self.image.read_track(track_ht, &mut inactive.data))
                 .unwrap_or((TrackLayout::Void, 0));
 
-            inactive.layout = layout.0;
-            inactive.length = layout.1;
-            inactive.track_id = track_ht;
-            manager.commit_dormant_buffer();
+            manager.commit_loaded_track(track_ht, layout.0, layout.1);
 
             self.last_half_track = track_ht;
         }

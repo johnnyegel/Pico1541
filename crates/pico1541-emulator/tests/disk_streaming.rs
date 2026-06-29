@@ -28,15 +28,12 @@ fn test_disk_streaming_data() {
     
     {
         let inactive = manager.get_dormant_buffer_mut();
-        inactive.layout = TrackLayout::Accurate;
-        inactive.length = track_bytes;
-        inactive.track_id = 0; // Match DriveMechanics default
         inactive.data[0] = 0xAA;
         inactive.data[1] = 0x55;
         inactive.data[2] = 0x01;
         inactive.data[3] = 0xFE;
     }
-    manager.commit_dormant_buffer();
+    manager.commit_loaded_track(0, TrackLayout::Accurate, track_bytes);
 
     let mut via1 = Via6522::new(); let mut via2 = Via6522::new();
     let surface = SoftwareMagneticSurface::new(emulator);
@@ -141,12 +138,9 @@ fn test_disk_bitrate_zones() {
     
     {
         let inactive = manager.get_dormant_buffer_mut();
-        inactive.layout = TrackLayout::Accurate;
-        inactive.length = track_bytes;
-        inactive.track_id = 0;
         inactive.data.fill(0x55); // Use data, not SYNC
     }
-    manager.commit_dormant_buffer();
+    manager.commit_loaded_track(0, TrackLayout::Accurate, track_bytes);
 
     let mut via1 = Via6522::new(); let mut via2 = Via6522::new();
     let surface = SoftwareMagneticSurface::new(emulator);
