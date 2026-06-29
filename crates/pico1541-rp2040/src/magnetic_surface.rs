@@ -30,7 +30,7 @@ impl PioMagneticSurface {
         
         cfg.shift_out.auto_fill = true;
         cfg.shift_out.threshold = 8; // Pull every 8 bits for byte-level streaming
-        cfg.shift_out.direction = embassy_rp::pio::ShiftDirection::Left;
+        cfg.shift_out.direction = embassy_rp::pio::ShiftDirection::Right; // LSB first (since we bit-reverse in TrackBuffer)
         
         cfg.clock_divider = (1_u8).into();
 
@@ -53,7 +53,7 @@ impl PioMagneticSurface {
         // Channel A config (Worker 1)
         let pio_pac = pac::PIO0;
         ch_a.read_addr().write_value(0); // Set in start_reading
-        ch_a.write_addr().write_value(pio_pac.txf(0).as_ptr() as u32 + 3); // Write to MSB byte lane
+        ch_a.write_addr().write_value(pio_pac.txf(0).as_ptr() as u32); // Write to TXF offset 0
         
         let mut ctrl_a = ch_a.ctrl_trig().read();
         ctrl_a.set_data_size(pac::dma::vals::DataSize::SIZE_BYTE); // 8-bit transfers to match exact track length

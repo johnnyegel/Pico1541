@@ -146,7 +146,12 @@ impl ManagerHandle {
         back_buffer.length = length;
         back_buffer.track_id = track_id;
         
-        // Pad the remainder of the 8192-byte buffer with SYNC (0xFF)
+        // Reverse bits in software to solve RP2040 APB unaligned DMA byte write limitations
+        for byte in &mut back_buffer.data[..length] {
+            *byte = byte.reverse_bits();
+        }
+        
+        // Pad the remainder of the 8192-byte buffer with SYNC (0xFF reversed is still 0xFF)
         if length < 8192 {
             back_buffer.data[length..8192].fill(0xFF);
         }
@@ -351,9 +356,9 @@ impl EmulatorHandle {
         let buffer = unsafe { &(*self.core_buffer.buffers.get())[active_idx] };
 
         if let Some(ix) = self.resolve_and_advance_index(buffer, expected_track_id, requested_sector, just_started_listening) {
-            buffer.data[ix]
+            buffer.data[ix].reverse_bits()
         } else {
-            VOID_BYTE
+            VOID_BYTE.reverse_bits()
         }
     }
 
