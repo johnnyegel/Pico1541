@@ -179,9 +179,26 @@ impl MagneticSurface for PioMagneticSurface {
         let mut ctrl_b = dma.ch(1).ctrl_trig().read();
         ctrl_b.set_en(false);
         dma.ch(1).ctrl_trig().write_value(ctrl_b);
+        
+        let full_track = track_id / 2;
+        // 1541 uses 4 different bitrates depending on the track zone.
+        // The PIO bit loop takes 4 clock cycles per bit.
+        // We set the PIO clock such that 4 cycles equal the exact bitrate duration.
+        let (clk_int, clk_frac) = match full_track {
+            1..=17 => (101, 144), // Zone 1: 307.692 kbps
+            18..=24 => (109, 96),  // Zone 2: 285.714 kbps
+            25..=30 => (117, 48),  // Zone 3: 266.666 kbps
+            _ => (125, 0),         // Zone 4: 250.000 kbps
+        };
 
         // Clear the PIO RX and TX FIFOs
         let pio = pac::PIO0;
+        
+        pio.sm(0).clkdiv().write(|w| {
+            w.set_int(clk_int);
+            w.set_frac(clk_frac);
+        });
+
         pio.ctrl().write(|w| w.set_sm_restart(1)); // Restart SM to reset its internal state (Y, ISR, OSR)
         pio.ctrl().write(|w| w.set_sm_enable(1));
         

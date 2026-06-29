@@ -5,6 +5,7 @@
 ; - Autopull enabled (threshold 32)
 ; - Shift direction: Left (MSB first, typical for GCR)
 
+    set pindirs, 1      ; Ensure GPIO 10 is an output (survives SM restarts)
 .wrap_target
 sync_search:
     out x, 1            ; reads 1st bit
