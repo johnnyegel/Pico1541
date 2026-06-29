@@ -48,9 +48,9 @@ impl PioMagneticSurface {
         let dma = pac::DMA;
         let ch_a = dma.ch(0);
 
-        // Channel A config (Worker)
+        // Channel A config (Worker 1)
         let pio_pac = pac::PIO0;
-        ch_a.read_addr().write_value(0);
+        ch_a.read_addr().write_value(0); // Set in start_reading
         ch_a.write_addr().write_value(pio_pac.txf(0).as_ptr() as u32);
         
         let mut ctrl_a = ch_a.ctrl_trig().read();
@@ -59,27 +59,27 @@ impl PioMagneticSurface {
         ctrl_a.set_incr_read(true);
         ctrl_a.set_incr_write(false);
         ctrl_a.set_treq_sel(pac::dma::vals::TreqSel::PIO0_TX0);
-        ctrl_a.set_chain_to(1); // Chain to Channel 1 (Reloader)
+        ctrl_a.set_chain_to(1); // Chain to Channel B
+        ctrl_a.set_ring_size(13); // 2^13 = 8192 bytes
+        ctrl_a.set_ring_sel(false); // Ring on read address
         ctrl_a.set_en(false);
         ch_a.ctrl_trig().write_value(ctrl_a);
 
-        // Channel B config (Reloader)
+        // Channel B config (Worker 2)
         let ch_b = dma.ch(1);
-        ch_b.read_addr().write_value(unsafe { DMA_RELOAD_DATA.0.as_ptr() as u32 });
-        // Write to Channel A's AL3_TRANS_COUNT (which is AL3_CTRL offset + 0x08).
-        // It writes 2 words: TRANS_COUNT and READ_ADDR_TRIG.
-        ch_b.write_addr().write_value(dma.ch(0).al3_ctrl().as_ptr() as u32 + 8);
+        ch_b.read_addr().write_value(0); // Set in start_reading
+        ch_b.write_addr().write_value(pio_pac.txf(0).as_ptr() as u32);
 
         let mut ctrl_b = ch_b.ctrl_trig().read();
         ctrl_b.set_data_size(pac::dma::vals::DataSize::SIZE_WORD);
-        ctrl_b.set_bswap(false);
-        ctrl_b.set_incr_read(true); // Reads 2 words from RELOAD_DATA
-        ctrl_b.set_incr_write(true); // Writes 2 words to AL3 (TRANS_COUNT then READ_ADDR_TRIG)
-        ctrl_b.set_treq_sel(pac::dma::vals::TreqSel::PERMANENT); // Always ready
-        ctrl_b.set_chain_to(1); // Do not chain (wait for trigger from A)
-        ctrl_b.set_ring_size(3); // 2^3 = 8 bytes = 2 words ring buffer on read!
+        ctrl_b.set_bswap(true);
+        ctrl_b.set_incr_read(true);
+        ctrl_b.set_incr_write(false);
+        ctrl_b.set_treq_sel(pac::dma::vals::TreqSel::PIO0_TX0);
+        ctrl_b.set_chain_to(0); // Chain back to Channel A
+        ctrl_b.set_ring_size(13); // 2^13 = 8192 bytes
         ctrl_b.set_ring_sel(false); // Ring on read address
-        ctrl_b.set_en(true); // Keep enabled
+        ctrl_b.set_en(false);
         ch_b.ctrl_trig().write_value(ctrl_b);
 
         Self {
@@ -154,7 +154,9 @@ impl MagneticSurface for PioMagneticSurface {
     
     fn start_reading(&mut self, track_id: u8, _rotation_fixed: u32) {
         self.track_handle.update_head_half_track(track_id);
-        let data = self.track_handle.get_active_buffer_slice();
+        
+        // Ensure track is loaded and padded. We use the full 8192-byte underlying buffer pointer.
+        let track_ptr = self.track_handle.get_full_buffer_ptr();
 
         let dma = pac::DMA;
         
@@ -167,25 +169,22 @@ impl MagneticSurface for PioMagneticSurface {
         ctrl_b.set_en(false);
         dma.ch(1).ctrl_trig().write_value(ctrl_b);
         
-        unsafe {
-            DMA_RELOAD_DATA.0[0] = ((data.len() + 3) / 4) as u32; // SIZE_WORD transfers
-            DMA_RELOAD_DATA.0[1] = data.as_ptr() as u32;
-        }
+        let word_count = 8192 / 4; // Transfer entire 8192 bytes (2048 words) per cycle
 
-        // Setup Reloader (Channel B)
-        dma.ch(1).read_addr().write_value(unsafe { DMA_RELOAD_DATA.0.as_ptr() as u32 });
-        dma.ch(1).trans_count().write_value(2);
+        // Setup Channel B (Worker 2)
+        dma.ch(1).read_addr().write_value(track_ptr as u32);
+        dma.ch(1).trans_count().write_value(word_count);
         
-        // Re-enable Reloader WITHOUT triggering
+        // Re-enable Channel B WITHOUT triggering (it will wait for Channel A to chain to it)
         ctrl_b.set_en(true);
         // SAFETY: writing to al1_ctrl sets CTRL but does not trigger
         unsafe { dma.ch(1).al1_ctrl().write_value(core::mem::transmute(ctrl_b)) };
 
         // Setup Worker (Channel A)
-        dma.ch(0).read_addr().write_value(data.as_ptr() as u32);
-        dma.ch(0).trans_count().write_value(((data.len() + 3) / 4) as u32);
+        dma.ch(0).read_addr().write_value(track_ptr as u32);
+        dma.ch(0).trans_count().write_value(word_count);
         
-        // Re-enable and TRIGGER Worker
+        // Re-enable and TRIGGER Worker A
         ctrl_a.set_en(true);
         dma.ch(0).ctrl_trig().write_value(ctrl_a);
     }

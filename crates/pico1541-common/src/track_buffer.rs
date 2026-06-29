@@ -26,7 +26,7 @@ pub enum TrackLayout {
 
 /// Represents a single track buffer which holds the GCR-encoded data for a track,
 /// along with metadata about the track such as its ID and layout.
-#[repr(C, align(4))]
+#[repr(C, align(8192))]
 pub struct TrackBuffer {
     pub data: [u8; 8192],
     pub track_id: u8,       // The half-track index (0-83)
@@ -146,6 +146,11 @@ impl ManagerHandle {
         back_buffer.length = length;
         back_buffer.track_id = track_id;
         
+        // Pad the remainder of the 8192-byte buffer with SYNC (0xFF)
+        if length < 8192 {
+            back_buffer.data[length..8192].fill(0xFF);
+        }
+        
         self.core_buffer.active_index.store(!current_active, Ordering::Release);
     }
 
@@ -258,6 +263,12 @@ impl EmulatorHandle {
         let active_idx = if self.core_buffer.active_index.load(Ordering::Acquire) { 1 } else { 0 };
         let buffer = unsafe { &(*self.core_buffer.buffers.get())[active_idx] };
         &buffer.data[..buffer.length]
+    }
+
+    pub fn get_full_buffer_ptr(&self) -> *const u8 {
+        let active_idx = if self.core_buffer.active_index.load(Ordering::Acquire) { 1 } else { 0 };
+        let buffer = unsafe { &(*self.core_buffer.buffers.get())[active_idx] };
+        buffer.data.as_ptr()
     }
 
     pub fn seek_to_byte(&mut self, byte_index: u32) {
