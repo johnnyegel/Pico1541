@@ -136,6 +136,9 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                     Either::First(Ok(layout)) => {
                         let elapsed = start_time.elapsed().as_millis();
                         info!("Track load took {} ms", elapsed);
+                        if layout.1 >= 16 {
+                            info!("Track {} loaded! First 16 bytes: {=[u8]:x}", target_ht, &data[..16]);
+                        }
                         self.track_handle.commit_loaded_track(target_ht, layout.0, layout.1);
                         break; // Success, done loading the track!
                     }

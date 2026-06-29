@@ -12,6 +12,7 @@ static mut DMA_RELOAD_DATA: DmaReloadData = DmaReloadData([0, 0]);
 
 pub struct PioMagneticSurface {
     track_handle: EmulatorHandle,
+    last_active_index: bool,
 }
 
 impl PioMagneticSurface {
@@ -84,6 +85,7 @@ impl PioMagneticSurface {
 
         Self {
             track_handle,
+            last_active_index: false,
         }
     }
 }
@@ -94,6 +96,14 @@ impl MagneticSurface for PioMagneticSurface {
     }
 
     fn try_read_byte(&mut self) -> Option<u32> {
+        // Automatically switch DMA to new buffer when track finishes loading!
+        let current_active_index = self.track_handle.get_active_index();
+        if current_active_index != self.last_active_index {
+            self.last_active_index = current_active_index;
+            let track_id = self.track_handle.get_active_track_id();
+            self.start_reading(track_id, 0);
+        }
+
         let pio = pac::PIO0;
         
         let dma_busy = pac::DMA.ch(0).ctrl_trig().read().busy();

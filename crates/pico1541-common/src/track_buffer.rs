@@ -259,8 +259,18 @@ impl EmulatorHandle {
         self.core_buffer.current_byte_idx.load(Ordering::Acquire)
     }
 
+    pub fn get_active_index(&self) -> bool {
+        self.core_buffer.active_index.load(Ordering::Acquire)
+    }
+
+    pub fn get_active_track_id(&self) -> u8 {
+        let active_idx = if self.get_active_index() { 1 } else { 0 };
+        let buffer = unsafe { &(*self.core_buffer.buffers.get())[active_idx] };
+        buffer.track_id
+    }
+
     pub fn get_active_buffer_slice(&self) -> &[u8] {
-        let active_idx = if self.core_buffer.active_index.load(Ordering::Acquire) { 1 } else { 0 };
+        let active_idx = if self.get_active_index() { 1 } else { 0 };
         let buffer = unsafe { &(*self.core_buffer.buffers.get())[active_idx] };
         &buffer.data[..buffer.length]
     }
