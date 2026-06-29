@@ -92,7 +92,22 @@ impl MagneticSurface for PioMagneticSurface {
         
         let fstat = pio.fstat().read();
         if (fstat.rxempty() & 1) == 0 {
-            Some(pio.rxf(0).read())
+            let val = pio.rxf(0).read();
+            
+            // DEBUG LOGGING
+            static mut DEBUG_BYTE_COUNT: u32 = 0;
+            unsafe {
+                if DEBUG_BYTE_COUNT < 32 {
+                    if val == 0xFFFFFFFF {
+                        defmt::info!("PIO DEBUG: Received SYNC token");
+                    } else {
+                        defmt::info!("PIO DEBUG: Received Data = {:02X}", val);
+                    }
+                    DEBUG_BYTE_COUNT += 1;
+                }
+            }
+            
+            Some(val)
         } else {
             None
         }
