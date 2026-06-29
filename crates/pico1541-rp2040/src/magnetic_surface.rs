@@ -5,11 +5,6 @@ use pico1541_common::track_buffer::EmulatorHandle;
 
 
 
-#[repr(align(8))]
-struct DmaReloadData([u32; 2]);
-
-static mut DMA_RELOAD_DATA: DmaReloadData = DmaReloadData([0, 0]);
-
 pub struct PioMagneticSurface {
     track_handle: EmulatorHandle,
     last_active_index: bool,
@@ -34,7 +29,7 @@ impl PioMagneticSurface {
         cfg.shift_in.direction = embassy_rp::pio::ShiftDirection::Left;
         
         cfg.shift_out.auto_fill = true;
-        cfg.shift_out.threshold = 32;
+        cfg.shift_out.threshold = 8; // Pull every 8 bits for byte-level streaming
         cfg.shift_out.direction = embassy_rp::pio::ShiftDirection::Left;
         
         cfg.clock_divider = (1_u8).into();
@@ -58,17 +53,17 @@ impl PioMagneticSurface {
         // Channel A config (Worker 1)
         let pio_pac = pac::PIO0;
         ch_a.read_addr().write_value(0); // Set in start_reading
-        ch_a.write_addr().write_value(pio_pac.txf(0).as_ptr() as u32);
+        ch_a.write_addr().write_value(pio_pac.txf(0).as_ptr() as u32 + 3); // Write to MSB byte lane
         
         let mut ctrl_a = ch_a.ctrl_trig().read();
-        ctrl_a.set_data_size(pac::dma::vals::DataSize::SIZE_WORD);
-        ctrl_a.set_bswap(true);
+        ctrl_a.set_data_size(pac::dma::vals::DataSize::SIZE_BYTE); // 8-bit transfers to match exact track length
+        ctrl_a.set_bswap(false);
         ctrl_a.set_incr_read(true);
         ctrl_a.set_incr_write(false);
         ctrl_a.set_treq_sel(pac::dma::vals::TreqSel::PIO0_TX0);
-        ctrl_a.set_chain_to(0); // Chain to itself
-        ctrl_a.set_ring_size(13); // 2^13 = 8192 bytes
-        ctrl_a.set_ring_sel(false); // Ring on read address
+        ctrl_a.set_chain_to(0); // Chain to itself (won't trigger loop since trans_count will be 0)
+        ctrl_a.set_ring_size(0); // No ring, we manually restart at exact track length boundaries
+        ctrl_a.set_ring_sel(false);
         ctrl_a.set_en(false);
         ch_a.ctrl_trig().write_value(ctrl_a);
 
@@ -93,11 +88,26 @@ impl MagneticSurface for PioMagneticSurface {
             self.start_reading(track_id, 0);
         }
 
-        let pio = pac::PIO0;
+        let dma = pac::DMA;
+        let dma_busy = dma.ch(0).ctrl_trig().read().busy();
         
-        let dma_busy = pac::DMA.ch(0).ctrl_trig().read().busy();
-        let trans_count = pac::DMA.ch(0).trans_count().read();
-        let read_addr = pac::DMA.ch(0).read_addr().read();
+        // If DMA finished transferring the exact track length, instantly restart it!
+        // This gives us pixel-perfect track length loop without ring-buffer restrictions.
+        if !dma_busy {
+            let track_ptr = self.track_handle.get_full_buffer_ptr();
+            let track_length = self.track_handle.track_byte_size as u32;
+            if track_length > 0 {
+                dma.ch(0).read_addr().write_value(track_ptr as u32);
+                dma.ch(0).trans_count().write_value(track_length);
+                let mut ctrl = dma.ch(0).ctrl_trig().read();
+                ctrl.set_en(true);
+                dma.ch(0).ctrl_trig().write_value(ctrl);
+            }
+        }
+
+        let pio = pac::PIO0;
+        let trans_count = dma.ch(0).trans_count().read();
+        let read_addr = dma.ch(0).read_addr().read();
         let fstat = pio.fstat().read();
         
         // AGGRESSIVE DEBUG LOGGING
@@ -191,14 +201,17 @@ impl MagneticSurface for PioMagneticSurface {
             let _ = pio.rxf(0).read();
         }
         
-        // Setup Worker (Channel A) with an infinite transfer count!
-        // Because ring_size is 8192 bytes, it will loop the buffer automatically forever.
+        // Setup Worker (Channel A) with the exact byte count!
+        // try_read_byte will poll the busy flag and reload it instantly when it completes.
+        let track_length = self.track_handle.track_byte_size as u32;
         dma.ch(0).read_addr().write_value(track_ptr as u32);
-        dma.ch(0).trans_count().write_value(0xFFFFFFFF);
+        dma.ch(0).trans_count().write_value(track_length);
         
         // Re-enable and TRIGGER Worker A
-        ctrl_a.set_en(true);
-        dma.ch(0).ctrl_trig().write_value(ctrl_a);
+        if track_length > 0 {
+            ctrl_a.set_en(true);
+            dma.ch(0).ctrl_trig().write_value(ctrl_a);
+        }
     }
     
     fn stop_reading(&mut self) {

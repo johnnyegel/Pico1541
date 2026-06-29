@@ -2,7 +2,7 @@
 
 ; Operates with:
 ; - Autopush enabled (threshold 8)
-; - Autopull enabled (threshold 32)
+; - Autopull enabled (threshold 8)  ; <-- CHANGED to 8 for byte transfers
 ; - Shift direction: Left (MSB first, typical for GCR)
 
     set pindirs, 1      ; Ensure GPIO 10 is an output (survives SM restarts)
