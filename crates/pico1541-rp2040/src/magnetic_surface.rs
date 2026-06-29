@@ -38,6 +38,7 @@ impl PioMagneticSurface {
         cfg.clock_divider = (1_u8).into();
 
         let sync_pio_pin = pio.common.make_pio_pin(sync_pin);
+        sm.set_pin_dirs(embassy_rp::pio::Direction::Out, &[&sync_pio_pin]);
         cfg.set_set_pins(&[&sync_pio_pin]);
         cfg.set_out_pins(&[&sync_pio_pin]);
 
