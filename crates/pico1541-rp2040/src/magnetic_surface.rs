@@ -26,6 +26,7 @@ impl PioMagneticSurface {
         
         let mut sm = pio.sm0;
         let mut cfg = embassy_rp::pio::Config::default();
+        cfg.clock_divider = 31u8.into(); // 125 MHz / 31 = ~4.03 MHz (4 cycles = 1us per bit)
         cfg.use_program(&loaded_prg, &[]);
         
         cfg.shift_in.auto_fill = true;
@@ -178,6 +179,16 @@ impl MagneticSurface for PioMagneticSurface {
         let mut ctrl_b = dma.ch(1).ctrl_trig().read();
         ctrl_b.set_en(false);
         dma.ch(1).ctrl_trig().write_value(ctrl_b);
+
+        // Clear the PIO RX and TX FIFOs
+        let pio = pac::PIO0;
+        pio.ctrl().write(|w| w.set_sm_restart(1)); // Restart SM to reset its internal state (Y, ISR, OSR)
+        pio.ctrl().write(|w| w.set_sm_enable(1));
+        
+        // Drain any lingering data in RX FIFO
+        while (pio.fstat().read().rxempty() & 1) == 0 {
+            let _ = pio.rxf(0).read();
+        }
         
         let word_count = 8192 / 4; // Transfer entire 8192 bytes (2048 words) per cycle
 
