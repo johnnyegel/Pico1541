@@ -311,7 +311,7 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
     embassy_rp::multicore::spawn_core1(p.CORE1, stack, move || {
         let drive = unsafe {
             let ptr: *mut Emulator<HardwareBridge, PioMagneticSurface> = core::ptr::addr_of_mut!(EMULATOR).cast();
-            let surface = PioMagneticSurface::new(pio0, emulator_handle);
+            let surface = PioMagneticSurface::new(pio0, emulator_handle, p.PIN_10);
             core::ptr::write(ptr, Emulator::new(&*core::ptr::addr_of!(ROM_BUFFER), drive_id, surface));
             &mut *ptr
         };
