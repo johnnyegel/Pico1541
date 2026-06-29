@@ -34,6 +34,7 @@ impl PioMagneticSurface {
 
         let sync_pio_pin = pio.common.make_pio_pin(sync_pin);
         cfg.set_set_pins(&[&sync_pio_pin]);
+        cfg.set_out_pins(&[&sync_pio_pin]);
 
         sm.set_config(&cfg);
         sm.set_enable(true);

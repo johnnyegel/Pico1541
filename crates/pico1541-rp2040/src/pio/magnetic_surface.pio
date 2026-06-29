@@ -8,6 +8,7 @@
 .wrap_target
 sync_search:
     out x, 1            ; Pull 1 bit from OSR into X
+    mov pins, x
     jmp !x bit_is_zero  ; If bit is 0, reset search
     
     ; Bit is 1. Shift it into ISR and check if we hit 10 consecutive
@@ -17,17 +18,16 @@ sync_search:
     
     ; If we fall through, Y reached 0 (we found 10 consecutive 1s).
 in_sync:
-    set pins, 1
     mov isr, !null      ; Fill ISR with 1s
     push                ; Push 0xFFFFFFFF to RX FIFO as a SYNC token, resets shift count
     
 sync_loop:
     out x, 1
+    mov pins, x
     jmp !x sync_broken  ; SYNC broken, start assembling data byte
     jmp sync_loop
     
 sync_broken:
-    set pins, 0
 bit_is_zero:
     set y, 8            ; Reset counter to 9 (0-8 = 9 decrements, plus initial check = 10 bits)
     in null, 1          ; Shift a 0 into ISR
