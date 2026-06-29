@@ -6,6 +6,7 @@
 ; - Shift direction: Left (MSB first, typical for GCR)
 
     set pindirs, 1      ; Ensure GPIO 10 is an output (survives SM restarts)
+    set pins, 1         ; Ensure GPIO 10 is HIGH (inactive) on startup/restart
 .wrap_target
 sync_search:
     out x, 1            ; reads 1st bit
@@ -20,7 +21,7 @@ sync_search:
 in_sync:
     mov isr, !null      ; Fill ISR with 1s
     push                ; Push 0xFFFFFFFF to RX FIFO as a SYNC token, resets shift count
-    set pins, 1         ; SET GPIO 10 HIGH (SYNC ACTIVE)
+    set pins, 0         ; SET GPIO 10 LOW (SYNC ACTIVE)
     
 sync_loop:
     out x, 1
@@ -28,7 +29,7 @@ sync_loop:
     jmp sync_loop
     
 sync_broken:
-    set pins, 0         ; SET GPIO 10 LOW (SYNC INACTIVE)
+    set pins, 1         ; SET GPIO 10 HIGH (SYNC INACTIVE)
 bit_is_zero:
     set y, 8            ; Reset counter to 9 (0-8 = 9 decrements, plus initial check = 10 bits)
     in null, 1          ; Shift a 0 into ISR

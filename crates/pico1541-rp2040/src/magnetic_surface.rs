@@ -41,11 +41,16 @@ impl PioMagneticSurface {
 
         let mut sync_pio_pin = pio.common.make_pio_pin(sync_pin);
         sm.set_pin_dirs(embassy_rp::pio::Direction::Out, &[&sync_pio_pin]);
+        sm.set_pins(embassy_rp::gpio::Level::High, &[&sync_pio_pin]); // Initial state: HIGH (Inactive)
+        
         cfg.set_set_pins(&[&sync_pio_pin]);
         cfg.set_out_pins(&[&sync_pio_pin]);
 
         sm.set_config(&cfg);
         sm.set_enable(true);
+        
+        // Prevent the pin from being dropped and reverting its function to NULL
+        core::mem::forget(sync_pio_pin);
 
         let dma = pac::DMA;
         let ch_a = dma.ch(0);
@@ -61,28 +66,11 @@ impl PioMagneticSurface {
         ctrl_a.set_incr_read(true);
         ctrl_a.set_incr_write(false);
         ctrl_a.set_treq_sel(pac::dma::vals::TreqSel::PIO0_TX0);
-        ctrl_a.set_chain_to(1); // Chain to Channel B
+        ctrl_a.set_chain_to(0); // Chain to itself
         ctrl_a.set_ring_size(13); // 2^13 = 8192 bytes
         ctrl_a.set_ring_sel(false); // Ring on read address
         ctrl_a.set_en(false);
         ch_a.ctrl_trig().write_value(ctrl_a);
-
-        // Channel B config (Worker 2)
-        let ch_b = dma.ch(1);
-        ch_b.read_addr().write_value(0); // Set in start_reading
-        ch_b.write_addr().write_value(pio_pac.txf(0).as_ptr() as u32);
-
-        let mut ctrl_b = ch_b.ctrl_trig().read();
-        ctrl_b.set_data_size(pac::dma::vals::DataSize::SIZE_WORD);
-        ctrl_b.set_bswap(true);
-        ctrl_b.set_incr_read(true);
-        ctrl_b.set_incr_write(false);
-        ctrl_b.set_treq_sel(pac::dma::vals::TreqSel::PIO0_TX0);
-        ctrl_b.set_chain_to(0); // Chain back to Channel A
-        ctrl_b.set_ring_size(13); // 2^13 = 8192 bytes
-        ctrl_b.set_ring_sel(false); // Ring on read address
-        ctrl_b.set_en(false);
-        ch_b.ctrl_trig().write_value(ctrl_b);
 
         Self {
             track_handle,
@@ -176,10 +164,6 @@ impl MagneticSurface for PioMagneticSurface {
         ctrl_a.set_en(false);
         dma.ch(0).ctrl_trig().write_value(ctrl_a);
         
-        let mut ctrl_b = dma.ch(1).ctrl_trig().read();
-        ctrl_b.set_en(false);
-        dma.ch(1).ctrl_trig().write_value(ctrl_b);
-        
         let full_track = track_id / 2;
         // 1541 uses 4 different bitrates depending on the track zone.
         // The PIO bit loop takes 4 clock cycles per bit.
@@ -207,20 +191,10 @@ impl MagneticSurface for PioMagneticSurface {
             let _ = pio.rxf(0).read();
         }
         
-        let word_count = 8192 / 4; // Transfer entire 8192 bytes (2048 words) per cycle
-
-        // Setup Channel B (Worker 2)
-        dma.ch(1).read_addr().write_value(track_ptr as u32);
-        dma.ch(1).trans_count().write_value(word_count);
-        
-        // Re-enable Channel B WITHOUT triggering (it will wait for Channel A to chain to it)
-        ctrl_b.set_en(true);
-        // SAFETY: writing to al1_ctrl sets CTRL but does not trigger
-        unsafe { dma.ch(1).al1_ctrl().write_value(core::mem::transmute(ctrl_b)) };
-
-        // Setup Worker (Channel A)
+        // Setup Worker (Channel A) with an infinite transfer count!
+        // Because ring_size is 8192 bytes, it will loop the buffer automatically forever.
         dma.ch(0).read_addr().write_value(track_ptr as u32);
-        dma.ch(0).trans_count().write_value(word_count);
+        dma.ch(0).trans_count().write_value(0xFFFFFFFF);
         
         // Re-enable and TRIGGER Worker A
         ctrl_a.set_en(true);
@@ -232,10 +206,6 @@ impl MagneticSurface for PioMagneticSurface {
         let mut ctrl_a = dma.ch(0).ctrl_trig().read();
         ctrl_a.set_en(false);
         dma.ch(0).ctrl_trig().write_value(ctrl_a);
-
-        let mut ctrl_b = dma.ch(1).ctrl_trig().read();
-        ctrl_b.set_en(false);
-        dma.ch(1).ctrl_trig().write_value(ctrl_b);
     }
 
     fn is_write_protected(&self) -> bool {
