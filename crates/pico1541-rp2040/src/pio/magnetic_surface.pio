@@ -17,18 +17,15 @@ sync_search:
     
     ; If we fall through, Y reached 0 (we found 10 consecutive 1s).
 in_sync:
-    irq set 0           ; Assert IRQ 0 to flag SYNC active
-    mov isr, null       ; Discard accumulated bits, reset autopush counter
+    mov isr, !null      ; Fill ISR with 1s
+    push                ; Push 0xFFFFFFFF to RX FIFO as a SYNC token, resets shift count
     
 sync_loop:
     out x, 1
-    jmp !x sync_broken
+    jmp !x bit_is_zero  ; SYNC broken, start assembling data byte
     jmp sync_loop
-    
-sync_broken:
-    irq clear 0         ; Clear SYNC flag
     
 bit_is_zero:
     set y, 8            ; Reset counter to 9 (0-8 = 9 decrements, plus initial check = 10 bits)
-    in null, 1          ; Shift a 0 into ISR (since X is 0, we could also 'in x, 1')
+    in null, 1          ; Shift a 0 into ISR
 .wrap

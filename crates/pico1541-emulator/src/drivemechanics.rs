@@ -42,6 +42,7 @@ pub struct DriveMechanics<S: MagneticSurface> {
     last_gcr_byte: u8,
     last_requested_sector: u8,
     so_pulse_cycles: u8,
+    is_sync: bool,
 }
 
 impl<S: MagneticSurface> DriveMechanics<S> {
@@ -55,6 +56,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
             last_gcr_byte: 0,
             last_requested_sector: 0xFF,
             so_pulse_cycles: 0,
+            is_sync: false,
         }
     }
 }
@@ -120,13 +122,19 @@ impl<S: MagneticSurface> DriveMechanics<S> {
 
         if is_read_mode {
             if is_reading {
-                if let Some(gcr_byte) = self.surface.try_read_byte() {
-                    via2.in_a = gcr_byte;
-                    self.last_gcr_byte = gcr_byte;
+                if let Some(word) = self.surface.try_read_byte() {
+                    if word == 0xFFFFFFFF {
+                        self.is_sync = true;
+                    } else {
+                        self.is_sync = false;
+                        let gcr_byte = word as u8;
+                        via2.in_a = gcr_byte;
+                        self.last_gcr_byte = gcr_byte;
+                    }
                 }
             }
             
-            if self.surface.is_sync_active() {
+            if self.is_sync {
                 via2.in_b &= !MASK_SYNC; // Assert SYNC (Pull PB7 Low)
                 hardware.debug_pin_0(true);
                 suppress_ca1 = true;

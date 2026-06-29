@@ -3,10 +3,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_rp::pac;
 use pico1541_common::track_buffer::EmulatorHandle;
 
-static SYNC_ACTIVE: AtomicBool = AtomicBool::new(false);
-
 pub struct PioMagneticSurface {
-    is_sync: &'static AtomicBool,
     track_handle: EmulatorHandle,
 }
 
@@ -53,7 +50,6 @@ impl PioMagneticSurface {
         ch_a.ctrl_trig().write_value(ctrl_a);
 
         Self {
-            is_sync: &SYNC_ACTIVE,
             track_handle,
         }
     }
@@ -61,12 +57,11 @@ impl PioMagneticSurface {
 
 impl MagneticSurface for PioMagneticSurface {
     fn is_sync_active(&self) -> bool {
-        self.is_sync.load(Ordering::Acquire)
+        false
     }
 
-    fn try_read_byte(&mut self) -> Option<u8> {
+    fn try_read_byte(&mut self) -> Option<u32> {
         let pio = pac::PIO0;
-        let fstat = pio.fstat().read();
         
         if !pac::DMA.ch(0).ctrl_trig().read().busy() {
             let data = self.track_handle.get_active_buffer_slice();
@@ -77,15 +72,9 @@ impl MagneticSurface for PioMagneticSurface {
             pac::DMA.ch(0).ctrl_trig().write_value(ctrl);
         }
 
-        let irq_val = pio.irq().read().irq();
-        if (irq_val & 1) != 0 {
-            self.is_sync.store(true, Ordering::Release);
-        } else {
-            self.is_sync.store(false, Ordering::Release);
-        }
-
+        let fstat = pio.fstat().read();
         if (fstat.rxempty() & 1) == 0 {
-            Some(pio.rxf(0).read() as u8)
+            Some(pio.rxf(0).read())
         } else {
             None
         }

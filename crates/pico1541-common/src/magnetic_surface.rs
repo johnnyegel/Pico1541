@@ -2,7 +2,7 @@ use crate::track_buffer::EmulatorHandle;
 
 pub trait MagneticSurface {
     fn is_sync_active(&self) -> bool;
-    fn try_read_byte(&mut self) -> Option<u8>;
+    fn try_read_byte(&mut self) -> Option<u32>;
     fn get_absolute_head_position(&self, master_clock: u32) -> u32;
     fn write_byte_at(&mut self, index: u32, data: u8);
     fn start_reading(&mut self, track_id: u8, rotation_fixed: u32);
@@ -40,7 +40,7 @@ impl MagneticSurface for SoftwareMagneticSurface {
         self.is_sync
     }
 
-    fn try_read_byte(&mut self) -> Option<u8> {
+    fn try_read_byte(&mut self) -> Option<u32> {
         let expected_track_id = self.track_handle.get_head_half_track();
         
         for _ in 0..8 {
@@ -60,8 +60,12 @@ impl MagneticSurface for SoftwareMagneticSurface {
             }
             
             if self.sync_counter >= 10 {
+                let just_entered_sync = !self.is_sync;
                 self.is_sync = true;
                 self.bits_in_reg = 0;
+                if just_entered_sync {
+                    return Some(0xFFFFFFFF);
+                }
             } else {
                 if self.is_sync && bit == 0 {
                     self.is_sync = false;
@@ -78,7 +82,7 @@ impl MagneticSurface for SoftwareMagneticSurface {
         if self.bits_in_reg >= 8 {
             let output = self.bit_shift_reg;
             self.bits_in_reg -= 8;
-            Some(output)
+            Some(output as u32)
         } else {
             None
         }
