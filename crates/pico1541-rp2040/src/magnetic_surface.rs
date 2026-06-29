@@ -95,7 +95,22 @@ impl MagneticSurface for PioMagneticSurface {
     fn try_read_byte(&mut self) -> Option<u32> {
         let pio = pac::PIO0;
         
+        let dma_busy = pac::DMA.ch(0).ctrl_trig().read().busy();
+        let trans_count = pac::DMA.ch(0).trans_count().read();
+        let read_addr = pac::DMA.ch(0).read_addr().read();
         let fstat = pio.fstat().read();
+        
+        // AGGRESSIVE DEBUG LOGGING
+        static mut DEBUG_TICK_COUNT: u32 = 0;
+        unsafe {
+            DEBUG_TICK_COUNT += 1;
+            if DEBUG_TICK_COUNT % 100000 == 0 {
+                let pc = pio.sm(0).addr().read();
+                defmt::info!("PIO STATE - PC: {}, TXF Level: {}, RXF empty: {}, DMA Busy: {}, DMA Count: {}, DMA Addr: {:X}", 
+                    pc.addr(), pio.flevel().read().tx0(), fstat.rxempty() & 1, dma_busy, trans_count, read_addr);
+            }
+        }
+
         if (fstat.rxempty() & 1) == 0 {
             let val = pio.rxf(0).read();
             
@@ -142,7 +157,7 @@ impl MagneticSurface for PioMagneticSurface {
 
         let dma = pac::DMA;
         
-        // Disable both channels to cleanly restart
+        // Abort any ongoing transfers cleanly
         let mut ctrl_a = dma.ch(0).ctrl_trig().read();
         ctrl_a.set_en(false);
         dma.ch(0).ctrl_trig().write_value(ctrl_a);
@@ -156,14 +171,22 @@ impl MagneticSurface for PioMagneticSurface {
             DMA_RELOAD_DATA.0[1] = data.as_ptr() as u32;
         }
 
-        // Restart Reloader (Channel B)
+        // Setup Reloader (Channel B)
         dma.ch(1).read_addr().write_value(unsafe { DMA_RELOAD_DATA.0.as_ptr() as u32 });
         dma.ch(1).trans_count().write_value(2);
+        
+        // Re-enable Reloader WITHOUT triggering
         ctrl_b.set_en(true);
-        dma.ch(1).ctrl_trig().write_value(ctrl_b);
+        // SAFETY: writing to al1_ctrl sets CTRL but does not trigger
+        unsafe { dma.ch(1).al1_ctrl().write_value(core::mem::transmute(ctrl_b)) };
 
-        // Manually trigger the Reloader once to start the infinite ping-pong!
-        dma.multi_chan_trigger().write(|w| w.set_multi_chan_trigger(1 << 1));
+        // Setup Worker (Channel A)
+        dma.ch(0).read_addr().write_value(data.as_ptr() as u32);
+        dma.ch(0).trans_count().write_value(((data.len() + 3) / 4) as u32);
+        
+        // Re-enable and TRIGGER Worker
+        ctrl_a.set_en(true);
+        dma.ch(0).ctrl_trig().write_value(ctrl_a);
     }
     
     fn stop_reading(&mut self) {
