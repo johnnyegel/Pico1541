@@ -273,6 +273,12 @@ impl EmulatorHandle {
         let buffer = unsafe { &(*self.core_buffer.buffers.get())[active_idx] };
         buffer.track_id
     }
+    
+    pub fn get_active_track_length(&self) -> usize {
+        let active_idx = if self.get_active_index() { 1 } else { 0 };
+        let buffer = unsafe { &(*self.core_buffer.buffers.get())[active_idx] };
+        buffer.length
+    }
 
     pub fn get_active_buffer_slice(&self) -> &[u8] {
         let active_idx = if self.get_active_index() { 1 } else { 0 };

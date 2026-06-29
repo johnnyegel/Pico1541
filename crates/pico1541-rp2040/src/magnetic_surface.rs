@@ -95,7 +95,7 @@ impl MagneticSurface for PioMagneticSurface {
         // This gives us pixel-perfect track length loop without ring-buffer restrictions.
         if !dma_busy {
             let track_ptr = self.track_handle.get_full_buffer_ptr();
-            let track_length = self.track_handle.track_byte_size as u32;
+            let track_length = self.track_handle.get_active_track_length() as u32;
             if track_length > 0 {
                 dma.ch(0).read_addr().write_value(track_ptr as u32);
                 dma.ch(0).trans_count().write_value(track_length);
@@ -148,7 +148,7 @@ impl MagneticSurface for PioMagneticSurface {
         let ch_a = dma.ch(0);
         let remaining = ch_a.trans_count().read();
         
-        let track_length = self.track_handle.track_byte_size as u32;
+        let track_length = self.track_handle.get_active_track_length() as u32;
         if track_length >= remaining {
             track_length - remaining
         } else {
@@ -203,7 +203,7 @@ impl MagneticSurface for PioMagneticSurface {
         
         // Setup Worker (Channel A) with the exact byte count!
         // try_read_byte will poll the busy flag and reload it instantly when it completes.
-        let track_length = self.track_handle.track_byte_size as u32;
+        let track_length = self.track_handle.get_active_track_length() as u32;
         dma.ch(0).read_addr().write_value(track_ptr as u32);
         dma.ch(0).trans_count().write_value(track_length);
         
