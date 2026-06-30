@@ -17,7 +17,7 @@ fn test_d64_image_read_track() {
     let mut dest = vec![0u8; 8000];
 
     // Track 1.0 is half_track 2
-    let (layout, len) = block_on(img.read_track(2, &mut dest)).unwrap();
+    let (layout, len, _) = block_on(img.read_track(2, &mut dest)).unwrap();
     assert!(matches!(layout, TrackLayout::Accurate));
     assert!(len > 7000);
 
@@ -49,7 +49,7 @@ fn test_g64_image_read_track() {
     let mut dest = vec![0u8; 100];
 
     let result = block_on(img.read_track(0, &mut dest)).unwrap();
-    assert!(matches!(result, (TrackLayout::Accurate, 50)));
+    assert!(matches!(result, (TrackLayout::Accurate, 50, _)));
     assert_eq!(dest[0], 0x55);
 }
 
@@ -84,7 +84,7 @@ fn test_virtual_disk_image() {
     let mut img = VirtualDiskImage::<MemoryStorage<'static>, MockSource>::new(source, b"TEST");
     let mut dest = vec![0u8; 10000];
 
-    let (layout, len) = block_on(img.read_track(36, &mut dest)).unwrap();
+    let (layout, len, _) = block_on(img.read_track(36, &mut dest)).unwrap();
     assert!(matches!(layout, TrackLayout::Accurate));
     assert!(len > 7000);
     assert!(dest.iter().any(|&b| b != 0));

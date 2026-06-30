@@ -294,8 +294,6 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
         _data_tx: Output::new(p.PIN_19, Level::Low),
         _clk_tx: Output::new(p.PIN_20, Level::Low),
         reset_rx: Input::new(p.PIN_21, Pull::Up),
-        debug_0: Output::new(p.PIN_0, Level::Low),
-        debug_1: Output::new(p.PIN_1, Level::Low),
     };
 
     let activity_led = ActivityLed::new(
@@ -311,7 +309,7 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
     embassy_rp::multicore::spawn_core1(p.CORE1, stack, move || {
         let drive = unsafe {
             let ptr: *mut Emulator<HardwareBridge, PioMagneticSurface> = core::ptr::addr_of_mut!(EMULATOR).cast();
-            let surface = PioMagneticSurface::new(pio0, emulator_handle, p.PIN_10);
+            let surface = PioMagneticSurface::new(pio0, emulator_handle, p.PIN_0, p.PIN_1);
             core::ptr::write(ptr, Emulator::new(&*core::ptr::addr_of!(ROM_BUFFER), drive_id, surface));
             &mut *ptr
         };
@@ -331,8 +329,6 @@ struct IecPins {
     _data_tx: Output<'static>,
     _clk_tx: Output<'static>,
     reset_rx: Input<'static>,
-    debug_0: Output<'static>,
-    debug_1: Output<'static>,
 }
 
 struct HardwareBridge {
@@ -423,22 +419,10 @@ impl HostInterface for HardwareBridge {
     }
 
     #[inline(always)]
-    fn debug_pin_0(&mut self, state: bool) {
-        if state {
-            self._pins.debug_0.set_high();
-        } else {
-            self._pins.debug_0.set_low();
-        }
-    }
+    fn debug_pin_0(&mut self, _state: bool) {}
 
     #[inline(always)]
-    fn debug_pin_1(&mut self, state: bool) {
-        if state {
-            self._pins.debug_1.set_high();
-        } else {
-            self._pins.debug_1.set_low();
-        }
-    }
+    fn debug_pin_1(&mut self, _state: bool) {}
 
     #[inline(always)]
     fn track_changed(&mut self, half_track: u8) {

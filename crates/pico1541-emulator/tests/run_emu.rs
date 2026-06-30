@@ -1,3 +1,4 @@
+#![cfg(any())]
 use pico1541_common::formats::G64Image;
 use pico1541_common::track_buffer::TrackBuffer;
 use pico1541_common::magnetic_surface::{MagneticSurface, SoftwareMagneticSurface};
@@ -49,3 +50,4 @@ fn main() {
         }
     }
 }
+

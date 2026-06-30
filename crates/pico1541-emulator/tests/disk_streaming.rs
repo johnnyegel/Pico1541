@@ -33,7 +33,7 @@ fn test_disk_streaming_data() {
         inactive.data[2] = 0x01;
         inactive.data[3] = 0xFE;
     }
-    manager.commit_loaded_track(0, TrackLayout::Accurate, track_bytes);
+    manager.commit_loaded_track(0, TrackLayout::Accurate, track_bytes, None);
 
     let mut via1 = Via6522::new(); let mut via2 = Via6522::new();
     let surface = SoftwareMagneticSurface::new(emulator);
@@ -75,7 +75,7 @@ fn test_disk_streaming_sync() {
     inactive[0] = 0xFF; // SYNC (First byte, will be treated as data)
     inactive[1] = 0xFF; // SYNC (Second byte, establishes SYNC)
     inactive[2] = 0x55; // DATA
-    manager.commit_loaded_track(0, TrackLayout::Accurate, 3);
+    manager.commit_loaded_track(0, TrackLayout::Accurate, 3, None);
 
     let mut via1 = Via6522::new(); let mut via2 = Via6522::new();
     let surface = SoftwareMagneticSurface::new(emulator);
@@ -140,7 +140,7 @@ fn test_disk_bitrate_zones() {
         let inactive = manager.get_dormant_buffer_mut();
         inactive.data.fill(0x55); // Use data, not SYNC
     }
-    manager.commit_loaded_track(0, TrackLayout::Accurate, track_bytes);
+    manager.commit_loaded_track(0, TrackLayout::Accurate, track_bytes, None);
 
     let mut via1 = Via6522::new(); let mut via2 = Via6522::new();
     let surface = SoftwareMagneticSurface::new(emulator);

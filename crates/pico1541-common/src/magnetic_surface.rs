@@ -2,13 +2,17 @@ use crate::track_buffer::EmulatorHandle;
 
 pub trait MagneticSurface {
     fn is_sync_active(&self) -> bool;
-    fn try_read_byte(&mut self) -> Option<u32>;
+    fn try_read_byte(&mut self, delta_cycles: u32) -> Option<u32>;
     fn get_absolute_head_position(&self, master_clock: u32) -> u32;
     fn write_byte_at(&mut self, index: u32, data: u8);
     fn start_reading(&mut self, track_id: u8, rotation_fixed: u32);
     fn stop_reading(&mut self);
     fn is_write_protected(&self) -> bool;
     fn pop_force_disk_change(&mut self) -> bool;
+    fn set_speed_zone(&mut self, zone: u8);
+    fn inject_analog_noise(&mut self);
+    fn get_active_speed_zone(&self) -> Option<u8>;
+    fn get_active_track_length(&self) -> usize;
 }
 
 pub struct SoftwareMagneticSurface {
@@ -19,6 +23,8 @@ pub struct SoftwareMagneticSurface {
     sync_counter: u8,
     pending_bits: u16,
     pending_bit_count: u8,
+    cycle_counter: u32,
+    cycle_limit: u32,
 }
 
 impl SoftwareMagneticSurface {
@@ -31,6 +37,8 @@ impl SoftwareMagneticSurface {
             sync_counter: 0,
             pending_bits: 0,
             pending_bit_count: 0,
+            cycle_counter: 0,
+            cycle_limit: 28,
         }
     }
 }
@@ -40,7 +48,13 @@ impl MagneticSurface for SoftwareMagneticSurface {
         self.is_sync
     }
 
-    fn try_read_byte(&mut self) -> Option<u32> {
+    fn try_read_byte(&mut self, delta_cycles: u32) -> Option<u32> {
+        self.cycle_counter += delta_cycles;
+        if self.cycle_counter < self.cycle_limit {
+            return None;
+        }
+        self.cycle_counter -= self.cycle_limit;
+
         let expected_track_id = self.track_handle.get_head_half_track();
         let mut assembled_byte = None;
         let mut sync_trigger = false;
@@ -116,6 +130,27 @@ impl MagneticSurface for SoftwareMagneticSurface {
     fn pop_force_disk_change(&mut self) -> bool {
         self.track_handle.pop_force_disk_change()
     }
+
+    fn set_speed_zone(&mut self, zone: u8) {
+        self.cycle_limit = match zone {
+            3 => 26, // CYCLES_ZONE_3
+            2 => 28, // CYCLES_ZONE_2
+            1 => 30, // CYCLES_ZONE_1
+            _ => 32, // CYCLES_ZONE_0
+        };
+    }
+
+    fn inject_analog_noise(&mut self) {
+        // No-op for software surface. Test harnesses could use this to verify behavior.
+    }
+
+    fn get_active_speed_zone(&self) -> Option<u8> {
+        self.track_handle.get_active_speed_zone()
+    }
+
+    fn get_active_track_length(&self) -> usize {
+        self.track_handle.get_active_track_length()
+    }
 }
 
 #[cfg(test)]
@@ -135,20 +170,21 @@ mod tests {
         active_buf[2] = 0xFE; // 11111110 (7 ones, then a 0)
         active_buf[3] = 0x55; // 01010101
         active_buf[4] = 0x55;
-        manager.commit_loaded_track(0, crate::track_buffer::TrackLayout::Accurate, 5);
+        manager.commit_loaded_track(0, crate::track_buffer::TrackLayout::Accurate, 5, None);
 
         let mut surface = SoftwareMagneticSurface::new(emulator);
         surface.start_reading(0, 0);
         
-        let out0 = surface.try_read_byte(); 
+        let out0 = surface.try_read_byte(32); 
         assert_eq!(out0, Some(0x7F)); // The first byte is pushed normally
+        assert!(!surface.is_sync_active());
 
-        let out1 = surface.try_read_byte();
+        let out1 = surface.try_read_byte(32);
         assert_eq!(out1, Some(0xFFFFFFFF));
-
-        assert_eq!(surface.is_sync_active(), true);
-
-        let out2 = surface.try_read_byte(); // Reading 0xFE. At the end, hits 0, exits sync!
+        assert!(surface.is_sync_active());
+        
+        // Next bytes should read out normal bytes
+        let out2 = surface.try_read_byte(32); // Reading 0xFE. At the end, hits 0, exits sync!
         assert_eq!(surface.is_sync_active(), false);
         assert_eq!(out2, None); // The 0 is shifted in, but we don't have 8 bits yet.
     }

@@ -11,11 +11,7 @@ const MIN_HALF_TRACK: i8 = -2;
 const MAX_HALF_TRACK: i8 = 85; // Half-track 85 corresponds to Track 42.5, which is the maximum physical reach of the head on a 1541 drive.
 const INITIAL_HALF_TRACK: i8 = 34; // Start at track 18 (Half-track 34)
 
-// Speed Zones (Cycles per byte @ 1MHz)
-const CYCLES_ZONE_3: u32 = 26; // Tracks 1-17
-const CYCLES_ZONE_2: u32 = 28; // Tracks 18-24
-const CYCLES_ZONE_1: u32 = 30; // Tracks 25-30
-const CYCLES_ZONE_0: u32 = 32; // Tracks 31-35
+
 
 // Masks for individual hardware state bits on VIA2 Port B
 const MASK_MOTOR: u8 = 0x04;
@@ -35,13 +31,9 @@ pub struct DriveMechanics<S: MagneticSurface> {
     
     pub surface: S,
     
-    byte_cycle_counter: u32,
-    byte_cycle_limit: u32,
-
     last_state: u8,
     last_gcr_byte: u8,
     last_requested_sector: u8,
-    so_pulse_cycles: u8,
     is_sync: bool,
 }
 
@@ -50,12 +42,9 @@ impl<S: MagneticSurface> DriveMechanics<S> {
         Self {
             halftrack_head_pos: INITIAL_HALF_TRACK,
             surface,
-            byte_cycle_counter: 0,
-            byte_cycle_limit: CYCLES_ZONE_2, // Track 18 default
             last_state: 0,
             last_gcr_byte: 0,
             last_requested_sector: 0xFF,
-            so_pulse_cycles: 0,
             is_sync: false,
         }
     }
@@ -66,62 +55,28 @@ impl<S: MagneticSurface> DriveMechanics<S> {
 impl<S: MagneticSurface> DriveMechanics<S> {
     pub fn reset(&mut self) {
         self.halftrack_head_pos = INITIAL_HALF_TRACK;
-        self.byte_cycle_counter = 0;
-        self.byte_cycle_limit = CYCLES_ZONE_0; // Track 1 default
         self.last_state = 0;
         self.last_requested_sector = 0xFF;
     }
 
     /// Progresses the drive mechanics by one CPU cycle.
-    /// Returns true if a new byte is ready to be processed by the CPU, and the SO pin should be set
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn tick_cycles<H: HostInterface>(&mut self, hardware: &mut H, _via1: &mut crate::via6522::Via6522, via2: &mut Via6522, requested_sector: u8, delta: u32) -> bool {
+    pub fn tick_cycles<H: HostInterface>(&mut self, _hardware: &mut H, _via1: &mut crate::via6522::Via6522, via2: &mut Via6522, _requested_sector: u8, delta: u32) -> bool {
         if delta == 0 { return false; }
         // :? Is the motor off? (PB2)
         if (self.last_state & MASK_MOTOR) == 0 {
             return false;
         }
 
-        let mut pulsed = false;
-        if self.so_pulse_cycles > 0 {
-            if delta >= self.so_pulse_cycles as u32 {
-                self.so_pulse_cycles = 0;
-                hardware.debug_pin_1(false);
-            } else {
-                self.so_pulse_cycles -= delta as u8;
-            }
-            pulsed = self.so_pulse_cycles > 0;
-        }
-
-        // :? Did the byte-cycle counter reach the limit?
-        self.byte_cycle_counter += delta;
-        if self.byte_cycle_counter < self.byte_cycle_limit {
-            return pulsed;
-        }
-
-        // E-> Yes, reset and process incoming byte
-        // Actually subtract the limit, in case delta jumped past it
-        self.byte_cycle_counter -= self.byte_cycle_limit;
-        
-        // Remember if we were already pulsing to avoid double-triggering the CPU
-        let was_pulsing = self.so_pulse_cycles > 0;
-        
-        self.tick_slow(hardware, via2, requested_sector);
-        
-        // Only return true (trigger CPU SO) if we just started a new pulse this tick
-        !was_pulsing && self.so_pulse_cycles > 0
-    }
-
-    #[link_section = ".data.ram_func"]
-    fn tick_slow<H: HostInterface>(&mut self, hardware: &mut H, via2: &mut Via6522, _requested_sector: u8) {
         let is_read_mode = via2.get_cb2_out().unwrap_or(true);
         let is_so_enabled = via2.get_ca2_out().unwrap_or(false);
         let mut suppress_ca1 = false;
+        let mut so_pulsed = false;
 
         if is_read_mode {
             let mut new_byte_arrived = false;
-            if let Some(word) = self.surface.try_read_byte() {
+            if let Some(word) = self.surface.try_read_byte(delta) {
                 if word == 0xFFFFFFFF {
                     self.is_sync = true;
                 } else if word == 0x00000000 {
@@ -135,23 +90,22 @@ impl<S: MagneticSurface> DriveMechanics<S> {
                 }
             }
             
+            // Optionally update `is_sync` state by checking the SYNC pin state from the surface
+            if self.surface.is_sync_active() {
+                self.is_sync = true;
+            }
+            
             if self.is_sync {
                 via2.in_b &= !MASK_SYNC; // Assert SYNC (Pull PB7 Low)
-                hardware.debug_pin_0(true);
                 suppress_ca1 = true;
             } else {
                 via2.in_b |= MASK_SYNC;  // Release SYNC
-                hardware.debug_pin_0(false);
             }
             
             let sync_active = (via2.in_b & MASK_SYNC) == 0;
-            if new_byte_arrived {
-                log::info!("new_byte: {:#04X}, sync_active: {}, suppress_ca1: {}, is_so_enabled: {}", self.last_gcr_byte, sync_active, suppress_ca1, is_so_enabled);
-            }
             if !sync_active && !suppress_ca1 && new_byte_arrived && is_so_enabled {
                 via2.ca1_irq();
-                self.so_pulse_cycles = 3; 
-                hardware.debug_pin_1(true);
+                so_pulsed = true;
             }
         } else {
             // WRITE mode
@@ -159,7 +113,9 @@ impl<S: MagneticSurface> DriveMechanics<S> {
             // We use 0 as master clock for now, as host tests don't have a reliable master clock
             let index = self.surface.get_absolute_head_position(0);
             self.surface.write_byte_at(index, via2.ora);
-        }   
+        }
+        
+        so_pulsed
     }
 
     /// Updates the drive mechanics state based on VIA2 Port B outputs.
@@ -214,13 +170,11 @@ impl<S: MagneticSurface> DriveMechanics<S> {
         // Did speed-zone change? (PB5, PB6)
         if (state_changes & MASK_SPEED_ZONE) != 0 {
             let speed_zone = (full_state & MASK_SPEED_ZONE) >> SHIFT_SPEED_ZONE;
+            self.surface.set_speed_zone(speed_zone);
             
-            self.byte_cycle_limit = match speed_zone {
-                3 => CYCLES_ZONE_3,
-                2 => CYCLES_ZONE_2,
-                1 => CYCLES_ZONE_1,
-                _ => CYCLES_ZONE_0,
-            };
+            if speed_zone != self.surface.get_active_speed_zone().unwrap_or(speed_zone) {
+                self.surface.inject_analog_noise();
+            }
         }
         
         let is_track_step = state_changes & MASK_STEP != 0;
@@ -260,6 +214,11 @@ impl<S: MagneticSurface> DriveMechanics<S> {
 
             if self.halftrack_head_pos >= 0 && self.halftrack_head_pos <= MAX_HALF_TRACK {
                 self.surface.start_reading(self.halftrack_head_pos as u8, 0);
+                
+                if self.surface.get_active_track_length() == 0 {
+                    self.surface.inject_analog_noise();
+                }
+                
                 hardware.track_changed(self.halftrack_head_pos as u8);
             }
         }

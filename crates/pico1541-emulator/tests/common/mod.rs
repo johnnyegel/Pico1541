@@ -93,9 +93,9 @@ where
             let inactive = manager.get_dormant_buffer_mut();
             
             let layout = block_on(self.image.read_track(track_ht, &mut inactive.data))
-                .unwrap_or((TrackLayout::Void, 0));
+                .unwrap_or((TrackLayout::Void, 0, None));
 
-            manager.commit_loaded_track(track_ht, layout.0, layout.1);
+            manager.commit_loaded_track(track_ht, layout.0, layout.1, layout.2);
 
             self.last_half_track = track_ht;
         }

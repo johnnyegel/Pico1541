@@ -14,36 +14,42 @@ impl PioMagneticSurface {
     pub fn new(
         mut pio: embassy_rp::pio::Pio<'static, embassy_rp::peripherals::PIO0>,
         track_handle: EmulatorHandle,
-        sync_pin: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_10>,
+        so_pin: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_0>,
+        sync_pin: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_1>,
     ) -> Self {
         let prg = crate::pio::magnetic_surface_program();
         let loaded_prg = pio.common.load_program(&prg);
         
         let mut sm = pio.sm0;
         let mut cfg = embassy_rp::pio::Config::default();
-        cfg.clock_divider = 31u8.into(); // 125 MHz / 31 = ~4.03 MHz (4 cycles = 1us per bit)
-        cfg.use_program(&loaded_prg, &[]);
-        
+        cfg.clock_divider = 81u8.into(); // Default to zone 3 approx 1.53 MHz. Overridden in set_speed_zone
         cfg.shift_in.auto_fill = true;
         cfg.shift_in.threshold = 8;
         cfg.shift_in.direction = embassy_rp::pio::ShiftDirection::Left;
         
-        cfg.shift_out.auto_fill = true;
-        cfg.shift_out.threshold = 8; // Pull every 8 bits for byte-level streaming
-        cfg.shift_out.direction = embassy_rp::pio::ShiftDirection::Right; // LSB first (since we bit-reverse in TrackBuffer)
-        
+        cfg.shift_out.auto_fill = false; // Handled manually in PIO
+        cfg.shift_out.threshold = 32; 
+        cfg.shift_out.direction = embassy_rp::pio::ShiftDirection::Left;
 
+        let so_pio_pin = pio.common.make_pio_pin(so_pin);
         let sync_pio_pin = pio.common.make_pio_pin(sync_pin);
-        sm.set_pin_dirs(embassy_rp::pio::Direction::Out, &[&sync_pio_pin]);
-        sm.set_pins(embassy_rp::gpio::Level::High, &[&sync_pio_pin]); // Initial state: HIGH (Inactive)
         
-        cfg.set_set_pins(&[&sync_pio_pin]);
-        cfg.set_out_pins(&[&sync_pio_pin]);
+        cfg.use_program(&loaded_prg, &[&so_pio_pin, &sync_pio_pin]);
+
+        sm.set_pin_dirs(embassy_rp::pio::Direction::Out, &[&so_pio_pin, &sync_pio_pin]);
+        sm.set_pins(embassy_rp::gpio::Level::Low, &[&so_pio_pin, &sync_pio_pin]); // Initial state: LOW (Inactive)
+        
+        cfg.set_set_pins(&[&so_pio_pin, &sync_pio_pin]);
+        // Side-set pins need to be contiguous in RP2040. Here we use PIN_0 and PIN_1.
+        // so_pin is PIN_0 (side 0), sync_pin is PIN_1 (side 1).
+        // cfg.use_program handles side-set pins in embassy-rp.
+        cfg.set_out_pins(&[&so_pio_pin, &sync_pio_pin]);
 
         sm.set_config(&cfg);
         sm.set_enable(true);
         
-        // Prevent the pin from being dropped and reverting its function to NULL
+        // Prevent the pins from being dropped and reverting their function to NULL
+        core::mem::forget(so_pio_pin);
         core::mem::forget(sync_pio_pin);
 
         let dma = pac::DMA;
@@ -78,7 +84,7 @@ impl MagneticSurface for PioMagneticSurface {
         false
     }
 
-    fn try_read_byte(&mut self) -> Option<u32> {
+    fn try_read_byte(&mut self, _delta_cycles: u32) -> Option<u32> {
         // Automatically switch DMA to new buffer when track finishes loading!
         let current_active_index = self.track_handle.get_active_index();
         if current_active_index != self.last_active_index {
@@ -171,30 +177,12 @@ impl MagneticSurface for PioMagneticSurface {
         // Abort any ongoing transfers cleanly
         let mut ctrl_a = dma.ch(0).ctrl_trig().read();
         ctrl_a.set_en(false);
+        ctrl_a.set_incr_read(true); // Restore incr_read in case it was disabled by noise injection
         dma.ch(0).ctrl_trig().write_value(ctrl_a);
         
-        let full_track = track_id / 2;
-        // 1541 uses 4 different bitrates depending on the track zone.
-        // The PIO bit loop takes 4 clock cycles per bit.
-        // We set the PIO clock such that 4 cycles equal the exact bitrate duration.
-        let default_zone = if full_track <= 17 { 3 } else if full_track <= 24 { 2 } else if full_track <= 30 { 1 } else { 0 };
-        let speed_zone = self.track_handle.get_active_speed_zone().unwrap_or(default_zone);
-        
-        let (clk_int, clk_frac) = match speed_zone {
-            3 => (101, 144), // Zone 3: 307.692 kbps
-            2 => (109, 96),  // Zone 2: 285.714 kbps
-            1 => (117, 48),  // Zone 1: 266.666 kbps
-            _ => (125, 0),   // Zone 0: 250.000 kbps
-        };
-
         // Clear the PIO RX and TX FIFOs
         let pio = pac::PIO0;
         
-        pio.sm(0).clkdiv().write(|w| {
-            w.set_int(clk_int);
-            w.set_frac(clk_frac);
-        });
-
         // CLEAR PIO FIFOS
         let shiftctrl = pio.sm(0).shiftctrl();
         shiftctrl.modify(|w| { w.set_fjoin_rx(!w.fjoin_rx()); });
@@ -231,5 +219,59 @@ impl MagneticSurface for PioMagneticSurface {
 
     fn pop_force_disk_change(&mut self) -> bool {
         self.track_handle.pop_force_disk_change()
+    }
+
+    fn set_speed_zone(&mut self, zone: u8) {
+        let (clk_int, clk_frac) = match zone {
+            3 => (75, 149),  // Zone 3: 26 us/byte -> divider 75.58
+            2 => (81, 101),  // Zone 2: 28 us/byte -> divider 81.39
+            1 => (87, 53),   // Zone 1: 30 us/byte -> divider 87.20
+            _ => (93, 6),    // Zone 0: 32 us/byte -> divider 93.02
+        };
+
+        let pio = pac::PIO0;
+        pio.sm(0).clkdiv().write(|w| {
+            w.set_int(clk_int);
+            w.set_frac(clk_frac);
+        });
+    }
+
+    fn inject_analog_noise(&mut self) {
+        static NOISE_BUFFER: [u8; 1] = [0x22];
+
+        let dma = pac::DMA;
+        
+        // Abort any ongoing transfers cleanly
+        let mut ctrl_a = dma.ch(0).ctrl_trig().read();
+        ctrl_a.set_en(false);
+        dma.ch(0).ctrl_trig().write_value(ctrl_a);
+        
+        // Clear the PIO RX and TX FIFOs
+        let pio = pac::PIO0;
+        
+        let shiftctrl = pio.sm(0).shiftctrl();
+        shiftctrl.modify(|w| { w.set_fjoin_rx(!w.fjoin_rx()); });
+        shiftctrl.modify(|w| { w.set_fjoin_rx(!w.fjoin_rx()); });
+        
+        pio.ctrl().write(|w| {
+            w.set_sm_restart(1); 
+            w.set_sm_enable(1);
+        });
+
+        // Set up DMA to continuously feed the noise byte
+        dma.ch(0).read_addr().write_value(NOISE_BUFFER.as_ptr() as u32);
+        dma.ch(0).trans_count().write_value(0xFFFFFFFF);
+        
+        ctrl_a.set_incr_read(false); // Do not increment read address, keep sending 0x22
+        ctrl_a.set_en(true);
+        dma.ch(0).ctrl_trig().write_value(ctrl_a);
+    }
+
+    fn get_active_speed_zone(&self) -> Option<u8> {
+        self.track_handle.get_active_speed_zone()
+    }
+
+    fn get_active_track_length(&self) -> usize {
+        self.track_handle.get_active_track_length()
     }
 }

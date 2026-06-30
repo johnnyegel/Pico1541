@@ -65,7 +65,7 @@ fn test_g64_track_reading_low_level() {
         let manager = hw_buffer.split().0;
         let inactive = manager.get_dormant_buffer_mut();
         inactive.data.copy_from_slice(&track_data);
-        manager.commit_loaded_track(2, layout.0, layout.1);
+        manager.commit_loaded_track(2, layout.0, layout.1, None);
     }
     
     mechanics.halftrack_head_pos = 2;

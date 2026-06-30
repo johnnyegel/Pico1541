@@ -1,42 +1,44 @@
-.program magnetic_surface
+.program gcr_reader
+.side_set 2 opt
 
-; Operates with:
-; - Autopush enabled (threshold 8)
-; - Autopull enabled (threshold 8)
-; - Shift direction: Left (MSB first, typical for GCR)
+; Side-set pin 0: SO (Byte Ready pulse)
+; Side-set pin 1: SYNC (Active when 10 consecutive 1s are read)
 
-    set pindirs, 1      
-    set pins, 1         
-.wrap_target
-sync_search:
-    out x, 1            
-    jmp !x bit_is_zero  
+public entry_point:
+    set x, 9           side 0b00  ; Clear SYNC and SO
+
+fetch_byte:
+    pull block         side 0b00  ; Fetch 32-bit word from DMA (bottom 8 bits contain data)
+    out null, 24       side 0b00  ; Discard top 24 zeros
+
+read_bit:
+    out y, 1           side 0b00  ; Shift 1 bit of real data into Y
+    jmp !y is_zero     side 0b00  ; If 0, handle alignment
+
+is_one:
+    in y, 1            side 0b00  ; Shift 1 into ISR
+    jmp x-- check_osre side 0b00  ; If we haven't hit 10 ones yet, loop
     
-    in x, 1
+    ; --- SYNC DETECTED ---
+    mov isr, null      side 0b10  ; Assert SYNC (Pin 1 HIGH), discard ISR
+
+sync_wait:
+    jmp !osre sync_do  side 0b10
+    pull block         side 0b10
+    out null, 24       side 0b10
+
+sync_do:
+    out y, 1           side 0b10
+    jmp y-- sync_wait  side 0b10  ; If still 1, stay in SYNC
     
-    jmp y-- sync_search 
-    
-in_sync:
-    mov isr, !null      
-    push                
-    set pins, 0         
-    
-sync_loop:
-    set y, 7            
-sync_loop_inner:
-    out x, 1
-    jmp !x sync_broken  
-    jmp y-- sync_loop_inner
-    
-    mov isr, !null
-    push
-    jmp sync_loop
-    
-sync_broken:
-    set pins, 1         
-    mov isr, null
-    push                ; Push 0x00000000 as SYNC_BROKEN token
-bit_is_zero:
-    set y, 8            
-    in null, 1          
-.wrap
+    ; --- SYNC BROKEN ---
+    ; Fall through to is_zero, SYNC pin will clear automatically
+
+is_zero:
+    in y, 1            side 0b00  ; Shift 0 into ISR
+    set x, 9           side 0b00  ; Reset SYNC counter
+
+check_osre:
+    jmp !osre read_bit side 0b00
+    ; OSR is empty -> 8 bits were processed -> A byte is ready!
+    jmp fetch_byte     side 0b01  ; Assert SO pulse (Pin 0 HIGH) while fetching next byte
