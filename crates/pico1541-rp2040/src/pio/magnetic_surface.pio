@@ -20,7 +20,7 @@ is_one:
     jmp x-- check_osre side 0b00  ; If we haven't hit 10 ones yet, loop
     
     ; --- SYNC DETECTED ---
-    mov isr, null      side 0b10  ; Assert SYNC (Pin 1 HIGH), discard ISR
+    push               side 0b10  ; Assert SYNC (Pin 1 HIGH), discard ISR
 
 sync_wait:
     jmp !osre sync_do  side 0b10
@@ -35,7 +35,7 @@ sync_do:
     ; Fall through to is_zero, SYNC pin will clear automatically
 
 is_zero:
-    in y, 1            side 0b00  ; Shift 0 into ISR
+    in null, 1         side 0b00  ; Shift 0 into ISR
     set x, 9           side 0b00  ; Reset SYNC counter
 
 check_osre:

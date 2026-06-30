@@ -5,9 +5,12 @@ use pico1541_common::track_buffer::EmulatorHandle;
 
 
 
+use embassy_rp::gpio::Pin;
+
 pub struct PioMagneticSurface {
     track_handle: EmulatorHandle,
     last_active_index: bool,
+    sync_gpio: u8,
 }
 
 impl PioMagneticSurface {
@@ -17,12 +20,13 @@ impl PioMagneticSurface {
         so_pin: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_0>,
         sync_pin: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_1>,
     ) -> Self {
+        let sync_gpio = sync_pin.pin();
         let prg = crate::pio::magnetic_surface_program();
         let loaded_prg = pio.common.load_program(&prg);
         
         let mut sm = pio.sm0;
         let mut cfg = embassy_rp::pio::Config::default();
-        cfg.clock_divider = 81u8.into(); // Default to zone 3 approx 1.53 MHz. Overridden in set_speed_zone
+        cfg.clock_divider = 162u8.into(); // Will be overridden by set_speed_zone
         cfg.shift_in.auto_fill = true;
         cfg.shift_in.threshold = 8;
         cfg.shift_in.direction = embassy_rp::pio::ShiftDirection::Left;
@@ -75,13 +79,37 @@ impl PioMagneticSurface {
         Self {
             track_handle,
             last_active_index: false,
+            sync_gpio,
         }
+    }
+}
+
+impl PioMagneticSurface {
+    fn abort_dma_ch0() {
+        let dma = pac::DMA;
+        dma.ch(0).ctrl_trig().modify(|w| w.set_en(false));
+        dma.chan_abort().modify(|w| w.set_chan_abort(1 << 0));
+        while dma.chan_abort().read().chan_abort() & (1 << 0) != 0 {}
+    }
+
+    fn clear_pio_fifos() {
+        let pio = pac::PIO0;
+        let shiftctrl = pio.sm(0).shiftctrl();
+        shiftctrl.modify(|w| w.set_fjoin_rx(!w.fjoin_rx()));
+        shiftctrl.modify(|w| w.set_fjoin_rx(!w.fjoin_rx()));
+        
+        // Also restart state machine to clear internal shifting state (OSR/ISR)
+        pio.ctrl().write(|w| {
+            w.set_sm_restart(1 << 0);
+            w.set_sm_enable(1 << 0);
+        });
     }
 }
 
 impl MagneticSurface for PioMagneticSurface {
     fn is_sync_active(&self) -> bool {
-        false
+        let sio = pac::SIO;
+        (sio.gpio_in(0).read() & (1 << self.sync_gpio)) != 0
     }
 
     fn try_read_byte(&mut self, _delta_cycles: u32) -> Option<u32> {
@@ -128,20 +156,6 @@ impl MagneticSurface for PioMagneticSurface {
 
         if (fstat.rxempty() & 1) == 0 {
             let val = pio.rxf(0).read();
-            
-            // DEBUG LOGGING
-            static mut DEBUG_BYTE_COUNT: u32 = 0;
-            unsafe {
-                if DEBUG_BYTE_COUNT < 32 {
-                    if val == 0xFFFFFFFF {
-                        defmt::info!("PIO DEBUG: Received SYNC token");
-                    } else {
-                        defmt::info!("PIO DEBUG: Received Data = {:02X}", val);
-                    }
-                    DEBUG_BYTE_COUNT += 1;
-                }
-            }
-            
             Some(val)
         } else {
             None
@@ -172,26 +186,14 @@ impl MagneticSurface for PioMagneticSurface {
         // Ensure track is loaded and padded. We use the full 8192-byte underlying buffer pointer.
         let track_ptr = self.track_handle.get_full_buffer_ptr();
 
-        let dma = pac::DMA;
+        Self::abort_dma_ch0();
         
-        // Abort any ongoing transfers cleanly
+        let dma = pac::DMA;
         let mut ctrl_a = dma.ch(0).ctrl_trig().read();
-        ctrl_a.set_en(false);
         ctrl_a.set_incr_read(true); // Restore incr_read in case it was disabled by noise injection
         dma.ch(0).ctrl_trig().write_value(ctrl_a);
         
-        // Clear the PIO RX and TX FIFOs
-        let pio = pac::PIO0;
-        
-        // CLEAR PIO FIFOS
-        let shiftctrl = pio.sm(0).shiftctrl();
-        shiftctrl.modify(|w| { w.set_fjoin_rx(!w.fjoin_rx()); });
-        shiftctrl.modify(|w| { w.set_fjoin_rx(!w.fjoin_rx()); });
-        
-        pio.ctrl().write(|w| {
-            w.set_sm_restart(1); 
-            w.set_sm_enable(1);
-        });
+        Self::clear_pio_fifos();
         
         // Setup Worker (Channel A) with the exact byte count!
         // try_read_byte will poll the busy flag and reload it instantly when it completes.
@@ -207,10 +209,7 @@ impl MagneticSurface for PioMagneticSurface {
     }
     
     fn stop_reading(&mut self) {
-        let dma = pac::DMA;
-        let mut ctrl_a = dma.ch(0).ctrl_trig().read();
-        ctrl_a.set_en(false);
-        dma.ch(0).ctrl_trig().write_value(ctrl_a);
+        Self::abort_dma_ch0();
     }
 
     fn is_write_protected(&self) -> bool {
@@ -222,11 +221,16 @@ impl MagneticSurface for PioMagneticSurface {
     }
 
     fn set_speed_zone(&mut self, zone: u8) {
+        // PIO reads 1 bit every 5 cycles.
+        // Zone 3: 26us/byte = 3.25us/bit. 5 cycles / 3.25us = 1.538 MHz. 250 / 1.538 = 162.5
+        // Zone 2: 28us/byte = 3.5us/bit. 5 cycles / 3.5us = 1.428 MHz. 250 / 1.428 = 175.0
+        // Zone 1: 30us/byte = 3.75us/bit. 5 cycles / 3.75us = 1.333 MHz. 250 / 1.333 = 187.5
+        // Zone 0: 32us/byte = 4.0us/bit. 5 cycles / 4.0us = 1.25 MHz. 250 / 1.25 = 200.0
         let (clk_int, clk_frac) = match zone {
-            3 => (75, 149),  // Zone 3: 26 us/byte -> divider 75.58
-            2 => (81, 101),  // Zone 2: 28 us/byte -> divider 81.39
-            1 => (87, 53),   // Zone 1: 30 us/byte -> divider 87.20
-            _ => (93, 6),    // Zone 0: 32 us/byte -> divider 93.02
+            3 => (162, 128), // 162.5
+            2 => (175, 0),   // 175.0
+            1 => (187, 128), // 187.5
+            _ => (200, 0),   // 200.0
         };
 
         let pio = pac::PIO0;
@@ -239,29 +243,15 @@ impl MagneticSurface for PioMagneticSurface {
     fn inject_analog_noise(&mut self) {
         static NOISE_BUFFER: [u8; 1] = [0x22];
 
-        let dma = pac::DMA;
-        
-        // Abort any ongoing transfers cleanly
-        let mut ctrl_a = dma.ch(0).ctrl_trig().read();
-        ctrl_a.set_en(false);
-        dma.ch(0).ctrl_trig().write_value(ctrl_a);
-        
-        // Clear the PIO RX and TX FIFOs
-        let pio = pac::PIO0;
-        
-        let shiftctrl = pio.sm(0).shiftctrl();
-        shiftctrl.modify(|w| { w.set_fjoin_rx(!w.fjoin_rx()); });
-        shiftctrl.modify(|w| { w.set_fjoin_rx(!w.fjoin_rx()); });
-        
-        pio.ctrl().write(|w| {
-            w.set_sm_restart(1); 
-            w.set_sm_enable(1);
-        });
+        Self::abort_dma_ch0();
+        Self::clear_pio_fifos();
 
+        let dma = pac::DMA;
         // Set up DMA to continuously feed the noise byte
         dma.ch(0).read_addr().write_value(NOISE_BUFFER.as_ptr() as u32);
         dma.ch(0).trans_count().write_value(0xFFFFFFFF);
         
+        let mut ctrl_a = dma.ch(0).ctrl_trig().read();
         ctrl_a.set_incr_read(false); // Do not increment read address, keep sending 0x22
         ctrl_a.set_en(true);
         dma.ch(0).ctrl_trig().write_value(ctrl_a);

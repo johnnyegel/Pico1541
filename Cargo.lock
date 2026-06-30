@@ -191,7 +191,7 @@ version = "0.4.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c673075a2e0e5f4a1dde27ce9dee1ea4558c7ffe648f576438a20ca1d2acc4b0"
 dependencies = [
- "defmt",
+ "defmt 1.1.0",
  "num-traits",
  "pure-rust-locales",
 ]
@@ -258,6 +258,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "cortex-m-semihosting"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c23234600452033cc77e4b761e740e02d2c4168e11dbf36ab14a0f58973592b0"
+dependencies = [
+ "cortex-m",
 ]
 
 [[package]]
@@ -343,6 +352,15 @@ checksum = "f578e8e2c440e7297e008bb5486a3a8a194775224bbc23729b0dbdfaeebf162e"
 
 [[package]]
 name = "defmt"
+version = "0.3.100"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0963443817029b2024136fc4dd07a5107eb8f977eaf18fcd1fdeb11306b64ad"
+dependencies = [
+ "defmt 1.1.0",
+]
+
+[[package]]
+name = "defmt"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6e524506490a1953d237cb87b1cfc1e46f88c18f10a22dfe0f507dc6bfc7f7f"
@@ -380,7 +398,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c0f73a4a4a91609e977ae3b7bd831ffa292edfd42ad140a3244a61d805b0e05e"
 dependencies = [
  "critical-section",
- "defmt",
+ "defmt 1.1.0",
+]
+
+[[package]]
+name = "defmt-test"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c1e67ff0e1c6b1a9540a1a3e04454658faacdd188c91987c444d56e469d7dea"
+dependencies = [
+ "cortex-m-rt",
+ "cortex-m-semihosting",
+ "defmt 0.3.100",
+ "defmt-test-macros",
+]
+
+[[package]]
+name = "defmt-test-macros"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe5520fd36862f281c026abeaab153ebbc001717c29a9b8e5ba9704d8f3a879d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -509,7 +550,7 @@ checksum = "568659fc53866d3d85c60fa33723fb751aa69e71507634fc2c19e7649432fb75"
 dependencies = [
  "cortex-m",
  "critical-section",
- "defmt",
+ "defmt 1.1.0",
  "num-traits",
 ]
 
@@ -524,7 +565,7 @@ dependencies = [
  "cortex-m",
  "cortex-m-rt",
  "critical-section",
- "defmt",
+ "defmt 1.1.0",
  "document-features",
  "embassy-embedded-hal",
  "embassy-futures",
@@ -575,7 +616,7 @@ checksum = "592b0c143ec626e821d4d90da51a2bd91d559d6c442b7c74a47d368c9e23d97a"
 dependencies = [
  "cfg-if",
  "critical-section",
- "defmt",
+ "defmt 1.1.0",
  "document-features",
  "embassy-time-driver",
  "embedded-hal 0.2.7",
@@ -609,7 +650,7 @@ version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a189cbf1d8ab3c591f88632f85c1df892b6ab04116037cbee39dc37cbdcd79f"
 dependencies = [
- "defmt",
+ "defmt 1.1.0",
  "embedded-io-async",
 ]
 
@@ -1290,7 +1331,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd402d00b0fb94c5aee000029204a46884b1262e0c443f166d86d2c0747e1a1a"
 dependencies = [
  "cortex-m",
- "defmt",
+ "defmt 1.1.0",
 ]
 
 [[package]]
@@ -1351,7 +1392,7 @@ checksum = "5be167a7af36ee22fe3115051bc51f6e6c7054c9348e28deb4f49bd6f705a315"
 name = "pico1541-common"
 version = "0.1.0"
 dependencies = [
- "defmt",
+ "defmt 1.1.0",
  "embedded-io-async",
  "env_logger",
  "heapless",
@@ -1381,7 +1422,7 @@ name = "pico1541-manager"
 version = "0.1.0"
 dependencies = [
  "critical-section",
- "defmt",
+ "defmt 1.1.0",
  "embassy-executor",
  "embassy-futures",
  "embassy-sync",
@@ -1405,8 +1446,9 @@ dependencies = [
  "cortex-m",
  "cortex-m-rt",
  "critical-section",
- "defmt",
+ "defmt 1.1.0",
  "defmt-rtt",
+ "defmt-test",
  "display-interface",
  "display-interface-i2c",
  "embassy-executor",
@@ -1608,7 +1650,7 @@ version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "869675ad2d7541aea90c6d88c81f46a7f4ea9af8cd0395d38f11a95126998a0d"
 dependencies = [
- "defmt",
+ "defmt 1.1.0",
 ]
 
 [[package]]

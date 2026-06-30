@@ -28,6 +28,7 @@ cortex-m = "0.7.7"
 cortex-m-rt = "0.7.3"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 defmt = "1.1.0"
+defmt-test = "0.3.0"
 defmt-rtt = "1.2.0"
 static_cell = "2.1.0"
 portable-atomic = { version = "1.5", features = ["critical-section"] }
@@ -53,3 +54,7 @@ littlefs-rust = "0.1.0"
 embedded-storage = "0.3.1"
 pio = "0.3"
 pio-proc = "0.3"
+[[bin]]
+name = "test_pio"
+path = "src/bin/test_pio.rs"
+harness = false
