@@ -236,6 +236,25 @@ impl<S: MagneticSurface> DriveMechanics<S> {
                 _ => 0,
             };
 
+            if step == -1 && last_half_track_pos <= MIN_HALF_TRACK {
+                log::error!("HEAD BUMP DETECTED! last_half_track_pos={}, delta={}, full_state={:02X}", last_half_track_pos, delta, full_state);
+                #[cfg(feature = "flight-recorder")]
+                unsafe {
+                    let ptr = core::ptr::addr_of_mut!(crate::flight_recorder::FLIGHT_RECORDER) as *mut crate::flight_recorder::FlightRecorder;
+                    log::error!("--- FLIGHT RECORDER DUMP ---");
+                    let start_idx = (*ptr).index;
+                    for i in 0..512 {
+                        let idx = (start_idx + i) % 512;
+                        let rec = &(*ptr).buffer[idx];
+                        if rec.pc != 0 {
+                            log::error!("FR[{}]: Cycle={}, PC={:04X}, VIA1={:02X}, VIA2={:02X}, PCR1={:02X}, PCR2={:02X}", 
+                                i, rec.cycle, rec.pc, rec.via1_pb, rec.via2_pb, rec.pcr1, rec.pcr2);
+                        }
+                    }
+                    log::error!("--- END FLIGHT RECORDER DUMP ---");
+                }
+            }
+
             self.halftrack_head_pos = (last_half_track_pos + step)
                     .clamp(MIN_HALF_TRACK, MAX_HALF_TRACK);
 

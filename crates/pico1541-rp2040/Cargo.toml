@@ -6,7 +6,7 @@ build = "build.rs"
 
 [dependencies]
 # Internal crates
-pico1541-emulator = { path = "../pico1541-emulator" }
+pico1541-emulator = { path = "../pico1541-emulator", features = ["flight-recorder"] }
 pico1541-manager = { path = "../pico1541-manager", features = ["defmt"] }
 pico1541-common = { path = "../pico1541-common", features = ["defmt"] }
 
