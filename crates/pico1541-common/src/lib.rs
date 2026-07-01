@@ -15,3 +15,5 @@ pub use iec_com::{IecComHostBus, IecCommander, IecError, IecTransaction};
 pub use interface::{DriveEvent, HostInterface, IecBus};
 pub use storage::{MemoryStorage, VectorDirectorySource, PagedDirectorySource, PagedDirectorySourceTrait};
 
+pub const SYSTEM_CLOCK_FREQ: u32 = 250_000_000;
+

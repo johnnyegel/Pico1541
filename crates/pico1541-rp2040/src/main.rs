@@ -8,6 +8,7 @@ static HEAP: embedded_alloc::LlffHeap = embedded_alloc::LlffHeap::empty();
 
 mod driver;
 mod flash_storage;
+
 use embassy_rp::interrupt;
 
 use core::sync::atomic::Ordering;
@@ -122,9 +123,9 @@ async fn main(spawner: Spawner) {
     }
 
     let mut config = embassy_rp::config::Config::default();
-    config.clocks = embassy_rp::clocks::ClockConfig::system_freq(250_000_000).unwrap();
+    config.clocks = embassy_rp::clocks::ClockConfig::system_freq(pico1541_common::SYSTEM_CLOCK_FREQ).unwrap();
     let p = embassy_rp::init(config);
-    info!("Pico1541 Starting at 250MHz...");
+    info!("Pico1541 Starting at {}MHz...", pico1541_common::SYSTEM_CLOCK_FREQ / 1_000_000);
 
     // Initialize Flash for LittleFS
     // RP2040 has 2MB of flash. We reserved 1MB at the end.

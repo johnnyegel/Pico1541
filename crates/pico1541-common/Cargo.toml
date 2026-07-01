@@ -9,6 +9,7 @@ heapless = "0.9.2"
 log = "0.4.29"
 portable-atomic = { version = "1.13", features = ["critical-section"] }
 defmt = { version = "1.1.0", optional = true }
+pio = "0.3.0"
 
 [features]
 default = []

@@ -1397,6 +1397,7 @@ dependencies = [
  "env_logger",
  "heapless",
  "log",
+ "pio",
  "pollster",
  "portable-atomic",
 ]

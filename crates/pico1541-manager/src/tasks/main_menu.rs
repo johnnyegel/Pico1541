@@ -970,8 +970,9 @@ where
             self.display.print(1, &s_speed).await;
 
             // core0_avg_raw now stores the MAX busy SYST cycles over any 20ms window (within a 500ms update window).
-            // 5,000,000 SYST cycles = 100% load for a 20ms window at 250MHz sys clock
-            let c0_load = ((c0_avg as u64 * 100) / 5_000_000) as u32;
+            // 20ms window at SYSTEM_CLOCK_FREQ = SYSTEM_CLOCK_FREQ / 50 cycles for 100% load
+            let max_syst_cycles = pico1541_common::SYSTEM_CLOCK_FREQ / 50;
+            let c0_load = ((c0_avg as u64 * 100) / max_syst_cycles as u64) as u32;
             let mut s_c0 = String::<32>::new();
             let _ = core::fmt::write(&mut s_c0, format_args!("Emu max : {}%", c0_load));
             self.display.print(2, &s_c0).await;

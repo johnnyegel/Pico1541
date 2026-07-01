@@ -27,7 +27,7 @@ impl PioMagneticSurface {
         let mut sm = pio.sm0;
         let mut cfg = embassy_rp::pio::Config::default();
         cfg.clock_divider = 162u8.into(); // Will be overridden by set_speed_zone
-        cfg.shift_in.auto_fill = true;
+        cfg.shift_in.auto_fill = false;
         cfg.shift_in.threshold = 8;
         cfg.shift_in.direction = embassy_rp::pio::ShiftDirection::Left;
         
@@ -156,7 +156,11 @@ impl MagneticSurface for PioMagneticSurface {
 
         if (fstat.rxempty() & 1) == 0 {
             let val = pio.rxf(0).read();
-            Some(val)
+            if val > 0xFF {
+                Some(0xFFFFFFFF) // SYNC detected
+            } else {
+                Some(val)
+            }
         } else {
             None
         }
@@ -222,16 +226,19 @@ impl MagneticSurface for PioMagneticSurface {
 
     fn set_speed_zone(&mut self, zone: u8) {
         // PIO reads 1 bit every 5 cycles.
-        // Zone 3: 26us/byte = 3.25us/bit. 5 cycles / 3.25us = 1.538 MHz. 250 / 1.538 = 162.5
-        // Zone 2: 28us/byte = 3.5us/bit. 5 cycles / 3.5us = 1.428 MHz. 250 / 1.428 = 175.0
-        // Zone 1: 30us/byte = 3.75us/bit. 5 cycles / 3.75us = 1.333 MHz. 250 / 1.333 = 187.5
-        // Zone 0: 32us/byte = 4.0us/bit. 5 cycles / 4.0us = 1.25 MHz. 250 / 1.25 = 200.0
-        let (clk_int, clk_frac) = match zone {
-            3 => (162, 128), // 162.5
-            2 => (175, 0),   // 175.0
-            1 => (187, 128), // 187.5
-            _ => (200, 0),   // 200.0
+        // Zone 3: 26us/byte = 3.25us/bit.
+        // Zone 2: 28us/byte = 3.5us/bit.
+        // Zone 1: 30us/byte = 3.75us/bit.
+        // Zone 0: 32us/byte = 4.0us/bit.
+        let multiplier = match zone {
+            3 => 325,
+            2 => 350,
+            1 => 375,
+            _ => 400,
         };
+        let div_256 = (pico1541_common::SYSTEM_CLOCK_FREQ as u64 * multiplier * 256) / 500_000_000;
+        let clk_int = (div_256 / 256) as u16;
+        let clk_frac = (div_256 % 256) as u8;
 
         let pio = pac::PIO0;
         pio.sm(0).clkdiv().write(|w| {
