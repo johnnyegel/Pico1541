@@ -1,9 +1,11 @@
 use racc6502::bus::Bus;
 
+#[cfg(feature = "debug")]
 struct DebugBus {
     memory: [u8; 65536],
 }
 
+#[cfg(feature = "debug")]
 impl Bus for DebugBus {
     type Ctx = ();
     fn read(&mut self, addr: u16, _ctx: &mut ()) -> u8 {

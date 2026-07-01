@@ -23,7 +23,7 @@ fn main() {
         // Run mklittlefs
         let fs_bin = out.join("fs.bin");
         let status = std::process::Command::new("mklittlefs")
-            .args(&[
+            .args([
                 "-c",
                 "../../flash-fs",
                 "-s",

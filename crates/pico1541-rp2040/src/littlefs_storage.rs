@@ -101,7 +101,7 @@ impl Read for LittleFsFileHandle {
             if let Ok(file) = fs.open(self.path.as_str(), OpenFlags::READ) {
                 if file.seek(littlefs_rust::SeekFrom::Start(self.pos)).is_ok() {
                     if let Ok(n) = file.read(buf) {
-                        self.pos += n as u32;
+                        self.pos += n;
                         return Ok(n as usize);
                     }
                 }

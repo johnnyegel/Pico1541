@@ -49,10 +49,8 @@ pub fn match_c64_filename(entry_name: &[u8; 16], req_name: &[u8]) -> bool {
             return true;
         } else if r_char == 0x3F { // '?'
             // matches any char
-        } else {
-            if entry_name[e_idx] != r_char {
-                break;
-            }
+        } else if entry_name[e_idx] != r_char {
+            break;
         }
         e_idx += 1;
         r_idx += 1;

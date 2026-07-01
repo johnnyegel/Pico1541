@@ -33,13 +33,12 @@ fn format_fat_name(name: &str) -> heapless::String<64> {
             if clean_name.push(c).is_err() { break; }
         }
         
-        if !ext_trim.is_empty() {
-            if clean_name.push('.').is_ok() {
+        if !ext_trim.is_empty()
+            && clean_name.push('.').is_ok() {
                 for c in ext_trim.chars() {
                     if clean_name.push(c).is_err() { break; }
                 }
             }
-        }
     } else {
         for c in name.trim_end().chars() {
             if clean_name.push(c).is_err() { break; }
@@ -206,7 +205,7 @@ where
     Det: InputPin + 'static,
 {
     fn clone(&self) -> Self {
-        Self(self.0)
+        *self
     }
 }
 

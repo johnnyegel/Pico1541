@@ -5,7 +5,7 @@ use pico1541_common::track_buffer::EmulatorHandle;
 
 
 
-use embassy_rp::gpio::Pin;
+
 
 pub struct PioMagneticSurface {
     track_handle: EmulatorHandle,
@@ -17,10 +17,8 @@ impl PioMagneticSurface {
     pub fn new(
         mut pio: embassy_rp::pio::Pio<'static, embassy_rp::peripherals::PIO0>,
         track_handle: EmulatorHandle,
-        so_pin: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_0>,
-        sync_pin: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_1>,
     ) -> Self {
-        let sync_gpio = sync_pin.pin();
+        let sync_gpio = 0; // Not used from surface anymore
         let prg = crate::pio::magnetic_surface_program();
         let loaded_prg = pio.common.load_program(&prg);
         
@@ -35,26 +33,10 @@ impl PioMagneticSurface {
         cfg.shift_out.threshold = 32; 
         cfg.shift_out.direction = embassy_rp::pio::ShiftDirection::Left;
 
-        let so_pio_pin = pio.common.make_pio_pin(so_pin);
-        let sync_pio_pin = pio.common.make_pio_pin(sync_pin);
-        
-        cfg.use_program(&loaded_prg, &[&so_pio_pin, &sync_pio_pin]);
-
-        sm.set_pin_dirs(embassy_rp::pio::Direction::Out, &[&so_pio_pin, &sync_pio_pin]);
-        sm.set_pins(embassy_rp::gpio::Level::Low, &[&so_pio_pin, &sync_pio_pin]); // Initial state: LOW (Inactive)
-        
-        cfg.set_set_pins(&[&so_pio_pin, &sync_pio_pin]);
-        // Side-set pins need to be contiguous in RP2040. Here we use PIN_0 and PIN_1.
-        // so_pin is PIN_0 (side 0), sync_pin is PIN_1 (side 1).
-        // cfg.use_program handles side-set pins in embassy-rp.
-        cfg.set_out_pins(&[&so_pio_pin, &sync_pio_pin]);
+        cfg.use_program(&loaded_prg, &[]);
 
         sm.set_config(&cfg);
         sm.set_enable(true);
-        
-        // Prevent the pins from being dropped and reverting their function to NULL
-        core::mem::forget(so_pio_pin);
-        core::mem::forget(sync_pio_pin);
 
         let dma = pac::DMA;
         let ch_a = dma.ch(0);
@@ -147,7 +129,7 @@ impl MagneticSurface for PioMagneticSurface {
         static mut DEBUG_TICK_COUNT: u32 = 0;
         unsafe {
             DEBUG_TICK_COUNT += 1;
-            if DEBUG_TICK_COUNT % 100000 == 0 {
+            if DEBUG_TICK_COUNT.is_multiple_of(100000) {
                 let pc = pio.sm(0).addr().read();
                 defmt::info!("PIO STATE - PC: {}, TXF Level: {}, RXF empty: {}, DMA Busy: {}, DMA Count: {}, DMA Addr: {:X}", 
                     pc.addr(), pio.flevel().read().tx0(), fstat.rxempty() & 1, dma_busy, trans_count, read_addr);
@@ -172,11 +154,7 @@ impl MagneticSurface for PioMagneticSurface {
         let remaining = ch_a.trans_count().read();
         
         let track_length = self.track_handle.get_active_track_length() as u32;
-        if track_length >= remaining {
-            track_length - remaining
-        } else {
-            0
-        }
+        track_length.saturating_sub(remaining)
     }
 
     fn write_byte_at(&mut self, index: u32, data: u8) {

@@ -697,7 +697,7 @@ impl CPU {
                 if (res_bin as u8) == 0 { self.p |= FLAG_Z; }
                 if high > 9 { high += 6; }
                 if high > 15 { self.p |= FLAG_C; }
-                self.a = ((low & 0x0F) | ((high & 0x0F) << 4)) as u8;
+                self.a = (low & 0x0F) | ((high & 0x0F) << 4);
                 
                 } else {
 
@@ -735,7 +735,7 @@ impl CPU {
                 if (res_bin as u8) == 0 { self.p |= FLAG_Z; }
                 if high > 9 { high += 6; }
                 if high > 15 { self.p |= FLAG_C; }
-                self.a = ((low & 0x0F) | ((high & 0x0F) << 4)) as u8;
+                self.a = (low & 0x0F) | ((high & 0x0F) << 4);
                 
                 } else {
 
@@ -789,7 +789,7 @@ impl CPU {
                 if (res_bin as u8) == 0 { self.p |= FLAG_Z; }
                 if high > 9 { high += 6; }
                 if high > 15 { self.p |= FLAG_C; }
-                self.a = ((low & 0x0F) | ((high & 0x0F) << 4)) as u8;
+                self.a = (low & 0x0F) | ((high & 0x0F) << 4);
                 
                 } else {
 
@@ -840,7 +840,7 @@ impl CPU {
                 if (res_bin as u8) == 0 { self.p |= FLAG_Z; }
                 if high > 9 { high += 6; }
                 if high > 15 { self.p |= FLAG_C; }
-                self.a = ((low & 0x0F) | ((high & 0x0F) << 4)) as u8;
+                self.a = (low & 0x0F) | ((high & 0x0F) << 4);
                 
                 } else {
 
@@ -898,7 +898,7 @@ impl CPU {
                 if (res_bin as u8) == 0 { self.p |= FLAG_Z; }
                 if high > 9 { high += 6; }
                 if high > 15 { self.p |= FLAG_C; }
-                self.a = ((low & 0x0F) | ((high & 0x0F) << 4)) as u8;
+                self.a = (low & 0x0F) | ((high & 0x0F) << 4);
                 
                 } else {
 
@@ -937,7 +937,7 @@ impl CPU {
                 if (res_bin as u8) == 0 { self.p |= FLAG_Z; }
                 if high > 9 { high += 6; }
                 if high > 15 { self.p |= FLAG_C; }
-                self.a = ((low & 0x0F) | ((high & 0x0F) << 4)) as u8;
+                self.a = (low & 0x0F) | ((high & 0x0F) << 4);
                 
                 } else {
 
@@ -990,7 +990,7 @@ impl CPU {
                 if (res_bin as u8) == 0 { self.p |= FLAG_Z; }
                 if high > 9 { high += 6; }
                 if high > 15 { self.p |= FLAG_C; }
-                self.a = ((low & 0x0F) | ((high & 0x0F) << 4)) as u8;
+                self.a = (low & 0x0F) | ((high & 0x0F) << 4);
                 
                 } else {
 
@@ -1029,7 +1029,7 @@ impl CPU {
                 if (res_bin as u8) == 0 { self.p |= FLAG_Z; }
                 if high > 9 { high += 6; }
                 if high > 15 { self.p |= FLAG_C; }
-                self.a = ((low & 0x0F) | ((high & 0x0F) << 4)) as u8;
+                self.a = (low & 0x0F) | ((high & 0x0F) << 4);
                 
                 } else {
 

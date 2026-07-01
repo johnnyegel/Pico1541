@@ -17,58 +17,56 @@ mod tests {
     });
 
     #[init]
-    fn init() -> (Pio<'static, PIO0>, embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_0>, embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_1>) {
+    fn init() -> Pio<'static, PIO0> {
         let p = embassy_rp::init(Default::default());
-        (Pio::new(p.PIO0, Irqs), p.PIN_0, p.PIN_1)
+        Pio::new(p.PIO0, Irqs)
     }
 
     #[test]
-    fn test_pio_logic(state: &mut (Pio<'static, PIO0>, embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_0>, embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_1>)) {
+    fn test_pio_logic(pio: &mut Pio<'static, PIO0>) {
         let prg = pio::pio_asm!(
-        ".side_set 2 opt",
         "public entry_point:",
-        "    set x, 9           side 0b00  ; Clear SYNC and SO",
+        "    set x, 9",
         "",
         "fetch_byte:",
-        "    pull block         side 0b00  ; Fetch 32-bit word from DMA (bottom 8 bits contain data)",
-        "    out null, 24       side 0b00  ; Discard top 24 zeros",
+        "    pull block",
+        "    out null, 24",
         "",
         "read_bit:",
-        "    out y, 1           side 0b00  ; Shift 1 bit of real data into Y",
-        "    jmp !y is_zero     side 0b00  ; If 0, handle alignment",
+        "    out y, 1",
+        "    jmp !y is_zero",
         "",
         "is_one:",
-        "    in y, 1            side 0b00  ; Shift 1 into ISR",
-        "    jmp x-- check_osre side 0b00  ; If we haven't hit 10 ones yet, loop",
+        "    in y, 1",
+        "    jmp x-- check_osre",
         "    ",
         "    ; --- SYNC DETECTED ---",
-        "    mov isr, ~null     side 0b10  ; Fill ISR with all 1s",
-        "    push               side 0b10  ; Assert SYNC (Pin 1 HIGH), push 0xFFFFFFFF",
+        "    mov isr, ~null",
+        "    push",
         "",
         "sync_wait:",
-        "    jmp !osre sync_do  side 0b10",
-        "    pull block         side 0b10",
-        "    out null, 24       side 0b10",
+        "    jmp !osre sync_do",
+        "    pull block",
+        "    out null, 24",
         "",
         "sync_do:",
-        "    out y, 1           side 0b10",
-        "    jmp y-- sync_wait  side 0b10  ; If still 1, stay in SYNC",
+        "    out y, 1",
+        "    jmp y-- sync_wait",
         "    ",
         "    ; --- SYNC BROKEN ---",
         "    ; Fall through to is_zero, SYNC pin will clear automatically",
         "",
         "is_zero:",
-        "    in null, 1         side 0b00  ; Shift 0 into ISR, CLEAR SYNC!",
-        "    set x, 9           side 0b00  ; Reset SYNC counter",
+        "    in null, 1",
+        "    set x, 9",
         "",
         "check_osre:",
-        "    jmp !osre read_bit side 0b00",
+        "    jmp !osre read_bit",
         "    ; OSR is empty -> 8 bits were processed -> A byte is ready!",
-        "    push               side 0b01  ; Assert SO pulse (Pin 0 HIGH) and push byte to RX FIFO",
-        "    jmp fetch_byte     side 0b01  ; Fetch next byte",
+        "    push",
+        "    jmp fetch_byte",
         );
         
-        let pio = &mut state.0;
         let loaded_prg = pio.common.load_program(&prg.program);
         
         let sm = &mut pio.sm0;
@@ -81,9 +79,7 @@ mod tests {
         cfg.shift_out.threshold = 32;
         cfg.shift_out.direction = ShiftDirection::Left;
         
-        let pin0 = pio.common.make_pio_pin(unsafe { core::ptr::read(&state.1 as *const _) });
-        let pin1 = pio.common.make_pio_pin(unsafe { core::ptr::read(&state.2 as *const _) });
-        cfg.use_program(&loaded_prg, &[&pin0, &pin1]);
+        cfg.use_program(&loaded_prg, &[]);
         sm.set_config(&cfg);
         
         // --- PHASE 1: Normal bytes test ---

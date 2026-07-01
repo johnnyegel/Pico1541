@@ -44,6 +44,7 @@ fn join_path(current: &str, sub: &str) -> String<128> {
     new_path
 }
 
+#[allow(clippy::type_complexity)]
 pub struct MainMenuTask<D, L, Ind, S, Internal: crate::driver::FileStorageDriver, File>
 where
     File: embedded_io_async::Read + embedded_io_async::Seek + 'static,
@@ -64,6 +65,7 @@ where
     rom_name: String<32>,
 }
 
+#[allow(clippy::type_complexity)]
 impl<D, L, Ind, S, Internal, File> MainMenuTask<D, L, Ind, S, Internal, File>
 where
     D: DisplayDriver + Clone,
@@ -73,6 +75,7 @@ where
     Internal: FileStorageDriver,
     File: embedded_io_async::Read + embedded_io_async::Seek + 'static,
 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         display: D,
         leds: L,
@@ -280,12 +283,10 @@ where
                 } else {
                     "SD CARD"
                 }
+            } else if let Some(idx) = path_str.rfind('/') {
+                &path_str[idx + 1..]
             } else {
-                if let Some(idx) = path_str.rfind('/') {
-                    &path_str[idx + 1..]
-                } else {
-                    path_str
-                }
+                path_str
             };
 
             // Build directory entries for the virtual disk using PagedDirectorySource.
@@ -443,8 +444,7 @@ where
             }
 
             // Ensure cursor block is loaded
-            loop {
-                if let Some(tb) = menu.set_cursor(cursor) {
+            while let Some(tb) = menu.set_cursor(cursor) {
                     let mut block_infos = Vec::<FileInfo, 16>::new();
                     let fetch_res = if use_internal {
                         self.internal.list_dir_range(current_path.as_str(), tb * 16, 16, |info| {
@@ -476,10 +476,7 @@ where
                     } else {
                         break;
                     }
-                } else {
-                    break;
                 }
-            }
 
             let event = loop {
                 match menu.run(&mut self.display).await {
@@ -798,7 +795,7 @@ where
                                     MenuEvent::LoadBlock(_) => {}
                                 }
                             }
-                        } else if selected.size >= 16384 && selected.size % 16384 == 0 && selected.size <= 65536 {
+                        } else if selected.size >= 16384 && selected.size.is_multiple_of(16384) && selected.size <= 65536 {
                             let mut options = Vec::<String<32>, 5>::new();
                             options.push(String::from_str("Abort").unwrap()).unwrap();
                             let num_banks = selected.size / 16384;
@@ -1150,8 +1147,8 @@ where
                         return false;
                     }
                     let name_with_star = menu.get_item(idx).unwrap();
-                    let name = if name_with_star.starts_with('*') {
-                        &name_with_star[1..]
+                    let name = if let Some(stripped) = name_with_star.strip_prefix('*') {
+                        stripped
                     } else {
                         name_with_star.as_str()
                     };

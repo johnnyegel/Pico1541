@@ -6,6 +6,12 @@ pub struct ButtonManager {
     hold_counters: [u16; 4],
 }
 
+impl Default for ButtonManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ButtonManager {
     pub const fn new() -> Self {
         Self {
@@ -51,7 +57,7 @@ impl ButtonManager {
                     callback(ButtonEvent::Hold(button));
                 } else if self.hold_counters[i] > 30 {
                     let repeat_ticks = 3; // 30ms repeat
-                    if (self.hold_counters[i] - 30) % repeat_ticks == 0 {
+                    if (self.hold_counters[i] - 30).is_multiple_of(repeat_ticks) {
                         callback(ButtonEvent::Hold(button));
                     }
                 }

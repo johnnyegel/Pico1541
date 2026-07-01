@@ -34,7 +34,7 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
             }
         }
         
-        let total_blocks = (total_count + 15) / 16;
+        let total_blocks = total_count.div_ceil(16);
         Self {
             title,
             items: buffer,
@@ -157,7 +157,7 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
             let known_blocks = if self.total_count == usize::MAX {
                 self.end_block.max(current_block + 1)
             } else {
-                (self.total_count + 15) / 16
+                self.total_count.div_ceil(16)
             };
             let targets = target_blocks(current_block, known_blocks);
             for tb in targets.into_iter().flatten() {
@@ -175,7 +175,7 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
             let known_blocks = if self.total_count == usize::MAX {
                 self.end_block.max(current_block + 2)
             } else {
-                (self.total_count + 15) / 16
+                self.total_count.div_ceil(16)
             };
             
             for offset in 1..=2 {
@@ -209,7 +209,7 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
                 let known_blocks = if self.total_count == usize::MAX {
                     self.end_block.max(current_block + 1)
                 } else {
-                    (self.total_count + 15) / 16
+                    self.total_count.div_ceil(16)
                 };
                 let targets = target_blocks(current_block, known_blocks);
                 for tb in targets.into_iter().flatten() {
@@ -237,7 +237,7 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
                 let known_blocks = if self.total_count == usize::MAX {
                     self.end_block.max(current_block + 1)
                 } else {
-                    (self.total_count + 15) / 16
+                    self.total_count.div_ceil(16)
                 };
                 let targets = target_blocks(current_block, known_blocks);
                 for tb in targets.into_iter().flatten() {
@@ -260,7 +260,7 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
             let known_blocks = if self.total_count == usize::MAX {
                 self.end_block.max(current_block + 1)
             } else {
-                (self.total_count + 15) / 16
+                self.total_count.div_ceil(16)
             };
             let targets = target_blocks(current_block, known_blocks);
             for tb in targets.into_iter().flatten() {
@@ -300,7 +300,7 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
             let known_blocks = if self.total_count == usize::MAX {
                 self.end_block.max(current_block + 1)
             } else {
-                (self.total_count + 15) / 16
+                self.total_count.div_ceil(16)
             };
             let targets = target_blocks(current_block, known_blocks);
             for tb in targets.into_iter().flatten() {

@@ -37,6 +37,12 @@ impl TrackLookupTable {
     }
 }
 
+impl Default for TrackLookupTable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[inline(always)]
 pub const fn sectors_per_track(track: u8) -> u8 {
     match track {
@@ -302,7 +308,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
     async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<(TrackLayout, usize, Option<u8>), Error> {
         log::info!("Reading VirtualDisk track {}", half_track);
         
-        if half_track % 2 != 0 || half_track == 0 || half_track > 84 {
+        if !half_track.is_multiple_of(2) || half_track == 0 || half_track > 84 {
             return Ok((TrackLayout::Void, 0, None));
         }
 
@@ -347,9 +353,9 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                         write_ptr += 1;
                     }
                 }
-                let checksum = (sector as u8) ^ track ^ self.id[0] ^ self.id[1];
+                let checksum = sector ^ track ^ self.id[0] ^ self.id[1];
                 let header_raw = [
-                    0x08, checksum, sector as u8, track, self.id[1], self.id[0], 0x0F, 0x0F,
+                    0x08, checksum, sector, track, self.id[1], self.id[0], 0x0F, 0x0F,
                 ];
                 for chunk in header_raw.chunks_exact(4) {
                     let mut dst = [0u8; 5];
@@ -486,9 +492,9 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                         write_ptr += 1;
                     }
                 }
-                let checksum = (sector as u8) ^ track ^ self.id[0] ^ self.id[1];
+                let checksum = sector ^ track ^ self.id[0] ^ self.id[1];
                 let header_raw = [
-                    0x08, checksum, sector as u8, track, self.id[1], self.id[0], 0x0F, 0x0F,
+                    0x08, checksum, sector, track, self.id[1], self.id[0], 0x0F, 0x0F,
                 ];
                 for chunk in header_raw.chunks_exact(4) {
                     let mut dst = [0u8; 5];
@@ -568,9 +574,9 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                     write_ptr += 1;
                 }
             }
-            let checksum = (sector as u8) ^ track ^ self.id[0] ^ self.id[1];
+            let checksum = sector ^ track ^ self.id[0] ^ self.id[1];
             let header_raw = [
-                0x08, checksum, sector as u8, track, self.id[1], self.id[0], 0x0F, 0x0F,
+                0x08, checksum, sector, track, self.id[1], self.id[0], 0x0F, 0x0F,
             ];
             for chunk in header_raw.chunks_exact(4) {
                 let mut dst = [0u8; 5];
@@ -797,8 +803,7 @@ impl<S: Read + Seek> G64Image<S> {
         let mut speed_bytes = [0u8; 84];
         storage.read_exact(&mut speed_bytes).await.map_err(|_| Error::Io)?;
         
-        for i in 0..84 {
-            let speed = speed_bytes[i];
+        for (i, &speed) in speed_bytes.iter().enumerate() {
             if speed < 4 {
                 lookup_table.speed_zones[i] = Some(speed);
             }

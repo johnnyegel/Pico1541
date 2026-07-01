@@ -46,6 +46,12 @@ pub struct CPU {
     pub debug_interrupt_level: u8,
 }
 
+impl Default for CPU {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CPU {
     pub fn new() -> Self {
         let mut cpu = CPU {
@@ -180,7 +186,7 @@ impl CPU {
                     self.execute_addr_uop(next_uop, bus, ctx);
                     self.step_index += 1;
                 } else {
-                    self.state = CycleState::Operation; self.step_index = 0; self.tick_operation(bus, ctx); return;
+                    self.state = CycleState::Operation; self.step_index = 0; self.tick_operation(bus, ctx);
                 }
             } else {
                 self.execute_addr_uop(uop, bus, ctx);

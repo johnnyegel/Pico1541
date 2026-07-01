@@ -2,7 +2,6 @@
 /// and handing over to the drive emulator. This works by splitting 
 /// a double buffer into two handles, and exchanging the buffers
 /// between the Manager and Emulator
-
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicBool, Ordering};
 
@@ -88,6 +87,12 @@ impl DualCoreTrackBuffer {
     }
 }
 
+impl Default for DualCoreTrackBuffer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // =====================================================================
 // The MANAGER handle
 // =====================================================================
@@ -133,6 +138,7 @@ impl ManagerHandle {
         unsafe { (*self.core_buffer.buffers.get())[active_idx].layout }
     }
 
+    #[allow(clippy::mut_from_ref)]
     pub fn start_track_load(&self) -> &mut [u8] {
         let current_active = self.core_buffer.active_index.load(Ordering::Acquire);
         let back_idx = if current_active { 0 } else { 1 };
@@ -157,6 +163,7 @@ impl ManagerHandle {
         self.core_buffer.active_index.store(!current_active, Ordering::Release);
     }
 
+    #[allow(clippy::mut_from_ref)]
     pub fn start_track_modification(&self) -> &mut [u8] {
         let current_active = self.core_buffer.active_index.load(Ordering::Acquire);
         let active_idx = if current_active { 1 } else { 0 };
@@ -182,6 +189,7 @@ impl ManagerHandle {
     }
 
     #[allow(dead_code)]
+    #[allow(clippy::mut_from_ref)]
     pub fn get_dormant_buffer_mut(&self) -> &mut TrackBuffer {
         let current_active = self.core_buffer.active_index.load(Ordering::Acquire);
         let back_idx = if current_active { 0 } else { 1 };

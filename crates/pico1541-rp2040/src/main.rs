@@ -196,23 +196,21 @@ async fn main(spawner: Spawner) {
             if !loaded_rom {
                 // Scan /roms/ for the first .bin file
                 if let Ok(dir) = fs.read_dir("/roms") {
-                    for entry in dir {
-                        if let Ok(entry) = entry {
-                            let name_str = entry.name.as_str();
-                            if name_str.ends_with(".bin") || name_str.ends_with(".BIN") || name_str.ends_with(".rom") || name_str.ends_with(".ROM") {
-                                let mut path = heapless::String::<64>::new();
-                                let _ = path.push_str("/roms/");
-                                let _ = path.push_str(name_str);
-                                if let Ok(file) = fs.open(path.as_str(), littlefs_rust::OpenFlags::READ) {
-                                    if file.size() == 16384 {
-                                        let buf = unsafe { &mut *core::ptr::addr_of_mut!(ROM_BUFFER) };
-                                        if let Ok(n) = file.read(buf) {
-                                            if n == 16384 {
-                                                rom_name.clear();
-                                                let _ = rom_name.push_str(name_str);
-                                                info!("Loaded ROM: {}", name_str);
-                                                break;
-                                            }
+                    for entry in dir.flatten() {
+                        let name_str = entry.name.as_str();
+                        if name_str.ends_with(".bin") || name_str.ends_with(".BIN") || name_str.ends_with(".rom") || name_str.ends_with(".ROM") {
+                            let mut path = heapless::String::<64>::new();
+                            let _ = path.push_str("/roms/");
+                            let _ = path.push_str(name_str);
+                            if let Ok(file) = fs.open(path.as_str(), littlefs_rust::OpenFlags::READ) {
+                                if file.size() == 16384 {
+                                    let buf = unsafe { &mut *core::ptr::addr_of_mut!(ROM_BUFFER) };
+                                    if let Ok(n) = file.read(buf) {
+                                        if n == 16384 {
+                                            rom_name.clear();
+                                            let _ = rom_name.push_str(name_str);
+                                            info!("Loaded ROM: {}", name_str);
+                                            break;
                                         }
                                     }
                                 }
@@ -301,7 +299,8 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
         Output::new(p.PIN_22, Level::Low),
         Output::new(p.PIN_3, Level::Low)
     );
-    let mut bridge = HardwareBridge::new(pins, &SNOOPER_CONFIG, activity_led);
+    let mut bridge = HardwareBridge::new(pins, &SNOOPER_CONFIG, activity_led,
+        Output::new(p.PIN_0, Level::Low), Output::new(p.PIN_1, Level::Low));
 
     let pio0 = embassy_rp::pio::Pio::new(p.PIO0, Irqs);
 
@@ -310,7 +309,7 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
     embassy_rp::multicore::spawn_core1(p.CORE1, stack, move || {
         let drive = unsafe {
             let ptr: *mut Emulator<HardwareBridge, PioMagneticSurface> = core::ptr::addr_of_mut!(EMULATOR).cast();
-            let surface = PioMagneticSurface::new(pio0, emulator_handle, p.PIN_0, p.PIN_1);
+            let surface = PioMagneticSurface::new(pio0, emulator_handle);
             core::ptr::write(ptr, Emulator::new(&*core::ptr::addr_of!(ROM_BUFFER), drive_id, surface));
             &mut *ptr
         };
@@ -340,10 +339,12 @@ struct HardwareBridge {
     activity_led: ActivityLed,
     led_state: bool,
     motor_state: bool,
+    dbg_pin_0: Output<'static>,
+    dbg_pin_1: Output<'static>,
 }
 
 impl HardwareBridge {
-    fn new(pins: IecPins, config: &'static SnooperConfig, activity_led: ActivityLed) -> Self {
+    fn new(pins: IecPins, config: &'static SnooperConfig, activity_led: ActivityLed, dbg_pin_0: Output<'static>, dbg_pin_1: Output<'static>) -> Self {
         let device_id = config.device_id.load(Ordering::Relaxed);
         Self {
             _pins: pins,
@@ -353,6 +354,8 @@ impl HardwareBridge {
             activity_led,
             led_state: false,
             motor_state: false,
+            dbg_pin_0,
+            dbg_pin_1,
         }
     }
 }
@@ -420,16 +423,28 @@ impl HostInterface for HardwareBridge {
     }
 
     #[inline(always)]
-    fn debug_pin_0(&mut self, _state: bool) {}
+    fn debug_pin_0(&mut self, state: bool) {
+        if state {
+            self.dbg_pin_0.set_high();
+        } else {
+            self.dbg_pin_0.set_low();
+        }
+    }
 
     #[inline(always)]
-    fn debug_pin_1(&mut self, _state: bool) {}
+    fn debug_pin_1(&mut self, state: bool) {
+        if state {
+            self.dbg_pin_1.set_high();
+        } else {
+            self.dbg_pin_1.set_low();
+        }
+    }
 
     #[inline(always)]
     fn track_changed(&mut self, half_track: u8) {
         // We notify the TRACK_CHANNEL directly instead of using DriveEvent
         // First we drain the channel to avoid blocking if the manager is behind
-        while let Ok(_) = pico1541_manager::TRACK_CHANNEL.try_receive() {}
+        while pico1541_manager::TRACK_CHANNEL.try_receive().is_ok() {}
         let _ = pico1541_manager::TRACK_CHANNEL.try_send(half_track);
         
         // Pend TIMER_IRQ_3 on Core 0 to wake up the DiskTask!
@@ -535,7 +550,7 @@ impl pico1541_manager::tasks::disk_task::FileOpener for PlatformStorageManager {
             let mut internal = littlefs_storage::LittleFsStorage;
             let _ = internal.list_dir_range(dir_path.as_str(), 0, 1000, find_file).await;
         } else {
-            let mut sd = self.storage.clone();
+            let mut sd = self.storage;
             let _ = sd.list_dir_range(dir_path.as_str(), 0, 1000, find_file).await;
         }
         
@@ -558,7 +573,7 @@ impl pico1541_manager::tasks::disk_task::FileOpener for PlatformStorageManager {
             let file_handle = internal.open_file_handle(full_path.as_str());
             Ok(RuntimeStorage::File2(file_handle))
         } else {
-            let sd = self.storage.clone();
+            let sd = self.storage;
             let file_handle = sd.open_file_handle(full_path.as_str());
             Ok(RuntimeStorage::File(file_handle))
         }
@@ -589,7 +604,7 @@ impl pico1541_manager::tasks::disk_task::FileOpener for PlatformStorageManager {
             let mut internal = littlefs_storage::LittleFsStorage;
             internal.list_dir_range(path, start_index, count, handle_info).await
         } else {
-            let mut storage = self.storage.clone();
+            let mut storage = self.storage;
             storage.list_dir_range(path, start_index, count, handle_info).await
         }
     }
@@ -617,6 +632,7 @@ async fn action_run(mut task: ActionTask) {
 
 
 #[embassy_executor::task]
+#[allow(clippy::type_complexity)]
 async fn menu_run(
     mut task: MainMenuTask<
         DisplayWrapper<CriticalSectionRawMutex>,

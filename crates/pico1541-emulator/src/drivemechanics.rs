@@ -35,6 +35,7 @@ pub struct DriveMechanics<S: MagneticSurface> {
     last_gcr_byte: u8,
     last_requested_sector: u8,
     is_sync: bool,
+    so_pulse_cycles: u32,
 }
 
 impl<S: MagneticSurface> DriveMechanics<S> {
@@ -44,8 +45,9 @@ impl<S: MagneticSurface> DriveMechanics<S> {
             surface,
             last_state: 0,
             last_gcr_byte: 0,
-            last_requested_sector: 0xFF,
+            last_requested_sector: 255,
             is_sync: false,
+            so_pulse_cycles: 0,
         }
     }
 }
@@ -62,7 +64,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
     /// Progresses the drive mechanics by one CPU cycle.
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn tick_cycles<H: HostInterface>(&mut self, _hardware: &mut H, _via1: &mut crate::via6522::Via6522, via2: &mut Via6522, _requested_sector: u8, delta: u32) -> bool {
+    pub fn tick_cycles<H: HostInterface>(&mut self, hardware: &mut H, _via1: &mut crate::via6522::Via6522, via2: &mut Via6522, _requested_sector: u8, delta: u32) -> bool {
         if delta == 0 { return false; }
         // :? Is the motor off? (PB2)
         if (self.last_state & MASK_MOTOR) == 0 {
@@ -97,15 +99,26 @@ impl<S: MagneticSurface> DriveMechanics<S> {
             
             if self.is_sync {
                 via2.in_b &= !MASK_SYNC; // Assert SYNC (Pull PB7 Low)
+                hardware.debug_pin_1(true); // Assert SYNC on debug pin
                 suppress_ca1 = true;
             } else {
                 via2.in_b |= MASK_SYNC;  // Release SYNC
+                hardware.debug_pin_1(false); // Release SYNC on debug pin
             }
             
             let sync_active = (via2.in_b & MASK_SYNC) == 0;
             if !sync_active && !suppress_ca1 && new_byte_arrived && is_so_enabled {
                 via2.ca1_irq();
+                self.so_pulse_cycles = 3;
+                hardware.debug_pin_0(true); // Assert SO pulse on debug pin
                 so_pulsed = true;
+            }
+
+            if self.so_pulse_cycles > 0 {
+                self.so_pulse_cycles = self.so_pulse_cycles.saturating_sub(delta);
+                if self.so_pulse_cycles == 0 {
+                    hardware.debug_pin_0(false); // Release SO pulse on debug pin
+                }
             }
         } else {
             // WRITE mode

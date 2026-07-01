@@ -185,7 +185,7 @@ mod tests {
         
         // Next bytes should read out normal bytes
         let out2 = surface.try_read_byte(32); // Reading 0xFE. At the end, hits 0, exits sync!
-        assert_eq!(surface.is_sync_active(), false);
+        assert!(!surface.is_sync_active());
         assert_eq!(out2, None); // The 0 is shifted in, but we don't have 8 bits yet.
     }
 }

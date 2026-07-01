@@ -7,6 +7,12 @@ pub struct ActionTask {
     action_fired_on_hold: bool,
 }
 
+impl Default for ActionTask {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ActionTask {
     pub const fn new() -> Self {
         Self {

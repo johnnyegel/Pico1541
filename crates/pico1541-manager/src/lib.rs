@@ -84,6 +84,7 @@ pub enum UiAction {
 pub static ACTION_CHANNEL: Channel<CriticalSectionRawMutex, UiAction, 16> = Channel::new();
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::large_enum_variant)]
 pub enum SettingsCommand {
     SaveDriveId(u8),
     SaveBootRom(heapless::String<32>),

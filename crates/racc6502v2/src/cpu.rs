@@ -179,6 +179,12 @@ const SBC_ABSY: u16 = Opcode::SbcAbsY as u16;
 const SBC_ABSX: u16 = Opcode::SbcAbsX as u16;
 const INC_ABSX: u16 = Opcode::IncAbsX as u16;
 
+impl Default for CPU {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CPU {
     pub fn new() -> Self { Self { a: 0, x: 0, y: 0, s: 0xFD, pc: 0, p: 0x24, opcode: 0, cycle: 0, effective_addr: 0, data_bus: 0, temp_addr: 0, page_crossed: false, pending_interrupt: None, } }
     pub fn reset(&mut self) { self.pending_interrupt = Some(Interrupt::Reset); self.cycle = 0; }
@@ -481,11 +487,11 @@ impl CPU {
     #[inline(always)] fn lsr_zp_c5<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { let c = self.data_bus & 0x01 != 0; let r = self.data_bus >> 1; self.p = (self.p & !0x83) | (if c { 0x01 } else { 0 }) | (if r == 0 { 0x02 } else { 0 }); bus.write(self.effective_addr, r, ctx); self.cycle = 0; }
     #[inline(always)] fn lsr_abs_c5<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { let c = self.data_bus & 0x01 != 0; let r = self.data_bus >> 1; self.p = (self.p & !0x83) | (if c { 0x01 } else { 0 }) | (if r == 0 { 0x02 } else { 0 }); bus.write(self.effective_addr, r, ctx); self.cycle = 0; }
     #[inline(always)] fn lsr_abs_c6<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { let c = self.data_bus & 0x01 != 0; let r = self.data_bus >> 1; self.p = (self.p & !0x83) | (if c { 0x01 } else { 0 }) | (if r == 0 { 0x02 } else { 0 }); bus.write(self.effective_addr, r, ctx); self.cycle = 0; }
-    #[inline(always)] fn rol_acc_c1<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { bus.read(self.pc, ctx); let c_in = (self.p & 0x01) as u8; let c_out = self.a & 0x80 != 0; let r = (self.a << 1) | c_in; self.p = (self.p & !0x83) | (if c_out { 0x01 } else { 0 }) | (if r == 0 { 0x02 } else { 0 }) | (if r & 0x80 != 0 { 0x80 } else { 0 }); self.a = r; self.cycle = 0; }
-    #[inline(always)] fn rol_zp_c4<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { let c_in = (self.p & 0x01) as u8; let c_out = self.data_bus & 0x80 != 0; let r = (self.data_bus << 1) | c_in; self.p = (self.p & !0x83) | (if c_out { 0x01 } else { 0 }) | (if r == 0 { 0x02 } else { 0 }) | (if r & 0x80 != 0 { 0x80 } else { 0 }); bus.write(self.effective_addr, r, ctx); self.cycle = 0; }
-    #[inline(always)] fn rol_zp_c5<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { let c_in = (self.p & 0x01) as u8; let c_out = self.data_bus & 0x80 != 0; let r = (self.data_bus << 1) | c_in; self.p = (self.p & !0x83) | (if c_out { 0x01 } else { 0 }) | (if r == 0 { 0x02 } else { 0 }) | (if r & 0x80 != 0 { 0x80 } else { 0 }); bus.write(self.effective_addr, r, ctx); self.cycle = 0; }
-    #[inline(always)] fn rol_abs_c5<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { let c_in = (self.p & 0x01) as u8; let c_out = self.data_bus & 0x80 != 0; let r = (self.data_bus << 1) | c_in; self.p = (self.p & !0x83) | (if c_out { 0x01 } else { 0 }) | (if r == 0 { 0x02 } else { 0 }) | (if r & 0x80 != 0 { 0x80 } else { 0 }); bus.write(self.effective_addr, r, ctx); self.cycle = 0; }
-    #[inline(always)] fn rol_abs_c6<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { let c_in = (self.p & 0x01) as u8; let c_out = self.data_bus & 0x80 != 0; let r = (self.data_bus << 1) | c_in; self.p = (self.p & !0x83) | (if c_out { 0x01 } else { 0 }) | (if r == 0 { 0x02 } else { 0 }) | (if r & 0x80 != 0 { 0x80 } else { 0 }); bus.write(self.effective_addr, r, ctx); self.cycle = 0; }
+    #[inline(always)] fn rol_acc_c1<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { bus.read(self.pc, ctx); let c_in = self.p & 0x01; let c_out = self.a & 0x80 != 0; let r = (self.a << 1) | c_in; self.p = (self.p & !0x83) | (if c_out { 0x01 } else { 0 }) | (if r == 0 { 0x02 } else { 0 }) | (if r & 0x80 != 0 { 0x80 } else { 0 }); self.a = r; self.cycle = 0; }
+    #[inline(always)] fn rol_zp_c4<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { let c_in = self.p & 0x01; let c_out = self.data_bus & 0x80 != 0; let r = (self.data_bus << 1) | c_in; self.p = (self.p & !0x83) | (if c_out { 0x01 } else { 0 }) | (if r == 0 { 0x02 } else { 0 }) | (if r & 0x80 != 0 { 0x80 } else { 0 }); bus.write(self.effective_addr, r, ctx); self.cycle = 0; }
+    #[inline(always)] fn rol_zp_c5<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { let c_in = self.p & 0x01; let c_out = self.data_bus & 0x80 != 0; let r = (self.data_bus << 1) | c_in; self.p = (self.p & !0x83) | (if c_out { 0x01 } else { 0 }) | (if r == 0 { 0x02 } else { 0 }) | (if r & 0x80 != 0 { 0x80 } else { 0 }); bus.write(self.effective_addr, r, ctx); self.cycle = 0; }
+    #[inline(always)] fn rol_abs_c5<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { let c_in = self.p & 0x01; let c_out = self.data_bus & 0x80 != 0; let r = (self.data_bus << 1) | c_in; self.p = (self.p & !0x83) | (if c_out { 0x01 } else { 0 }) | (if r == 0 { 0x02 } else { 0 }) | (if r & 0x80 != 0 { 0x80 } else { 0 }); bus.write(self.effective_addr, r, ctx); self.cycle = 0; }
+    #[inline(always)] fn rol_abs_c6<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { let c_in = self.p & 0x01; let c_out = self.data_bus & 0x80 != 0; let r = (self.data_bus << 1) | c_in; self.p = (self.p & !0x83) | (if c_out { 0x01 } else { 0 }) | (if r == 0 { 0x02 } else { 0 }) | (if r & 0x80 != 0 { 0x80 } else { 0 }); bus.write(self.effective_addr, r, ctx); self.cycle = 0; }
     #[inline(always)] fn ror_acc_c1<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { bus.read(self.pc, ctx); let c_in = (self.p & 0x01) << 7; let c_out = self.a & 0x01 != 0; let r = (self.a >> 1) | c_in; self.p = (self.p & !0x83) | (if c_out { 0x01 } else { 0 }) | (if r == 0 { 0x02 } else { 0 }) | (if r & 0x80 != 0 { 0x80 } else { 0 }); self.a = r; self.cycle = 0; }
     #[inline(always)] fn ror_zp_c4<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { let c_in = (self.p & 0x01) << 7; let c_out = self.data_bus & 0x01 != 0; let r = (self.data_bus >> 1) | c_in; self.p = (self.p & !0x83) | (if c_out { 0x01 } else { 0 }) | (if r == 0 { 0x02 } else { 0 }) | (if r & 0x80 != 0 { 0x80 } else { 0 }); bus.write(self.effective_addr, r, ctx); self.cycle = 0; }
     #[inline(always)] fn ror_zp_c5<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) { let c_in = (self.p & 0x01) << 7; let c_out = self.data_bus & 0x01 != 0; let r = (self.data_bus >> 1) | c_in; self.p = (self.p & !0x83) | (if c_out { 0x01 } else { 0 }) | (if r == 0 { 0x02 } else { 0 }) | (if r & 0x80 != 0 { 0x80 } else { 0 }); bus.write(self.effective_addr, r, ctx); self.cycle = 0; }
@@ -596,7 +602,7 @@ impl CPU {
             if (res_bin as u8) == 0 { self.p |= 0x02; }
             if high > 9 { high += 6; }
             if high > 15 { self.p |= 0x01; }
-            self.a = ((low & 0x0F) | ((high & 0x0F) << 4)) as u8;
+            self.a = (low & 0x0F) | ((high & 0x0F) << 4);
         } else {
             let a = self.a as u16; let b = v as u16; let c = (self.p & 0x01) as u16;
             let res = a + b + c;
