@@ -29,7 +29,8 @@ sync_do:
     jmp y-- sync_wait
     
     ; --- SYNC BROKEN ---
-    ; Fall through to is_zero, SYNC pin will clear automatically
+    mov isr, null
+    push
 
 is_zero:
     in null, 1

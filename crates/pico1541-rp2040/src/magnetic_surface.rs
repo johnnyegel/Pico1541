@@ -10,7 +10,6 @@ use pico1541_common::track_buffer::EmulatorHandle;
 pub struct PioMagneticSurface {
     track_handle: EmulatorHandle,
     last_active_index: bool,
-    sync_gpio: u8,
 }
 
 impl PioMagneticSurface {
@@ -18,7 +17,6 @@ impl PioMagneticSurface {
         mut pio: embassy_rp::pio::Pio<'static, embassy_rp::peripherals::PIO0>,
         track_handle: EmulatorHandle,
     ) -> Self {
-        let sync_gpio = 0; // Not used from surface anymore
         let prg = crate::pio::magnetic_surface_program();
         let loaded_prg = pio.common.load_program(&prg);
         
@@ -61,7 +59,6 @@ impl PioMagneticSurface {
         Self {
             track_handle,
             last_active_index: false,
-            sync_gpio,
         }
     }
 }
@@ -90,8 +87,7 @@ impl PioMagneticSurface {
 
 impl MagneticSurface for PioMagneticSurface {
     fn is_sync_active(&self) -> bool {
-        let sio = pac::SIO;
-        (sio.gpio_in(0).read() & (1 << self.sync_gpio)) != 0
+        false
     }
 
     fn try_read_byte(&mut self, _delta_cycles: u32) -> Option<u32> {
