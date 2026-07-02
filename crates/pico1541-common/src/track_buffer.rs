@@ -315,7 +315,7 @@ impl EmulatorHandle {
     }
 
     pub fn get_active_index(&self) -> bool {
-        self.core_buffer.active_index.load(Ordering::Acquire)
+        self.core_buffer.active_index.load(Ordering::Relaxed)
     }
 
     pub fn get_active_track_id(&self) -> u8 {

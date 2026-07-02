@@ -10,6 +10,7 @@ use pico1541_common::track_buffer::EmulatorHandle;
 pub struct PioMagneticSurface {
     track_handle: EmulatorHandle,
     last_active_index: bool,
+    sub_cycle_counter: u32,
 }
 
 impl PioMagneticSurface {
@@ -59,6 +60,7 @@ impl PioMagneticSurface {
         Self {
             track_handle,
             last_active_index: false,
+            sub_cycle_counter: 0,
         }
     }
 }
@@ -91,47 +93,38 @@ impl MagneticSurface for PioMagneticSurface {
     }
 
     fn try_read_byte(&mut self, _delta_cycles: u32) -> Option<u32> {
-        // Automatically switch DMA to new buffer when track finishes loading!
-        let current_active_index = self.track_handle.get_active_index();
-        if current_active_index != self.last_active_index {
-            self.last_active_index = current_active_index;
-            let track_id = self.track_handle.get_active_track_id();
-            self.start_reading(track_id, 0);
-        }
-
-        let dma = pac::DMA;
-        let dma_busy = dma.ch(0).ctrl_trig().read().busy();
+        self.sub_cycle_counter = self.sub_cycle_counter.wrapping_add(_delta_cycles);
         
-        // If DMA finished transferring the exact track length, instantly restart it!
-        // This gives us pixel-perfect track length loop without ring-buffer restrictions.
-        if !dma_busy {
-            let track_ptr = self.track_handle.get_full_buffer_ptr();
-            let track_length = self.track_handle.get_active_track_length() as u32;
-            if track_length > 0 {
-                dma.ch(0).read_addr().write_value(track_ptr as u32);
-                dma.ch(0).trans_count().write_value(track_length);
-                let mut ctrl = dma.ch(0).ctrl_trig().read();
-                ctrl.set_en(true);
-                dma.ch(0).ctrl_trig().write_value(ctrl);
+        // Throttle APB checks to once every 16 cycles (16 us)
+        // This is safe because PIO TX FIFO holds 4 bytes (100+ us buffer)
+        // and RX FIFO won't overflow in 16us.
+        if self.sub_cycle_counter >= 16 {
+            self.sub_cycle_counter = 0;
+
+            let current_active_index = self.track_handle.get_active_index();
+            if current_active_index != self.last_active_index {
+                self.last_active_index = current_active_index;
+                let track_id = self.track_handle.get_active_track_id();
+                self.start_reading(track_id, 0);
+            }
+
+            let dma = pac::DMA;
+            if !dma.ch(0).ctrl_trig().read().busy() {
+                let track_ptr = self.track_handle.get_full_buffer_ptr();
+                let track_length = self.track_handle.get_active_track_length() as u32;
+                if track_length > 0 {
+                    dma.ch(0).read_addr().write_value(track_ptr as u32);
+                    dma.ch(0).trans_count().write_value(track_length);
+                    let mut ctrl = dma.ch(0).ctrl_trig().read();
+                    ctrl.set_en(true);
+                    dma.ch(0).ctrl_trig().write_value(ctrl);
+                }
             }
         }
 
         let pio = pac::PIO0;
-        let trans_count = dma.ch(0).trans_count().read();
-        let read_addr = dma.ch(0).read_addr().read();
         let fstat = pio.fstat().read();
         
-        // AGGRESSIVE DEBUG LOGGING
-        static mut DEBUG_TICK_COUNT: u32 = 0;
-        unsafe {
-            DEBUG_TICK_COUNT += 1;
-            if DEBUG_TICK_COUNT.is_multiple_of(100000) {
-                let pc = pio.sm(0).addr().read();
-                defmt::info!("PIO STATE - PC: {}, TXF Level: {}, RXF empty: {}, DMA Busy: {}, DMA Count: {}, DMA Addr: {:X}", 
-                    pc.addr(), pio.flevel().read().tx0(), fstat.rxempty() & 1, dma_busy, trans_count, read_addr);
-            }
-        }
-
         if (fstat.rxempty() & 1) == 0 {
             let val = pio.rxf(0).read();
             if val > 0xFF {
