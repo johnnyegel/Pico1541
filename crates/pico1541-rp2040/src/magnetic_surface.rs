@@ -4,13 +4,45 @@ use embassy_rp::pac;
 use pico1541_common::track_buffer::EmulatorHandle;
 
 
+/// Cached raw register addresses to avoid PAC proxy construction on every APB access.
+/// On RP2040, the PAC types are zero-sized, but the address computation for indexed
+/// registers (ch(0), sm(0), txf(0), rxf(0)) involves multiplication that may not be
+/// fully elided by the compiler at `-Os`.
+struct CachedRegs {
+    /// PIO0 FSTAT register address
+    pio0_fstat: *const u32,
+    /// PIO0 RXF(0) register address
+    pio0_rxf0: *const u32,
+    /// DMA CH0 READ_ADDR register address
+    dma_ch0_read_addr: *mut u32,
+    /// DMA CH0 TRANS_COUNT register address
+    dma_ch0_trans_count: *mut u32,
+    /// DMA CH0 CTRL_TRIG register address (for read-modify-write to re-enable)
+    dma_ch0_ctrl_trig: *mut u32,
+}
 
+impl CachedRegs {
+    fn new() -> Self {
+        let pio = pac::PIO0;
+        let dma = pac::DMA;
+        Self {
+            pio0_fstat: pio.fstat().as_ptr() as *const u32,
+            pio0_rxf0: pio.rxf(0).as_ptr() as *const u32,
+            dma_ch0_read_addr: dma.ch(0).read_addr().as_ptr() as *mut u32,
+            dma_ch0_trans_count: dma.ch(0).trans_count().as_ptr() as *mut u32,
+            dma_ch0_ctrl_trig: dma.ch(0).ctrl_trig().as_ptr() as *mut u32,
+        }
+    }
+}
 
 
 pub struct PioMagneticSurface {
     track_handle: EmulatorHandle,
     last_active_index: bool,
     sub_cycle_counter: u32,
+    cached_regs: CachedRegs,
+    /// Cached ch0 CTRL_TRIG value with EN=true, for fast restart
+    cached_ctrl_enabled: u32,
 }
 
 impl PioMagneticSurface {
@@ -37,8 +69,8 @@ impl PioMagneticSurface {
         sm.set_config(&cfg);
         sm.set_enable(true);
 
-        let dma = pac::DMA;
-        let ch_a = dma.ch(0);
+        let dma_pac = pac::DMA;
+        let ch_a = dma_pac.ch(0);
 
         // Channel A config (Worker 1)
         let pio_pac = pac::PIO0;
@@ -57,10 +89,20 @@ impl PioMagneticSurface {
         ctrl_a.set_en(false);
         ch_a.ctrl_trig().write_value(ctrl_a);
 
+        // Cache the enabled control value for fast restart.
+        // Write it with EN=true, then read back the raw register value.
+        ctrl_a.set_en(true);
+        ch_a.ctrl_trig().write_value(ctrl_a);
+        let cached_ctrl_enabled = unsafe { core::ptr::read_volatile(dma_pac.ch(0).ctrl_trig().as_ptr() as *const u32) };
+        // Immediately disable again — start_reading will enable when ready
+        ch_a.ctrl_trig().modify(|w| w.set_en(false));
+
         Self {
             track_handle,
             last_active_index: false,
             sub_cycle_counter: 0,
+            cached_regs: CachedRegs::new(),
+            cached_ctrl_enabled,
         }
     }
 }
@@ -105,25 +147,29 @@ impl MagneticSurface for PioMagneticSurface {
                 self.start_reading(track_id, 0);
             }
 
-            let dma = pac::DMA;
-            if !dma.ch(0).ctrl_trig().read().busy() {
+            // Check if DMA ch0 is done (busy flag) and restart for track wrapping.
+            // Uses cached register pointers to avoid PAC proxy construction overhead.
+            let ctrl_trig = unsafe { core::ptr::read_volatile(self.cached_regs.dma_ch0_ctrl_trig) };
+            if ctrl_trig & (1 << 24) == 0 { // bit 24 = BUSY
                 let track_ptr = self.track_handle.get_full_buffer_ptr();
                 let track_length = self.track_handle.get_active_track_length() as u32;
                 if track_length > 0 {
-                    dma.ch(0).read_addr().write_value(track_ptr as u32);
-                    dma.ch(0).trans_count().write_value(track_length);
-                    let mut ctrl = dma.ch(0).ctrl_trig().read();
-                    ctrl.set_en(true);
-                    dma.ch(0).ctrl_trig().write_value(ctrl);
+                    unsafe {
+                        core::ptr::write_volatile(self.cached_regs.dma_ch0_read_addr, track_ptr as u32);
+                        core::ptr::write_volatile(self.cached_regs.dma_ch0_trans_count, track_length);
+                        core::ptr::write_volatile(self.cached_regs.dma_ch0_ctrl_trig, self.cached_ctrl_enabled);
+                    }
                 }
             }
         }
 
-        let pio = pac::PIO0;
-        let fstat = pio.fstat().read();
+        // Read PIO RX FIFO using cached register pointers.
+        // fstat bit 0 (RXEMPTY for SM0): 0 = data available, 1 = empty
+        // The RXEMPTY field is at bits [11:8] in fstat, bit 8 = SM0
+        let fstat = unsafe { core::ptr::read_volatile(self.cached_regs.pio0_fstat) };
         
-        if (fstat.rxempty() & 1) == 0 {
-            let val = pio.rxf(0).read();
+        if (fstat & (1 << 8)) == 0 { // bit 8 = RXEMPTY for SM0
+            let val = unsafe { core::ptr::read_volatile(self.cached_regs.pio0_rxf0) };
             if val > 0xFF {
                 Some(0xFFFFFFFF) // SYNC detected
             } else {
@@ -135,9 +181,7 @@ impl MagneticSurface for PioMagneticSurface {
     }
 
     fn get_absolute_head_position(&self, _master_clock: u32) -> u32 {
-        let dma = pac::DMA;
-        let ch_a = dma.ch(0);
-        let remaining = ch_a.trans_count().read();
+        let remaining = unsafe { core::ptr::read_volatile(self.cached_regs.dma_ch0_trans_count as *const u32) };
         
         let track_length = self.track_handle.get_active_track_length() as u32;
         track_length.saturating_sub(remaining)
@@ -161,6 +205,12 @@ impl MagneticSurface for PioMagneticSurface {
         ctrl_a.set_incr_read(true); // Restore incr_read in case it was disabled by noise injection
         dma.ch(0).ctrl_trig().write_value(ctrl_a);
         
+        // Update cached ctrl value in case incr_read was toggled by noise injection
+        ctrl_a.set_en(true);
+        dma.ch(0).ctrl_trig().write_value(ctrl_a);
+        self.cached_ctrl_enabled = unsafe { core::ptr::read_volatile(self.cached_regs.dma_ch0_ctrl_trig as *const u32) };
+        dma.ch(0).ctrl_trig().modify(|w| w.set_en(false));
+        
         Self::clear_pio_fifos();
         
         // Setup Worker (Channel A) with the exact byte count!
@@ -171,8 +221,9 @@ impl MagneticSurface for PioMagneticSurface {
         
         // Re-enable and TRIGGER Worker A
         if track_length > 0 {
-            ctrl_a.set_en(true);
-            dma.ch(0).ctrl_trig().write_value(ctrl_a);
+            unsafe {
+                core::ptr::write_volatile(self.cached_regs.dma_ch0_ctrl_trig, self.cached_ctrl_enabled);
+            }
         }
     }
     
