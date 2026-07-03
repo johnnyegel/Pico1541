@@ -92,10 +92,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
                 }
             }
             
-            // Optionally update `is_sync` state by checking the SYNC pin state from the surface
-            if self.surface.is_sync_active() {
-                self.is_sync = true;
-            }
+            
             
             if self.is_sync {
                 via2.in_b &= !MASK_SYNC; // Assert SYNC (Pull PB7 Low)

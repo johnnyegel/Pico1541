@@ -88,9 +88,6 @@ impl PioMagneticSurface {
 }
 
 impl MagneticSurface for PioMagneticSurface {
-    fn is_sync_active(&self) -> bool {
-        false
-    }
 
     fn try_read_byte(&mut self, _delta_cycles: u32) -> Option<u32> {
         self.sub_cycle_counter = self.sub_cycle_counter.wrapping_add(_delta_cycles);

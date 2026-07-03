@@ -1,7 +1,10 @@
 use crate::track_buffer::EmulatorHandle;
 
 pub trait MagneticSurface {
-    fn is_sync_active(&self) -> bool;
+    /// Returns whether a SYNC mark is currently active.
+    /// Default implementation returns `false` — PIO-based surfaces communicate
+    /// sync state exclusively through try_read_byte() sentinel values.
+    fn is_sync_active(&self) -> bool { false }
     fn try_read_byte(&mut self, delta_cycles: u32) -> Option<u32>;
     fn get_absolute_head_position(&self, master_clock: u32) -> u32;
     fn write_byte_at(&mut self, index: u32, data: u8);

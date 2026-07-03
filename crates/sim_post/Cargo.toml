@@ -1,0 +1,8 @@
+[package]
+name = "sim_post"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pico1541-emulator = { path = "../pico1541-emulator" }
+pico1541-common = { path = "../pico1541-common" }
