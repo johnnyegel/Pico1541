@@ -43,6 +43,10 @@ pub struct PioMagneticSurface {
     cached_regs: CachedRegs,
     /// Cached ch0 CTRL_TRIG value with EN=true, for fast restart
     cached_ctrl_enabled: u32,
+    /// Cached track buffer pointer for DMA restart (avoids atomic load per restart)
+    cached_track_ptr: u32,
+    /// Cached track byte length for DMA restart
+    cached_track_length: u32,
 }
 
 impl PioMagneticSurface {
@@ -103,6 +107,8 @@ impl PioMagneticSurface {
             sub_cycle_counter: 0,
             cached_regs: CachedRegs::new(),
             cached_ctrl_enabled,
+            cached_track_ptr: 0,
+            cached_track_length: 0,
         }
     }
 }
@@ -148,15 +154,14 @@ impl MagneticSurface for PioMagneticSurface {
             }
 
             // Check if DMA ch0 is done (busy flag) and restart for track wrapping.
-            // Uses cached register pointers to avoid PAC proxy construction overhead.
+            // Uses cached register pointers and cached track info to avoid
+            // PAC proxy construction and redundant atomic loads.
             let ctrl_trig = unsafe { core::ptr::read_volatile(self.cached_regs.dma_ch0_ctrl_trig) };
             if ctrl_trig & (1 << 24) == 0 { // bit 24 = BUSY
-                let track_ptr = self.track_handle.get_full_buffer_ptr();
-                let track_length = self.track_handle.get_active_track_length() as u32;
-                if track_length > 0 {
+                if self.cached_track_length > 0 {
                     unsafe {
-                        core::ptr::write_volatile(self.cached_regs.dma_ch0_read_addr, track_ptr as u32);
-                        core::ptr::write_volatile(self.cached_regs.dma_ch0_trans_count, track_length);
+                        core::ptr::write_volatile(self.cached_regs.dma_ch0_read_addr, self.cached_track_ptr);
+                        core::ptr::write_volatile(self.cached_regs.dma_ch0_trans_count, self.cached_track_length);
                         core::ptr::write_volatile(self.cached_regs.dma_ch0_ctrl_trig, self.cached_ctrl_enabled);
                     }
                 }
@@ -182,9 +187,7 @@ impl MagneticSurface for PioMagneticSurface {
 
     fn get_absolute_head_position(&self, _master_clock: u32) -> u32 {
         let remaining = unsafe { core::ptr::read_volatile(self.cached_regs.dma_ch0_trans_count as *const u32) };
-        
-        let track_length = self.track_handle.get_active_track_length() as u32;
-        track_length.saturating_sub(remaining)
+        self.cached_track_length.saturating_sub(remaining)
     }
 
     fn write_byte_at(&mut self, index: u32, data: u8) {
@@ -197,6 +200,11 @@ impl MagneticSurface for PioMagneticSurface {
         
         // Ensure track is loaded and padded. We use the full 8192-byte underlying buffer pointer.
         let track_ptr = self.track_handle.get_full_buffer_ptr();
+        let track_length = self.track_handle.get_active_track_length() as u32;
+        
+        // Cache track info for the DMA restart fast path in try_read_byte
+        self.cached_track_ptr = track_ptr as u32;
+        self.cached_track_length = track_length;
 
         Self::abort_dma_ch0();
         
@@ -215,7 +223,6 @@ impl MagneticSurface for PioMagneticSurface {
         
         // Setup Worker (Channel A) with the exact byte count!
         // try_read_byte will poll the busy flag and reload it instantly when it completes.
-        let track_length = self.track_handle.get_active_track_length() as u32;
         dma.ch(0).read_addr().write_value(track_ptr as u32);
         dma.ch(0).trans_count().write_value(track_length);
         
