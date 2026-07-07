@@ -6,8 +6,10 @@ members = [
     "crates/pico1541-manager",
     "crates/pico1541-emulator",
     "crates/pico1541-rp2040",
-    "crates/mos6502"
-, "crates/racc6502v3"]
+    "crates/mos6502",
+    "crates/racc6502v3",
+    "crates/racc6502v4"
+]
 resolver = "2"
 
 default-members = [
