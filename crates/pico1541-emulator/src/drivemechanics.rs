@@ -63,16 +63,14 @@ impl<S: MagneticSurface> DriveMechanics<S> {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn tick_cycles<H: HostInterface>(&mut self, hardware: &mut H, _via1: &mut crate::via6522::Via6522, via2: &mut Via6522, _requested_sector: u8, delta: u32) -> bool {
-        if delta == 0 { return false; }
-        // :? Is the motor off? (PB2)
-        if (self.last_state & MASK_MOTOR) == 0 {
+        if delta == 0 || (self.last_state & MASK_MOTOR) == 0 {
             return false;
         }
 
-        let is_read_mode = via2.get_cb2_out().unwrap_or(true);
-        let is_so_enabled = via2.get_ca2_out().unwrap_or(false);
-        let mut suppress_ca1 = false;
         let mut so_pulsed = false;
+
+        let pcr_cb2 = via2.pcr & 0b1110_0000;
+        let is_read_mode = pcr_cb2 != 0b1100_0000;
 
         if is_read_mode {
             let mut new_byte_arrived = false;
@@ -84,22 +82,27 @@ impl<S: MagneticSurface> DriveMechanics<S> {
             }
             
             let is_sync = self.surface.is_sync_active();
+            let was_sync = (via2.in_b & MASK_SYNC) == 0;
             
-            if is_sync {
-                via2.in_b &= !MASK_SYNC; // Assert SYNC (Pull PB7 Low)
-                hardware.debug_pin_1(true); // Assert SYNC on debug pin
-                suppress_ca1 = true;
-            } else {
-                via2.in_b |= MASK_SYNC;  // Release SYNC
-                hardware.debug_pin_1(false); // Release SYNC on debug pin
+            if is_sync != was_sync {
+                if is_sync {
+                    via2.in_b &= !MASK_SYNC; // Assert SYNC (Pull PB7 Low)
+                    hardware.debug_pin_1(true); // Assert SYNC on debug pin
+                } else {
+                    via2.in_b |= MASK_SYNC;  // Release SYNC
+                    hardware.debug_pin_1(false); // Release SYNC on debug pin
+                }
             }
             
-            let sync_active = (via2.in_b & MASK_SYNC) == 0;
-            if !sync_active && !suppress_ca1 && new_byte_arrived && is_so_enabled {
-                via2.ca1_irq();
-                self.so_pulse_cycles = 3;
-                hardware.debug_pin_0(true); // Assert SO pulse on debug pin
-                so_pulsed = true;
+            if !is_sync && new_byte_arrived {
+                let pcr_ca2 = via2.pcr & 0b0000_1110;
+                let is_so_enabled = pcr_ca2 == 0b0000_1110 || pcr_ca2 == 0b0000_1010;
+                if is_so_enabled {
+                    via2.ca1_irq();
+                    self.so_pulse_cycles = 3;
+                    hardware.debug_pin_0(true); // Assert SO pulse on debug pin
+                    so_pulsed = true;
+                }
             }
 
             if self.so_pulse_cycles > 0 {
@@ -111,7 +114,6 @@ impl<S: MagneticSurface> DriveMechanics<S> {
         } else {
             // WRITE mode
             self.surface.stop_reading();
-            // We use 0 as master clock for now, as host tests don't have a reliable master clock
             let index = self.surface.get_absolute_head_position(0);
             self.surface.write_byte_at(index, via2.ora);
         }
