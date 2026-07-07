@@ -1028,12 +1028,29 @@ fn emulator_loop(drive: &'static mut Emulator<HardwareBridge, PioMagneticSurface
     let mut max_cpu_cycles_sub = 0u64;
     let mut last_sub_update = last_tick;
 
+    let syst_per_us = pico1541_common::SYSTEM_CLOCK_FREQ / 1_000_000;
+    let mut last_syst = cortex_m::peripheral::SYST::get_current();
+    let mut syst_accum = 0u32;
+    let mut now_us = last_tick;
+
     loop {
-        let now = timer.timelr().read();
+        let current_syst = cortex_m::peripheral::SYST::get_current();
+        let diff_syst = last_syst.wrapping_sub(current_syst) & 0x00FFFFFF;
+        last_syst = current_syst;
+        
+        syst_accum += diff_syst;
+        while syst_accum >= syst_per_us {
+            syst_accum -= syst_per_us;
+            now_us = now_us.wrapping_add(1);
+        }
+        let now = now_us;
         
         if bridge.config.halt_emulator.load(Ordering::Relaxed) {
             cortex_m::asm::delay(100);
-            last_tick = timer.timelr().read();
+            now_us = timer.timelr().read();
+            last_tick = now_us;
+            last_syst = cortex_m::peripheral::SYST::get_current();
+            syst_accum = 0;
             continue;
         }
 
@@ -1072,8 +1089,10 @@ fn emulator_loop(drive: &'static mut Emulator<HardwareBridge, PioMagneticSurface
         }
         let t2_while = cortex_m::peripheral::SYST::get_current();
         
-        let diff = (t1_while.wrapping_sub(t2_while) & 0x00FFFFFF) as u64;
-        cpu_cycles_sub += diff;
+        if caught_up > 0 {
+            let diff = (t1_while.wrapping_sub(t2_while) & 0x00FFFFFF) as u64;
+            cpu_cycles_sub += diff;
+        }
 
         // Update max load over 20ms sub-windows
         if now.wrapping_sub(last_sub_update) >= 20_000 {
