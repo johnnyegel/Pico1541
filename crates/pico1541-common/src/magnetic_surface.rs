@@ -5,7 +5,7 @@ pub trait MagneticSurface {
     /// Default implementation returns `false` — PIO-based surfaces communicate
     /// sync state exclusively through try_read_byte() sentinel values.
     fn is_sync_active(&self) -> bool { false }
-    fn try_read_byte(&mut self, delta_cycles: u32) -> Option<u32>;
+    fn try_read_byte(&mut self, delta_cycles: u32) -> Option<u8>;
     fn get_absolute_head_position(&self, master_clock: u32) -> u32;
     fn write_byte_at(&mut self, index: u32, data: u8);
     fn start_reading(&mut self, track_id: u8, rotation_fixed: u32);
@@ -51,7 +51,7 @@ impl MagneticSurface for SoftwareMagneticSurface {
         self.is_sync
     }
 
-    fn try_read_byte(&mut self, delta_cycles: u32) -> Option<u32> {
+    fn try_read_byte(&mut self, delta_cycles: u32) -> Option<u8> {
         self.cycle_counter += delta_cycles;
         if self.cycle_counter < self.cycle_limit {
             return None;
@@ -60,7 +60,6 @@ impl MagneticSurface for SoftwareMagneticSurface {
 
         let expected_track_id = self.track_handle.get_head_half_track();
         let mut assembled_byte = None;
-        let mut sync_trigger = false;
         
         for _ in 0..8 {
             if self.pending_bit_count == 0 {
@@ -79,12 +78,8 @@ impl MagneticSurface for SoftwareMagneticSurface {
             }
             
             if self.sync_counter >= 10 {
-                let just_entered_sync = !self.is_sync;
                 self.is_sync = true;
                 self.bits_in_reg = 0;
-                if just_entered_sync {
-                    sync_trigger = true;
-                }
             } else {
                 if self.is_sync && bit == 0 {
                     self.is_sync = false;
@@ -96,18 +91,14 @@ impl MagneticSurface for SoftwareMagneticSurface {
                     self.bits_in_reg += 1;
                     
                     if self.bits_in_reg == 8 {
-                        assembled_byte = Some(self.bit_shift_reg as u32);
+                        assembled_byte = Some(self.bit_shift_reg);
                         self.bits_in_reg = 0;
                     }
                 }
             }
         }
         
-        if sync_trigger {
-            Some(0xFFFFFFFF)
-        } else {
-            assembled_byte
-        }
+        assembled_byte
     }
 
     fn get_absolute_head_position(&self, _master_clock: u32) -> u32 {
@@ -183,7 +174,7 @@ mod tests {
         assert!(!surface.is_sync_active());
 
         let out1 = surface.try_read_byte(32);
-        assert_eq!(out1, Some(0xFFFFFFFF));
+        assert_eq!(out1, None); // Now just None, sync_active goes true immediately!
         assert!(surface.is_sync_active());
         
         // Next bytes should read out normal bytes

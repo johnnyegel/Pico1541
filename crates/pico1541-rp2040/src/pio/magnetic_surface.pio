@@ -1,44 +1,51 @@
-.program gcr_reader
+.program gcr_decoder
+
+; --- HARDWARE CONFIGURATION REQUIREMENTS ---
+; 1. OSR Autopull    = false (We handle pulling manually to strip padding)
+; 2. ISR Autopush    = true  (Threshold 8 - pushes cleanly to FIFO)
+; 3. Shift Direction = Left  (MSB first out of OSR, MSB first into ISR)
+; 4. SET Pin Mapping = Configure Pin 10 as the base for the 'SET' group.
+; -------------------------------------------
 
 public entry_point:
-    set x, 9
+    set pins, 0        ; Initialize GPIO 10 to LOW (No SYNC active)
+    set x, 9           ; Initialize the consecutive '1's counter (10 total needed)
 
 fetch_byte:
-    pull block
-    out null, 24
+    pull block         ; Grab the 32-bit word from the 8-bit DMA channel
+    out null, 24       ; Discard the top 24 padding zeros inserted by the DMA/FIFO matrix
 
 read_bit:
-    out y, 1
-    jmp !y is_zero
+    out y, 1           ; Pull exactly 1 bit from the OSR (MSB first)
+    jmp !y is_zero     ; If the bit is '0', branch immediately to break/reset tracking
 
 is_one:
-    in y, 1
-    jmp x-- check_osre
-    
-    ; --- SYNC DETECTED ---
-    mov isr, ~null
-    push
+    in y, 1            ; Shift the '1' bit into the ISR byte builder
+    jmp x-- check_osre ; Decrement counter. If X > 0, we haven't hit 10 consecutive 1s yet.
+
+    ; --- SYNC CONDITION DETECTED ---
+    set pins, 1        ; Drive GPIO 10 HIGH instantly for the logic analyzer and SIO
+    mov isr, null      ; Purge the partial ISR buffer (discards framing garbage)
 
 sync_wait:
-    jmp !osre sync_do
-    pull block
-    out null, 24
+    jmp !osre sync_do  ; Check if the OSR still contains data bits
+    pull block         ; OSR is dry, load the next 32-bit word from the FIFO
+    out null, 24       ; Chop off the 24 padding zeros
 
 sync_do:
-    out y, 1
-    jmp y-- sync_wait
-    
-    ; --- SYNC BROKEN ---
-    mov isr, null
-    push
+    out y, 1           ; Pull the next bit
+    jmp !y sync_broken ; If it is a '0', break the sync
+    jmp sync_wait      ; Otherwise, loop back to wait
+
+sync_broken:
+    ; --- SYNC CONDITION BROKEN ---
+    set pins, 0        ; Drive GPIO 10 LOW immediately!
+    ; Fall through directly into 'is_zero' to process the '0' bit that broke the sync.
 
 is_zero:
-    in null, 1
-    set x, 9
+    in y, 1            ; Shift the '0' in as the absolute first bit of the new byte
+    set x, 9           ; Reset the consecutive '1's counter back to 10 iterations
 
 check_osre:
-    jmp !osre read_bit
-    ; OSR is empty -> 8 bits were processed -> A byte is ready!
-    push
-    jmp fetch_byte
-
+    jmp !osre read_bit ; If the current OSR byte has bits remaining, loop back
+    jmp fetch_byte     ; OSR is empty. Loop back to fetch the next byte from the FIFO.

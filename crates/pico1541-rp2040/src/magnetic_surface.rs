@@ -1,52 +1,18 @@
 use pico1541_common::magnetic_surface::MagneticSurface;
-
 use embassy_rp::pac;
 use pico1541_common::track_buffer::EmulatorHandle;
 
+#[repr(align(32))]
+struct AlignedRing([u16; 16]);
 
-/// Cached raw register addresses to avoid PAC proxy construction on every APB access.
-/// On RP2040, the PAC types are zero-sized, but the address computation for indexed
-/// registers (ch(0), sm(0), txf(0), rxf(0)) involves multiplication that may not be
-/// fully elided by the compiler at `-Os`.
-struct CachedRegs {
-    /// PIO0 FSTAT register address
-    pio0_fstat: *const u32,
-    /// PIO0 RXF(0) register address
-    pio0_rxf0: *const u32,
-    /// DMA CH0 READ_ADDR register address
-    dma_ch0_read_addr: *mut u32,
-    /// DMA CH0 TRANS_COUNT register address
-    dma_ch0_trans_count: *mut u32,
-    /// DMA CH0 CTRL_TRIG register address (for read-modify-write to re-enable)
-    dma_ch0_ctrl_trig: *mut u32,
-}
-
-impl CachedRegs {
-    fn new() -> Self {
-        let pio = pac::PIO0;
-        let dma = pac::DMA;
-        Self {
-            pio0_fstat: pio.fstat().as_ptr() as *const u32,
-            pio0_rxf0: pio.rxf(0).as_ptr() as *const u32,
-            dma_ch0_read_addr: dma.ch(0).read_addr().as_ptr() as *mut u32,
-            dma_ch0_trans_count: dma.ch(0).trans_count().as_ptr() as *mut u32,
-            dma_ch0_ctrl_trig: dma.ch(0).ctrl_trig().as_ptr() as *mut u32,
-        }
-    }
-}
-
+// Static buffers for DMA
+static mut RING_BUFFER: AlignedRing = AlignedRing([0x8000; 16]);
+static mut CURRENT_TRACK_PTR: u32 = 0;
 
 pub struct PioMagneticSurface {
     track_handle: EmulatorHandle,
     last_active_index: bool,
-    sub_cycle_counter: u32,
-    cached_regs: CachedRegs,
-    /// Cached ch0 CTRL_TRIG value with EN=true, for fast restart
-    cached_ctrl_enabled: u32,
-    /// Cached track buffer pointer for DMA restart (avoids atomic load per restart)
-    cached_track_ptr: u32,
-    /// Cached track byte length for DMA restart
-    cached_track_length: u32,
+    ring_read_idx: usize,
 }
 
 impl PioMagneticSurface {
@@ -59,61 +25,116 @@ impl PioMagneticSurface {
         
         let mut sm = pio.sm0;
         let mut cfg = embassy_rp::pio::Config::default();
-        cfg.clock_divider = 162u8.into(); // Will be overridden by set_speed_zone
-        cfg.shift_in.auto_fill = false;
+        cfg.clock_divider = 162u8.into(); // Overridden by set_speed_zone
+        
+        // PIO Setup according to user request
+        cfg.shift_in.auto_fill = true; // We use ISR Autopush = true
         cfg.shift_in.threshold = 8;
         cfg.shift_in.direction = embassy_rp::pio::ShiftDirection::Left;
         
-        cfg.shift_out.auto_fill = false; // Handled manually in PIO
+        cfg.shift_out.auto_fill = false; // OSR Autopull = false
         cfg.shift_out.threshold = 32; 
         cfg.shift_out.direction = embassy_rp::pio::ShiftDirection::Left;
+
+        // SET pin mapping to GPIO 10
+        // SIO will be used to read this pin state directly
+        let sync_pin = pio.common.make_pio_pin(unsafe { embassy_rp::peripherals::PIN_10::steal() });
+        cfg.set_set_pins(&[&sync_pin]);
 
         cfg.use_program(&loaded_prg, &[]);
 
         sm.set_config(&cfg);
+        sm.set_pin_dirs(embassy_rp::pio::Direction::Out, &[&sync_pin]);
         sm.set_enable(true);
 
-        let dma_pac = pac::DMA;
-        let ch_a = dma_pac.ch(0);
-
-        // Channel A config (Worker 1)
-        let pio_pac = pac::PIO0;
-        ch_a.read_addr().write_value(0); // Set in start_reading
-        ch_a.write_addr().write_value(pio_pac.txf(0).as_ptr() as u32); // Write to TXF offset 0
-        
-        let mut ctrl_a = ch_a.ctrl_trig().read();
-        ctrl_a.set_data_size(pac::dma::vals::DataSize::SIZE_BYTE); // 8-bit transfers to match exact track length
-        ctrl_a.set_bswap(false);
-        ctrl_a.set_incr_read(true);
-        ctrl_a.set_incr_write(false);
-        ctrl_a.set_treq_sel(pac::dma::vals::TreqSel::PIO0_TX0);
-        ctrl_a.set_chain_to(0); // Chain to itself (won't trigger loop since trans_count will be 0)
-        ctrl_a.set_ring_size(0); // No ring, we manually restart at exact track length boundaries
-        ctrl_a.set_ring_sel(false);
-        ctrl_a.set_en(false);
-        ch_a.ctrl_trig().write_value(ctrl_a);
-
-        // Cache the enabled control value for fast restart.
-        // Write it with EN=true, then read back the raw register value.
-        ctrl_a.set_en(true);
-        ch_a.ctrl_trig().write_value(ctrl_a);
-        let cached_ctrl_enabled = unsafe { core::ptr::read_volatile(dma_pac.ch(0).ctrl_trig().as_ptr() as *const u32) };
-        // Immediately disable again — start_reading will enable when ready
-        ch_a.ctrl_trig().modify(|w| w.set_en(false));
+        Self::init_1541_dma_channels();
 
         Self {
             track_handle,
             last_active_index: false,
-            sub_cycle_counter: 0,
-            cached_regs: CachedRegs::new(),
-            cached_ctrl_enabled,
-            cached_track_ptr: 0,
-            cached_track_length: 0,
+            ring_read_idx: 0,
         }
     }
-}
 
-impl PioMagneticSurface {
+    fn init_1541_dma_channels() {
+        let dma = pac::DMA;
+        let pio = pac::PIO0;
+
+        let ch_a = dma.ch(0);
+        let ch_b = dma.ch(1);
+        let ch_c = dma.ch(2);
+
+        // --- Channel A: TX Worker (Streams data to PIO) ---
+        // Paced by PIO TX DREQ, 32-bit words, read inc, write no inc. Chains to B.
+        ch_a.read_addr().write_value(0); // Set later
+        ch_a.write_addr().write_value(pio.txf(0).as_ptr() as u32);
+        
+        let mut ctrl_a = ch_a.ctrl_trig().read();
+        ctrl_a.set_data_size(pac::dma::vals::DataSize::SIZE_WORD);
+        ctrl_a.set_incr_read(true);
+        ctrl_a.set_incr_write(false);
+        ctrl_a.set_treq_sel(pac::dma::vals::TreqSel::PIO0_TX0);
+        ctrl_a.set_chain_to(1); // Chain to Channel B
+        ctrl_a.set_ring_sel(false);
+        ctrl_a.set_ring_size(0);
+        ctrl_a.set_en(false);
+        ch_a.ctrl_trig().write_value(ctrl_a);
+
+        // --- Channel B: TX Reloader (The Infinite Loop Engine) ---
+        // Unpaced, 32-bit, no inc, trans_count 1, writes to ch_a AL3_READ_ADDR_TRIG.
+        ch_b.read_addr().write_value(core::ptr::addr_of!(CURRENT_TRACK_PTR) as u32);
+        ch_b.write_addr().write_value(ch_a.al3_read_addr_trig().as_ptr() as u32);
+        ch_b.trans_count().write_value(1);
+        
+        let mut ctrl_b = ch_b.ctrl_trig().read();
+        ctrl_b.set_data_size(pac::dma::vals::DataSize::SIZE_WORD);
+        ctrl_b.set_incr_read(false);
+        ctrl_b.set_incr_write(false);
+        ctrl_b.set_treq_sel(pac::dma::vals::TreqSel::PERMANENT);
+        ctrl_b.set_chain_to(1); // Doesn't chain to others (chains to itself)
+        ctrl_b.set_en(true);
+        ch_b.ctrl_trig().write_value(ctrl_b);
+
+        // --- Channel C: RX Sentinel Ring (Extracts data to RAM) ---
+        // Paced by PIO RX DREQ, 16-bit, read no inc, write inc, ring size 5.
+        ch_c.read_addr().write_value(pio.rxf(0).as_ptr() as u32);
+        ch_c.write_addr().write_value(unsafe { core::ptr::addr_of!(RING_BUFFER.0) as u32 });
+        ch_c.trans_count().write_value(0xFFFFFFFF); // Infinite
+        
+        let mut ctrl_c = ch_c.ctrl_trig().read();
+        ctrl_c.set_data_size(pac::dma::vals::DataSize::SIZE_HALFWORD);
+        ctrl_c.set_incr_read(false);
+        ctrl_c.set_incr_write(true);
+        ctrl_c.set_treq_sel(pac::dma::vals::TreqSel::PIO0_RX0);
+        ctrl_c.set_ring_sel(true); // Wrap write address
+        ctrl_c.set_ring_size(5); // 32 byte boundary
+        ctrl_c.set_chain_to(2);
+        ctrl_c.set_en(true);
+        ch_c.ctrl_trig().write_value(ctrl_c);
+    }
+
+    #[inline(always)]
+    pub fn is_sync_active() -> bool {
+        let sio = pac::SIO;
+        // Read physical state of GPIO 10 via SIO
+        (sio.gpio_in(0).read() & (1 << 10)) != 0
+    }
+
+    #[inline(always)]
+    pub fn try_read_ram_byte(&mut self) -> Option<u8> {
+        unsafe {
+            let val = RING_BUFFER.0[self.ring_read_idx];
+            if (val & 0x8000) == 0 {
+                let byte = (val & 0xFF) as u8;
+                RING_BUFFER.0[self.ring_read_idx] = 0x8000;
+                self.ring_read_idx = (self.ring_read_idx + 1) & 0x0F;
+                Some(byte)
+            } else {
+                None
+            }
+        }
+    }
+
     fn abort_dma_ch0() {
         let dma = pac::DMA;
         dma.ch(0).ctrl_trig().modify(|w| w.set_en(false));
@@ -127,7 +148,6 @@ impl PioMagneticSurface {
         shiftctrl.modify(|w| w.set_fjoin_rx(!w.fjoin_rx()));
         shiftctrl.modify(|w| w.set_fjoin_rx(!w.fjoin_rx()));
         
-        // Also restart state machine to clear internal shifting state (OSR/ISR)
         pio.ctrl().write(|w| {
             w.set_sm_restart(1 << 0);
             w.set_sm_enable(1 << 0);
@@ -137,57 +157,26 @@ impl PioMagneticSurface {
 
 impl MagneticSurface for PioMagneticSurface {
 
-    fn try_read_byte(&mut self, _delta_cycles: u32) -> Option<u32> {
-        self.sub_cycle_counter = self.sub_cycle_counter.wrapping_add(_delta_cycles);
-        
-        // Throttle APB checks to once every 16 cycles (16 us)
-        // This is safe because PIO TX FIFO holds 4 bytes (100+ us buffer)
-        // and RX FIFO won't overflow in 16us.
-        if self.sub_cycle_counter >= 16 {
-            self.sub_cycle_counter = 0;
+    fn is_sync_active(&self) -> bool {
+        Self::is_sync_active()
+    }
 
-            let current_active_index = self.track_handle.get_active_index();
-            if current_active_index != self.last_active_index {
-                self.last_active_index = current_active_index;
-                let track_id = self.track_handle.get_active_track_id();
-                self.start_reading(track_id, 0);
-            }
-
-            // Check if DMA ch0 is done (busy flag) and restart for track wrapping.
-            // Uses cached register pointers and cached track info to avoid
-            // PAC proxy construction and redundant atomic loads.
-            let ctrl_trig = unsafe { core::ptr::read_volatile(self.cached_regs.dma_ch0_ctrl_trig) };
-            if ctrl_trig & (1 << 24) == 0 { // bit 24 = BUSY
-                if self.cached_track_length > 0 {
-                    unsafe {
-                        core::ptr::write_volatile(self.cached_regs.dma_ch0_read_addr, self.cached_track_ptr);
-                        core::ptr::write_volatile(self.cached_regs.dma_ch0_trans_count, self.cached_track_length);
-                        core::ptr::write_volatile(self.cached_regs.dma_ch0_ctrl_trig, self.cached_ctrl_enabled);
-                    }
-                }
-            }
+    fn try_read_byte(&mut self, _delta_cycles: u32) -> Option<u8> {
+        let current_active_index = self.track_handle.get_active_index();
+        if current_active_index != self.last_active_index {
+            self.last_active_index = current_active_index;
+            let track_id = self.track_handle.get_active_track_id();
+            self.start_reading(track_id, 0);
         }
 
-        // Read PIO RX FIFO using cached register pointers.
-        // fstat bit 0 (RXEMPTY for SM0): 0 = data available, 1 = empty
-        // The RXEMPTY field is at bits [11:8] in fstat, bit 8 = SM0
-        let fstat = unsafe { core::ptr::read_volatile(self.cached_regs.pio0_fstat) };
-        
-        if (fstat & (1 << 8)) == 0 { // bit 8 = RXEMPTY for SM0
-            let val = unsafe { core::ptr::read_volatile(self.cached_regs.pio0_rxf0) };
-            if val > 0xFF {
-                Some(0xFFFFFFFF) // SYNC detected
-            } else {
-                Some(val)
-            }
-        } else {
-            None
-        }
+        self.try_read_ram_byte()
     }
 
     fn get_absolute_head_position(&self, _master_clock: u32) -> u32 {
-        let remaining = unsafe { core::ptr::read_volatile(self.cached_regs.dma_ch0_trans_count as *const u32) };
-        self.cached_track_length.saturating_sub(remaining)
+        let dma = pac::DMA;
+        let remaining = dma.ch(0).trans_count().read();
+        let track_length = self.track_handle.get_active_track_length() as u32;
+        track_length.saturating_sub(remaining)
     }
 
     fn write_byte_at(&mut self, index: u32, data: u8) {
@@ -198,39 +187,35 @@ impl MagneticSurface for PioMagneticSurface {
     fn start_reading(&mut self, track_id: u8, _rotation_fixed: u32) {
         self.track_handle.update_head_half_track(track_id);
         
-        // Ensure track is loaded and padded. We use the full 8192-byte underlying buffer pointer.
-        let track_ptr = self.track_handle.get_full_buffer_ptr();
+        let track_ptr = self.track_handle.get_full_buffer_ptr() as u32;
         let track_length = self.track_handle.get_active_track_length() as u32;
-        
-        // Cache track info for the DMA restart fast path in try_read_byte
-        self.cached_track_ptr = track_ptr as u32;
-        self.cached_track_length = track_length;
 
         Self::abort_dma_ch0();
         
+        unsafe {
+            CURRENT_TRACK_PTR = track_ptr;
+            for i in 0..16 {
+                RING_BUFFER.0[i] = 0x8000;
+            }
+        }
+        self.ring_read_idx = 0;
+
         let dma = pac::DMA;
+        // Reset Channel C write address to match our read index
+        dma.ch(2).write_addr().write_value(unsafe { core::ptr::addr_of!(RING_BUFFER.0) as u32 });
+
         let mut ctrl_a = dma.ch(0).ctrl_trig().read();
-        ctrl_a.set_incr_read(true); // Restore incr_read in case it was disabled by noise injection
+        ctrl_a.set_incr_read(true);
         dma.ch(0).ctrl_trig().write_value(ctrl_a);
-        
-        // Update cached ctrl value in case incr_read was toggled by noise injection
-        ctrl_a.set_en(true);
-        dma.ch(0).ctrl_trig().write_value(ctrl_a);
-        self.cached_ctrl_enabled = unsafe { core::ptr::read_volatile(self.cached_regs.dma_ch0_ctrl_trig as *const u32) };
-        dma.ch(0).ctrl_trig().modify(|w| w.set_en(false));
         
         Self::clear_pio_fifos();
         
-        // Setup Worker (Channel A) with the exact byte count!
-        // try_read_byte will poll the busy flag and reload it instantly when it completes.
-        dma.ch(0).read_addr().write_value(track_ptr as u32);
+        dma.ch(0).read_addr().write_value(track_ptr);
         dma.ch(0).trans_count().write_value(track_length);
         
-        // Re-enable and TRIGGER Worker A
         if track_length > 0 {
-            unsafe {
-                core::ptr::write_volatile(self.cached_regs.dma_ch0_ctrl_trig, self.cached_ctrl_enabled);
-            }
+            ctrl_a.set_en(true);
+            dma.ch(0).ctrl_trig().write_value(ctrl_a);
         }
     }
     
@@ -247,11 +232,6 @@ impl MagneticSurface for PioMagneticSurface {
     }
 
     fn set_speed_zone(&mut self, zone: u8) {
-        // PIO reads 1 bit every 5 cycles.
-        // Zone 3: 26us/byte = 3.25us/bit.
-        // Zone 2: 28us/byte = 3.5us/bit.
-        // Zone 1: 30us/byte = 3.75us/bit.
-        // Zone 0: 32us/byte = 4.0us/bit.
         let multiplier = match zone {
             3 => 325,
             2 => 350,
@@ -275,13 +255,16 @@ impl MagneticSurface for PioMagneticSurface {
         Self::abort_dma_ch0();
         Self::clear_pio_fifos();
 
+        unsafe {
+            CURRENT_TRACK_PTR = NOISE_BUFFER.as_ptr() as u32;
+        }
+
         let dma = pac::DMA;
-        // Set up DMA to continuously feed the noise byte
         dma.ch(0).read_addr().write_value(NOISE_BUFFER.as_ptr() as u32);
         dma.ch(0).trans_count().write_value(0xFFFFFFFF);
         
         let mut ctrl_a = dma.ch(0).ctrl_trig().read();
-        ctrl_a.set_incr_read(false); // Do not increment read address, keep sending 0x22
+        ctrl_a.set_incr_read(false);
         ctrl_a.set_en(true);
         dma.ch(0).ctrl_trig().write_value(ctrl_a);
     }

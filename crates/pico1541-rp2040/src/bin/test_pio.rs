@@ -5,6 +5,12 @@ use defmt_rtt as _;
 use panic_probe as _;
 use embassy_rp as _; // Provides critical-section impl
 
+#[cfg(not(test))]
+#[cortex_m_rt::entry]
+fn main() -> ! {
+    loop {}
+}
+
 #[defmt_test::tests]
 mod tests {
     use defmt::{assert, assert_eq, info};
@@ -24,54 +30,12 @@ mod tests {
 
     #[test]
     fn test_pio_logic(pio: &mut Pio<'static, PIO0>) {
-        let prg = pio::pio_asm!(
-        "public entry_point:",
-        "    set x, 9",
-        "",
-        "fetch_byte:",
-        "    pull block",
-        "    out null, 24",
-        "",
-        "read_bit:",
-        "    out y, 1",
-        "    jmp !y is_zero",
-        "",
-        "is_one:",
-        "    in y, 1",
-        "    jmp x-- check_osre",
-        "    ",
-        "    ; --- SYNC DETECTED ---",
-        "    mov isr, ~null",
-        "    push",
-        "",
-        "sync_wait:",
-        "    jmp !osre sync_do",
-        "    pull block",
-        "    out null, 24",
-        "",
-        "sync_do:",
-        "    out y, 1",
-        "    jmp y-- sync_wait",
-        "    ",
-        "    ; --- SYNC BROKEN ---",
-        "    ; Fall through to is_zero, SYNC pin will clear automatically",
-        "",
-        "is_zero:",
-        "    in null, 1",
-        "    set x, 9",
-        "",
-        "check_osre:",
-        "    jmp !osre read_bit",
-        "    ; OSR is empty -> 8 bits were processed -> A byte is ready!",
-        "    push",
-        "    jmp fetch_byte",
-        );
-        
-        let loaded_prg = pio.common.load_program(&prg.program);
+        let prg = pio::pio_file!("src/pio/magnetic_surface.pio").program;
+        let loaded_prg = pio.common.load_program(&prg);
         
         let sm = &mut pio.sm0;
         let mut cfg = Config::default();
-        cfg.shift_in.auto_fill = false;
+        cfg.shift_in.auto_fill = true;
         cfg.shift_in.threshold = 8;
         cfg.shift_in.direction = ShiftDirection::Left;
         
@@ -79,8 +43,13 @@ mod tests {
         cfg.shift_out.threshold = 32;
         cfg.shift_out.direction = ShiftDirection::Left;
         
+        // Map SET pins to GPIO 10 to test SYNC
+        let sync_pin = pio.common.make_pio_pin(unsafe { embassy_rp::peripherals::PIN_10::steal() });
+        cfg.set_set_pins(&[&sync_pin]);
+
         cfg.use_program(&loaded_prg, &[]);
         sm.set_config(&cfg);
+        sm.set_pin_dirs(embassy_rp::pio::Direction::Out, &[&sync_pin]);
         
         // --- PHASE 1: Normal bytes test ---
         info!("Phase 1: Normal bytes test");
@@ -107,14 +76,25 @@ mod tests {
         
         // Push 0xFF (8 ones)
         sm.tx().push(0x000000FF);
-        // Push 0xC0 (2 ones, 6 zeros). Total 10 ones -> SYNC.
-        sm.tx().push(0x000000C0);
+        // Push 0xFF (8 ones). Total 16 ones -> SYNC stays active.
+        sm.tx().push(0x000000FF);
         cortex_m::asm::delay(2000);
 
         let word1 = sm.rx().try_pull().expect("Expected 0xFF");
         assert_eq!(word1, 0xFF);
-        let word2 = sm.rx().try_pull().expect("Expected SYNC 0xFFFFFFFF");
-        assert_eq!(word2, 0xFFFFFFFF);
+        
+        // Wait, does it push the 10th one into RX?
+        // "mov isr, null" purges the partial ISR buffer. So we expect NOTHING else!
+        // But the SYNC pin should be HIGH!
+        let sio = embassy_rp::pac::SIO;
+        let is_sync = (sio.gpio_in(0).read() & (1 << 10)) != 0;
+        assert!(is_sync, "Expected SYNC pin (GPIO 10) to be HIGH");
+        
+        // Now break sync by pushing a 0
+        sm.tx().push(0x00000000);
+        cortex_m::asm::delay(2000);
+        
+        // The 0 byte after sync is broken should be pushed
         let word3 = sm.rx().try_pull().expect("Expected remaining 0x00 byte");
         assert_eq!(word3, 0x00);
         assert!(sm.rx().try_pull().is_none());
@@ -139,8 +119,11 @@ mod tests {
 
         let word1 = sm.rx().try_pull().expect("Expected 0xFF from first 8 bits of SYNC");
         assert_eq!(word1, 0xFF);
-        let word2 = sm.rx().try_pull().expect("Expected SYNC 0xFFFFFFFF");
-        assert_eq!(word2, 0xFFFFFFFF);
+        
+        let is_sync = (sio.gpio_in(0).read() & (1 << 10)) != 0;
+        // Since we pushed 0x01 at the end, SYNC is broken by the end of the delay!
+        assert!(!is_sync, "Expected SYNC pin (GPIO 10) to be LOW after sync broken");
+        
         let word3 = sm.rx().try_pull().expect("Expected 0x01 byte after SYNC");
         assert_eq!(word3, 0x01);
 
