@@ -163,10 +163,14 @@ impl PioMagneticSurface {
 
 impl MagneticSurface for PioMagneticSurface {
 
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
     fn is_sync_active(&self) -> bool {
         Self::is_sync_active()
     }
 
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
     fn try_read_byte(&mut self, _delta_cycles: u32) -> Option<u8> {
         let current_active_index = self.track_handle.get_active_index();
         if current_active_index != self.last_active_index {
@@ -178,6 +182,7 @@ impl MagneticSurface for PioMagneticSurface {
         self.try_read_ram_byte()
     }
 
+    #[link_section = ".data.ram_func"]
     fn get_absolute_head_position(&self, _master_clock: u32) -> u32 {
         let dma = pac::DMA;
         let remaining = dma.ch(0).trans_count().read();

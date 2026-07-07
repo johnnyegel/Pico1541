@@ -362,6 +362,7 @@ impl HardwareBridge {
 
 impl IecBus for HardwareBridge {
     
+    #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn iec_host(&self) -> IecBusState {
         // Direct SIO register read for speed.
@@ -372,6 +373,7 @@ impl IecBus for HardwareBridge {
     }
 
     
+    #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn iec_drive(&mut self, state: IecBusState) {
         // GPIO 19: DATA_TX (bit 0), 20: CLK_TX (bit 1)
@@ -396,6 +398,7 @@ impl IecBus for HardwareBridge {
 
 impl HostInterface for HardwareBridge {
     
+    #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn send_event(&mut self, event: DriveEvent) {
         let mut color_changed = false;
@@ -422,6 +425,7 @@ impl HostInterface for HardwareBridge {
         }
     }
 
+    #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn debug_pin_0(&mut self, state: bool) {
         if state {
@@ -431,6 +435,7 @@ impl HostInterface for HardwareBridge {
         }
     }
 
+    #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn debug_pin_1(&mut self, state: bool) {
         if state {
@@ -440,6 +445,7 @@ impl HostInterface for HardwareBridge {
         }
     }
 
+    #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn track_changed(&mut self, half_track: u8) {
         // We notify the TRACK_CHANNEL directly instead of using DriveEvent
@@ -456,18 +462,21 @@ impl HostInterface for HardwareBridge {
     }
 
 
+    #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn is_hijacked(&self) -> bool {
         self.config.hijack_active.load(Ordering::Relaxed)
     }
 
     
+    #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn pop_discard_request(&mut self) -> bool {
         self.config.discard_request.swap(false, Ordering::Relaxed)
     }
 
     
+    #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn update_iec_addresses(&mut self, listen: u8, talk: u8) {
         self.config.listen_addr.store(listen, Ordering::Relaxed);
@@ -475,12 +484,14 @@ impl HostInterface for HardwareBridge {
     }
 
     
+    #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn get_device_id(&self) -> u8 {
         self.config.device_id.load(Ordering::Relaxed)
     }
 
     
+    #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn sync(&mut self, _host: IecBusState) {
         // The snooper is only updated if something changed on the bus.
@@ -1094,10 +1105,13 @@ fn emulator_loop(drive: &'static mut Emulator<HardwareBridge, PioMagneticSurface
             cpu_cycles_sub += diff;
         }
 
-        // Update max load over 20ms sub-windows
-        if now.wrapping_sub(last_sub_update) >= 20_000 {
-            if cpu_cycles_sub > max_cpu_cycles_sub {
-                max_cpu_cycles_sub = cpu_cycles_sub;
+        let elapsed_sub = now.wrapping_sub(last_sub_update);
+        if elapsed_sub >= 20_000 {
+            // Scale cpu_cycles_sub back to exactly 20,000 us to calculate accurate max load %
+            // If the emulator was busy and elapsed_sub > 20_000, this prevents > 100% fake spikes.
+            let scaled_cycles = (cpu_cycles_sub * 20_000) / (elapsed_sub as u64);
+            if scaled_cycles > max_cpu_cycles_sub {
+                max_cpu_cycles_sub = scaled_cycles;
             }
             cpu_cycles_sub = 0;
             last_sub_update = now;

@@ -62,7 +62,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
     /// Progresses the drive mechanics by one CPU cycle.
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn tick_cycles<H: HostInterface>(&mut self, hardware: &mut H, _via1: &mut crate::via6522::Via6522, via2: &mut Via6522, _requested_sector: u8, delta: u32) -> bool {
+    pub fn tick_cycles<H: HostInterface>(&mut self, hardware: &mut H, _via1: &mut crate::via6522::Via6522, via2: &mut Via6522, delta: u32) -> bool {
         if delta == 0 || (self.last_state & MASK_MOTOR) == 0 {
             return false;
         }

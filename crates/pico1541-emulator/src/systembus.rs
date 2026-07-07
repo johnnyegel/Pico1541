@@ -195,8 +195,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         }
 
         // Progress the drive mechanics and update SO pin status
-        let requested_sector = self.ram[0x000C];
-        self.so_active = self.mechanics.tick_cycles(hardware, &mut self.via1, &mut self.via2, requested_sector, delta);
+        self.so_active = self.mechanics.tick_cycles(hardware, &mut self.via1, &mut self.via2, delta);
     }
 
     #[link_section = ".data.ram_func"]
