@@ -13,6 +13,9 @@ pub struct PioMagneticSurface {
     track_handle: EmulatorHandle,
     last_active_index: bool,
     ring_read_idx: usize,
+    _sync_pin: embassy_rp::pio::Pin<'static, embassy_rp::peripherals::PIO0>,
+    _loaded_prg: embassy_rp::pio::LoadedProgram<'static, embassy_rp::peripherals::PIO0>,
+    _sm: embassy_rp::pio::StateMachine<'static, embassy_rp::peripherals::PIO0, 0>,
 }
 
 impl PioMagneticSurface {
@@ -53,6 +56,9 @@ impl PioMagneticSurface {
             track_handle,
             last_active_index: false,
             ring_read_idx: 0,
+            _sync_pin: sync_pin,
+            _loaded_prg: loaded_prg,
+            _sm: sm,
         }
     }
 
@@ -70,7 +76,7 @@ impl PioMagneticSurface {
         ch_a.write_addr().write_value(pio.txf(0).as_ptr() as u32);
         
         let mut ctrl_a = ch_a.ctrl_trig().read();
-        ctrl_a.set_data_size(pac::dma::vals::DataSize::SIZE_WORD);
+        ctrl_a.set_data_size(pac::dma::vals::DataSize::SIZE_BYTE);
         ctrl_a.set_incr_read(true);
         ctrl_a.set_incr_write(false);
         ctrl_a.set_treq_sel(pac::dma::vals::TreqSel::PIO0_TX0);

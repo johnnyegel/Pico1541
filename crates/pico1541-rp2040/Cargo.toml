@@ -59,3 +59,8 @@ pio-proc = "0.3"
 name = "test_pio"
 path = "src/bin/test_pio.rs"
 harness = false
+
+[[bin]]
+name = "test_dma_streaming"
+path = "src/bin/test_dma_streaming.rs"
+harness = false
