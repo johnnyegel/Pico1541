@@ -29,3 +29,9 @@ impl CPU {
         elapsed
     }
 }
+
+impl Default for CPU {
+    fn default() -> Self {
+        Self::new()
+    }
+}
