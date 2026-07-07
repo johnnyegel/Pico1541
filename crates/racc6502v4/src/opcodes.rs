@@ -34,18 +34,21 @@ pub fn op_01<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_02<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_03<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_04<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -79,6 +82,7 @@ pub fn op_06<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_07<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -121,12 +125,14 @@ pub fn op_0a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_0b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_0c<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -160,6 +166,7 @@ pub fn op_0e<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_0f<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -195,18 +202,21 @@ pub fn op_11<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_12<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_13<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_14<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -240,6 +250,7 @@ pub fn op_16<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_17<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -270,18 +281,21 @@ pub fn op_19<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_1a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_1b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_1c<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -316,6 +330,7 @@ pub fn op_1e<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_1f<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -346,12 +361,14 @@ pub fn op_21<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_22<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_23<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -400,6 +417,7 @@ pub fn op_26<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_27<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -443,6 +461,7 @@ pub fn op_2a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_2b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -491,6 +510,7 @@ pub fn op_2e<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_2f<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -526,18 +546,21 @@ pub fn op_31<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_32<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_33<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_34<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -572,6 +595,7 @@ pub fn op_36<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_37<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -602,18 +626,21 @@ pub fn op_39<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_3a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_3b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_3c<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -649,6 +676,7 @@ pub fn op_3e<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_3f<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -679,18 +707,21 @@ pub fn op_41<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_42<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_43<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_44<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -724,6 +755,7 @@ pub fn op_46<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_47<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -766,6 +798,7 @@ pub fn op_4a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_4b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -810,6 +843,7 @@ pub fn op_4e<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_4f<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -845,18 +879,21 @@ pub fn op_51<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_52<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_53<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_54<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -890,6 +927,7 @@ pub fn op_56<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_57<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -920,18 +958,21 @@ pub fn op_59<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_5a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_5b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_5c<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -966,6 +1007,7 @@ pub fn op_5e<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_5f<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -986,35 +1028,7 @@ pub fn op_61<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 
                 let addr = { let ptr = cpu.read_pc(bus, ctx).wrapping_add(cpu.x); let lo = cpu.read(bus, ctx, ptr as u16) as u16; let hi = cpu.read(bus, ctx, ptr.wrapping_add(1) as u16) as u16; (hi << 8) | lo };
                 let val = cpu.read(bus, ctx, addr);
-                if cpu.p & FLAG_D != 0 {
-
-                let a = cpu.a; let b = val; let c = cpu.p & FLAG_C;
-                let mut low = (a & 0x0F) + (b & 0x0F) + c;
-                if low > 9 { low += 6; }
-                let mut high = (a >> 4) + (b >> 4) + (if low > 15 { 1 } else { 0 });
-                let al = a as u16; let bl = b as u16; let cl = c as u16;
-                let res_bin = al + bl + cl;
-                cpu.p &= !0xC3;
-                if ((al ^ res_bin) & (bl ^ res_bin) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                if (res_bin & 0x80) != 0 { cpu.p |= FLAG_N; }
-                if (res_bin as u8) == 0 { cpu.p |= FLAG_Z; }
-                if high > 9 { high += 6; }
-                if high > 15 { cpu.p |= FLAG_C; }
-                cpu.a = (low & 0x0F) | ((high & 0x0F) << 4);
-                
-                } else {
-
-                let a = cpu.a as u16; let b = val as u16; let c = (cpu.p & FLAG_C) as u16;
-                let res = a + b + c;
-                cpu.p &= !0xC3;
-                if res > 0xFF { cpu.p |= FLAG_C; }
-                let r = res as u8;
-                if r == 0 { cpu.p |= FLAG_Z; }
-                if (r & 0x80) != 0 { cpu.p |= FLAG_N; }
-                if ((a ^ res) & (b ^ res) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                cpu.a = r;
-                
-                }
+                cpu.do_adc(val);
                 cycles += 6;
                 cycles
             }
@@ -1023,18 +1037,21 @@ pub fn op_61<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_62<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_63<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_64<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -1044,35 +1061,7 @@ pub fn op_65<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 
                 let addr = cpu.read_pc(bus, ctx) as u16;
                 let val = cpu.read(bus, ctx, addr);
-                if cpu.p & FLAG_D != 0 {
-
-                let a = cpu.a; let b = val; let c = cpu.p & FLAG_C;
-                let mut low = (a & 0x0F) + (b & 0x0F) + c;
-                if low > 9 { low += 6; }
-                let mut high = (a >> 4) + (b >> 4) + (if low > 15 { 1 } else { 0 });
-                let al = a as u16; let bl = b as u16; let cl = c as u16;
-                let res_bin = al + bl + cl;
-                cpu.p &= !0xC3;
-                if ((al ^ res_bin) & (bl ^ res_bin) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                if (res_bin & 0x80) != 0 { cpu.p |= FLAG_N; }
-                if (res_bin as u8) == 0 { cpu.p |= FLAG_Z; }
-                if high > 9 { high += 6; }
-                if high > 15 { cpu.p |= FLAG_C; }
-                cpu.a = (low & 0x0F) | ((high & 0x0F) << 4);
-                
-                } else {
-
-                let a = cpu.a as u16; let b = val as u16; let c = (cpu.p & FLAG_C) as u16;
-                let res = a + b + c;
-                cpu.p &= !0xC3;
-                if res > 0xFF { cpu.p |= FLAG_C; }
-                let r = res as u8;
-                if r == 0 { cpu.p |= FLAG_Z; }
-                if (r & 0x80) != 0 { cpu.p |= FLAG_N; }
-                if ((a ^ res) & (b ^ res) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                cpu.a = r;
-                
-                }
+                cpu.do_adc(val);
                 cycles += 3;
                 cycles
             }
@@ -1097,6 +1086,7 @@ pub fn op_66<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_67<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -1118,35 +1108,7 @@ pub fn op_69<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 
                 let addr = cpu.read_pc(bus, ctx) as u16;
                 let val = addr as u8;
-                if cpu.p & FLAG_D != 0 {
-
-                let a = cpu.a; let b = val; let c = cpu.p & FLAG_C;
-                let mut low = (a & 0x0F) + (b & 0x0F) + c;
-                if low > 9 { low += 6; }
-                let mut high = (a >> 4) + (b >> 4) + (if low > 15 { 1 } else { 0 });
-                let al = a as u16; let bl = b as u16; let cl = c as u16;
-                let res_bin = al + bl + cl;
-                cpu.p &= !0xC3;
-                if ((al ^ res_bin) & (bl ^ res_bin) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                if (res_bin & 0x80) != 0 { cpu.p |= FLAG_N; }
-                if (res_bin as u8) == 0 { cpu.p |= FLAG_Z; }
-                if high > 9 { high += 6; }
-                if high > 15 { cpu.p |= FLAG_C; }
-                cpu.a = (low & 0x0F) | ((high & 0x0F) << 4);
-                
-                } else {
-
-                let a = cpu.a as u16; let b = val as u16; let c = (cpu.p & FLAG_C) as u16;
-                let res = a + b + c;
-                cpu.p &= !0xC3;
-                if res > 0xFF { cpu.p |= FLAG_C; }
-                let r = res as u8;
-                if r == 0 { cpu.p |= FLAG_Z; }
-                if (r & 0x80) != 0 { cpu.p |= FLAG_N; }
-                if ((a ^ res) & (b ^ res) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                cpu.a = r;
-                
-                }
+                cpu.do_adc(val);
                 cycles += 2;
                 cycles
             }
@@ -1169,6 +1131,7 @@ pub fn op_6a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_6b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -1189,35 +1152,7 @@ pub fn op_6d<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 
                 let addr = cpu.read_word_pc(bus, ctx);
                 let val = cpu.read(bus, ctx, addr);
-                if cpu.p & FLAG_D != 0 {
-
-                let a = cpu.a; let b = val; let c = cpu.p & FLAG_C;
-                let mut low = (a & 0x0F) + (b & 0x0F) + c;
-                if low > 9 { low += 6; }
-                let mut high = (a >> 4) + (b >> 4) + (if low > 15 { 1 } else { 0 });
-                let al = a as u16; let bl = b as u16; let cl = c as u16;
-                let res_bin = al + bl + cl;
-                cpu.p &= !0xC3;
-                if ((al ^ res_bin) & (bl ^ res_bin) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                if (res_bin & 0x80) != 0 { cpu.p |= FLAG_N; }
-                if (res_bin as u8) == 0 { cpu.p |= FLAG_Z; }
-                if high > 9 { high += 6; }
-                if high > 15 { cpu.p |= FLAG_C; }
-                cpu.a = (low & 0x0F) | ((high & 0x0F) << 4);
-                
-                } else {
-
-                let a = cpu.a as u16; let b = val as u16; let c = (cpu.p & FLAG_C) as u16;
-                let res = a + b + c;
-                cpu.p &= !0xC3;
-                if res > 0xFF { cpu.p |= FLAG_C; }
-                let r = res as u8;
-                if r == 0 { cpu.p |= FLAG_Z; }
-                if (r & 0x80) != 0 { cpu.p |= FLAG_N; }
-                if ((a ^ res) & (b ^ res) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                cpu.a = r;
-                
-                }
+                cpu.do_adc(val);
                 cycles += 4;
                 cycles
             }
@@ -1242,6 +1177,7 @@ pub fn op_6e<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_6f<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -1267,35 +1203,7 @@ pub fn op_71<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 
                 let addr = { let ptr = cpu.read_pc(bus, ctx); let lo = cpu.read(bus, ctx, ptr as u16) as u16; let hi = cpu.read(bus, ctx, ptr.wrapping_add(1) as u16) as u16; let base = (hi << 8) | lo; let a = base.wrapping_add(cpu.y as u16); page_cross = (a & 0xFF00) != (base & 0xFF00); a };
                 let val = cpu.read(bus, ctx, addr);
-                if cpu.p & FLAG_D != 0 {
-
-                let a = cpu.a; let b = val; let c = cpu.p & FLAG_C;
-                let mut low = (a & 0x0F) + (b & 0x0F) + c;
-                if low > 9 { low += 6; }
-                let mut high = (a >> 4) + (b >> 4) + (if low > 15 { 1 } else { 0 });
-                let al = a as u16; let bl = b as u16; let cl = c as u16;
-                let res_bin = al + bl + cl;
-                cpu.p &= !0xC3;
-                if ((al ^ res_bin) & (bl ^ res_bin) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                if (res_bin & 0x80) != 0 { cpu.p |= FLAG_N; }
-                if (res_bin as u8) == 0 { cpu.p |= FLAG_Z; }
-                if high > 9 { high += 6; }
-                if high > 15 { cpu.p |= FLAG_C; }
-                cpu.a = (low & 0x0F) | ((high & 0x0F) << 4);
-                
-                } else {
-
-                let a = cpu.a as u16; let b = val as u16; let c = (cpu.p & FLAG_C) as u16;
-                let res = a + b + c;
-                cpu.p &= !0xC3;
-                if res > 0xFF { cpu.p |= FLAG_C; }
-                let r = res as u8;
-                if r == 0 { cpu.p |= FLAG_Z; }
-                if (r & 0x80) != 0 { cpu.p |= FLAG_N; }
-                if ((a ^ res) & (b ^ res) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                cpu.a = r;
-                
-                }
+                cpu.do_adc(val);
                 cycles += 5;
                 if page_cross { cycles += 1; }
                 cycles
@@ -1305,18 +1213,21 @@ pub fn op_71<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_72<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_73<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_74<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -1326,35 +1237,7 @@ pub fn op_75<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 
                 let addr = cpu.read_pc(bus, ctx).wrapping_add(cpu.x) as u16;
                 let val = cpu.read(bus, ctx, addr);
-                if cpu.p & FLAG_D != 0 {
-
-                let a = cpu.a; let b = val; let c = cpu.p & FLAG_C;
-                let mut low = (a & 0x0F) + (b & 0x0F) + c;
-                if low > 9 { low += 6; }
-                let mut high = (a >> 4) + (b >> 4) + (if low > 15 { 1 } else { 0 });
-                let al = a as u16; let bl = b as u16; let cl = c as u16;
-                let res_bin = al + bl + cl;
-                cpu.p &= !0xC3;
-                if ((al ^ res_bin) & (bl ^ res_bin) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                if (res_bin & 0x80) != 0 { cpu.p |= FLAG_N; }
-                if (res_bin as u8) == 0 { cpu.p |= FLAG_Z; }
-                if high > 9 { high += 6; }
-                if high > 15 { cpu.p |= FLAG_C; }
-                cpu.a = (low & 0x0F) | ((high & 0x0F) << 4);
-                
-                } else {
-
-                let a = cpu.a as u16; let b = val as u16; let c = (cpu.p & FLAG_C) as u16;
-                let res = a + b + c;
-                cpu.p &= !0xC3;
-                if res > 0xFF { cpu.p |= FLAG_C; }
-                let r = res as u8;
-                if r == 0 { cpu.p |= FLAG_Z; }
-                if (r & 0x80) != 0 { cpu.p |= FLAG_N; }
-                if ((a ^ res) & (b ^ res) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                cpu.a = r;
-                
-                }
+                cpu.do_adc(val);
                 cycles += 4;
                 cycles
             }
@@ -1379,6 +1262,7 @@ pub fn op_76<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_77<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -1399,35 +1283,7 @@ pub fn op_79<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 
                 let addr = { let base = cpu.read_word_pc(bus, ctx); let a = base.wrapping_add(cpu.y as u16); page_cross = (a & 0xFF00) != (base & 0xFF00); a };
                 let val = cpu.read(bus, ctx, addr);
-                if cpu.p & FLAG_D != 0 {
-
-                let a = cpu.a; let b = val; let c = cpu.p & FLAG_C;
-                let mut low = (a & 0x0F) + (b & 0x0F) + c;
-                if low > 9 { low += 6; }
-                let mut high = (a >> 4) + (b >> 4) + (if low > 15 { 1 } else { 0 });
-                let al = a as u16; let bl = b as u16; let cl = c as u16;
-                let res_bin = al + bl + cl;
-                cpu.p &= !0xC3;
-                if ((al ^ res_bin) & (bl ^ res_bin) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                if (res_bin & 0x80) != 0 { cpu.p |= FLAG_N; }
-                if (res_bin as u8) == 0 { cpu.p |= FLAG_Z; }
-                if high > 9 { high += 6; }
-                if high > 15 { cpu.p |= FLAG_C; }
-                cpu.a = (low & 0x0F) | ((high & 0x0F) << 4);
-                
-                } else {
-
-                let a = cpu.a as u16; let b = val as u16; let c = (cpu.p & FLAG_C) as u16;
-                let res = a + b + c;
-                cpu.p &= !0xC3;
-                if res > 0xFF { cpu.p |= FLAG_C; }
-                let r = res as u8;
-                if r == 0 { cpu.p |= FLAG_Z; }
-                if (r & 0x80) != 0 { cpu.p |= FLAG_N; }
-                if ((a ^ res) & (b ^ res) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                cpu.a = r;
-                
-                }
+                cpu.do_adc(val);
                 cycles += 4;
                 if page_cross { cycles += 1; }
                 cycles
@@ -1437,18 +1293,21 @@ pub fn op_79<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_7a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_7b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_7c<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -1458,35 +1317,7 @@ pub fn op_7d<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 
                 let addr = { let base = cpu.read_word_pc(bus, ctx); let a = base.wrapping_add(cpu.x as u16); page_cross = (a & 0xFF00) != (base & 0xFF00); a };
                 let val = cpu.read(bus, ctx, addr);
-                if cpu.p & FLAG_D != 0 {
-
-                let a = cpu.a; let b = val; let c = cpu.p & FLAG_C;
-                let mut low = (a & 0x0F) + (b & 0x0F) + c;
-                if low > 9 { low += 6; }
-                let mut high = (a >> 4) + (b >> 4) + (if low > 15 { 1 } else { 0 });
-                let al = a as u16; let bl = b as u16; let cl = c as u16;
-                let res_bin = al + bl + cl;
-                cpu.p &= !0xC3;
-                if ((al ^ res_bin) & (bl ^ res_bin) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                if (res_bin & 0x80) != 0 { cpu.p |= FLAG_N; }
-                if (res_bin as u8) == 0 { cpu.p |= FLAG_Z; }
-                if high > 9 { high += 6; }
-                if high > 15 { cpu.p |= FLAG_C; }
-                cpu.a = (low & 0x0F) | ((high & 0x0F) << 4);
-                
-                } else {
-
-                let a = cpu.a as u16; let b = val as u16; let c = (cpu.p & FLAG_C) as u16;
-                let res = a + b + c;
-                cpu.p &= !0xC3;
-                if res > 0xFF { cpu.p |= FLAG_C; }
-                let r = res as u8;
-                if r == 0 { cpu.p |= FLAG_Z; }
-                if (r & 0x80) != 0 { cpu.p |= FLAG_N; }
-                if ((a ^ res) & (b ^ res) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                cpu.a = r;
-                
-                }
+                cpu.do_adc(val);
                 cycles += 4;
                 if page_cross { cycles += 1; }
                 cycles
@@ -1512,12 +1343,14 @@ pub fn op_7e<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_7f<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_80<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -1535,12 +1368,14 @@ pub fn op_81<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_82<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_83<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -1580,6 +1415,7 @@ pub fn op_86<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_87<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -1598,6 +1434,7 @@ pub fn op_88<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_89<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -1616,6 +1453,7 @@ pub fn op_8a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_8b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -1655,6 +1493,7 @@ pub fn op_8e<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_8f<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -1688,12 +1527,14 @@ pub fn op_91<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_92<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_93<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -1733,6 +1574,7 @@ pub fn op_96<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_97<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -1773,12 +1615,14 @@ pub fn op_9a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_9b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_9c<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -1796,12 +1640,14 @@ pub fn op_9d<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_9e<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_9f<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -1844,6 +1690,7 @@ pub fn op_a2<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_a3<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -1886,6 +1733,7 @@ pub fn op_a6<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_a7<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -1928,6 +1776,7 @@ pub fn op_aa<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_ab<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -1970,6 +1819,7 @@ pub fn op_ae<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_af<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -2005,12 +1855,14 @@ pub fn op_b1<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_b2<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_b3<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -2053,6 +1905,7 @@ pub fn op_b6<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_b7<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -2095,6 +1948,7 @@ pub fn op_ba<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_bb<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -2140,6 +1994,7 @@ pub fn op_be<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_bf<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -2174,12 +2029,14 @@ pub fn op_c1<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_c2<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_c3<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -2228,6 +2085,7 @@ pub fn op_c6<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_c7<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -2272,6 +2130,7 @@ pub fn op_ca<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_cb<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -2320,6 +2179,7 @@ pub fn op_ce<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_cf<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -2357,18 +2217,21 @@ pub fn op_d1<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_d2<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_d3<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_d4<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -2403,6 +2266,7 @@ pub fn op_d6<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_d7<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -2435,18 +2299,21 @@ pub fn op_d9<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_da<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_db<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_dc<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -2482,6 +2349,7 @@ pub fn op_de<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_df<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -2505,35 +2373,7 @@ pub fn op_e1<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 
                 let addr = { let ptr = cpu.read_pc(bus, ctx).wrapping_add(cpu.x); let lo = cpu.read(bus, ctx, ptr as u16) as u16; let hi = cpu.read(bus, ctx, ptr.wrapping_add(1) as u16) as u16; (hi << 8) | lo };
                 let val = cpu.read(bus, ctx, addr);
-                if cpu.p & FLAG_D != 0 {
-
-                let a = cpu.a; let b = val; let c = cpu.p & FLAG_C;
-                let mut low = (a & 0x0F) as i32 - (b & 0x0F) as i32 - (1 - c as i32);
-                let mut high = (a >> 4) as i32 - (b >> 4) as i32 - (if low < 0 { 1 } else { 0 });
-                let al = a as u16; let bl = (!b) as u16; let cl = c as u16;
-                let res_bin = al + bl + cl;
-                cpu.p &= !0xC3;
-                if res_bin > 0xFF { cpu.p |= FLAG_C; }
-                if (res_bin as u8) == 0 { cpu.p |= FLAG_Z; }
-                if (res_bin & 0x80) != 0 { cpu.p |= FLAG_N; }
-                if ((al ^ res_bin) & (bl ^ res_bin) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                if low < 0 { low -= 6; }
-                if high < 0 { high -= 6; }
-                cpu.a = ((low & 0x0F) | ((high & 0x0F) << 4)) as u8;
-                
-                } else {
-
-                let a = cpu.a as u16; let b = (!val) as u16; let c = (cpu.p & FLAG_C) as u16;
-                    let res = a + b + c;
-                    cpu.p &= !0xC3;
-                    if res > 0xFF { cpu.p |= FLAG_C; }
-                    let r = res as u8;
-                    if r == 0 { cpu.p |= FLAG_Z; }
-                    if (r & 0x80) != 0 { cpu.p |= FLAG_N; }
-                    if ((a ^ res) & (b ^ res) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                    cpu.a = r;
-                    
-                }
+                cpu.do_sbc(val);
                 cycles += 6;
                 cycles
             }
@@ -2542,12 +2382,14 @@ pub fn op_e1<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_e2<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_e3<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -2571,35 +2413,7 @@ pub fn op_e5<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 
                 let addr = cpu.read_pc(bus, ctx) as u16;
                 let val = cpu.read(bus, ctx, addr);
-                if cpu.p & FLAG_D != 0 {
-
-                let a = cpu.a; let b = val; let c = cpu.p & FLAG_C;
-                let mut low = (a & 0x0F) as i32 - (b & 0x0F) as i32 - (1 - c as i32);
-                let mut high = (a >> 4) as i32 - (b >> 4) as i32 - (if low < 0 { 1 } else { 0 });
-                let al = a as u16; let bl = (!b) as u16; let cl = c as u16;
-                let res_bin = al + bl + cl;
-                cpu.p &= !0xC3;
-                if res_bin > 0xFF { cpu.p |= FLAG_C; }
-                if (res_bin as u8) == 0 { cpu.p |= FLAG_Z; }
-                if (res_bin & 0x80) != 0 { cpu.p |= FLAG_N; }
-                if ((al ^ res_bin) & (bl ^ res_bin) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                if low < 0 { low -= 6; }
-                if high < 0 { high -= 6; }
-                cpu.a = ((low & 0x0F) | ((high & 0x0F) << 4)) as u8;
-                
-                } else {
-
-                let a = cpu.a as u16; let b = (!val) as u16; let c = (cpu.p & FLAG_C) as u16;
-                    let res = a + b + c;
-                    cpu.p &= !0xC3;
-                    if res > 0xFF { cpu.p |= FLAG_C; }
-                    let r = res as u8;
-                    if r == 0 { cpu.p |= FLAG_Z; }
-                    if (r & 0x80) != 0 { cpu.p |= FLAG_N; }
-                    if ((a ^ res) & (b ^ res) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                    cpu.a = r;
-                    
-                }
+                cpu.do_sbc(val);
                 cycles += 3;
                 cycles
             }
@@ -2622,6 +2436,7 @@ pub fn op_e6<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_e7<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -2643,35 +2458,7 @@ pub fn op_e9<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 
                 let addr = cpu.read_pc(bus, ctx) as u16;
                 let val = addr as u8;
-                if cpu.p & FLAG_D != 0 {
-
-                let a = cpu.a; let b = val; let c = cpu.p & FLAG_C;
-                let mut low = (a & 0x0F) as i32 - (b & 0x0F) as i32 - (1 - c as i32);
-                let mut high = (a >> 4) as i32 - (b >> 4) as i32 - (if low < 0 { 1 } else { 0 });
-                let al = a as u16; let bl = (!b) as u16; let cl = c as u16;
-                let res_bin = al + bl + cl;
-                cpu.p &= !0xC3;
-                if res_bin > 0xFF { cpu.p |= FLAG_C; }
-                if (res_bin as u8) == 0 { cpu.p |= FLAG_Z; }
-                if (res_bin & 0x80) != 0 { cpu.p |= FLAG_N; }
-                if ((al ^ res_bin) & (bl ^ res_bin) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                if low < 0 { low -= 6; }
-                if high < 0 { high -= 6; }
-                cpu.a = ((low & 0x0F) | ((high & 0x0F) << 4)) as u8;
-                
-                } else {
-
-                let a = cpu.a as u16; let b = (!val) as u16; let c = (cpu.p & FLAG_C) as u16;
-                    let res = a + b + c;
-                    cpu.p &= !0xC3;
-                    if res > 0xFF { cpu.p |= FLAG_C; }
-                    let r = res as u8;
-                    if r == 0 { cpu.p |= FLAG_Z; }
-                    if (r & 0x80) != 0 { cpu.p |= FLAG_N; }
-                    if ((a ^ res) & (b ^ res) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                    cpu.a = r;
-                    
-                }
+                cpu.do_sbc(val);
                 cycles += 2;
                 cycles
             }
@@ -2690,6 +2477,7 @@ pub fn op_ea<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_eb<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -2713,35 +2501,7 @@ pub fn op_ed<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 
                 let addr = cpu.read_word_pc(bus, ctx);
                 let val = cpu.read(bus, ctx, addr);
-                if cpu.p & FLAG_D != 0 {
-
-                let a = cpu.a; let b = val; let c = cpu.p & FLAG_C;
-                let mut low = (a & 0x0F) as i32 - (b & 0x0F) as i32 - (1 - c as i32);
-                let mut high = (a >> 4) as i32 - (b >> 4) as i32 - (if low < 0 { 1 } else { 0 });
-                let al = a as u16; let bl = (!b) as u16; let cl = c as u16;
-                let res_bin = al + bl + cl;
-                cpu.p &= !0xC3;
-                if res_bin > 0xFF { cpu.p |= FLAG_C; }
-                if (res_bin as u8) == 0 { cpu.p |= FLAG_Z; }
-                if (res_bin & 0x80) != 0 { cpu.p |= FLAG_N; }
-                if ((al ^ res_bin) & (bl ^ res_bin) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                if low < 0 { low -= 6; }
-                if high < 0 { high -= 6; }
-                cpu.a = ((low & 0x0F) | ((high & 0x0F) << 4)) as u8;
-                
-                } else {
-
-                let a = cpu.a as u16; let b = (!val) as u16; let c = (cpu.p & FLAG_C) as u16;
-                    let res = a + b + c;
-                    cpu.p &= !0xC3;
-                    if res > 0xFF { cpu.p |= FLAG_C; }
-                    let r = res as u8;
-                    if r == 0 { cpu.p |= FLAG_Z; }
-                    if (r & 0x80) != 0 { cpu.p |= FLAG_N; }
-                    if ((a ^ res) & (b ^ res) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                    cpu.a = r;
-                    
-                }
+                cpu.do_sbc(val);
                 cycles += 4;
                 cycles
             }
@@ -2764,6 +2524,7 @@ pub fn op_ee<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_ef<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -2789,35 +2550,7 @@ pub fn op_f1<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 
                 let addr = { let ptr = cpu.read_pc(bus, ctx); let lo = cpu.read(bus, ctx, ptr as u16) as u16; let hi = cpu.read(bus, ctx, ptr.wrapping_add(1) as u16) as u16; let base = (hi << 8) | lo; let a = base.wrapping_add(cpu.y as u16); page_cross = (a & 0xFF00) != (base & 0xFF00); a };
                 let val = cpu.read(bus, ctx, addr);
-                if cpu.p & FLAG_D != 0 {
-
-                let a = cpu.a; let b = val; let c = cpu.p & FLAG_C;
-                let mut low = (a & 0x0F) as i32 - (b & 0x0F) as i32 - (1 - c as i32);
-                let mut high = (a >> 4) as i32 - (b >> 4) as i32 - (if low < 0 { 1 } else { 0 });
-                let al = a as u16; let bl = (!b) as u16; let cl = c as u16;
-                let res_bin = al + bl + cl;
-                cpu.p &= !0xC3;
-                if res_bin > 0xFF { cpu.p |= FLAG_C; }
-                if (res_bin as u8) == 0 { cpu.p |= FLAG_Z; }
-                if (res_bin & 0x80) != 0 { cpu.p |= FLAG_N; }
-                if ((al ^ res_bin) & (bl ^ res_bin) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                if low < 0 { low -= 6; }
-                if high < 0 { high -= 6; }
-                cpu.a = ((low & 0x0F) | ((high & 0x0F) << 4)) as u8;
-                
-                } else {
-
-                let a = cpu.a as u16; let b = (!val) as u16; let c = (cpu.p & FLAG_C) as u16;
-                    let res = a + b + c;
-                    cpu.p &= !0xC3;
-                    if res > 0xFF { cpu.p |= FLAG_C; }
-                    let r = res as u8;
-                    if r == 0 { cpu.p |= FLAG_Z; }
-                    if (r & 0x80) != 0 { cpu.p |= FLAG_N; }
-                    if ((a ^ res) & (b ^ res) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                    cpu.a = r;
-                    
-                }
+                cpu.do_sbc(val);
                 cycles += 5;
                 if page_cross { cycles += 1; }
                 cycles
@@ -2827,18 +2560,21 @@ pub fn op_f1<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_f2<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_f3<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_f4<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -2848,35 +2584,7 @@ pub fn op_f5<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 
                 let addr = cpu.read_pc(bus, ctx).wrapping_add(cpu.x) as u16;
                 let val = cpu.read(bus, ctx, addr);
-                if cpu.p & FLAG_D != 0 {
-
-                let a = cpu.a; let b = val; let c = cpu.p & FLAG_C;
-                let mut low = (a & 0x0F) as i32 - (b & 0x0F) as i32 - (1 - c as i32);
-                let mut high = (a >> 4) as i32 - (b >> 4) as i32 - (if low < 0 { 1 } else { 0 });
-                let al = a as u16; let bl = (!b) as u16; let cl = c as u16;
-                let res_bin = al + bl + cl;
-                cpu.p &= !0xC3;
-                if res_bin > 0xFF { cpu.p |= FLAG_C; }
-                if (res_bin as u8) == 0 { cpu.p |= FLAG_Z; }
-                if (res_bin & 0x80) != 0 { cpu.p |= FLAG_N; }
-                if ((al ^ res_bin) & (bl ^ res_bin) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                if low < 0 { low -= 6; }
-                if high < 0 { high -= 6; }
-                cpu.a = ((low & 0x0F) | ((high & 0x0F) << 4)) as u8;
-                
-                } else {
-
-                let a = cpu.a as u16; let b = (!val) as u16; let c = (cpu.p & FLAG_C) as u16;
-                    let res = a + b + c;
-                    cpu.p &= !0xC3;
-                    if res > 0xFF { cpu.p |= FLAG_C; }
-                    let r = res as u8;
-                    if r == 0 { cpu.p |= FLAG_Z; }
-                    if (r & 0x80) != 0 { cpu.p |= FLAG_N; }
-                    if ((a ^ res) & (b ^ res) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                    cpu.a = r;
-                    
-                }
+                cpu.do_sbc(val);
                 cycles += 4;
                 cycles
             }
@@ -2899,6 +2607,7 @@ pub fn op_f6<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_f7<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -2919,35 +2628,7 @@ pub fn op_f9<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 
                 let addr = { let base = cpu.read_word_pc(bus, ctx); let a = base.wrapping_add(cpu.y as u16); page_cross = (a & 0xFF00) != (base & 0xFF00); a };
                 let val = cpu.read(bus, ctx, addr);
-                if cpu.p & FLAG_D != 0 {
-
-                let a = cpu.a; let b = val; let c = cpu.p & FLAG_C;
-                let mut low = (a & 0x0F) as i32 - (b & 0x0F) as i32 - (1 - c as i32);
-                let mut high = (a >> 4) as i32 - (b >> 4) as i32 - (if low < 0 { 1 } else { 0 });
-                let al = a as u16; let bl = (!b) as u16; let cl = c as u16;
-                let res_bin = al + bl + cl;
-                cpu.p &= !0xC3;
-                if res_bin > 0xFF { cpu.p |= FLAG_C; }
-                if (res_bin as u8) == 0 { cpu.p |= FLAG_Z; }
-                if (res_bin & 0x80) != 0 { cpu.p |= FLAG_N; }
-                if ((al ^ res_bin) & (bl ^ res_bin) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                if low < 0 { low -= 6; }
-                if high < 0 { high -= 6; }
-                cpu.a = ((low & 0x0F) | ((high & 0x0F) << 4)) as u8;
-                
-                } else {
-
-                let a = cpu.a as u16; let b = (!val) as u16; let c = (cpu.p & FLAG_C) as u16;
-                    let res = a + b + c;
-                    cpu.p &= !0xC3;
-                    if res > 0xFF { cpu.p |= FLAG_C; }
-                    let r = res as u8;
-                    if r == 0 { cpu.p |= FLAG_Z; }
-                    if (r & 0x80) != 0 { cpu.p |= FLAG_N; }
-                    if ((a ^ res) & (b ^ res) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                    cpu.a = r;
-                    
-                }
+                cpu.do_sbc(val);
                 cycles += 4;
                 if page_cross { cycles += 1; }
                 cycles
@@ -2957,18 +2638,21 @@ pub fn op_f9<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_fa<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_fb<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
 pub fn op_fc<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
@@ -2978,35 +2662,7 @@ pub fn op_fd<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 
                 let addr = { let base = cpu.read_word_pc(bus, ctx); let a = base.wrapping_add(cpu.x as u16); page_cross = (a & 0xFF00) != (base & 0xFF00); a };
                 let val = cpu.read(bus, ctx, addr);
-                if cpu.p & FLAG_D != 0 {
-
-                let a = cpu.a; let b = val; let c = cpu.p & FLAG_C;
-                let mut low = (a & 0x0F) as i32 - (b & 0x0F) as i32 - (1 - c as i32);
-                let mut high = (a >> 4) as i32 - (b >> 4) as i32 - (if low < 0 { 1 } else { 0 });
-                let al = a as u16; let bl = (!b) as u16; let cl = c as u16;
-                let res_bin = al + bl + cl;
-                cpu.p &= !0xC3;
-                if res_bin > 0xFF { cpu.p |= FLAG_C; }
-                if (res_bin as u8) == 0 { cpu.p |= FLAG_Z; }
-                if (res_bin & 0x80) != 0 { cpu.p |= FLAG_N; }
-                if ((al ^ res_bin) & (bl ^ res_bin) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                if low < 0 { low -= 6; }
-                if high < 0 { high -= 6; }
-                cpu.a = ((low & 0x0F) | ((high & 0x0F) << 4)) as u8;
-                
-                } else {
-
-                let a = cpu.a as u16; let b = (!val) as u16; let c = (cpu.p & FLAG_C) as u16;
-                    let res = a + b + c;
-                    cpu.p &= !0xC3;
-                    if res > 0xFF { cpu.p |= FLAG_C; }
-                    let r = res as u8;
-                    if r == 0 { cpu.p |= FLAG_Z; }
-                    if (r & 0x80) != 0 { cpu.p |= FLAG_N; }
-                    if ((a ^ res) & (b ^ res) & 0x80) != 0 { cpu.p |= FLAG_V; }
-                    cpu.a = r;
-                    
-                }
+                cpu.do_sbc(val);
                 cycles += 4;
                 if page_cross { cycles += 1; }
                 cycles
@@ -3030,9 +2686,10 @@ pub fn op_fe<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 pub fn op_ff<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut page_cross = false;
+
  cpu.read_pc(bus, ctx); 2 }
 
-pub fn get_opcodes<B: Bus>() -> [OpcodeFn<B>; 256] {
+pub const fn get_opcodes<B: Bus>() -> [OpcodeFn<B>; 256] {
     [
         op_00,
         op_01,

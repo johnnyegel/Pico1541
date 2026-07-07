@@ -10,4 +10,12 @@ pub trait Bus {
     /// Optional: Peek memory without triggering side effects.
     #[allow(unused_variables)]
     fn peek(&self, addr: u16) -> u8 { 0 }
+
+    /// Optional: Check if NMI is pending.
+    #[inline(always)]
+    fn nmi_pending(&self) -> bool { false }
+
+    /// Optional: Check if IRQ is pending.
+    #[inline(always)]
+    fn irq_pending(&self) -> bool { false }
 }
