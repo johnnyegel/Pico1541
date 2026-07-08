@@ -9,8 +9,8 @@ use core::marker::PhantomData;
 const RAM_SIZE: usize = 0x0800; // 2KB
 const ROM_SIZE: usize = 0x4000; // 16KB
 
-pub type PageReadFn<H, S> = fn(&mut SystemBus<H, S>, u16, &mut H) -> u8;
-pub type PageWriteFn<H, S> = fn(&mut SystemBus<H, S>, u16, u8, &mut H);
+pub type PageReadFn<H, S> = fn(&mut SystemBus<H, S>, u16, u32, &mut H) -> u8;
+pub type PageWriteFn<H, S> = fn(&mut SystemBus<H, S>, u16, u8, u32, &mut H);
 
 /// Represents the 1541's memory bus, mapping access to RAM, ROM, and I/O.
 ///
@@ -252,12 +252,12 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     }
 
     #[link_section = ".data.ram_func"]
-    fn ram_read(bus: &mut SystemBus<H, S>, addr: u16, _ctx: &mut H) -> u8 {
+    fn ram_read(bus: &mut SystemBus<H, S>, addr: u16, _cycle: u32, _ctx: &mut H) -> u8 {
         unsafe { *bus.ram.get_unchecked((addr as usize) & (RAM_SIZE - 1)) }
     }
 
     #[link_section = ".data.ram_func"]
-    fn ram_write(bus: &mut SystemBus<H, S>, addr: u16, val: u8, ctx: &mut H) {
+    fn ram_write(bus: &mut SystemBus<H, S>, addr: u16, val: u8, _cycle: u32, ctx: &mut H) {
         unsafe { *bus.ram.get_unchecked_mut((addr as usize) & (RAM_SIZE - 1)) = val };
         let mapped = addr & 0x07FF;
         if mapped == 0x0077 || mapped == 0x0078 {
@@ -266,16 +266,16 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     }
 
     #[link_section = ".data.ram_func"]
-    fn rom_read(bus: &mut SystemBus<H, S>, addr: u16, _ctx: &mut H) -> u8 {
+    fn rom_read(bus: &mut SystemBus<H, S>, addr: u16, _cycle: u32, _ctx: &mut H) -> u8 {
         unsafe { *bus.rom.get_unchecked((addr & 0x3FFF) as usize) }
     }
 
     #[link_section = ".data.ram_func"]
-    fn rom_write(_bus: &mut SystemBus<H, S>, _addr: u16, _val: u8, _ctx: &mut H) {}
+    fn rom_write(_bus: &mut SystemBus<H, S>, _addr: u16, _val: u8, _cycle: u32, _ctx: &mut H) {}
 
     #[link_section = ".data.ram_func"]
-    fn via_read(bus: &mut SystemBus<H, S>, addr: u16, ctx: &mut H) -> u8 {
-        bus.catch_up(bus.current_cycle, ctx);
+    fn via_read(bus: &mut SystemBus<H, S>, addr: u16, cycle: u32, ctx: &mut H) -> u8 {
+        bus.catch_up(cycle, ctx);
         bus.sync_required = true;
         if addr < 0x1C00 {
             bus.via1.read(addr)
@@ -285,8 +285,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     }
 
     #[link_section = ".data.ram_func"]
-    fn via_write(bus: &mut SystemBus<H, S>, addr: u16, val: u8, ctx: &mut H) {
-        bus.catch_up(bus.current_cycle, ctx);
+    fn via_write(bus: &mut SystemBus<H, S>, addr: u16, val: u8, cycle: u32, ctx: &mut H) {
+        bus.catch_up(cycle, ctx);
         bus.sync_required = true;
         if addr < 0x1C00 {
             let reg = (addr & 0x0F) as usize;
@@ -304,9 +304,9 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     }
 
     #[link_section = ".data.ram_func"]
-    fn unimpl_read(_bus: &mut SystemBus<H, S>, _addr: u16, _ctx: &mut H) -> u8 { 0 }
+    fn unimpl_read(_bus: &mut SystemBus<H, S>, _addr: u16, _cycle: u32, _ctx: &mut H) -> u8 { 0 }
     #[link_section = ".data.ram_func"]
-    fn unimpl_write(_bus: &mut SystemBus<H, S>, _addr: u16, _val: u8, _ctx: &mut H) {}
+    fn unimpl_write(_bus: &mut SystemBus<H, S>, _addr: u16, _val: u8, _cycle: u32, _ctx: &mut H) {}
 }
 
 impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H, S> {
@@ -314,16 +314,16 @@ impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H,
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    fn read(&mut self, addr: u16, ctx: &mut H) -> u8 {
+    fn read(&mut self, addr: u16, cycle: u32, ctx: &mut H) -> u8 {
         let page = (addr >> 8) as usize;
-        (Self::READ_HANDLERS[page])(self, addr, ctx)
+        (Self::READ_HANDLERS[page])(self, addr, cycle, ctx)
     }
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    fn write(&mut self, addr: u16, value: u8, ctx: &mut H) {
+    fn write(&mut self, addr: u16, value: u8, cycle: u32, ctx: &mut H) {
         let page = (addr >> 8) as usize;
-        (Self::WRITE_HANDLERS[page])(self, addr, value, ctx)
+        (Self::WRITE_HANDLERS[page])(self, addr, value, cycle, ctx)
     }
 
     #[link_section = ".data.ram_func"]
@@ -427,8 +427,8 @@ mod tests {
             
         };
         use racc6502v4::bus::Bus;
-        bus.write(0x0100, 0xAB, &mut hw);
-        assert_eq!(bus.read(0x0100, &mut hw), 0xAB);
-        assert_eq!(bus.read(0x0900, &mut hw), 0xAB);
+        bus.write(0x0100, 0xAB, 0, &mut hw);
+        assert_eq!(bus.read(0x0100, 0, &mut hw), 0xAB);
+        assert_eq!(bus.read(0x0900, 0, &mut hw), 0xAB);
     }
 }

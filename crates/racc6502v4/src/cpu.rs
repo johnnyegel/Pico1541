@@ -38,25 +38,25 @@ impl Default for CPU {
 impl CPU {
     #[inline]
     pub fn read<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, addr: u16) -> u8 {
-        bus.read(addr, ctx)
+        bus.read(addr, self.cycles, ctx)
     }
 
     #[inline]
     pub fn write<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, addr: u16, val: u8) {
-        bus.write(addr, val, ctx);
+        bus.write(addr, val, self.cycles, ctx);
     }
 
     #[inline]
     pub fn read_pc<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) -> u8 {
-        let val = bus.read(self.pc, ctx);
+        let val = bus.read(self.pc, self.cycles, ctx);
         self.pc = self.pc.wrapping_add(1);
         val
     }
 
     #[inline]
     pub fn read_word<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, addr: u16) -> u16 {
-        let lo = bus.read(addr, ctx) as u16;
-        let hi = bus.read(addr.wrapping_add(1), ctx) as u16;
+        let lo = bus.read(addr, self.cycles, ctx) as u16;
+        let hi = bus.read(addr.wrapping_add(1), self.cycles, ctx) as u16;
         (hi << 8) | lo
     }
 
@@ -245,7 +245,7 @@ impl CPU {
             self.pending_so = false;
         }
 
-        let opcode = bus.read(self.pc, ctx);
+        let opcode = bus.read(self.pc, self.cycles, ctx);
         self.pc = self.pc.wrapping_add(1);
         
         let elapsed = jump_table[opcode as usize](self, bus, ctx);

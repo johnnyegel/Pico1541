@@ -6,10 +6,10 @@ struct TestBus {
 
 impl Bus for TestBus {
     type Ctx = ();
-    fn read(&mut self, addr: u16, _ctx: &mut ()) -> u8 {
+    fn read(&mut self, addr: u16, _cycle: u32, _ctx: &mut ()) -> u8 {
         self.mem[addr as usize]
     }
-    fn write(&mut self, addr: u16, value: u8, _ctx: &mut ()) {
+    fn write(&mut self, addr: u16, value: u8, _cycle: u32, _ctx: &mut ()) {
         self.mem[addr as usize] = value;
     }
     
