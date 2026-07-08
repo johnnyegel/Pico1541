@@ -64,17 +64,17 @@ instructions = {
 modes_fetch = {
     "IMP": ("0", "0", "false"),
     "ACC": ("0", "0", "false"),
-    "IMM": ("cpu.read_pc(bus, ctx) as u16", "0", "false"),
-    "ZP": ("cpu.read_pc(bus, ctx) as u16", "0", "false"),
-    "ZPX": ("cpu.read_pc(bus, ctx).wrapping_add(cpu.x) as u16", "0", "false"),
-    "ZPY": ("cpu.read_pc(bus, ctx).wrapping_add(cpu.y) as u16", "0", "false"),
-    "ABS": ("cpu.read_word_pc(bus, ctx)", "0", "false"),
-    "ABSX": ("{ let base = cpu.read_word_pc(bus, ctx); let a = base.wrapping_add(cpu.x as u16); page_cross = (a & 0xFF00) != (base & 0xFF00); a }", "0", "page_cross"),
-    "ABSY": ("{ let base = cpu.read_word_pc(bus, ctx); let a = base.wrapping_add(cpu.y as u16); page_cross = (a & 0xFF00) != (base & 0xFF00); a }", "0", "page_cross"),
-    "IND": ("{ let ptr = cpu.read_word_pc(bus, ctx); if ptr & 0x00FF == 0x00FF { (cpu.read(bus, ctx, ptr & 0xFF00) as u16) << 8 | cpu.read(bus, ctx, ptr) as u16 } else { cpu.read_word(bus, ctx, ptr) } }", "0", "false"),
-    "INDX": ("{ let ptr = cpu.read_pc(bus, ctx).wrapping_add(cpu.x); let lo = cpu.read(bus, ctx, ptr as u16) as u16; let hi = cpu.read(bus, ctx, ptr.wrapping_add(1) as u16) as u16; (hi << 8) | lo }", "0", "false"),
-    "INDY": ("{ let ptr = cpu.read_pc(bus, ctx); let lo = cpu.read(bus, ctx, ptr as u16) as u16; let hi = cpu.read(bus, ctx, ptr.wrapping_add(1) as u16) as u16; let base = (hi << 8) | lo; let a = base.wrapping_add(cpu.y as u16); page_cross = (a & 0xFF00) != (base & 0xFF00); a }", "0", "page_cross"),
-    "REL": ("cpu.read_pc(bus, ctx) as u16", "0", "false"),
+    "IMM": ("cpu.read_pc(bus, ctx, &mut offset) as u16", "0", "false"),
+    "ZP": ("cpu.read_pc(bus, ctx, &mut offset) as u16", "0", "false"),
+    "ZPX": ("cpu.read_pc(bus, ctx, &mut offset).wrapping_add(cpu.x) as u16", "0", "false"),
+    "ZPY": ("cpu.read_pc(bus, ctx, &mut offset).wrapping_add(cpu.y) as u16", "0", "false"),
+    "ABS": ("cpu.read_word_pc(bus, ctx, &mut offset)", "0", "false"),
+    "ABSX": ("{ let base = cpu.read_word_pc(bus, ctx, &mut offset); let a = base.wrapping_add(cpu.x as u16); page_cross = (a & 0xFF00) != (base & 0xFF00); a }", "0", "page_cross"),
+    "ABSY": ("{ let base = cpu.read_word_pc(bus, ctx, &mut offset); let a = base.wrapping_add(cpu.y as u16); page_cross = (a & 0xFF00) != (base & 0xFF00); a }", "0", "page_cross"),
+    "IND": ("{ let ptr = cpu.read_word_pc(bus, ctx, &mut offset); if ptr & 0x00FF == 0x00FF { (cpu.read(bus, ctx, &mut offset, ptr & 0xFF00) as u16) << 8 | cpu.read(bus, ctx, &mut offset, ptr) as u16 } else { cpu.read_word(bus, ctx, &mut offset, ptr) } }", "0", "false"),
+    "INDX": ("{ let ptr = cpu.read_pc(bus, ctx, &mut offset).wrapping_add(cpu.x); let lo = cpu.read(bus, ctx, &mut offset, ptr as u16) as u16; let hi = cpu.read(bus, ctx, &mut offset, ptr.wrapping_add(1) as u16) as u16; (hi << 8) | lo }", "0", "false"),
+    "INDY": ("{ let ptr = cpu.read_pc(bus, ctx, &mut offset); let lo = cpu.read(bus, ctx, &mut offset, ptr as u16) as u16; let hi = cpu.read(bus, ctx, &mut offset, ptr.wrapping_add(1) as u16) as u16; let base = (hi << 8) | lo; let a = base.wrapping_add(cpu.y as u16); page_cross = (a & 0xFF00) != (base & 0xFF00); a }", "0", "page_cross"),
+    "REL": ("cpu.read_pc(bus, ctx, &mut offset) as u16", "0", "false"),
 }
 
 def main():
@@ -93,11 +93,11 @@ pub type OpcodeFn<B> = fn(&mut CPU, &mut B, &mut <B as Bus>::Ctx) -> u32;
     for i in range(256):
         out.append(f"#[allow(unused_variables, unused_assignments, unused_mut)]")
         out.append(f"pub fn op_{i:02x}<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {{")
-        out.append("    let mut cycles: u32 = 0;")
+        out.append("    let mut cycles: u32 = 0;\n    let mut offset: u32 = 1;")
         out.append("    let mut page_cross = false;\n")
         
         if i not in op_map:
-            out.append(" cpu.read_pc(bus, ctx); 2 }")
+            out.append(" cpu.read_pc(bus, ctx, &mut offset); 2 }")
             out.append("")
             continue
             
@@ -110,13 +110,13 @@ pub type OpcodeFn<B> = fn(&mut CPU, &mut B, &mut <B as Bus>::Ctx) -> u32;
             lines.append("                let rel = addr as i8;")
         
         if inst in ["ADC", "SBC"]:
-            lines.append(f"                let val = " + ("cpu.a" if mode == "ACC" else ("addr as u8" if mode == "IMM" else "cpu.read(bus, ctx, addr)")) + ";")
+            lines.append(f"                let val = " + ("cpu.a" if mode == "ACC" else ("addr as u8" if mode == "IMM" else "cpu.read(bus, ctx, &mut offset, addr)")) + ";")
             if inst == "ADC":
                 lines.append("                cpu.do_adc(val);")
             else:
                 lines.append("                cpu.do_sbc(val);")
         elif inst in ["AND", "EOR", "ORA", "LDA", "LDX", "LDY", "CMP", "CPX", "CPY", "BIT"]:
-            lines.append(f"                let val = " + ("cpu.a" if mode == "ACC" else ("addr as u8" if mode == "IMM" else "cpu.read(bus, ctx, addr)")) + ";")
+            lines.append(f"                let val = " + ("cpu.a" if mode == "ACC" else ("addr as u8" if mode == "IMM" else "cpu.read(bus, ctx, &mut offset, addr)")) + ";")
             if inst == "AND":
                 lines.append("                cpu.a &= val; cpu.set_zn(cpu.a);")
             elif inst == "EOR":
@@ -140,7 +140,7 @@ pub type OpcodeFn<B> = fn(&mut CPU, &mut B, &mut <B as Bus>::Ctx) -> u32;
                 lines.append("                cpu.p = (cpu.p & !(FLAG_N | FLAG_V)) | (val & (FLAG_N | FLAG_V));")
         elif inst in ["STA", "STX", "STY"]:
             reg = "cpu.a" if inst == "STA" else ("cpu.x" if inst == "STX" else "cpu.y")
-            lines.append(f"                cpu.write(bus, ctx, addr, {reg});")
+            lines.append(f"                cpu.write(bus, ctx, &mut offset, addr, {reg});")
         elif inst in ["DEC", "INC", "ASL", "LSR", "ROL", "ROR"]:
             if mode == "ACC":
                 if inst == "ASL":
@@ -162,7 +162,7 @@ pub type OpcodeFn<B> = fn(&mut CPU, &mut B, &mut <B as Bus>::Ctx) -> u32;
                     lines.append("                cpu.a = (cpu.a >> 1) | c;")
                     lines.append("                cpu.set_zn(cpu.a);")
             else:
-                lines.append(f"                let mut val = cpu.read(bus, ctx, addr);")
+                lines.append(f"                let mut val = cpu.read(bus, ctx, &mut offset, addr);")
                 if inst == "DEC":
                     lines.append("                val = val.wrapping_sub(1);")
                 elif inst == "INC":
@@ -181,7 +181,7 @@ pub type OpcodeFn<B> = fn(&mut CPU, &mut B, &mut <B as Bus>::Ctx) -> u32;
                     lines.append("                let c = if cpu.p & FLAG_C != 0 { 0x80 } else { 0 };")
                     lines.append("                if val & 0x01 != 0 { cpu.p |= FLAG_C; } else { cpu.p &= !FLAG_C; }")
                     lines.append("                val = (val >> 1) | c;")
-                lines.append("                cpu.write(bus, ctx, addr, val);")
+                lines.append("                cpu.write(bus, ctx, &mut offset, addr, val);")
                 lines.append("                cpu.set_zn(val);")
         elif inst in ["BCC", "BCS", "BEQ", "BMI", "BNE", "BPL", "BVC", "BVS"]:
             cond = {
@@ -201,20 +201,20 @@ pub type OpcodeFn<B> = fn(&mut CPU, &mut B, &mut <B as Bus>::Ctx) -> u32;
             lines.append("                }")
         elif inst == "BRK":
             lines.append("                cpu.pc = cpu.pc.wrapping_add(1);")
-            lines.append("                cpu.push_word(bus, ctx, cpu.pc);")
-            lines.append("                cpu.push(bus, ctx, cpu.p | FLAG_B | FLAG_U);")
+            lines.append("                cpu.push_word(bus, ctx, &mut offset, cpu.pc);")
+            lines.append("                cpu.push(bus, ctx, &mut offset, cpu.p | FLAG_B | FLAG_U);")
             lines.append("                cpu.p |= FLAG_I;")
-            lines.append("                cpu.pc = cpu.read_word(bus, ctx, 0xFFFE);")
+            lines.append("                cpu.pc = cpu.read_word(bus, ctx, &mut offset, 0xFFFE);")
         elif inst == "JMP":
             lines.append("                cpu.pc = addr;")
         elif inst == "JSR":
-            lines.append("                cpu.push_word(bus, ctx, cpu.pc.wrapping_sub(1));")
+            lines.append("                cpu.push_word(bus, ctx, &mut offset, cpu.pc.wrapping_sub(1));")
             lines.append("                cpu.pc = addr;")
         elif inst == "RTI":
-            lines.append("                cpu.p = cpu.pop(bus, ctx) | FLAG_U;")
-            lines.append("                cpu.pc = cpu.pop_word(bus, ctx);")
+            lines.append("                cpu.p = cpu.pop(bus, ctx, &mut offset) | FLAG_U;")
+            lines.append("                cpu.pc = cpu.pop_word(bus, ctx, &mut offset);")
         elif inst == "RTS":
-            lines.append("                cpu.pc = cpu.pop_word(bus, ctx).wrapping_add(1);")
+            lines.append("                cpu.pc = cpu.pop_word(bus, ctx, &mut offset).wrapping_add(1);")
         elif inst in ["TAX", "TAY", "TSX", "TXA", "TXS", "TYA", "INX", "INY", "DEX", "DEY"]:
             op = {
                 "TAX": "cpu.x = cpu.a;",
@@ -241,14 +241,14 @@ pub type OpcodeFn<B> = fn(&mut CPU, &mut B, &mut <B as Bus>::Ctx) -> u32;
         elif inst == "NOP":
             pass
         elif inst == "PHA":
-            lines.append("                cpu.push(bus, ctx, cpu.a);")
+            lines.append("                cpu.push(bus, ctx, &mut offset, cpu.a);")
         elif inst == "PHP":
-            lines.append("                cpu.push(bus, ctx, cpu.p | FLAG_B | FLAG_U);")
+            lines.append("                cpu.push(bus, ctx, &mut offset, cpu.p | FLAG_B | FLAG_U);")
         elif inst == "PLA":
-            lines.append("                cpu.a = cpu.pop(bus, ctx);")
+            lines.append("                cpu.a = cpu.pop(bus, ctx, &mut offset);")
             lines.append("                cpu.set_zn(cpu.a);")
         elif inst == "PLP":
-            lines.append("                cpu.p = cpu.pop(bus, ctx) | FLAG_U;")
+            lines.append("                cpu.p = cpu.pop(bus, ctx, &mut offset) | FLAG_U;")
             
         lines.append(f"                cycles += {cyc};")
         if pg > 0 and check_page != "false":

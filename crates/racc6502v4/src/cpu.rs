@@ -37,58 +37,62 @@ impl Default for CPU {
 
 impl CPU {
     #[inline]
-    pub fn read<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, addr: u16) -> u8 {
-        bus.read(addr, self.cycles, ctx)
+    pub fn read<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, cycle_offset: &mut u32, addr: u16) -> u8 {
+        let val = bus.read(addr, self.cycles.wrapping_add(*cycle_offset), ctx);
+        *cycle_offset += 1;
+        val
     }
 
     #[inline]
-    pub fn write<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, addr: u16, val: u8) {
-        bus.write(addr, val, self.cycles, ctx);
+    pub fn write<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, cycle_offset: &mut u32, addr: u16, val: u8) {
+        bus.write(addr, val, self.cycles.wrapping_add(*cycle_offset), ctx);
+        *cycle_offset += 1;
     }
 
     #[inline]
-    pub fn read_pc<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) -> u8 {
-        let val = bus.read(self.pc, self.cycles, ctx);
+    pub fn read_pc<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, cycle_offset: &mut u32) -> u8 {
+        let val = bus.read(self.pc, self.cycles.wrapping_add(*cycle_offset), ctx);
+        *cycle_offset += 1;
         self.pc = self.pc.wrapping_add(1);
         val
     }
 
     #[inline]
-    pub fn read_word<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, addr: u16) -> u16 {
-        let lo = bus.read(addr, self.cycles, ctx) as u16;
-        let hi = bus.read(addr.wrapping_add(1), self.cycles, ctx) as u16;
+    pub fn read_word<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, cycle_offset: &mut u32, addr: u16) -> u16 {
+        let lo = self.read(bus, ctx, cycle_offset, addr) as u16;
+        let hi = self.read(bus, ctx, cycle_offset, addr.wrapping_add(1)) as u16;
         (hi << 8) | lo
     }
 
     #[inline]
-    pub fn read_word_pc<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) -> u16 {
-        let lo = self.read_pc(bus, ctx) as u16;
-        let hi = self.read_pc(bus, ctx) as u16;
+    pub fn read_word_pc<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, cycle_offset: &mut u32) -> u16 {
+        let lo = self.read_pc(bus, ctx, cycle_offset) as u16;
+        let hi = self.read_pc(bus, ctx, cycle_offset) as u16;
         (hi << 8) | lo
     }
 
     #[inline]
-    pub fn push<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, val: u8) {
-        self.write(bus, ctx, 0x0100 | (self.s as u16), val);
+    pub fn push<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, cycle_offset: &mut u32, val: u8) {
+        self.write(bus, ctx, cycle_offset, 0x0100 | (self.s as u16), val);
         self.s = self.s.wrapping_sub(1);
     }
 
     #[inline]
-    pub fn pop<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) -> u8 {
+    pub fn pop<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, cycle_offset: &mut u32) -> u8 {
         self.s = self.s.wrapping_add(1);
-        self.read(bus, ctx, 0x0100 | (self.s as u16))
+        self.read(bus, ctx, cycle_offset, 0x0100 | (self.s as u16))
     }
 
     #[inline]
-    pub fn push_word<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, val: u16) {
-        self.push(bus, ctx, (val >> 8) as u8);
-        self.push(bus, ctx, val as u8);
+    pub fn push_word<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, cycle_offset: &mut u32, val: u16) {
+        self.push(bus, ctx, cycle_offset, (val >> 8) as u8);
+        self.push(bus, ctx, cycle_offset, val as u8);
     }
 
     #[inline]
-    pub fn pop_word<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) -> u16 {
-        let lo = self.pop(bus, ctx) as u16;
-        let hi = self.pop(bus, ctx) as u16;
+    pub fn pop_word<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, cycle_offset: &mut u32) -> u16 {
+        let lo = self.pop(bus, ctx, cycle_offset) as u16;
+        let hi = self.pop(bus, ctx, cycle_offset) as u16;
         (hi << 8) | lo
     }
 
@@ -126,7 +130,8 @@ impl CPU {
     }
 
     pub fn reset<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) {
-        self.pc = self.read_word(bus, ctx, 0xFFFC);
+        let mut offset = 0;
+        self.pc = self.read_word(bus, ctx, &mut offset, 0xFFFC);
         self.s = self.s.wrapping_sub(3);
         self.p |= FLAG_I;
     }
@@ -202,9 +207,10 @@ impl CPU {
     #[inline(never)]
     pub fn step<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, jump_table: &[crate::opcodes::OpcodeFn<B>; 256]) -> u32 {
         if let Some(interrupt) = self.pending_interrupt.take() {
+            let mut offset = 0;
             match interrupt {
                 Interrupt::Reset => {
-                    self.pc = self.read_word(bus, ctx, 0xFFFC);
+                    self.pc = self.read_word(bus, ctx, &mut offset, 0xFFFC);
                     self.s = self.s.wrapping_sub(3);
                     self.p |= FLAG_I;
                     let elapsed = 7;
@@ -212,20 +218,20 @@ impl CPU {
                     return elapsed;
                 }
                 Interrupt::Nmi => {
-                    self.push_word(bus, ctx, self.pc);
-                    self.push(bus, ctx, self.p | FLAG_U);
+                    self.push_word(bus, ctx, &mut offset, self.pc);
+                    self.push(bus, ctx, &mut offset, self.p | FLAG_U);
                     self.p |= FLAG_I;
-                    self.pc = self.read_word(bus, ctx, 0xFFFA);
+                    self.pc = self.read_word(bus, ctx, &mut offset, 0xFFFA);
                     let elapsed = 7;
                     self.cycles = self.cycles.wrapping_add(elapsed);
                     return elapsed;
                 }
                 Interrupt::Irq => {
                     if self.p & FLAG_I == 0 {
-                        self.push_word(bus, ctx, self.pc);
-                        self.push(bus, ctx, self.p | FLAG_U);
+                        self.push_word(bus, ctx, &mut offset, self.pc);
+                        self.push(bus, ctx, &mut offset, self.p | FLAG_U);
                         self.p |= FLAG_I;
-                        self.pc = self.read_word(bus, ctx, 0xFFFE);
+                        self.pc = self.read_word(bus, ctx, &mut offset, 0xFFFE);
                         let elapsed = 7;
                         self.cycles = self.cycles.wrapping_add(elapsed);
                         return elapsed;
