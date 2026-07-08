@@ -340,7 +340,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     #[inline]
     pub fn catch_up(&mut self, target_cycle: u32, hw: &mut H) {
         let delta = target_cycle.wrapping_sub(self.last_cycle);
-        if delta > 0 {
+        if delta > 0 && delta < 0x80000000 {
             self.tick_cycles(hw, delta);
             if self.so_pending() {
                 self.so_pulsed = true;
