@@ -245,23 +245,29 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         self.device_id_pb_bits | atn | clk | data
     }
 
+    #[link_section = ".data.ram_func"]
     fn ram_read(bus: &mut SystemBus<H, S>, addr: u16, _ctx: &mut H) -> u8 {
         unsafe { *bus.ram.get_unchecked((addr as usize) & (RAM_SIZE - 1)) }
     }
 
+    #[link_section = ".data.ram_func"]
     fn ram_write(bus: &mut SystemBus<H, S>, addr: u16, val: u8, ctx: &mut H) {
         unsafe { *bus.ram.get_unchecked_mut((addr as usize) & (RAM_SIZE - 1)) = val };
-        if addr == 0x0077 || addr == 0x0078 {
+        let mapped = addr & 0x07FF;
+        if mapped == 0x0077 || mapped == 0x0078 {
             ctx.update_iec_addresses(bus.ram[0x0077], bus.ram[0x0078]);
         }
     }
 
+    #[link_section = ".data.ram_func"]
     fn rom_read(bus: &mut SystemBus<H, S>, addr: u16, _ctx: &mut H) -> u8 {
         unsafe { *bus.rom.get_unchecked((addr & 0x3FFF) as usize) }
     }
 
+    #[link_section = ".data.ram_func"]
     fn rom_write(_bus: &mut SystemBus<H, S>, _addr: u16, _val: u8, _ctx: &mut H) {}
 
+    #[link_section = ".data.ram_func"]
     fn via_read(bus: &mut SystemBus<H, S>, addr: u16, ctx: &mut H) -> u8 {
         bus.catch_up(bus.current_cycle, ctx);
         bus.sync_required = true;
@@ -272,6 +278,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         }
     }
 
+    #[link_section = ".data.ram_func"]
     fn via_write(bus: &mut SystemBus<H, S>, addr: u16, val: u8, ctx: &mut H) {
         bus.catch_up(bus.current_cycle, ctx);
         bus.sync_required = true;
@@ -290,7 +297,9 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         }
     }
 
+    #[link_section = ".data.ram_func"]
     fn unimpl_read(_bus: &mut SystemBus<H, S>, _addr: u16, _ctx: &mut H) -> u8 { 0 }
+    #[link_section = ".data.ram_func"]
     fn unimpl_write(_bus: &mut SystemBus<H, S>, _addr: u16, _val: u8, _ctx: &mut H) {}
 }
 

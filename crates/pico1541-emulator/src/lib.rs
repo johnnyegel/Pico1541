@@ -82,11 +82,6 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         if self.memory.via1.irq || self.memory.via2.irq {
             self.cpu.pending_interrupt = Some(racc6502v4::cpu::Interrupt::Irq);
         }
-        if self.memory.so_pulsed {
-            self.cpu.pending_so = true;
-            self.memory.so_pulsed = false;
-        }
-        
         let start_cycle = self.cpu.cycles;
         self.memory.current_cycle = start_cycle;
         
