@@ -1,4 +1,5 @@
 #![cfg_attr(not(test), no_std)]
+extern crate alloc;
 
 #[allow(unused_macros)]
 #[cfg(not(feature = "logging"))]
@@ -85,7 +86,12 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         let start_cycle = self.cpu.cycles;
         self.memory.current_cycle = start_cycle;
         
-        let elapsed = self.cpu.step(&mut self.memory, hw, &racc6502v4::opcodes::get_opcodes());
+        let elapsed = {
+            const fn inner<H: HostInterface, S: MagneticSurface>() -> [racc6502v4::opcodes::OpcodeFn<SystemBus<H, S>>; 256] {
+                racc6502v4::opcodes::get_opcodes()
+            }
+            self.cpu.step(&mut self.memory, hw, const { &inner() })
+        };
         
         if self.cpu.cycles.wrapping_sub(self.memory.next_sync_cycle) < 0x80000000 || self.memory.sync_required {
             self.memory.catch_up(self.cpu.cycles, hw);

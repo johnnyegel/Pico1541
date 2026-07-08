@@ -19,7 +19,7 @@ pub type PageWriteFn<H, S> = fn(&mut SystemBus<H, S>, u16, u8, &mut H);
 /// `read` / `write` call via the `Bus::Ctx` mechanism and forwarded to
 /// `tick_cycle`.
 pub struct SystemBus<H: HostInterface, S: MagneticSurface> {
-    pub ram: [u8; RAM_SIZE],
+    pub ram: alloc::boxed::Box<[u8; RAM_SIZE]>,
     rom: &'static [u8; ROM_SIZE],
     pub via1: Via6522,
     pub via2: Via6522,
@@ -37,38 +37,47 @@ pub struct SystemBus<H: HostInterface, S: MagneticSurface> {
     pub next_sync_cycle: u32,
     pub sync_required: bool,
     pub so_pulsed: bool,
-    pub read_handlers: [PageReadFn<H, S>; 256],
-    pub write_handlers: [PageWriteFn<H, S>; 256],
     _phantom: PhantomData<H>,
 }
 
 impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
+    const READ_HANDLERS: [PageReadFn<H, S>; 256] = {
+        let mut handlers = [Self::unimpl_read as PageReadFn<H, S>; 256];
+        let mut i = 0;
+        while i <= 0x17 { handlers[i] = Self::ram_read; i += 1; }
+        let mut i = 0x80;
+        while i <= 0xFF { handlers[i] = Self::rom_read; i += 1; }
+        let mut i = 0x18;
+        while i <= 0x1B { handlers[i] = Self::via_read; i += 1; }
+        let mut i = 0x1C;
+        while i <= 0x1F { handlers[i] = Self::via_read; i += 1; }
+        handlers
+    };
+
+    const WRITE_HANDLERS: [PageWriteFn<H, S>; 256] = {
+        let mut handlers = [Self::unimpl_write as PageWriteFn<H, S>; 256];
+        let mut i = 0;
+        while i <= 0x17 { handlers[i] = Self::ram_write; i += 1; }
+        let mut i = 0x80;
+        while i <= 0xFF { handlers[i] = Self::rom_write; i += 1; }
+        let mut i = 0x18;
+        while i <= 0x1B { handlers[i] = Self::via_write; i += 1; }
+        let mut i = 0x1C;
+        while i <= 0x1F { handlers[i] = Self::via_write; i += 1; }
+        handlers
+    };
+
     pub fn new(rom: &'static [u8; ROM_SIZE], device_id: u8, surface: S) -> Self {
         // :: Intialize VIA1
         let via1 = Via6522::new();
 
-        let mut read_handlers: [PageReadFn<H, S>; 256] = [Self::unimpl_read; 256];
-        let mut write_handlers: [PageWriteFn<H, S>; 256] = [Self::unimpl_write; 256];
-        
-        for i in 0x00..=0x17 {
-            read_handlers[i] = Self::ram_read;
-            write_handlers[i] = Self::ram_write;
-        }
-        for i in 0x80..=0xFF {
-            read_handlers[i] = Self::rom_read;
-            write_handlers[i] = Self::rom_write;
-        }
-        for i in 0x18..=0x1B {
-            read_handlers[i] = Self::via_read;
-            write_handlers[i] = Self::via_write;
-        }
-        for i in 0x1C..=0x1F {
-            read_handlers[i] = Self::via_read;
-            write_handlers[i] = Self::via_write;
-        }
+        let ram_ptr = unsafe {
+            alloc::alloc::alloc_zeroed(core::alloc::Layout::new::<[u8; RAM_SIZE]>()) as *mut [u8; RAM_SIZE]
+        };
+        let ram = unsafe { alloc::boxed::Box::from_raw(ram_ptr) };
 
         let mut systembus = Self {
-            ram: [0; RAM_SIZE],
+            ram,
             rom,
             via1,
             via2: Via6522::new(),
@@ -86,8 +95,6 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             next_sync_cycle: 1024,
             sync_required: false,
             so_pulsed: false,
-            read_handlers,
-            write_handlers,
             _phantom: PhantomData,
         };
 
@@ -113,7 +120,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     }
 
     pub fn reset(&mut self, hardware: &mut H) {
-        self.ram = [0; RAM_SIZE];
+        self.ram.fill(0);
         self.via1.reset();
         self.via2.reset();
         self.mechanics.reset();
@@ -177,7 +184,6 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     pub fn tick_cycles(&mut self, hardware: &mut H, delta: u32) {
         if delta == 0 { return; }
 
-        // Resolve the Host IecBusState once per cycle batch
         let host_iec = hardware.iec_host();
         
         // Update physical bus and VIA inputs if host OR drive changed
@@ -310,14 +316,14 @@ impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H,
     #[inline(always)]
     fn read(&mut self, addr: u16, ctx: &mut H) -> u8 {
         let page = (addr >> 8) as usize;
-        (self.read_handlers[page])(self, addr, ctx)
+        (Self::READ_HANDLERS[page])(self, addr, ctx)
     }
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn write(&mut self, addr: u16, value: u8, ctx: &mut H) {
         let page = (addr >> 8) as usize;
-        (self.write_handlers[page])(self, addr, value, ctx)
+        (Self::WRITE_HANDLERS[page])(self, addr, value, ctx)
     }
 
     #[link_section = ".data.ram_func"]
@@ -361,7 +367,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         }
         
         if (self.via2.orb & 0x04) != 0 {
-            min_delta = min_delta.min(16);
+            min_delta = min_delta.min(1);
         }
 
         self.next_sync_cycle = self.last_cycle.wrapping_add(min_delta);

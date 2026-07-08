@@ -1415,7 +1415,7 @@ dependencies = [
  "pico1541-emulator",
  "pollster",
  "racc6502v2",
- "racc6502v3",
+ "racc6502v4",
 ]
 
 [[package]]
@@ -1676,6 +1676,10 @@ version = "0.1.0"
 
 [[package]]
 name = "racc6502v3"
+version = "0.1.0"
+
+[[package]]
+name = "racc6502v4"
 version = "0.1.0"
 
 [[package]]
