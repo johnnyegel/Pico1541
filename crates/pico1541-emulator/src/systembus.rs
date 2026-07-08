@@ -359,6 +359,11 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
                 min_delta = min_delta.min(via.sr_count as u32 + 1);
             }
         }
+        
+        if (self.via2.orb & 0x04) != 0 {
+            min_delta = min_delta.min(16);
+        }
+
         self.next_sync_cycle = self.last_cycle.wrapping_add(min_delta);
     }
 
