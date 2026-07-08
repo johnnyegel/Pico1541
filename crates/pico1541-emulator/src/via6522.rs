@@ -34,8 +34,8 @@ pub struct Via6522 {
     last_cb1: bool,
     last_ca2: bool,
     last_cb2: bool,
-    sr_count: u8,
-    active_mask: u8,
+    pub sr_count: u8,
+    pub active_mask: u8,
 }
 
 impl Via6522 {

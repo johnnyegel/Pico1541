@@ -94,7 +94,7 @@ fn test_g64_track_reading_low_level() {
     // However, some tracks in Zone 0 can take up to 246,144 cycles.
     // We use 300,000 to be safe.
     for i in 0..300_000 {
-        let mut via1 = pico1541_emulator::via6522::Via6522::new(); let byte_ready = mechanics.tick_cycles(&mut hw, &mut via1, &mut via2, 0, 1);
+        let mut via1 = pico1541_emulator::via6522::Via6522::new(); let byte_ready = mechanics.tick_cycles(&mut hw, &mut via1, &mut via2, 1);
 
         let sync_active = (via2.in_b & 0x80) == 0;
 

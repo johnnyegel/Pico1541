@@ -4,7 +4,7 @@ fn wait_for_pulse(mechanics: &mut DriveMechanics<SoftwareMagneticSurface>, hardw
     let mut ticks = 0;
     loop {
         ticks += 1;
-        let pulse = mechanics.tick_cycles(hardware, via1, via2, 0, 1);
+        let pulse = mechanics.tick_cycles(hardware, via1, via2, 1);
         if pulse && !last_pulse {
             return (ticks, pulse);
         }
@@ -92,7 +92,7 @@ fn test_disk_streaming_sync() {
     // First byte idx 0: 0xFF
     // Due to the new SYNC logic, the FIRST 0xFF is treated as data and pulses SO!
     let mut ticks = 0;
-    while !mechanics.tick_cycles(&mut hardware, &mut via1, &mut via2, 0, 1) {
+    while !mechanics.tick_cycles(&mut hardware, &mut via1, &mut via2, 1) {
         ticks += 1;
         if ticks > 100 {
              panic!("Timeout waiting for first byte");
@@ -101,13 +101,13 @@ fn test_disk_streaming_sync() {
     assert!(via2.in_b & 0x80 != 0, "SYNC should NOT be indicated yet");
     
     // Wait for the SO pulse to clear
-    while mechanics.tick_cycles(&mut hardware, &mut via1, &mut via2, 0, 1) {}
+    while mechanics.tick_cycles(&mut hardware, &mut via1, &mut via2, 1) {}
 
     // Second byte idx 1: 0xFF
     // Now last_gcr_byte == 0xFF, so it establishes SYNC!
     for i in 0..26 {
         assert!(
-            !mechanics.tick_cycles(&mut hardware, &mut via1, &mut via2, 0, 1),
+            !mechanics.tick_cycles(&mut hardware, &mut via1, &mut via2, 1),
             "SYNC should NOT pulse SO (cycle {})", i
         );
     }
@@ -116,7 +116,7 @@ fn test_disk_streaming_sync() {
     // Third byte idx 2: 0x55 (Data)
     // This one IS data, so it should return true on the 26th cycle.
     let mut ticks = 0;
-    while !mechanics.tick_cycles(&mut hardware, &mut via1, &mut via2, 0, 1) {
+    while !mechanics.tick_cycles(&mut hardware, &mut via1, &mut via2, 1) {
         ticks += 1;
         if ticks > 100 {
              panic!("Timeout waiting for data byte after SYNC");

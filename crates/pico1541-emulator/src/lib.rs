@@ -33,7 +33,7 @@ pub mod via6522;
 
 use pico1541_common::interface::HostInterface;
 use pico1541_common::magnetic_surface::MagneticSurface;
-use racc6502v3::CPU;
+use racc6502v4::cpu::CPU;
 use systembus::SystemBus;
 
 /// Trait for peeking and poking at memory/registers without side effects.
@@ -80,7 +80,7 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
     #[inline(always)]
     pub fn tick(&mut self, hw: &mut H) -> u32 {
         if self.memory.via1.irq || self.memory.via2.irq {
-            self.cpu.pending_interrupt = Some(racc6502v3::cpu::Interrupt::Irq);
+            self.cpu.pending_interrupt = Some(racc6502v4::cpu::Interrupt::Irq);
         }
         if self.memory.so_pulsed {
             self.cpu.pending_so = true;
@@ -88,10 +88,14 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         }
         
         let start_cycle = self.cpu.cycles;
-        let elapsed = self.cpu.step(&mut self.memory, hw);
-        self.cpu.cycles = start_cycle.wrapping_add(elapsed as u32);
+        self.memory.current_cycle = start_cycle;
         
-        self.memory.catch_up(self.cpu.cycles, hw);
+        let elapsed = self.cpu.step(&mut self.memory, hw, &racc6502v4::opcodes::get_opcodes());
+        
+        if self.cpu.cycles.wrapping_sub(self.memory.next_sync_cycle) < 0x80000000 || self.memory.sync_required {
+            self.memory.catch_up(self.cpu.cycles, hw);
+            self.memory.sync_required = false;
+        }
         
         if self.memory.so_pulsed {
             self.cpu.pending_so = true;
