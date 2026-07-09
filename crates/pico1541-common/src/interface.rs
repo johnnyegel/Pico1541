@@ -190,6 +190,5 @@ pub trait HostInterface: IecBus {
     fn check_halt_requested(&self) -> bool { false }
     fn consume_trigger_reset(&mut self) -> bool { false }
     fn is_reset_line_asserted(&self) -> bool { false }
-    fn report_speed_and_load(&mut self, _speed_hz: u32, _max_cpu_cycles_sub: u32) {}
-    fn report_max_idle(&mut self, _max_idle: u32) {}
+    fn report_performance_counters(&mut self, _ticks: u32, _idles: u32) {}
 }

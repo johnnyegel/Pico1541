@@ -176,41 +176,8 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         let mut idle_counter = 0u32;
         let mut cycle_counter = 0u32;
 
-        let calib_start = timer.time_us();
-        let mut calib_last_tick = calib_start;
-        let mut calib_last_perf_update = calib_start;
-        let mut calib_idle = 0u32;
-        loop {
-            let now = timer.time_us();
-            if now.wrapping_sub(calib_start) >= 10_000 {
-                break;
-            }
-            
-            if hw.check_halt_requested() { continue; }
-            if hw.consume_trigger_reset() { continue; }
-
-            let mut caught_up = 0;
-            while (now.wrapping_sub(calib_last_tick) as i32) > 0 && caught_up < 100 {
-                calib_last_tick = calib_last_tick.wrapping_add(1);
-                caught_up += 1;
-            }
-
-            if now.wrapping_sub(calib_last_perf_update) >= 1_000_000 {
-                calib_last_perf_update = now;
-            } else {
-                calib_idle = calib_idle.wrapping_add(1);
-                timer.yield_cpu();
-            }
-        }
-        hw.report_max_idle(calib_idle * 100);
-
         let mut last_tick = timer.time_us();
-        let mut last_perf_update = last_tick;
         let mut was_reset = false;
-
-        let mut cpu_cycles_sub = 0u64;
-        let mut max_cpu_cycles_sub = 0u64;
-        let mut last_sub_update = last_tick;
 
         let syst_per_us = timer.syst_per_us();
         let mut last_syst = timer.syst_current();
@@ -246,11 +213,10 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
             let mut caught_up = 0;
             let is_reset = hw.is_reset_line_asserted();
 
-            let t1_while = timer.syst_current();
             while (now.wrapping_sub(last_tick) as i32) > 0 && caught_up < 500 {
                 if is_reset {
                     last_tick = last_tick.wrapping_add(1);
-                    cycle_counter += 1;
+                    cycle_counter = cycle_counter.wrapping_add(1);
                     
                     if !was_reset {
                         self.reset(hw);
@@ -266,38 +232,18 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
                     
                     let elapsed = self.tick(hw);
                     last_tick = last_tick.wrapping_add(elapsed);
-                    cycle_counter += elapsed;
+                    cycle_counter = cycle_counter.wrapping_add(elapsed as u32);
                 }
                 caught_up += 1;
             }
-            let t2_while = timer.syst_current();
             
-            if caught_up > 0 {
-                let diff = (t1_while.wrapping_sub(t2_while) & 0x00FFFFFF) as u64;
-                cpu_cycles_sub += diff;
-            }
-
-            let elapsed_sub = now.wrapping_sub(last_sub_update);
-            if elapsed_sub >= 20_000 {
-                let scaled_cycles = (cpu_cycles_sub * 20_000) / (elapsed_sub as u64);
-                if scaled_cycles > max_cpu_cycles_sub {
-                    max_cpu_cycles_sub = scaled_cycles;
-                }
-                cpu_cycles_sub = 0;
-                last_sub_update = now;
-            }
-
-            if now.wrapping_sub(last_perf_update) >= 500_000 {
-                hw.report_speed_and_load(cycle_counter * 2, max_cpu_cycles_sub as u32);
-
-                max_cpu_cycles_sub = 0;
-                cycle_counter = 0;
-                idle_counter = 0;
-                last_perf_update = now;
-            } else {
+            if caught_up == 0 {
                 idle_counter = idle_counter.wrapping_add(1);
                 timer.yield_cpu();
             }
+
+            // Report exactly on every loop, HostInterface does a fast atomic write
+            hw.report_performance_counters(cycle_counter, idle_counter);
         }
     }
 }

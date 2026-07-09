@@ -558,19 +558,75 @@ impl HostInterface for HardwareBridge {
         self._pins.reset_rx.is_high()
     }
 
-    fn report_speed_and_load(&mut self, speed_hz: u32, max_cpu_cycles_sub: u32) {
-        self.config.emu_speed_hz.store(speed_hz, Ordering::Relaxed);
-        self.config.core0_avg_raw.store(max_cpu_cycles_sub, Ordering::Relaxed);
-    }
-
-    fn report_max_idle(&mut self, max_idle: u32) {
-        self.config.core0_max_raw.store(max_idle, Ordering::Relaxed);
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    fn report_performance_counters(&mut self, ticks: u32, idles: u32) {
+        self.config.emu_total_ticks.store(ticks, Ordering::Relaxed);
+        self.config.emu_total_idles.store(idles, Ordering::Relaxed);
     }
 }
 
 #[embassy_executor::task]
 async fn activity_run(mut task: DriveActivityTask<IndicatorWrapper<CriticalSectionRawMutex>>) {
     task.run().await;
+}
+
+#[embassy_executor::task]
+async fn core0_perf_task(config: &'static pico1541_common::snooper::SnooperConfig) {
+    let mut speed_accum = 0;
+    let mut max_load = 0;
+    let mut samples = 0;
+    let mut last_emu_ticks = config.emu_total_ticks.load(Ordering::Relaxed);
+    let mut last_idle_loops = config.emu_total_idles.load(Ordering::Relaxed);
+    
+    // Determine a baseline max_idle from calibration if possible. 
+    // Wait, the emulator no longer calibrates max idle. 
+    // For RP2040 at 133MHz, 1 idle loop takes exactly 4 CPU cycles (if mostly LDR/ADD/B in RAM).
+    // Let's use a dynamic approach or an approximation:
+    // If we assume a theoretical max idle per sec based on clock speed and loop overhead.
+    // Or we just approximate the max idle over time by tracking the absolute maximum diff seen!
+    let mut max_idle_per_20ms = 1_000_000u32; // Fallback, will auto-calibrate
+    
+    loop {
+        embassy_time::Timer::after(embassy_time::Duration::from_millis(20)).await;
+        
+        let current_emu_ticks = config.emu_total_ticks.load(Ordering::Relaxed);
+        let current_idle_loops = config.emu_total_idles.load(Ordering::Relaxed);
+        
+        let diff_ticks = current_emu_ticks.wrapping_sub(last_emu_ticks);
+        let diff_idles = current_idle_loops.wrapping_sub(last_idle_loops);
+        
+        last_emu_ticks = current_emu_ticks;
+        last_idle_loops = current_idle_loops;
+        
+        speed_accum += diff_ticks;
+        
+        if diff_idles > max_idle_per_20ms {
+            max_idle_per_20ms = diff_idles;
+        }
+        
+        if max_idle_per_20ms > 0 {
+            let idle_pct = if diff_idles > max_idle_per_20ms { 100 } else { (diff_idles * 100) / max_idle_per_20ms };
+            let load_pct = 100 - idle_pct;
+            
+            // Reconstruct fake SYST cycles for compatibility with main_menu.rs
+            let fake_busy_syst = (load_pct * (SYSTEM_CLOCK_FREQ / 50)) / 100;
+            
+            if fake_busy_syst > max_load {
+                max_load = fake_busy_syst;
+            }
+        }
+        
+        samples += 1;
+        if samples >= 25 {
+            config.emu_speed_hz.store(speed_accum * 2, Ordering::Relaxed);
+            config.core0_avg_raw.store(max_load, Ordering::Relaxed);
+            
+            speed_accum = 0;
+            max_load = 0;
+            samples = 0;
+        }
+    }
 }
 
 #[embassy_executor::task]
@@ -933,7 +989,7 @@ async fn core0_init_task(
     let action_task = ActionTask::new();
     spawner.spawn(action_run(action_task).unwrap());
 
-
+    spawner.spawn(core0_perf_task(&SNOOPER_CONFIG).unwrap());
     spawner.spawn(display_run(display_task).unwrap());
     spawner.spawn(snooper_run(snooper_task).unwrap());
     use embassy_rp::interrupt::{InterruptExt, Priority};

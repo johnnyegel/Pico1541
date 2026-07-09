@@ -17,6 +17,8 @@ pub struct SnooperConfig {
     pub diag_startup_ticks: portable_atomic::AtomicU32,
     pub trigger_reset: AtomicBool,
     pub halt_emulator: AtomicBool,
+    pub emu_total_ticks: portable_atomic::AtomicU32,
+    pub emu_total_idles: portable_atomic::AtomicU32,
 }
 
 impl SnooperConfig {
@@ -37,6 +39,8 @@ impl SnooperConfig {
             diag_startup_ticks: portable_atomic::AtomicU32::new(0),
             trigger_reset: AtomicBool::new(false),
             halt_emulator: AtomicBool::new(false),
+            emu_total_ticks: portable_atomic::AtomicU32::new(0),
+            emu_total_idles: portable_atomic::AtomicU32::new(0),
         }
     }
 
