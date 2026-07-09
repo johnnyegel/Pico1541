@@ -185,4 +185,11 @@ pub trait HostInterface: IecBus {
 
     /// Called when the read/write head moves to a new half-track.
     fn track_changed(&mut self, _half_track: u8) {}
+
+    // Execution control
+    fn check_halt_requested(&self) -> bool { false }
+    fn consume_trigger_reset(&mut self) -> bool { false }
+    fn is_reset_line_asserted(&self) -> bool { false }
+    fn report_speed_and_load(&mut self, _speed_hz: u32, _max_cpu_cycles_sub: u32) {}
+    fn report_max_idle(&mut self, _max_idle: u32) {}
 }

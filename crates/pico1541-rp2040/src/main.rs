@@ -35,7 +35,6 @@ use pico1541_emulator::Emulator;
 use pico1541_manager::tasks::{
     ActionTask, DiskTask, DisplayTask, DriveActivityTask, KeyboardTask, MainMenuTask, SnooperTask
 };
-use panic_probe as _;
 
 #[cfg(has_mklittlefs)]
 #[link_section = ".fs"]
@@ -49,6 +48,18 @@ use crate::driver::leds::{ActivityLed, StatusLeds, StatusLedsWrapper};
 use crate::driver::speaker::PiezoSpeaker;
 use crate::driver::blockdevsdcard::{SdCard, SdBlockIo};
 use pico1541_manager::driver::file_storage::{FatFsFileWrapper, FatStorage, StorageWrapper};
+
+use pico1541_common::SYSTEM_CLOCK_FREQ;
+use pico1541_common::track_buffer::{DualCoreTrackBuffer, ManagerHandle};
+use pico1541_common::formats::Error as FormatError;
+use pico1541_common::storage::{DirectoryEntry, mangle_filename};
+
+use pico1541_manager::{EVENT_CHANNEL, TRACK_CHANNEL, SETTINGS_CHANNEL, SettingsCommand};
+use pico1541_manager::driver::{FileInfo, FileStorageDriver};
+use pico1541_manager::tasks::disk_task::{FileOpener, match_c64_filename};
+
+use pico1541_emulator::ExecutionTimer;
+
 
 
 use static_cell::StaticCell;
@@ -123,9 +134,9 @@ async fn main(spawner: Spawner) {
     }
 
     let mut config = embassy_rp::config::Config::default();
-    config.clocks = embassy_rp::clocks::ClockConfig::system_freq(pico1541_common::SYSTEM_CLOCK_FREQ).unwrap();
+    config.clocks = embassy_rp::clocks::ClockConfig::system_freq(SYSTEM_CLOCK_FREQ).unwrap();
     let p = embassy_rp::init(config);
-    info!("Pico1541 Starting at {}MHz...", pico1541_common::SYSTEM_CLOCK_FREQ / 1_000_000);
+    info!("Pico1541 Starting at {}MHz...", SYSTEM_CLOCK_FREQ / 1_000_000);
 
     // Initialize Flash for LittleFS
     // RP2040 has 2MB of flash. We reserved 1MB at the end.
@@ -249,7 +260,7 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
 
 
     // Initialize the shared double track buffers
-    static DUAL_CORE_BUFFER: pico1541_common::track_buffer::DualCoreTrackBuffer = pico1541_common::track_buffer::DualCoreTrackBuffer::new();
+    static DUAL_CORE_BUFFER: DualCoreTrackBuffer = DualCoreTrackBuffer::new();
     let (manager_handle, emulator_handle) = DUAL_CORE_BUFFER.split();
 
     let stack = unsafe {
@@ -314,7 +325,15 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
             &mut *ptr
         };
         drive.reset(&mut bridge);
-        emulator_loop(drive, bridge);
+        
+        cortex_m::interrupt::disable(); // Guarantee no IRQs preempt the emulator core
+        let mut syst = unsafe { cortex_m::Peripherals::steal().SYST };
+        syst.set_clock_source(cortex_m::peripheral::syst::SystClkSource::Core);
+        syst.set_reload(0x00FFFFFF);
+        syst.clear_current();
+        syst.enable_counter();
+
+        drive.execution_loop(&mut bridge, &Rp2040Timer, unsafe { &*core::ptr::addr_of!(ROM_BUFFER) });
     });
 
     // --- Run Manager on Core 0 ---
@@ -421,7 +440,7 @@ impl HostInterface for HardwareBridge {
         // It does still need MotorChanged for other internal states though.
         if !matches!(event, DriveEvent::LedChanged(_)) {
             // try_send is non-blocking and safe for Core 0.
-            let _ = pico1541_manager::EVENT_CHANNEL.try_send(event);
+            let _ = EVENT_CHANNEL.try_send(event);
         }
     }
 
@@ -450,8 +469,8 @@ impl HostInterface for HardwareBridge {
     fn track_changed(&mut self, half_track: u8) {
         // We notify the TRACK_CHANNEL directly instead of using DriveEvent
         // First we drain the channel to avoid blocking if the manager is behind
-        while pico1541_manager::TRACK_CHANNEL.try_receive().is_ok() {}
-        let _ = pico1541_manager::TRACK_CHANNEL.try_send(half_track);
+        while TRACK_CHANNEL.try_receive().is_ok() {}
+        let _ = TRACK_CHANNEL.try_send(half_track);
         
         // Pend TIMER_IRQ_3 on Core 0 to wake up the DiskTask!
         embassy_rp::pac::TIMER.intf().write(|w| w.set_alarm(3, true));
@@ -500,9 +519,9 @@ impl HostInterface for HardwareBridge {
         let _handler = &mut self.handler;
         
         // self.snooper.update(host, |event| {
-        //     let _ = pico1541_manager::EVENT_CHANNEL.try_send(event);
+        //     let _ = EVENT_CHANNEL.try_send(event);
         //     handler.handle(event, &mut |e| {
-        //          let _ = pico1541_manager::EVENT_CHANNEL.try_send(e);
+        //          let _ = EVENT_CHANNEL.try_send(e);
         //     });
         //     if handler.is_hijacked() {
         //         config.hijack_active.store(true, Ordering::Relaxed);
@@ -514,6 +533,38 @@ impl HostInterface for HardwareBridge {
         //         config.should_drive_data.store(false, Ordering::Relaxed);
         //     }
         // });
+    }
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    fn check_halt_requested(&self) -> bool {
+        self.config.halt_emulator.load(Ordering::Relaxed)
+    }
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    fn consume_trigger_reset(&mut self) -> bool {
+        if self.config.trigger_reset.load(Ordering::Relaxed) {
+            self.config.trigger_reset.store(false, Ordering::Relaxed);
+            true
+        } else {
+            false
+        }
+    }
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    fn is_reset_line_asserted(&self) -> bool {
+        self._pins.reset_rx.is_high()
+    }
+
+    fn report_speed_and_load(&mut self, speed_hz: u32, max_cpu_cycles_sub: u32) {
+        self.config.emu_speed_hz.store(speed_hz, Ordering::Relaxed);
+        self.config.core0_avg_raw.store(max_cpu_cycles_sub, Ordering::Relaxed);
+    }
+
+    fn report_max_idle(&mut self, max_idle: u32) {
+        self.config.core0_max_raw.store(max_idle, Ordering::Relaxed);
     }
 }
 
@@ -527,14 +578,49 @@ async fn snooper_run(mut task: SnooperTask) {
     task.run().await;
 }
 
+
+struct Rp2040Timer;
+
+impl ExecutionTimer for Rp2040Timer {
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    fn time_us(&self) -> u32 {
+        embassy_rp::pac::TIMER.timelr().read()
+    }
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    fn syst_current(&self) -> u32 {
+        cortex_m::peripheral::SYST::get_current()
+    }
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    fn syst_per_us(&self) -> u32 {
+        SYSTEM_CLOCK_FREQ / 1_000_000
+    }
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    fn yield_cpu(&self) {
+        cortex_m::asm::nop();
+    }
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    fn halt_delay(&self) {
+        cortex_m::asm::delay(100);
+    }
+}
+
 struct PlatformStorageManager {
     storage: StorageWrapper<MyRawBlockIo, MyDet>,
 }
 
-impl pico1541_manager::tasks::disk_task::FileOpener for PlatformStorageManager {
+impl FileOpener for PlatformStorageManager {
     type FileStorage = MyStorage;
 
-    async fn open_file(&self, requested_petscii: &[u8]) -> Result<Self::FileStorage, pico1541_common::formats::Error> {
+    async fn open_file(&self, requested_petscii: &[u8]) -> Result<Self::FileStorage, FormatError> {
         let (dir_path, use_internal) = {
             let guard = MOUNTED_DIR.lock().await;
             (guard.0.clone(), guard.1)
@@ -543,10 +629,10 @@ impl pico1541_manager::tasks::disk_task::FileOpener for PlatformStorageManager {
         let mut found_filename = heapless::String::<64>::new();
         let mut found = false;
 
-        let find_file = |info: pico1541_manager::driver::FileInfo| {
+        let find_file = |info: FileInfo| {
             if !found {
-                let mangled = pico1541_common::storage::mangle_filename(&info.name);
-                if pico1541_manager::tasks::disk_task::match_c64_filename(&mangled, requested_petscii) {
+                let mangled = mangle_filename(&info.name);
+                if match_c64_filename(&mangled, requested_petscii) {
                     let name_len = info.name.iter().position(|&c| c == 0).unwrap_or(info.name.len());
                     if let Ok(s) = core::str::from_utf8(&info.name[..name_len]) {
                         let _ = found_filename.push_str(s);
@@ -556,7 +642,7 @@ impl pico1541_manager::tasks::disk_task::FileOpener for PlatformStorageManager {
             }
         };
 
-        use pico1541_manager::driver::FileStorageDriver;
+        use FileStorageDriver;
         if use_internal {
             let mut internal = littlefs_storage::LittleFsStorage;
             let _ = internal.list_dir_range(dir_path.as_str(), 0, 1000, find_file).await;
@@ -566,7 +652,7 @@ impl pico1541_manager::tasks::disk_task::FileOpener for PlatformStorageManager {
         }
         
         if !found {
-            return Err(pico1541_common::formats::Error::FileNotFound);
+            return Err(FormatError::FileNotFound);
         }
         
         let mut full_path = heapless::String::<128>::new();
@@ -597,13 +683,13 @@ impl pico1541_manager::tasks::disk_task::FileOpener for PlatformStorageManager {
         use_internal: bool,
         start_index: usize,
         count: usize,
-        mut callback: impl FnMut(pico1541_common::storage::DirectoryEntry),
-    ) -> Result<(), pico1541_common::formats::Error> {
-        use pico1541_manager::driver::FileStorageDriver;
+        mut callback: impl FnMut(DirectoryEntry),
+    ) -> Result<(), FormatError> {
+        use FileStorageDriver;
         
-        let handle_info = |info: pico1541_manager::driver::FileInfo| {
+        let handle_info = |info: FileInfo| {
             let name_len = info.name.iter().position(|&c| c == 0).unwrap_or(info.name.len());
-            let entry = pico1541_common::storage::DirectoryEntry::from_file_info(
+            let entry = DirectoryEntry::from_file_info(
                 &info.name[..name_len],
                 info.is_dir,
                 info.size,
@@ -755,7 +841,7 @@ async fn core0_init_task(
     pins: Core0Pins,
     config: &'static SnooperConfig,
     rom_name: heapless::String<32>,
-    manager_handle: pico1541_common::track_buffer::ManagerHandle,
+    manager_handle: ManagerHandle,
 ) {
     info!("core0_init_task started!");
 
@@ -862,7 +948,7 @@ async fn core0_init_task(
 #[embassy_executor::task]
 async fn settings_save_task(mut flash_storage: FlashStorage<'static>) {
     loop {
-        let cmd = pico1541_manager::SETTINGS_CHANNEL.receive().await;
+        let cmd = SETTINGS_CHANNEL.receive().await;
         
         let mut config = littlefs_rust::Config::new(4096, 128);
         config.read_size = 256;
@@ -871,7 +957,7 @@ async fn settings_save_task(mut flash_storage: FlashStorage<'static>) {
         config.lookahead_size = 16;
         
         match cmd {
-                pico1541_manager::SettingsCommand::SaveDriveId(id) => {
+                SettingsCommand::SaveDriveId(id) => {
                     match littlefs_rust::Filesystem::mount(flash_storage, config) {
                         Ok(fs) => {
                             if let Ok(file) = fs.open("/settings.dat", littlefs_rust::OpenFlags::WRITE | littlefs_rust::OpenFlags::CREATE | littlefs_rust::OpenFlags::TRUNC) {
@@ -886,7 +972,7 @@ async fn settings_save_task(mut flash_storage: FlashStorage<'static>) {
                         }
                     }
                 }
-                pico1541_manager::SettingsCommand::SaveBootRom(name) => {
+                SettingsCommand::SaveBootRom(name) => {
                     match littlefs_rust::Filesystem::mount(flash_storage, config) {
                         Ok(fs) => {
                             let _ = fs.mkdir("/settings");
@@ -902,7 +988,7 @@ async fn settings_save_task(mut flash_storage: FlashStorage<'static>) {
                         }
                     }
                 }
-                pico1541_manager::SettingsCommand::DeleteRom(name) => {
+                SettingsCommand::DeleteRom(name) => {
                     match littlefs_rust::Filesystem::mount(flash_storage, config) {
                         Ok(fs) => {
                             let mut full_path = heapless::String::<128>::new();
@@ -917,7 +1003,7 @@ async fn settings_save_task(mut flash_storage: FlashStorage<'static>) {
                         }
                     }
                 }
-                pico1541_manager::SettingsCommand::InstallRomStart { filename, size: _, offset: _ } => {
+                SettingsCommand::InstallRomStart { filename, size: _, offset: _ } => {
                     match littlefs_rust::Filesystem::mount(flash_storage, config) {
                         Ok(fs) => {
                             let _ = fs.mkdir("/roms");
@@ -928,12 +1014,12 @@ async fn settings_save_task(mut flash_storage: FlashStorage<'static>) {
                             if let Ok(file) = fs.open(full_path.as_str(), littlefs_rust::OpenFlags::WRITE | littlefs_rust::OpenFlags::CREATE | littlefs_rust::OpenFlags::TRUNC) {
                                 info!("Opened {} for writing", full_path.as_str());
                                 loop {
-                                    let inner_cmd = pico1541_manager::SETTINGS_CHANNEL.receive().await;
+                                    let inner_cmd = SETTINGS_CHANNEL.receive().await;
                                     match inner_cmd {
-                                        pico1541_manager::SettingsCommand::InstallRomChunk(data) => {
+                                        SettingsCommand::InstallRomChunk(data) => {
                                             let _ = file.write(&data);
                                         }
-                                        pico1541_manager::SettingsCommand::InstallRomFinish => {
+                                        SettingsCommand::InstallRomFinish => {
                                             let _ = file.sync();
                                             info!("Finished installing ROM");
                                             break;
@@ -951,7 +1037,7 @@ async fn settings_save_task(mut flash_storage: FlashStorage<'static>) {
                         }
                     }
                 }
-                pico1541_manager::SettingsCommand::LoadRomToMemory(name) => {
+                SettingsCommand::LoadRomToMemory(name) => {
                     match littlefs_rust::Filesystem::mount(flash_storage, config) {
                         Ok(fs) => {
                             let mut full_path = heapless::String::<128>::new();
@@ -982,162 +1068,6 @@ async fn settings_save_task(mut flash_storage: FlashStorage<'static>) {
                     }
                 }
                 _ => {}
-        }
-    }
-}
-
-
-#[link_section = ".data.ram_func"]
-fn emulator_loop(drive: &'static mut Emulator<HardwareBridge, PioMagneticSurface>, mut bridge: HardwareBridge) -> ! {
-    cortex_m::interrupt::disable(); // Guarantee no IRQs preempt the emulator core
-    let timer = embassy_rp::pac::TIMER;
-    let mut idle_counter = 0u32;
-    let mut cycle_counter = 0u32;
-
-    let mut syst = unsafe { cortex_m::Peripherals::steal().SYST };
-    syst.set_clock_source(cortex_m::peripheral::syst::SystClkSource::Core);
-    syst.set_reload(0x00FFFFFF);
-    syst.clear_current();
-    syst.enable_counter();
-
-    // Calibrate true max idle for 10ms to calculate accurate CPU load
-    let calib_start = timer.timelr().read();
-    let mut calib_last_tick = calib_start;
-    let mut calib_last_perf_update = calib_start;
-    let mut calib_idle = 0u32;
-    loop {
-        let now = timer.timelr().read();
-        if now.wrapping_sub(calib_start) >= 10_000 {
-            break;
-        }
-        
-        if bridge.config.halt_emulator.load(Ordering::Relaxed) { continue; }
-        if bridge.config.trigger_reset.load(Ordering::Relaxed) { continue; }
-
-        let mut caught_up = 0;
-        // Simulate the catchup loop overhead without doing tick()
-        while (now.wrapping_sub(calib_last_tick) as i32) > 0 && caught_up < 100 {
-            calib_last_tick = calib_last_tick.wrapping_add(1);
-            // drive.tick(&mut bridge);  <-- omitted to find max idle
-            caught_up += 1;
-        }
-
-        if now.wrapping_sub(calib_last_perf_update) >= 1_000_000 {
-            calib_last_perf_update = now;
-        } else {
-            calib_idle = calib_idle.wrapping_add(1);
-            cortex_m::asm::nop();
-        }
-    }
-    bridge.config.core0_max_raw.store(calib_idle * 100, Ordering::Relaxed);
-
-    let mut last_tick = timer.timelr().read();
-    let mut last_perf_update = last_tick;
-    let mut was_reset = false;
-
-    let mut cpu_cycles_sub = 0u64;
-    let mut max_cpu_cycles_sub = 0u64;
-    let mut last_sub_update = last_tick;
-
-    let syst_per_us = pico1541_common::SYSTEM_CLOCK_FREQ / 1_000_000;
-    let mut last_syst = cortex_m::peripheral::SYST::get_current();
-    let mut syst_accum = 0u32;
-    let mut now_us = last_tick;
-
-    loop {
-        let current_syst = cortex_m::peripheral::SYST::get_current();
-        let diff_syst = last_syst.wrapping_sub(current_syst) & 0x00FFFFFF;
-        last_syst = current_syst;
-        
-        syst_accum += diff_syst;
-        while syst_accum >= syst_per_us {
-            syst_accum -= syst_per_us;
-            now_us = now_us.wrapping_add(1);
-        }
-        let now = now_us;
-        
-        if bridge.config.halt_emulator.load(Ordering::Relaxed) {
-            cortex_m::asm::delay(100);
-            now_us = timer.timelr().read();
-            last_tick = now_us;
-            last_syst = cortex_m::peripheral::SYST::get_current();
-            syst_accum = 0;
-            continue;
-        }
-
-        if bridge.config.trigger_reset.load(Ordering::Relaxed) {
-            drive.update_rom(unsafe { &*core::ptr::addr_of!(ROM_BUFFER) });
-            drive.reset(&mut bridge);
-            bridge.config.trigger_reset.store(false, Ordering::Relaxed);
-        }
-
-        let mut caught_up = 0;
-        let is_reset = bridge._pins.reset_rx.is_high();
-
-        let t1_while = cortex_m::peripheral::SYST::get_current();
-        while (now.wrapping_sub(last_tick) as i32) > 0 && caught_up < 500 {
-            if is_reset {
-                last_tick = last_tick.wrapping_add(1);
-                cycle_counter += 1;
-                
-                if !was_reset {
-                    drive.reset(&mut bridge);
-                    bridge.iec_drive(pico1541_common::interface::IecBusState::default());
-                    was_reset = true;
-                }
-                bridge.sync(bridge.iec_host());
-            } else {
-                if was_reset {
-                    drive.reset(&mut bridge);
-                    was_reset = false;
-                }
-                
-                let elapsed = drive.tick(&mut bridge);
-                last_tick = last_tick.wrapping_add(elapsed);
-                cycle_counter += elapsed;
-            }
-            caught_up += 1;
-        }
-        let t2_while = cortex_m::peripheral::SYST::get_current();
-        
-        if caught_up > 0 {
-            let diff = (t1_while.wrapping_sub(t2_while) & 0x00FFFFFF) as u64;
-            cpu_cycles_sub += diff;
-        }
-
-        let elapsed_sub = now.wrapping_sub(last_sub_update);
-        if elapsed_sub >= 20_000 {
-            // Scale cpu_cycles_sub back to exactly 20,000 us to calculate accurate max load %
-            // If the emulator was busy and elapsed_sub > 20_000, this prevents > 100% fake spikes.
-            let scaled_cycles = (cpu_cycles_sub * 20_000) / (elapsed_sub as u64);
-            if scaled_cycles > max_cpu_cycles_sub {
-                max_cpu_cycles_sub = scaled_cycles;
-            }
-            cpu_cycles_sub = 0;
-            last_sub_update = now;
-        }
-
-        // Update performance metrics every 500ms
-        if now.wrapping_sub(last_perf_update) >= 500_000 {
-            let config = bridge.config;
-            
-            // Multiply by 2 because our window is half a second
-            config.emu_speed_hz.store(cycle_counter * 2, Ordering::Relaxed);
-            
-            // Store the max busy SYST cycles over any 20ms period
-            config.core0_avg_raw.store(max_cpu_cycles_sub as u32, Ordering::Relaxed);
-
-            max_cpu_cycles_sub = 0;
-
-            // We no longer auto-calibrate max_raw upwards here, 
-            // because the baseline idle was calculated accurately at startup.
-            
-            cycle_counter = 0;
-            idle_counter = 0;
-            last_perf_update = now;
-        } else {
-            idle_counter = idle_counter.wrapping_add(1);
-            cortex_m::asm::nop();
         }
     }
 }
