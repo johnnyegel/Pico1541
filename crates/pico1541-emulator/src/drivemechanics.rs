@@ -130,21 +130,29 @@ impl<S: MagneticSurface> DriveMechanics<S> {
         }
     }
 
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
     pub fn half_track(&self) -> u8 {
         // Do not expose the physical half-track outside the drive mechanics.
         self.halftrack_head_pos.clamp(0, MAX_HALF_TRACK) as u8
     }
 
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
     pub fn track_byte_pos_ix(&self) -> usize {
         self.surface.get_absolute_head_position(0) as usize
     }
 
     #[cfg(feature = "debug")]
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
     pub fn led_on(&self, via2: &Via6522) -> bool {
         (via2.orb & MASK_LED) != 0
     }
 
     #[cfg(feature = "debug")]
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
     pub fn motor_on(&self, via2: &Via6522) -> bool {
         (via2.orb & MASK_MOTOR) != 0
     }

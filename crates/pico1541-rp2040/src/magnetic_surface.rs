@@ -8,6 +8,7 @@ struct AlignedRing([u16; 16]);
 // Speed zone PIO timing
 // The PIO program executes exactly 8 cycles per *bit*, not per byte!
 const PIO_CYCLES_PER_BIT: u64 = 8; 
+// We use exactly 100M for perfect real-time emulation.
 const PIO_TIMING_DENOMINATOR: u64 = 100_000_000 * PIO_CYCLES_PER_BIT;
 
 // This const function executes entirely at compile time.

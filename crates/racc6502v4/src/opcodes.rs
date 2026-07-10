@@ -4,6 +4,7 @@ use crate::bus::Bus;
 pub type OpcodeFn<B> = fn(&mut CPU, &mut B, &mut <B as Bus>::Ctx) -> u32;
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_00<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -20,6 +21,7 @@ pub fn op_00<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_01<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -33,6 +35,7 @@ pub fn op_01<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_02<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -41,6 +44,7 @@ pub fn op_02<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_03<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -49,6 +53,7 @@ pub fn op_03<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_04<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -57,6 +62,7 @@ pub fn op_04<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_05<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -70,6 +76,7 @@ pub fn op_05<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_06<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -86,6 +93,7 @@ pub fn op_06<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_07<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -94,6 +102,7 @@ pub fn op_07<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_08<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -106,6 +115,7 @@ pub fn op_08<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_09<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -119,6 +129,7 @@ pub fn op_09<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_0a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -133,6 +144,7 @@ pub fn op_0a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_0b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -141,6 +153,7 @@ pub fn op_0b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_0c<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -149,6 +162,7 @@ pub fn op_0c<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_0d<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -162,6 +176,7 @@ pub fn op_0d<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_0e<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -178,6 +193,7 @@ pub fn op_0e<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_0f<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -186,6 +202,7 @@ pub fn op_0f<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_10<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -203,6 +220,7 @@ pub fn op_10<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_11<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -217,6 +235,7 @@ pub fn op_11<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_12<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -225,6 +244,7 @@ pub fn op_12<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_13<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -233,6 +253,7 @@ pub fn op_13<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_14<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -241,6 +262,7 @@ pub fn op_14<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_15<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -254,6 +276,7 @@ pub fn op_15<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_16<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -270,6 +293,7 @@ pub fn op_16<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_17<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -278,6 +302,7 @@ pub fn op_17<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_18<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -290,6 +315,7 @@ pub fn op_18<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_19<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -304,6 +330,7 @@ pub fn op_19<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_1a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -312,6 +339,7 @@ pub fn op_1a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_1b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -320,6 +348,7 @@ pub fn op_1b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_1c<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -328,6 +357,7 @@ pub fn op_1c<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_1d<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -342,6 +372,7 @@ pub fn op_1d<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_1e<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -358,6 +389,7 @@ pub fn op_1e<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_1f<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -366,6 +398,7 @@ pub fn op_1f<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_20<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -379,6 +412,7 @@ pub fn op_20<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_21<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -392,6 +426,7 @@ pub fn op_21<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_22<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -400,6 +435,7 @@ pub fn op_22<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_23<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -408,6 +444,7 @@ pub fn op_23<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_24<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -423,6 +460,7 @@ pub fn op_24<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_25<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -436,6 +474,7 @@ pub fn op_25<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_26<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -453,6 +492,7 @@ pub fn op_26<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_27<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -461,6 +501,7 @@ pub fn op_27<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_28<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -473,6 +514,7 @@ pub fn op_28<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_29<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -486,6 +528,7 @@ pub fn op_29<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_2a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -501,6 +544,7 @@ pub fn op_2a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_2b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -509,6 +553,7 @@ pub fn op_2b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_2c<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -524,6 +569,7 @@ pub fn op_2c<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_2d<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -537,6 +583,7 @@ pub fn op_2d<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_2e<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -554,6 +601,7 @@ pub fn op_2e<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_2f<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -562,6 +610,7 @@ pub fn op_2f<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_30<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -579,6 +628,7 @@ pub fn op_30<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_31<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -593,6 +643,7 @@ pub fn op_31<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_32<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -601,6 +652,7 @@ pub fn op_32<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_33<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -609,6 +661,7 @@ pub fn op_33<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_34<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -617,6 +670,7 @@ pub fn op_34<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_35<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -630,6 +684,7 @@ pub fn op_35<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_36<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -647,6 +702,7 @@ pub fn op_36<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_37<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -655,6 +711,7 @@ pub fn op_37<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_38<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -667,6 +724,7 @@ pub fn op_38<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_39<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -681,6 +739,7 @@ pub fn op_39<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_3a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -689,6 +748,7 @@ pub fn op_3a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_3b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -697,6 +757,7 @@ pub fn op_3b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_3c<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -705,6 +766,7 @@ pub fn op_3c<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_3d<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -719,6 +781,7 @@ pub fn op_3d<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_3e<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -736,6 +799,7 @@ pub fn op_3e<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_3f<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -744,6 +808,7 @@ pub fn op_3f<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_40<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -757,6 +822,7 @@ pub fn op_40<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_41<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -770,6 +836,7 @@ pub fn op_41<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_42<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -778,6 +845,7 @@ pub fn op_42<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_43<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -786,6 +854,7 @@ pub fn op_43<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_44<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -794,6 +863,7 @@ pub fn op_44<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_45<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -807,6 +877,7 @@ pub fn op_45<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_46<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -823,6 +894,7 @@ pub fn op_46<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_47<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -831,6 +903,7 @@ pub fn op_47<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_48<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -843,6 +916,7 @@ pub fn op_48<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_49<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -856,6 +930,7 @@ pub fn op_49<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_4a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -870,6 +945,7 @@ pub fn op_4a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_4b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -878,6 +954,7 @@ pub fn op_4b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_4c<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -890,6 +967,7 @@ pub fn op_4c<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_4d<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -903,6 +981,7 @@ pub fn op_4d<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_4e<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -919,6 +998,7 @@ pub fn op_4e<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_4f<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -927,6 +1007,7 @@ pub fn op_4f<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_50<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -944,6 +1025,7 @@ pub fn op_50<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_51<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -958,6 +1040,7 @@ pub fn op_51<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_52<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -966,6 +1049,7 @@ pub fn op_52<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_53<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -974,6 +1058,7 @@ pub fn op_53<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_54<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -982,6 +1067,7 @@ pub fn op_54<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_55<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -995,6 +1081,7 @@ pub fn op_55<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_56<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1011,6 +1098,7 @@ pub fn op_56<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_57<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1019,6 +1107,7 @@ pub fn op_57<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_58<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1031,6 +1120,7 @@ pub fn op_58<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_59<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1045,6 +1135,7 @@ pub fn op_59<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_5a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1053,6 +1144,7 @@ pub fn op_5a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_5b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1061,6 +1153,7 @@ pub fn op_5b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_5c<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1069,6 +1162,7 @@ pub fn op_5c<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_5d<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1083,6 +1177,7 @@ pub fn op_5d<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_5e<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1099,6 +1194,7 @@ pub fn op_5e<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_5f<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1107,6 +1203,7 @@ pub fn op_5f<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_60<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1119,6 +1216,7 @@ pub fn op_60<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_61<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1132,6 +1230,7 @@ pub fn op_61<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_62<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1140,6 +1239,7 @@ pub fn op_62<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_63<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1148,6 +1248,7 @@ pub fn op_63<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_64<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1156,6 +1257,7 @@ pub fn op_64<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_65<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1169,6 +1271,7 @@ pub fn op_65<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_66<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1186,6 +1289,7 @@ pub fn op_66<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_67<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1194,6 +1298,7 @@ pub fn op_67<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_68<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1207,6 +1312,7 @@ pub fn op_68<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_69<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1220,6 +1326,7 @@ pub fn op_69<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_6a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1235,6 +1342,7 @@ pub fn op_6a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_6b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1243,6 +1351,7 @@ pub fn op_6b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_6c<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1255,6 +1364,7 @@ pub fn op_6c<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_6d<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1268,6 +1378,7 @@ pub fn op_6d<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_6e<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1285,6 +1396,7 @@ pub fn op_6e<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_6f<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1293,6 +1405,7 @@ pub fn op_6f<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_70<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1310,6 +1423,7 @@ pub fn op_70<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_71<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1324,6 +1438,7 @@ pub fn op_71<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_72<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1332,6 +1447,7 @@ pub fn op_72<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_73<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1340,6 +1456,7 @@ pub fn op_73<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_74<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1348,6 +1465,7 @@ pub fn op_74<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_75<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1361,6 +1479,7 @@ pub fn op_75<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_76<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1378,6 +1497,7 @@ pub fn op_76<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_77<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1386,6 +1506,7 @@ pub fn op_77<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_78<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1398,6 +1519,7 @@ pub fn op_78<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_79<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1412,6 +1534,7 @@ pub fn op_79<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_7a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1420,6 +1543,7 @@ pub fn op_7a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_7b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1428,6 +1552,7 @@ pub fn op_7b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_7c<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1436,6 +1561,7 @@ pub fn op_7c<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_7d<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1450,6 +1576,7 @@ pub fn op_7d<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_7e<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1467,6 +1594,7 @@ pub fn op_7e<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_7f<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1475,6 +1603,7 @@ pub fn op_7f<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_80<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1483,6 +1612,7 @@ pub fn op_80<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_81<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1495,6 +1625,7 @@ pub fn op_81<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_82<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1503,6 +1634,7 @@ pub fn op_82<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_83<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1511,6 +1643,7 @@ pub fn op_83<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_84<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1523,6 +1656,7 @@ pub fn op_84<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_85<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1535,6 +1669,7 @@ pub fn op_85<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_86<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1547,6 +1682,7 @@ pub fn op_86<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_87<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1555,6 +1691,7 @@ pub fn op_87<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_88<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1568,6 +1705,7 @@ pub fn op_88<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_89<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1576,6 +1714,7 @@ pub fn op_89<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_8a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1589,6 +1728,7 @@ pub fn op_8a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_8b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1597,6 +1737,7 @@ pub fn op_8b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_8c<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1609,6 +1750,7 @@ pub fn op_8c<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_8d<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1621,6 +1763,7 @@ pub fn op_8d<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_8e<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1633,6 +1776,7 @@ pub fn op_8e<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_8f<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1641,6 +1785,7 @@ pub fn op_8f<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_90<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1658,6 +1803,7 @@ pub fn op_90<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_91<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1670,6 +1816,7 @@ pub fn op_91<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_92<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1678,6 +1825,7 @@ pub fn op_92<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_93<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1686,6 +1834,7 @@ pub fn op_93<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_94<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1698,6 +1847,7 @@ pub fn op_94<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_95<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1710,6 +1860,7 @@ pub fn op_95<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_96<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1722,6 +1873,7 @@ pub fn op_96<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_97<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1730,6 +1882,7 @@ pub fn op_97<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_98<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1743,6 +1896,7 @@ pub fn op_98<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_99<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1755,6 +1909,7 @@ pub fn op_99<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_9a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1767,6 +1922,7 @@ pub fn op_9a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_9b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1775,6 +1931,7 @@ pub fn op_9b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_9c<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1783,6 +1940,7 @@ pub fn op_9c<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_9d<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1795,6 +1953,7 @@ pub fn op_9d<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_9e<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1803,6 +1962,7 @@ pub fn op_9e<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_9f<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1811,6 +1971,7 @@ pub fn op_9f<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_a0<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1824,6 +1985,7 @@ pub fn op_a0<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_a1<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1837,6 +1999,7 @@ pub fn op_a1<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_a2<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1850,6 +2013,7 @@ pub fn op_a2<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_a3<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1858,6 +2022,7 @@ pub fn op_a3<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_a4<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1871,6 +2036,7 @@ pub fn op_a4<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_a5<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1884,6 +2050,7 @@ pub fn op_a5<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_a6<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1897,6 +2064,7 @@ pub fn op_a6<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_a7<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1905,6 +2073,7 @@ pub fn op_a7<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_a8<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1918,6 +2087,7 @@ pub fn op_a8<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_a9<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1931,6 +2101,7 @@ pub fn op_a9<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_aa<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1944,6 +2115,7 @@ pub fn op_aa<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_ab<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1952,6 +2124,7 @@ pub fn op_ab<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_ac<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1965,6 +2138,7 @@ pub fn op_ac<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_ad<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1978,6 +2152,7 @@ pub fn op_ad<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_ae<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1991,6 +2166,7 @@ pub fn op_ae<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_af<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -1999,6 +2175,7 @@ pub fn op_af<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_b0<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2016,6 +2193,7 @@ pub fn op_b0<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_b1<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2030,6 +2208,7 @@ pub fn op_b1<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_b2<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2038,6 +2217,7 @@ pub fn op_b2<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_b3<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2046,6 +2226,7 @@ pub fn op_b3<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_b4<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2059,6 +2240,7 @@ pub fn op_b4<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_b5<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2072,6 +2254,7 @@ pub fn op_b5<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_b6<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2085,6 +2268,7 @@ pub fn op_b6<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_b7<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2093,6 +2277,7 @@ pub fn op_b7<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_b8<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2105,6 +2290,7 @@ pub fn op_b8<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_b9<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2119,6 +2305,7 @@ pub fn op_b9<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_ba<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2132,6 +2319,7 @@ pub fn op_ba<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_bb<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2140,6 +2328,7 @@ pub fn op_bb<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_bc<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2154,6 +2343,7 @@ pub fn op_bc<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_bd<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2168,6 +2358,7 @@ pub fn op_bd<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_be<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2182,6 +2373,7 @@ pub fn op_be<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_bf<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2190,6 +2382,7 @@ pub fn op_bf<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_c0<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2205,6 +2398,7 @@ pub fn op_c0<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_c1<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2220,6 +2414,7 @@ pub fn op_c1<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_c2<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2228,6 +2423,7 @@ pub fn op_c2<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_c3<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2236,6 +2432,7 @@ pub fn op_c3<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_c4<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2251,6 +2448,7 @@ pub fn op_c4<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_c5<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2266,6 +2464,7 @@ pub fn op_c5<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_c6<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2281,6 +2480,7 @@ pub fn op_c6<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_c7<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2289,6 +2489,7 @@ pub fn op_c7<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_c8<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2302,6 +2503,7 @@ pub fn op_c8<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_c9<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2317,6 +2519,7 @@ pub fn op_c9<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_ca<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2330,6 +2533,7 @@ pub fn op_ca<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_cb<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2338,6 +2542,7 @@ pub fn op_cb<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_cc<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2353,6 +2558,7 @@ pub fn op_cc<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_cd<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2368,6 +2574,7 @@ pub fn op_cd<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_ce<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2383,6 +2590,7 @@ pub fn op_ce<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_cf<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2391,6 +2599,7 @@ pub fn op_cf<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_d0<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2408,6 +2617,7 @@ pub fn op_d0<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_d1<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2424,6 +2634,7 @@ pub fn op_d1<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_d2<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2432,6 +2643,7 @@ pub fn op_d2<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_d3<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2440,6 +2652,7 @@ pub fn op_d3<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_d4<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2448,6 +2661,7 @@ pub fn op_d4<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_d5<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2463,6 +2677,7 @@ pub fn op_d5<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_d6<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2478,6 +2693,7 @@ pub fn op_d6<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_d7<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2486,6 +2702,7 @@ pub fn op_d7<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_d8<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2498,6 +2715,7 @@ pub fn op_d8<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_d9<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2514,6 +2732,7 @@ pub fn op_d9<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_da<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2522,6 +2741,7 @@ pub fn op_da<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_db<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2530,6 +2750,7 @@ pub fn op_db<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_dc<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2538,6 +2759,7 @@ pub fn op_dc<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_dd<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2554,6 +2776,7 @@ pub fn op_dd<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_de<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2569,6 +2792,7 @@ pub fn op_de<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_df<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2577,6 +2801,7 @@ pub fn op_df<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_e0<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2592,6 +2817,7 @@ pub fn op_e0<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_e1<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2605,6 +2831,7 @@ pub fn op_e1<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_e2<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2613,6 +2840,7 @@ pub fn op_e2<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_e3<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2621,6 +2849,7 @@ pub fn op_e3<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_e4<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2636,6 +2865,7 @@ pub fn op_e4<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_e5<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2649,6 +2879,7 @@ pub fn op_e5<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_e6<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2664,6 +2895,7 @@ pub fn op_e6<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_e7<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2672,6 +2904,7 @@ pub fn op_e7<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_e8<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2685,6 +2918,7 @@ pub fn op_e8<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_e9<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2698,6 +2932,7 @@ pub fn op_e9<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_ea<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2709,6 +2944,7 @@ pub fn op_ea<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_eb<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2717,6 +2953,7 @@ pub fn op_eb<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_ec<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2732,6 +2969,7 @@ pub fn op_ec<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_ed<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2745,6 +2983,7 @@ pub fn op_ed<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_ee<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2760,6 +2999,7 @@ pub fn op_ee<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_ef<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2768,6 +3008,7 @@ pub fn op_ef<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_f0<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2785,6 +3026,7 @@ pub fn op_f0<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_f1<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2799,6 +3041,7 @@ pub fn op_f1<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_f2<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2807,6 +3050,7 @@ pub fn op_f2<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_f3<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2815,6 +3059,7 @@ pub fn op_f3<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_f4<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2823,6 +3068,7 @@ pub fn op_f4<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_f5<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2836,6 +3082,7 @@ pub fn op_f5<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_f6<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2851,6 +3098,7 @@ pub fn op_f6<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_f7<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2859,6 +3107,7 @@ pub fn op_f7<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_f8<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2871,6 +3120,7 @@ pub fn op_f8<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_f9<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2885,6 +3135,7 @@ pub fn op_f9<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_fa<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2893,6 +3144,7 @@ pub fn op_fa<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_fb<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2901,6 +3153,7 @@ pub fn op_fb<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_fc<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2909,6 +3162,7 @@ pub fn op_fc<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
  cpu.read_pc(bus, ctx, &mut offset); 2 }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_fd<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2923,6 +3177,7 @@ pub fn op_fd<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_fe<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
@@ -2938,6 +3193,7 @@ pub fn op_fe<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             }
 
 #[allow(unused_variables, unused_assignments, unused_mut)]
+#[link_section = ".data.ram_func"]
 pub fn op_ff<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
     let mut cycles: u32 = 0;
     let mut offset: u32 = 1;

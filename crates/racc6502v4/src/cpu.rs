@@ -36,20 +36,23 @@ impl Default for CPU {
 }
 
 impl CPU {
-    #[inline]
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
     pub fn read<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, cycle_offset: &mut u32, addr: u16) -> u8 {
         let val = bus.read(addr, self.cycles.wrapping_add(*cycle_offset), ctx);
         *cycle_offset += 1;
         val
     }
 
-    #[inline]
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
     pub fn write<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, cycle_offset: &mut u32, addr: u16, val: u8) {
         bus.write(addr, val, self.cycles.wrapping_add(*cycle_offset), ctx);
         *cycle_offset += 1;
     }
 
-    #[inline]
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
     pub fn read_pc<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, cycle_offset: &mut u32) -> u8 {
         let val = bus.read(self.pc, self.cycles.wrapping_add(*cycle_offset), ctx);
         *cycle_offset += 1;
@@ -57,56 +60,65 @@ impl CPU {
         val
     }
 
-    #[inline]
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
     pub fn read_word<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, cycle_offset: &mut u32, addr: u16) -> u16 {
         let lo = self.read(bus, ctx, cycle_offset, addr) as u16;
         let hi = self.read(bus, ctx, cycle_offset, addr.wrapping_add(1)) as u16;
         (hi << 8) | lo
     }
 
-    #[inline]
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
     pub fn read_word_pc<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, cycle_offset: &mut u32) -> u16 {
         let lo = self.read_pc(bus, ctx, cycle_offset) as u16;
         let hi = self.read_pc(bus, ctx, cycle_offset) as u16;
         (hi << 8) | lo
     }
 
-    #[inline]
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
     pub fn push<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, cycle_offset: &mut u32, val: u8) {
         self.write(bus, ctx, cycle_offset, 0x0100 | (self.s as u16), val);
         self.s = self.s.wrapping_sub(1);
     }
 
-    #[inline]
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
     pub fn pop<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, cycle_offset: &mut u32) -> u8 {
         self.s = self.s.wrapping_add(1);
         self.read(bus, ctx, cycle_offset, 0x0100 | (self.s as u16))
     }
 
-    #[inline]
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
     pub fn push_word<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, cycle_offset: &mut u32, val: u16) {
         self.push(bus, ctx, cycle_offset, (val >> 8) as u8);
         self.push(bus, ctx, cycle_offset, val as u8);
     }
 
-    #[inline]
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
     pub fn pop_word<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, cycle_offset: &mut u32) -> u16 {
         let lo = self.pop(bus, ctx, cycle_offset) as u16;
         let hi = self.pop(bus, ctx, cycle_offset) as u16;
         (hi << 8) | lo
     }
 
-    #[inline]
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
     pub fn set_z(&mut self, val: u8) {
         if val == 0 { self.p |= FLAG_Z; } else { self.p &= !FLAG_Z; }
     }
 
-    #[inline]
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
     pub fn set_n(&mut self, val: u8) {
         if val & 0x80 != 0 { self.p |= FLAG_N; } else { self.p &= !FLAG_N; }
     }
 
-    #[inline]
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
     pub fn set_zn(&mut self, val: u8) {
         self.set_z(val);
         self.set_n(val);
