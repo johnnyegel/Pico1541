@@ -5,6 +5,28 @@ use pico1541_common::track_buffer::EmulatorHandle;
 #[repr(align(32))]
 struct AlignedRing([u16; 16]);
 
+// Speed zone PIO timing
+// The PIO program executes exactly 8 cycles per *bit*, not per byte!
+const PIO_CYCLES_PER_BIT: u64 = 8; 
+const PIO_TIMING_DENOMINATOR: u64 = 100_000_000 * PIO_CYCLES_PER_BIT;
+
+// This const function executes entirely at compile time.
+const fn calc_speed_zone_register(multiplier: u64) -> u32 {
+    // 1. Calculate the scaled fraction: (Clock * Time * 256) / Denominator
+    // 64-bit math guarantees no overflow during the massive multiplication step.
+    let div_256 = (pico1541_common::SYSTEM_CLOCK_FREQ as u64 * multiplier * 256) / PIO_TIMING_DENOMINATOR;
+    
+    // Cast back to u32 for the hardware registers safely
+    div_256 as u32
+}
+
+const PIO_SPEED_ZONES: [u32; 4] = [
+    calc_speed_zone_register(400), // Zone 0: 4.00 µs
+    calc_speed_zone_register(375), // Zone 1: 3.75 µs
+    calc_speed_zone_register(350), // Zone 2: 3.50 µs
+    calc_speed_zone_register(325), // Zone 3: 3.25 µs
+];
+
 // Static buffers for DMA
 static mut RING_BUFFER: AlignedRing = AlignedRing([0x8000; 16]);
 static mut CURRENT_TRACK_PTR: u32 = 0;
@@ -119,6 +141,7 @@ impl PioMagneticSurface {
         ch_c.ctrl_trig().write_value(ctrl_c);
     }
 
+    #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn is_sync_active() -> bool {
         let sio = pac::SIO;
@@ -126,6 +149,7 @@ impl PioMagneticSurface {
         (sio.gpio_in(0).read() & (1 << 10)) != 0
     }
 
+    #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn try_read_ram_byte(&mut self) -> Option<u8> {
         unsafe {
@@ -141,6 +165,7 @@ impl PioMagneticSurface {
         }
     }
 
+    #[link_section = ".data.ram_func"]
     fn abort_dma_ch0() {
         let dma = pac::DMA;
         dma.ch(0).ctrl_trig().modify(|w| w.set_en(false));
@@ -148,6 +173,7 @@ impl PioMagneticSurface {
         while dma.chan_abort().read().chan_abort() & (1 << 0) != 0 {}
     }
 
+    #[link_section = ".data.ram_func"]
     fn clear_pio_fifos() {
         let pio = pac::PIO0;
         let shiftctrl = pio.sm(0).shiftctrl();
@@ -190,11 +216,13 @@ impl MagneticSurface for PioMagneticSurface {
         track_length.saturating_sub(remaining)
     }
 
+    #[link_section = ".data.ram_func"]
     fn write_byte_at(&mut self, index: u32, data: u8) {
         self.track_handle.seek_to_byte(index);
         self.track_handle.next_write_byte(0, 0xFF, data);
     }
     
+    #[link_section = ".data.ram_func"]
     fn start_reading(&mut self, track_id: u8, _rotation_fixed: u32) {
         self.track_handle.update_head_half_track(track_id);
         
@@ -230,6 +258,7 @@ impl MagneticSurface for PioMagneticSurface {
         }
     }
     
+    #[link_section = ".data.ram_func"]
     fn stop_reading(&mut self) {
         Self::abort_dma_ch0();
     }
@@ -243,16 +272,13 @@ impl MagneticSurface for PioMagneticSurface {
     }
 
     fn set_speed_zone(&mut self, zone: u8) {
-        let multiplier = match zone {
-            3 => 325,
-            2 => 350,
-            1 => 375,
-            _ => 400,
-        };
-        let div_256 = (pico1541_common::SYSTEM_CLOCK_FREQ as u64 * multiplier * 256) / 500_000_000;
-        let clk_int = (div_256 / 256) as u16;
-        let clk_frac = (div_256 % 256) as u8;
-
+        // Bitwise AND with 3 safely bounds the zone to [0, 1, 2, 3]
+        let register_value = PIO_SPEED_ZONES[(zone & 3) as usize];
+        
+        // Slice the pre-calculated fixed-point value into Int and Frac
+        let clk_int = (register_value >> 8) as u16;
+        let clk_frac = (register_value & 0xFF) as u8;
+    
         let pio = pac::PIO0;
         pio.sm(0).clkdiv().write(|w| {
             w.set_int(clk_int);

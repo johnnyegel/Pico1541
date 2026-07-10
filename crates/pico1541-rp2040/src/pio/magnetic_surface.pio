@@ -1,51 +1,59 @@
 .program gcr_decoder
 
 ; --- HARDWARE CONFIGURATION REQUIREMENTS ---
-; 1. OSR Autopull    = false (We handle pulling manually to strip padding)
-; 2. ISR Autopush    = true  (Threshold 8 - pushes cleanly to FIFO)
-; 3. Shift Direction = Left  (MSB first out of OSR, MSB first into ISR)
-; 4. SET Pin Mapping = Configure Pin 10 as the base for the 'SET' group.
+; 1. OSR Autopull    = false 
+; 2. ISR Autopush    = true  (Threshold 8)
+; 3. Shift Direction = Left  (MSB first)
+; 4. SET Pin Mapping = GPIO 10 (SYNC)
 ; -------------------------------------------
 
 public entry_point:
-    set pins, 0        ; Initialize GPIO 10 to LOW (No SYNC active)
-    set x, 9           ; Initialize the consecutive '1's counter (10 total needed)
+    set pindirs, 1         ; Force Output Enable high for the SYNC pin
+    set pins, 0            ; SYNC starts low
+    set x, 9               ; 10 consecutive 1s needed
 
-fetch_byte:
-    pull block         ; Grab the 32-bit word from the 8-bit DMA channel
-    out null, 24       ; Discard the top 24 padding zeros inserted by the DMA/FIFO matrix
+fetch_init:
+    pull block             ; Prime the OSR on boot before the loop starts
+    out null, 24
 
-read_bit:
-    out y, 1           ; Pull exactly 1 bit from the OSR (MSB first)
-    jmp !y is_zero     ; If the bit is '0', branch immediately to break/reset tracking
+read_bit:                  ; [Cycle 1] Start of the 8-cycle loop
+    out y, 1               ; [Cycle 1] Pull 1 bit from OSR
+    jmp !y is_zero         ; [Cycle 2] If 0, jump to is_zero path
 
-is_one:
-    in y, 1            ; Shift the '1' bit into the ISR byte builder
-    jmp x-- check_osre ; Decrement counter. If X > 0, we haven't hit 10 consecutive 1s yet.
+is_one:                    ; --- THE '1' PATH ---
+    in y, 1                ; [Cycle 3] Shift '1' into ISR
+    jmp x-- check_osre     ; [Cycle 4] Decrement SYNC counter. If > 0, jump to gate.
 
-    ; --- SYNC CONDITION DETECTED ---
-    set pins, 1        ; Drive GPIO 10 HIGH instantly for the logic analyzer and SIO
-    mov isr, null      ; Purge the partial ISR buffer (discards framing garbage)
-
+    ; --- SYNC CONDITION TRIGGERED (X hit 0) ---
+    set pins, 1            ; Drive SYNC high
+    mov isr, null          ; Purge framing garbage
 sync_wait:
-    jmp !osre sync_do  ; Check if the OSR still contains data bits
-    pull block         ; OSR is dry, load the next 32-bit word from the FIFO
-    out null, 24       ; Chop off the 24 padding zeros
-
+    jmp !osre sync_do      ; Check if OSR has bits
+    pull block             ; Fetch next word
+    out null, 24           ; Strip padding
 sync_do:
-    out y, 1           ; Pull the next bit
-    jmp !y sync_broken ; If it is a '0', break the sync
-    jmp sync_wait      ; Otherwise, loop back to wait
-
+    out y, 1               ; Pull next bit
+    jmp !y sync_broken     ; If 0, SYNC is over!
+    jmp sync_wait          ; If 1, stay trapped in SYNC
 sync_broken:
-    ; --- SYNC CONDITION BROKEN ---
-    set pins, 0        ; Drive GPIO 10 LOW immediately!
-    ; Fall through directly into 'is_zero' to process the '0' bit that broke the sync.
+    set pins, 0            ; Drive SYNC low
+    in y, 1                ; Shift the '0' into the fresh ISR
+    set x, 9               ; Reset SYNC counter
+    jmp check_osre         ; Re-enter the timing gate
 
-is_zero:
-    in y, 1            ; Shift the '0' in as the absolute first bit of the new byte
-    set x, 9           ; Reset the consecutive '1's counter back to 10 iterations
+is_zero:                   ; --- THE '0' PATH ---
+    in y, 1                ; [Cycle 3] Shift '0' into ISR
+    set x, 9               ; [Cycle 4] Reset SYNC counter
 
-check_osre:
-    jmp !osre read_bit ; If the current OSR byte has bits remaining, loop back
-    jmp fetch_byte     ; OSR is empty. Loop back to fetch the next byte from the FIFO.
+check_osre:                ; --- THE TIMING GATE ---
+    jmp !osre delay_pad    ; [Cycle 5] If OSR HAS DATA (!empty), jump to padding
+
+fetch_next:                ; --- THE FETCH PATH (OSR is empty) ---
+    pull block             ; [Cycle 6] Grab next word from DMA
+    out null, 24           ; [Cycle 7] Discard padding
+    jmp read_bit           ; [Cycle 8] Loop back to start
+
+delay_pad:                 ; --- THE NON-FETCH PATH (OSR has data) ---
+    nop                    ; [Cycle 6] Burn a cycle to match 'pull'
+    nop                    ; [Cycle 7] Burn a cycle to match 'out null'
+    jmp read_bit           ; [Cycle 8] Loop back to start
