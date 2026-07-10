@@ -90,7 +90,6 @@ impl PioMagneticSurface {
         let pio = pac::PIO0;
 
         let ch_a = dma.ch(0);
-        let ch_b = dma.ch(1);
         let ch_c = dma.ch(2);
 
         // --- Channel A: TX Worker (Streams data to PIO) ---
@@ -111,6 +110,7 @@ impl PioMagneticSurface {
 
         // --- Channel B: TX Reloader (The Infinite Loop Engine) ---
         // Unpaced, 32-bit, no inc, trans_count 1, writes to ch_a AL3_READ_ADDR_TRIG.
+        let ch_b = dma.ch(1);
         ch_b.read_addr().write_value(core::ptr::addr_of!(CURRENT_TRACK_PTR) as u32);
         ch_b.write_addr().write_value(ch_a.al3_read_addr_trig().as_ptr() as u32);
         ch_b.trans_count().write_value(1);
@@ -123,6 +123,8 @@ impl PioMagneticSurface {
         ctrl_b.set_chain_to(1); // Doesn't chain to others (chains to itself)
         ctrl_b.set_en(true);
         ch_b.ctrl_trig().write_value(ctrl_b);
+
+
 
         // --- Channel C: RX Sentinel Ring (Extracts data to RAM) ---
         // Paced by PIO RX DREQ, 16-bit, read no inc, write inc, ring size 5.
