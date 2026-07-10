@@ -367,7 +367,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         }
         
         if (self.via2.orb & 0x04) != 0 {
-            min_delta = min_delta.min(1);
+            // Motor is on: Batch tick_cycles execution up to 8 cycles to save CPU time.
+            min_delta = min_delta.min(8);
         }
 
         self.next_sync_cycle = self.last_cycle.wrapping_add(min_delta);

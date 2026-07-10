@@ -35,6 +35,7 @@ pub struct DriveMechanics<S: MagneticSurface> {
     last_gcr_byte: u8,
     last_requested_sector: u8,
     so_pulse_cycles: u32,
+    debug_pin_cycles: u32,
 }
 
 impl<S: MagneticSurface> DriveMechanics<S> {
@@ -46,6 +47,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
             last_gcr_byte: 0,
             last_requested_sector: 255,
             so_pulse_cycles: 0,
+            debug_pin_cycles: 0,
         }
     }
 }
@@ -101,13 +103,18 @@ impl<S: MagneticSurface> DriveMechanics<S> {
                     via2.ca1_irq();
                     self.so_pulse_cycles = 3;
                     hardware.debug_pin_0(true); // Assert SO pulse on debug pin
+                    self.debug_pin_cycles = 16; // Hold LA pin for 16 cycles to guarantee visibility
                     so_pulsed = true;
                 }
             }
 
             if self.so_pulse_cycles > 0 {
                 self.so_pulse_cycles = self.so_pulse_cycles.saturating_sub(delta);
-                if self.so_pulse_cycles == 0 {
+            }
+            
+            if self.debug_pin_cycles > 0 {
+                self.debug_pin_cycles = self.debug_pin_cycles.saturating_sub(delta);
+                if self.debug_pin_cycles == 0 {
                     hardware.debug_pin_0(false); // Release SO pulse on debug pin
                 }
             }
