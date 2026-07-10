@@ -573,19 +573,15 @@ async fn activity_run(mut task: DriveActivityTask<IndicatorWrapper<CriticalSecti
 
 #[embassy_executor::task]
 async fn core0_perf_task(config: &'static pico1541_common::snooper::SnooperConfig) {
-    let mut speed_accum = 0;
-    let mut max_load = 0;
-    let mut samples = 0;
     let mut last_emu_ticks = config.emu_total_ticks.load(Ordering::Relaxed);
     let mut last_idle_loops = config.emu_total_idles.load(Ordering::Relaxed);
     
-    // Determine a baseline max_idle from calibration if possible. 
-    // Wait, the emulator no longer calibrates max idle. 
-    // For RP2040 at 133MHz, 1 idle loop takes exactly 4 CPU cycles (if mostly LDR/ADD/B in RAM).
-    // Let's use a dynamic approach or an approximation:
-    // If we assume a theoretical max idle per sec based on clock speed and loop overhead.
-    // Or we just approximate the max idle over time by tracking the absolute maximum diff seen!
-    let mut max_idle_per_20ms = 1_000_000u32; // Fallback, will auto-calibrate
+    // Start max idle at 1 so it quickly calibrates UP to the actual idle loops
+    let mut max_idle_per_20ms = 1u32;
+    let mut max_load = 0;
+    
+    let mut last_time = embassy_time::Instant::now();
+    let mut ticks_since_last = 0;
     
     loop {
         embassy_time::Timer::after(embassy_time::Duration::from_millis(20)).await;
@@ -599,7 +595,7 @@ async fn core0_perf_task(config: &'static pico1541_common::snooper::SnooperConfi
         last_emu_ticks = current_emu_ticks;
         last_idle_loops = current_idle_loops;
         
-        speed_accum += diff_ticks;
+        ticks_since_last += diff_ticks;
         
         if diff_idles > max_idle_per_20ms {
             max_idle_per_20ms = diff_idles;
@@ -617,14 +613,18 @@ async fn core0_perf_task(config: &'static pico1541_common::snooper::SnooperConfi
             }
         }
         
-        samples += 1;
-        if samples >= 25 {
-            config.emu_speed_hz.store(speed_accum * 2, Ordering::Relaxed);
+        let now = embassy_time::Instant::now();
+        let elapsed_ms = now.duration_since(last_time).as_millis();
+        
+        // Update speed and reset stats roughly twice a second
+        if elapsed_ms >= 500 {
+            let speed_hz = ((ticks_since_last as u64 * 1000) / elapsed_ms) as u32;
+            config.emu_speed_hz.store(speed_hz, Ordering::Relaxed);
             config.core0_avg_raw.store(max_load, Ordering::Relaxed);
             
-            speed_accum = 0;
+            ticks_since_last = 0;
             max_load = 0;
-            samples = 0;
+            last_time = now;
         }
     }
 }
