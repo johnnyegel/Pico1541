@@ -89,10 +89,8 @@ impl<S: MagneticSurface> DriveMechanics<S> {
             if is_sync != was_sync {
                 if is_sync {
                     via2.in_b &= !MASK_SYNC; // Assert SYNC (Pull PB7 Low)
-                    hardware.debug_pin_1(true); // Assert SYNC on debug pin
                 } else {
                     via2.in_b |= MASK_SYNC;  // Release SYNC
-                    hardware.debug_pin_1(false); // Release SYNC on debug pin
                 }
             }
             
@@ -227,17 +225,19 @@ impl<S: MagneticSurface> DriveMechanics<S> {
                 }
             }
 
-            self.halftrack_head_pos = (last_half_track_pos + step)
-                    .clamp(MIN_HALF_TRACK, MAX_HALF_TRACK);
+            if step != 0 {
+                self.halftrack_head_pos = (last_half_track_pos + step)
+                        .clamp(MIN_HALF_TRACK, MAX_HALF_TRACK);
 
-            if self.halftrack_head_pos >= 0 && self.halftrack_head_pos <= MAX_HALF_TRACK {
-                self.surface.start_reading(self.halftrack_head_pos as u8, 0);
-                
-                if self.surface.get_active_track_length() == 0 {
-                    self.surface.inject_analog_noise();
+                if self.halftrack_head_pos >= 0 && self.halftrack_head_pos <= MAX_HALF_TRACK {
+                    self.surface.start_reading(self.halftrack_head_pos as u8, 0);
+                    
+                    if self.surface.get_active_track_length() == 0 {
+                        self.surface.inject_analog_noise();
+                    }
+                    
+                    hardware.track_changed(self.halftrack_head_pos as u8);
                 }
-                
-                hardware.track_changed(self.halftrack_head_pos as u8);
             }
         }
     }

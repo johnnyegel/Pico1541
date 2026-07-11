@@ -61,6 +61,7 @@ pub struct Emulator<H: HostInterface, S: MagneticSurface> {
     pub cpu: CPU,
     pub memory: SystemBus<H, S>,
     pub cycles: u32,
+    last_ram_execution: bool,
 }
 
 impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
@@ -70,6 +71,7 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
             cpu: CPU::new(),
             memory: bus,
             cycles: 0,
+            last_ram_execution: false,
         }
     }
 
@@ -93,6 +95,18 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         }
         let start_cycle = self.cpu.cycles;
         self.memory.current_cycle = start_cycle;
+        
+        let pc = self.cpu.pc;
+        let is_ram_execution = pc < 0x8000;
+        if is_ram_execution != self.last_ram_execution {
+            if is_ram_execution {
+                log::info!("FASTLOAD: PC jumped to RAM at ${:04X}!", pc);
+            } else {
+                log::info!("FASTLOAD: PC returned to ROM at ${:04X}!", pc);
+            }
+            hw.debug_pin_1(is_ram_execution);
+            self.last_ram_execution = is_ram_execution;
+        }
         
         let elapsed = {
             const fn inner<H: HostInterface, S: MagneticSurface>() -> [racc6502v4::opcodes::OpcodeFn<SystemBus<H, S>>; 256] {
