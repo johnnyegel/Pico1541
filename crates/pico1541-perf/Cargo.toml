@@ -15,6 +15,7 @@ racc6502v4 = { path = "../racc6502v4" }
 mos6502 = { path = "../mos6502" }
 
 pico1541-emulator = { path = "../pico1541-emulator" }
+pico1541-common = { path = "../pico1541-common" }
 
 cortex-m = "0.7.7"
 cortex-m-rt = "0.7.3"
@@ -31,4 +32,8 @@ harness = false
 
 [[test]]
 name = "perf_via"
+harness = false
+
+[[test]]
+name = "perf_mechanics"
 harness = false

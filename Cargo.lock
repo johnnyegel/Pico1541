@@ -1453,6 +1453,7 @@ dependencies = [
  "embassy-time",
  "mos6502",
  "panic-probe",
+ "pico1541-common",
  "pico1541-emulator",
  "racc6502",
  "racc6502v2",

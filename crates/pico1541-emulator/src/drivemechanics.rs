@@ -75,16 +75,29 @@ impl<S: MagneticSurface> DriveMechanics<S> {
         let is_read_mode = pcr_cb2 != 0b1100_0000;
 
         if is_read_mode {
-            let mut new_byte_arrived = false;
+            let byte_opt = self.surface.try_read_byte(delta);
+            let is_sync = self.surface.is_sync_active();
+            let was_sync = (via2.in_b & MASK_SYNC) == 0;
             
-            if let Some(byte) = self.surface.try_read_byte(delta) {
+            if byte_opt.is_none() && is_sync == was_sync {
+                if self.so_pulse_cycles > 0 {
+                    self.so_pulse_cycles = self.so_pulse_cycles.saturating_sub(delta);
+                }
+                if self.debug_pin_cycles > 0 {
+                    self.debug_pin_cycles = self.debug_pin_cycles.saturating_sub(delta);
+                    if self.debug_pin_cycles == 0 {
+                        hardware.debug_pin_0(false);
+                    }
+                }
+                return false;
+            }
+
+            let mut new_byte_arrived = false;
+            if let Some(byte) = byte_opt {
                 via2.in_a = byte;
                 self.last_gcr_byte = byte;
                 new_byte_arrived = true;
             }
-            
-            let is_sync = self.surface.is_sync_active();
-            let was_sync = (via2.in_b & MASK_SYNC) == 0;
             
             if is_sync != was_sync {
                 if is_sync {
