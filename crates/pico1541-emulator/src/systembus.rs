@@ -6,11 +6,7 @@ use pico1541_common::interface::{HostInterface, IecBusState};
 use pico1541_common::magnetic_surface::MagneticSurface;
 use core::marker::PhantomData;
 
-const RAM_SIZE: usize = 0x0800; // 2KB
-const ROM_SIZE: usize = 0x4000; // 16KB
-
-pub type PageReadFn<H, S> = fn(&mut SystemBus<H, S>, u16, u32, &mut H) -> u8;
-pub type PageWriteFn<H, S> = fn(&mut SystemBus<H, S>, u16, u8, u32, &mut H);
+const MEMORY_SIZE: usize = 32768;
 
 /// Represents the 1541's memory bus, mapping access to RAM, ROM, and I/O.
 ///
@@ -19,8 +15,7 @@ pub type PageWriteFn<H, S> = fn(&mut SystemBus<H, S>, u16, u8, u32, &mut H);
 /// `read` / `write` call via the `Bus::Ctx` mechanism and forwarded to
 /// `tick_cycle`.
 pub struct SystemBus<H: HostInterface, S: MagneticSurface> {
-    pub ram: alloc::boxed::Box<[u8; RAM_SIZE]>,
-    rom: &'static [u8; ROM_SIZE],
+    pub memory: alloc::boxed::Box<[u8; MEMORY_SIZE]>,
     pub via1: Via6522,
     pub via2: Via6522,
     pub mechanics: DriveMechanics<S>,
@@ -41,44 +36,18 @@ pub struct SystemBus<H: HostInterface, S: MagneticSurface> {
 }
 
 impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
-    const READ_HANDLERS: [PageReadFn<H, S>; 256] = {
-        let mut handlers = [Self::unimpl_read as PageReadFn<H, S>; 256];
-        let mut i = 0;
-        while i <= 0x17 { handlers[i] = Self::ram_read; i += 1; }
-        let mut i = 0x80;
-        while i <= 0xFF { handlers[i] = Self::rom_read; i += 1; }
-        let mut i = 0x18;
-        while i <= 0x1B { handlers[i] = Self::via_read; i += 1; }
-        let mut i = 0x1C;
-        while i <= 0x1F { handlers[i] = Self::via_read; i += 1; }
-        handlers
-    };
-
-    const WRITE_HANDLERS: [PageWriteFn<H, S>; 256] = {
-        let mut handlers = [Self::unimpl_write as PageWriteFn<H, S>; 256];
-        let mut i = 0;
-        while i <= 0x17 { handlers[i] = Self::ram_write; i += 1; }
-        let mut i = 0x80;
-        while i <= 0xFF { handlers[i] = Self::rom_write; i += 1; }
-        let mut i = 0x18;
-        while i <= 0x1B { handlers[i] = Self::via_write; i += 1; }
-        let mut i = 0x1C;
-        while i <= 0x1F { handlers[i] = Self::via_write; i += 1; }
-        handlers
-    };
-
-    pub fn new(rom: &'static [u8; ROM_SIZE], device_id: u8, surface: S) -> Self {
+    pub fn new(rom: &'static [u8; 16384], device_id: u8, surface: S) -> Self {
         // :: Intialize VIA1
         let via1 = Via6522::new();
 
-        let ram_ptr = unsafe {
-            alloc::alloc::alloc_zeroed(core::alloc::Layout::new::<[u8; RAM_SIZE]>()) as *mut [u8; RAM_SIZE]
+        let mem_ptr = unsafe {
+            alloc::alloc::alloc_zeroed(core::alloc::Layout::new::<[u8; MEMORY_SIZE]>()) as *mut [u8; MEMORY_SIZE]
         };
-        let ram = unsafe { alloc::boxed::Box::from_raw(ram_ptr) };
+        let mut memory = unsafe { alloc::boxed::Box::from_raw(mem_ptr) };
+        memory[0x4000..0x8000].copy_from_slice(rom);
 
         let mut systembus = Self {
-            ram,
-            rom,
+            memory,
             via1,
             via2: Via6522::new(),
             mechanics: DriveMechanics::new(surface),
@@ -105,8 +74,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         systembus
     }
 
-    pub fn update_rom(&mut self, rom: &'static [u8; ROM_SIZE]) {
-        self.rom = rom;
+    pub fn update_rom(&mut self, rom: &'static [u8; 16384]) {
+        self.memory[0x4000..0x8000].copy_from_slice(rom);
     }
 
     #[cfg(feature = "debug")]
@@ -120,7 +89,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     }
 
     pub fn reset(&mut self, hardware: &mut H) {
-        self.ram.fill(0);
+        self.memory[0..0x0800].fill(0);
         self.via1.reset();
         self.via2.reset();
         self.mechanics.reset();
@@ -210,7 +179,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
                 self.update_physical_iec(hardware);
             }
             if self.mechanics.surface.pop_force_disk_change() {
-                self.ram[0x001C] = 1;
+                self.memory[0x001C] = 1;
             }
             
             // 2. Read Write Protect sensor (Active LOW, but C64 logic expects inverted if necessary depending on schematic.
@@ -252,83 +221,73 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     }
 
     #[link_section = ".data.ram_func"]
-    fn ram_read(bus: &mut SystemBus<H, S>, addr: u16, _cycle: u32, _ctx: &mut H) -> u8 {
-        unsafe { *bus.ram.get_unchecked((addr as usize) & (RAM_SIZE - 1)) }
-    }
-
-    #[link_section = ".data.ram_func"]
-    fn ram_write(bus: &mut SystemBus<H, S>, addr: u16, val: u8, _cycle: u32, ctx: &mut H) {
-        unsafe { *bus.ram.get_unchecked_mut((addr as usize) & (RAM_SIZE - 1)) = val };
-        let mapped = addr & 0x07FF;
-        if mapped == 0x0077 || mapped == 0x0078 {
-            ctx.update_iec_addresses(bus.ram[0x0077], bus.ram[0x0078]);
-        }
-    }
-
-    #[link_section = ".data.ram_func"]
-    fn rom_read(bus: &mut SystemBus<H, S>, addr: u16, _cycle: u32, _ctx: &mut H) -> u8 {
-        unsafe { *bus.rom.get_unchecked((addr & 0x3FFF) as usize) }
-    }
-
-    #[link_section = ".data.ram_func"]
-    fn rom_write(_bus: &mut SystemBus<H, S>, _addr: u16, _val: u8, _cycle: u32, _ctx: &mut H) {}
-
-    #[link_section = ".data.ram_func"]
-    fn via_read(bus: &mut SystemBus<H, S>, addr: u16, cycle: u32, ctx: &mut H) -> u8 {
-        bus.catch_up(cycle, ctx);
-        bus.sync_required = true;
-        if addr < 0x1C00 {
-            bus.via1.read(addr)
+    #[cold]
+    fn read_io(&mut self, addr: u16, cycle: u32, _ctx: &mut H) -> u8 {
+        self.catch_up(cycle, _ctx);
+        self.sync_required = true;
+        if addr >= 0x1800 && addr <= 0x180F {
+            self.via1.read(addr)
+        } else if addr >= 0x1C00 && addr <= 0x1C0F {
+            self.via2.read(addr)
         } else {
-            bus.via2.read(addr)
+            0
         }
     }
 
     #[link_section = ".data.ram_func"]
-    fn via_write(bus: &mut SystemBus<H, S>, addr: u16, val: u8, cycle: u32, ctx: &mut H) {
-        bus.catch_up(cycle, ctx);
-        bus.sync_required = true;
-        if addr < 0x1C00 {
+    #[cold]
+    fn write_io(&mut self, addr: u16, val: u8, cycle: u32, ctx: &mut H) {
+        self.catch_up(cycle, ctx);
+        self.sync_required = true;
+        if addr >= 0x1800 && addr <= 0x180F {
             let reg = (addr & 0x0F) as usize;
-            bus.via1.write(addr, val);
+            self.via1.write(addr, val);
             if reg == 0x00 || reg == 0x02 || reg == 0x0F {
-                bus.update_drive_iec_base(ctx);
+                self.update_drive_iec_base(ctx);
             }
-        } else {
+        } else if addr >= 0x1C00 && addr <= 0x1C0F {
             let reg = (addr & 0x0F) as usize;
-            bus.via2.write(addr, val);
+            self.via2.write(addr, val);
             if reg == 0x00 || reg == 0x02 || reg == 0x0F {
-                bus.mechanics.update_state(bus.via2.orb, bus.via2.ddrb, ctx);
+                self.mechanics.update_state(self.via2.orb, self.via2.ddrb, ctx);
             }
         }
     }
-
-    #[link_section = ".data.ram_func"]
-    fn unimpl_read(_bus: &mut SystemBus<H, S>, _addr: u16, _cycle: u32, _ctx: &mut H) -> u8 { 0 }
-    #[link_section = ".data.ram_func"]
-    fn unimpl_write(_bus: &mut SystemBus<H, S>, _addr: u16, _val: u8, _cycle: u32, _ctx: &mut H) {}
 }
 
 impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H, S> {
     type Ctx = H;
 
-    #[link_section = ".data.ram_func"]
     #[inline(always)]
-    fn read(&mut self, addr: u16, cycle: u32, ctx: &mut H) -> u8 {
-        let page = (addr >> 8) as usize;
-        (Self::READ_HANDLERS[page])(self, addr, cycle, ctx)
+    fn get_instruction_ptr(&self, addr: u16) -> *const u8 {
+        let index = (addr & 0x3FFF) | ((addr >> 1) & 0x4000);
+        unsafe { self.memory.as_ptr().add(index as usize) }
     }
 
-    #[link_section = ".data.ram_func"]
     #[inline(always)]
-    fn write(&mut self, addr: u16, value: u8, cycle: u32, ctx: &mut H) {
-        let page = (addr >> 8) as usize;
-        (Self::WRITE_HANDLERS[page])(self, addr, value, cycle, ctx)
+    fn read(&mut self, addr: u16, cycle: u32, ctx: &mut Self::Ctx) -> u8 {
+        if (addr & 0x9800) == 0x1800 {
+            self.read_io(addr, cycle, ctx)
+        } else {
+            let index = (addr & 0x3FFF) | ((addr >> 1) & 0x4000);
+            unsafe { *self.memory.get_unchecked(index as usize) }
+        }
     }
 
-    #[link_section = ".data.ram_func"]
     #[inline(always)]
-    fn nmi_pending(&self) -> bool { false }
+    fn write(&mut self, addr: u16, val: u8, cycle: u32, ctx: &mut Self::Ctx) {
+        if (addr & 0x9800) == 0x1800 {
+            self.write_io(addr, val, cycle, ctx);
+        } else if addr < 0x8000 {
+            unsafe { *self.memory.get_unchecked_mut(addr as usize) = val; }
+            let mapped = addr & 0x07FF;
+            if mapped == 0x0077 || mapped == 0x0078 {
+                ctx.update_iec_addresses(self.memory[0x0077], self.memory[0x0078]);
+            }
+        }
+    }
+
+
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
@@ -386,13 +345,11 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 #[cfg(feature = "debug")]
 impl<H: HostInterface, S: MagneticSurface> MemoryMonitor for SystemBus<H, S> {
     fn peek(&self, addr: u16) -> u8 {
-        match addr {
-            0x0000..=0x17FF => self.ram[(addr as usize) % RAM_SIZE],
-            0x1800..=0x1BFF => self.via1.peek(addr),
-            0x1C00..=0x1FFF => self.via2.peek(addr),
-            0x8000..=0xBFFF => self.rom[(addr - 0x8000) as usize],
-            0xC000..=0xFFFF => self.rom[(addr - 0xC000) as usize],
-            _ => 0,
+        if (addr & 0x9800) == 0x1800 {
+            if addr < 0x1C00 { self.via1.peek(addr) } else { self.via2.peek(addr) }
+        } else {
+            let index = (addr & 0x3FFF) | ((addr >> 1) & 0x4000);
+            self.memory[index as usize]
         }
     }
 

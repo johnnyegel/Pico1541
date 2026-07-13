@@ -167,6 +167,7 @@ mod tests {
     impl racc6502v4::bus::Bus for Racc4Bus {
         type Ctx = ();
         fn read(&mut self, addr: u16, _cycle: u32, _ctx: &mut ()) -> u8 { self.memory[addr as usize] }
+        fn get_instruction_ptr(&self, addr: u16) -> *const u8 { unsafe { self.memory.as_ptr().add(addr as usize) } }
         fn write(&mut self, addr: u16, val: u8, _cycle: u32, _ctx: &mut ()) { self.memory[addr as usize] = val; }
     }
 

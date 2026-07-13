@@ -221,49 +221,68 @@ impl Via6522 {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn tick_cycles(&mut self, delta: u32) {
-        if delta == 0 { return; }
+        if delta == 0 || self.active_mask == 0 { return; }
         let delta16 = delta as u16;
 
-        // --- Timer 1 ---
-        if (self.active_mask & Self::T1_ACTIVE) != 0 {
-            if self.t1c < delta16 {
-                self.ifr |= 0x40;
-                self.t1_pb7 = !self.t1_pb7;
-                if (self.acr & 0x40) != 0 {
-                    let remainder = delta16 - self.t1c - 1;
-                    self.t1c = self.t1l.wrapping_sub(remainder);
+        match self.active_mask {
+            1 => {
+                if self.t1c < delta16 {
+                    self.ifr |= 0x40;
+                    self.t1_pb7 = !self.t1_pb7;
+                    if (self.acr & 0x40) != 0 {
+                        self.t1c = self.t1l.wrapping_sub(delta16 - self.t1c - 1);
+                    } else {
+                        self.active_mask &= !Self::T1_ACTIVE;
+                        self.t1c = 0xFFFF;
+                    }
+                    self.update_irq();
                 } else {
-                    self.active_mask &= !Self::T1_ACTIVE;
-                    self.t1c = 0xFFFF;
+                    self.t1c -= delta16;
                 }
-                self.update_irq();
-            } else {
-                self.t1c -= delta16;
-            }
-        }
+            },
+            _ => {
+                // --- Timer 1 ---
+                if (self.active_mask & Self::T1_ACTIVE) != 0 {
+                    if self.t1c < delta16 {
+                        self.ifr |= 0x40;
+                        self.t1_pb7 = !self.t1_pb7;
+                        if (self.acr & 0x40) != 0 {
+                            let remainder = delta16 - self.t1c - 1;
+                            self.t1c = self.t1l.wrapping_sub(remainder);
+                        } else {
+                            self.active_mask &= !Self::T1_ACTIVE;
+                            self.t1c = 0xFFFF;
+                        }
+                        self.update_irq();
+                    } else {
+                        self.t1c -= delta16;
+                    }
+                }
 
-        // --- Timer 2 ---
-        if (self.active_mask & Self::T2_ACTIVE) != 0 && (self.acr & 0x20) == 0 {
-            if self.t2c < delta16 {
-                self.ifr |= 0x20;
-                self.active_mask &= !Self::T2_ACTIVE;
-                self.update_irq();
-                self.t2c = 0xFFFF;
-            } else {
-                self.t2c -= delta16;
-            }
-        }
+                // --- Timer 2 ---
+                if (self.active_mask & Self::T2_ACTIVE) != 0 && (self.acr & 0x20) == 0 {
+                    if self.t2c < delta16 {
+                        self.ifr |= 0x20;
+                        self.active_mask &= !Self::T2_ACTIVE;
+                        self.update_irq();
+                        self.t2c = 0xFFFF;
+                    } else {
+                        self.t2c -= delta16;
+                    }
+                }
 
-        // --- Shift Register (Simplified) ---
-        if (self.active_mask & Self::SR_ACTIVE) != 0 {
-            let delta8 = delta16 as u8;
-            if self.sr_count >= delta8 {
-                self.sr_count -= delta8;
-            } else {
-                self.sr_count = 0;
-                self.ifr |= 0x04;
-                self.active_mask &= !Self::SR_ACTIVE;
-                self.update_irq();
+                // --- Shift Register (Simplified) ---
+                if (self.active_mask & Self::SR_ACTIVE) != 0 {
+                    let delta8 = delta16 as u8;
+                    if self.sr_count >= delta8 {
+                        self.sr_count -= delta8;
+                    } else {
+                        self.sr_count = 0;
+                        self.ifr |= 0x04;
+                        self.active_mask &= !Self::SR_ACTIVE;
+                        self.update_irq();
+                    }
+                }
             }
         }
     }

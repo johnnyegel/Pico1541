@@ -3,7 +3,6 @@ use crate::bus::Bus;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Interrupt {
     Reset,
-    Nmi,
     Irq,
 }
 
@@ -18,6 +17,7 @@ pub struct CPU {
     pub pending_so: bool,
     last_so_pin: bool,
     pub cycles: u32,
+    pub instr_ptr: *const u8,
 }
 
 pub const FLAG_C: u8 = 0x01;
@@ -53,8 +53,9 @@ impl CPU {
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn read_pc<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, cycle_offset: &mut u32) -> u8 {
-        let val = bus.read(self.pc, self.cycles.wrapping_add(*cycle_offset), ctx);
+    pub fn read_pc<B: Bus>(&mut self, _bus: &mut B, _ctx: &mut B::Ctx, cycle_offset: &mut u32) -> u8 {
+        let val = unsafe { *self.instr_ptr };
+        self.instr_ptr = unsafe { self.instr_ptr.add(1) };
         *cycle_offset += 1;
         self.pc = self.pc.wrapping_add(1);
         val
@@ -138,6 +139,7 @@ impl CPU {
             pending_so: false,
             last_so_pin: false,
             cycles: 0,
+            instr_ptr: core::ptr::null(),
         }
     }
 
@@ -232,15 +234,6 @@ impl CPU {
                     self.cycles = self.cycles.wrapping_add(elapsed);
                     return elapsed;
                 }
-                Interrupt::Nmi => {
-                    self.push_word(bus, ctx, &mut offset, self.pc);
-                    self.push(bus, ctx, &mut offset, self.p | FLAG_U);
-                    self.p |= FLAG_I;
-                    self.pc = self.read_word(bus, ctx, &mut offset, 0xFFFA);
-                    let elapsed = 7;
-                    self.cycles = self.cycles.wrapping_add(elapsed);
-                    return elapsed;
-                }
                 Interrupt::Irq => {
                     if self.p & FLAG_I == 0 {
                         self.push_word(bus, ctx, &mut offset, self.pc);
@@ -255,9 +248,7 @@ impl CPU {
             }
         }
         
-        if bus.nmi_pending() {
-            self.pending_interrupt = Some(Interrupt::Nmi);
-        } else if bus.irq_pending() {
+        if bus.irq_pending() {
             self.pending_interrupt = Some(Interrupt::Irq);
         }
 
@@ -266,7 +257,9 @@ impl CPU {
             self.pending_so = false;
         }
 
-        let opcode = bus.read(self.pc, self.cycles, ctx);
+        self.instr_ptr = bus.get_instruction_ptr(self.pc);
+        let opcode = unsafe { *self.instr_ptr };
+        self.instr_ptr = unsafe { self.instr_ptr.add(1) };
         self.pc = self.pc.wrapping_add(1);
         
         let elapsed = match opcode {

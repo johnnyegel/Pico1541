@@ -4,6 +4,9 @@ pub trait Bus {
     /// Reads a byte from memory.
     fn read(&mut self, addr: u16, cycle: u32, ctx: &mut Self::Ctx) -> u8;
     
+    /// Extremely fast read strictly for instruction/operand fetching (no IO checks).
+    fn get_instruction_ptr(&self, addr: u16) -> *const u8;
+    
     /// Writes a byte to memory.
     fn write(&mut self, addr: u16, val: u8, cycle: u32, ctx: &mut Self::Ctx);
     
@@ -11,9 +14,7 @@ pub trait Bus {
     #[allow(unused_variables)]
     fn peek(&self, addr: u16) -> u8 { 0 }
 
-    /// Optional: Check if NMI is pending.
-    #[inline(always)]
-    fn nmi_pending(&self) -> bool { false }
+
 
     /// Optional: Check if IRQ is pending.
     #[inline(always)]
