@@ -1441,6 +1441,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "pico1541-perf"
+version = "0.1.0"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
+ "defmt 1.1.0",
+ "defmt-rtt",
+ "defmt-test",
+ "embassy-rp",
+ "embassy-time",
+ "mos6502",
+ "panic-probe",
+ "pico1541-emulator",
+ "racc6502",
+ "racc6502v2",
+ "racc6502v3",
+ "racc6502v4",
+]
+
+[[package]]
 name = "pico1541-rp2040"
 version = "0.1.0"
 dependencies = [

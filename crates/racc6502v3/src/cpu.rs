@@ -51,11 +51,13 @@ impl CPU {
         }
     }
 
+    #[unsafe(link_section = ".data.ram_func")]
     pub fn reset<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) {
         self.pending_interrupt = Some(Interrupt::Reset);
         self.step(bus, ctx);
     }
     
+    #[unsafe(link_section = ".data.ram_func")]
     pub fn set_so_pin(&mut self, active: bool) {
         if active && !self.last_so_pin {
             self.pending_so = true;
@@ -63,20 +65,23 @@ impl CPU {
         self.last_so_pin = active;
     }
 
-    #[inline]
+    #[unsafe(link_section = ".data.ram_func")]
+    #[inline(always)]
     fn read<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, addr: u16) -> u8 {
         let val = bus.read(addr, self.cycles, ctx);
         self.cycles = self.cycles.wrapping_add(1);
         val
     }
 
-    #[inline]
+    #[unsafe(link_section = ".data.ram_func")]
+    #[inline(always)]
     fn write<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, addr: u16, val: u8) {
         bus.write(addr, val, self.cycles, ctx);
         self.cycles = self.cycles.wrapping_add(1);
     }
 
-    #[inline]
+    #[unsafe(link_section = ".data.ram_func")]
+    #[inline(always)]
     fn read_pc<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) -> u8 {
         let val = bus.read(self.pc, self.cycles, ctx);
         self.cycles = self.cycles.wrapping_add(1);
@@ -84,7 +89,8 @@ impl CPU {
         val
     }
 
-    #[inline]
+    #[unsafe(link_section = ".data.ram_func")]
+    #[inline(always)]
     fn read_word<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, addr: u16) -> u16 {
         let lo = bus.read(addr, self.cycles, ctx) as u16;
         self.cycles = self.cycles.wrapping_add(1);
@@ -93,49 +99,57 @@ impl CPU {
         (hi << 8) | lo
     }
 
-    #[inline]
+    #[unsafe(link_section = ".data.ram_func")]
+    #[inline(always)]
     fn read_word_pc<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) -> u16 {
         let lo = self.read_pc(bus, ctx) as u16;
         let hi = self.read_pc(bus, ctx) as u16;
         (hi << 8) | lo
     }
 
-    #[inline]
+    #[unsafe(link_section = ".data.ram_func")]
+    #[inline(always)]
     fn push<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, val: u8) {
         self.write(bus, ctx, 0x0100 | (self.s as u16), val);
         self.s = self.s.wrapping_sub(1);
     }
 
-    #[inline]
+    #[unsafe(link_section = ".data.ram_func")]
+    #[inline(always)]
     fn pop<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) -> u8 {
         self.s = self.s.wrapping_add(1);
         self.read(bus, ctx, 0x0100 | (self.s as u16))
     }
 
-    #[inline]
+    #[unsafe(link_section = ".data.ram_func")]
+    #[inline(always)]
     fn push_word<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, val: u16) {
         self.push(bus, ctx, (val >> 8) as u8);
         self.push(bus, ctx, val as u8);
     }
 
-    #[inline]
+    #[unsafe(link_section = ".data.ram_func")]
+    #[inline(always)]
     fn pop_word<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) -> u16 {
         let lo = self.pop(bus, ctx) as u16;
         let hi = self.pop(bus, ctx) as u16;
         (hi << 8) | lo
     }
 
-    #[inline]
+    #[unsafe(link_section = ".data.ram_func")]
+    #[inline(always)]
     fn set_z(&mut self, val: u8) {
         if val == 0 { self.p |= FLAG_Z; } else { self.p &= !FLAG_Z; }
     }
 
-    #[inline]
+    #[unsafe(link_section = ".data.ram_func")]
+    #[inline(always)]
     fn set_n(&mut self, val: u8) {
         if val & 0x80 != 0 { self.p |= FLAG_N; } else { self.p &= !FLAG_N; }
     }
 
-    #[inline]
+    #[unsafe(link_section = ".data.ram_func")]
+    #[inline(always)]
     fn set_zn(&mut self, val: u8) {
         self.set_z(val);
         self.set_n(val);
@@ -200,7 +214,11 @@ impl CPU {
                 cycles
             }
             0x01 => {
-                let addr = { let ptr = self.read_pc(bus, ctx).wrapping_add(self.x); let lo = self.read(bus, ctx, ptr as u16) as u16; let hi = self.read(bus, ctx, ptr.wrapping_add(1) as u16) as u16; (hi << 8) | lo };
+                let addr = { 
+                    let ptr = self.read_pc(bus, ctx).wrapping_add(self.x); 
+                    let lo = self.read(bus, ctx, ptr as u16) as u16; 
+                    let hi = self.read(bus, ctx, ptr.wrapping_add(1) as u16) as u16; (hi << 8) | lo 
+                };
                 let val = self.read(bus, ctx, addr);
                 self.a |= val; self.set_zn(self.a);
                 cycles += 6;
@@ -777,31 +795,31 @@ impl CPU {
                 let val = addr as u8;
                 if self.p & FLAG_D != 0 {
 
-                let a = self.a; let b = val; let c = self.p & FLAG_C;
-                let mut low = (a & 0x0F) + (b & 0x0F) + c;
-                if low > 9 { low += 6; }
-                let mut high = (a >> 4) + (b >> 4) + (if low > 15 { 1 } else { 0 });
-                let al = a as u16; let bl = b as u16; let cl = c as u16;
-                let res_bin = al + bl + cl;
-                self.p &= !0xC3;
-                if ((al ^ res_bin) & (bl ^ res_bin) & 0x80) != 0 { self.p |= FLAG_V; }
-                if (res_bin & 0x80) != 0 { self.p |= FLAG_N; }
-                if (res_bin as u8) == 0 { self.p |= FLAG_Z; }
-                if high > 9 { high += 6; }
-                if high > 15 { self.p |= FLAG_C; }
-                self.a = (low & 0x0F) | ((high & 0x0F) << 4);
+                    let a = self.a; let b = val; let c = self.p & FLAG_C;
+                    let mut low = (a & 0x0F) + (b & 0x0F) + c;
+                    if low > 9 { low += 6; }
+                    let mut high = (a >> 4) + (b >> 4) + (if low > 15 { 1 } else { 0 });
+                    let al = a as u16; let bl = b as u16; let cl = c as u16;
+                    let res_bin = al + bl + cl;
+                    self.p &= !0xC3;
+                    if ((al ^ res_bin) & (bl ^ res_bin) & 0x80) != 0 { self.p |= FLAG_V; }
+                    if (res_bin & 0x80) != 0 { self.p |= FLAG_N; }
+                    if (res_bin as u8) == 0 { self.p |= FLAG_Z; }
+                    if high > 9 { high += 6; }
+                    if high > 15 { self.p |= FLAG_C; }
+                    self.a = (low & 0x0F) | ((high & 0x0F) << 4);
                 
                 } else {
 
-                let a = self.a as u16; let b = val as u16; let c = (self.p & FLAG_C) as u16;
-                let res = a + b + c;
-                self.p &= !0xC3;
-                if res > 0xFF { self.p |= FLAG_C; }
-                let r = res as u8;
-                if r == 0 { self.p |= FLAG_Z; }
-                if (r & 0x80) != 0 { self.p |= FLAG_N; }
-                if ((a ^ res) & (b ^ res) & 0x80) != 0 { self.p |= FLAG_V; }
-                self.a = r;
+                    let a = self.a as u16; let b = val as u16; let c = (self.p & FLAG_C) as u16;
+                    let res = a + b + c;
+                    self.p &= !0xC3;
+                    if res > 0xFF { self.p |= FLAG_C; }
+                    let r = res as u8;
+                    if r == 0 { self.p |= FLAG_Z; }
+                    if (r & 0x80) != 0 { self.p |= FLAG_N; }
+                    if ((a ^ res) & (b ^ res) & 0x80) != 0 { self.p |= FLAG_V; }
+                    self.a = r;
                 
                 }
                 cycles += 2;
@@ -828,31 +846,31 @@ impl CPU {
                 let val = self.read(bus, ctx, addr);
                 if self.p & FLAG_D != 0 {
 
-                let a = self.a; let b = val; let c = self.p & FLAG_C;
-                let mut low = (a & 0x0F) + (b & 0x0F) + c;
-                if low > 9 { low += 6; }
-                let mut high = (a >> 4) + (b >> 4) + (if low > 15 { 1 } else { 0 });
-                let al = a as u16; let bl = b as u16; let cl = c as u16;
-                let res_bin = al + bl + cl;
-                self.p &= !0xC3;
-                if ((al ^ res_bin) & (bl ^ res_bin) & 0x80) != 0 { self.p |= FLAG_V; }
-                if (res_bin & 0x80) != 0 { self.p |= FLAG_N; }
-                if (res_bin as u8) == 0 { self.p |= FLAG_Z; }
-                if high > 9 { high += 6; }
-                if high > 15 { self.p |= FLAG_C; }
-                self.a = (low & 0x0F) | ((high & 0x0F) << 4);
+                    let a = self.a; let b = val; let c = self.p & FLAG_C;
+                    let mut low = (a & 0x0F) + (b & 0x0F) + c;
+                    if low > 9 { low += 6; }
+                    let mut high = (a >> 4) + (b >> 4) + (if low > 15 { 1 } else { 0 });
+                    let al = a as u16; let bl = b as u16; let cl = c as u16;
+                    let res_bin = al + bl + cl;
+                    self.p &= !0xC3;
+                    if ((al ^ res_bin) & (bl ^ res_bin) & 0x80) != 0 { self.p |= FLAG_V; }
+                    if (res_bin & 0x80) != 0 { self.p |= FLAG_N; }
+                    if (res_bin as u8) == 0 { self.p |= FLAG_Z; }
+                    if high > 9 { high += 6; }
+                    if high > 15 { self.p |= FLAG_C; }
+                    self.a = (low & 0x0F) | ((high & 0x0F) << 4);
                 
                 } else {
 
-                let a = self.a as u16; let b = val as u16; let c = (self.p & FLAG_C) as u16;
-                let res = a + b + c;
-                self.p &= !0xC3;
-                if res > 0xFF { self.p |= FLAG_C; }
-                let r = res as u8;
-                if r == 0 { self.p |= FLAG_Z; }
-                if (r & 0x80) != 0 { self.p |= FLAG_N; }
-                if ((a ^ res) & (b ^ res) & 0x80) != 0 { self.p |= FLAG_V; }
-                self.a = r;
+                    let a = self.a as u16; let b = val as u16; let c = (self.p & FLAG_C) as u16;
+                    let res = a + b + c;
+                    self.p &= !0xC3;
+                    if res > 0xFF { self.p |= FLAG_C; }
+                    let r = res as u8;
+                    if r == 0 { self.p |= FLAG_Z; }
+                    if (r & 0x80) != 0 { self.p |= FLAG_N; }
+                    if ((a ^ res) & (b ^ res) & 0x80) != 0 { self.p |= FLAG_V; }
+                    self.a = r;
                 
                 }
                 cycles += 4;
@@ -886,31 +904,31 @@ impl CPU {
                 let val = self.read(bus, ctx, addr);
                 if self.p & FLAG_D != 0 {
 
-                let a = self.a; let b = val; let c = self.p & FLAG_C;
-                let mut low = (a & 0x0F) + (b & 0x0F) + c;
-                if low > 9 { low += 6; }
-                let mut high = (a >> 4) + (b >> 4) + (if low > 15 { 1 } else { 0 });
-                let al = a as u16; let bl = b as u16; let cl = c as u16;
-                let res_bin = al + bl + cl;
-                self.p &= !0xC3;
-                if ((al ^ res_bin) & (bl ^ res_bin) & 0x80) != 0 { self.p |= FLAG_V; }
-                if (res_bin & 0x80) != 0 { self.p |= FLAG_N; }
-                if (res_bin as u8) == 0 { self.p |= FLAG_Z; }
-                if high > 9 { high += 6; }
-                if high > 15 { self.p |= FLAG_C; }
-                self.a = (low & 0x0F) | ((high & 0x0F) << 4);
+                    let a = self.a; let b = val; let c = self.p & FLAG_C;
+                    let mut low = (a & 0x0F) + (b & 0x0F) + c;
+                    if low > 9 { low += 6; }
+                    let mut high = (a >> 4) + (b >> 4) + (if low > 15 { 1 } else { 0 });
+                    let al = a as u16; let bl = b as u16; let cl = c as u16;
+                    let res_bin = al + bl + cl;
+                    self.p &= !0xC3;
+                    if ((al ^ res_bin) & (bl ^ res_bin) & 0x80) != 0 { self.p |= FLAG_V; }
+                    if (res_bin & 0x80) != 0 { self.p |= FLAG_N; }
+                    if (res_bin as u8) == 0 { self.p |= FLAG_Z; }
+                    if high > 9 { high += 6; }
+                    if high > 15 { self.p |= FLAG_C; }
+                    self.a = (low & 0x0F) | ((high & 0x0F) << 4);
                 
                 } else {
 
-                let a = self.a as u16; let b = val as u16; let c = (self.p & FLAG_C) as u16;
-                let res = a + b + c;
-                self.p &= !0xC3;
-                if res > 0xFF { self.p |= FLAG_C; }
-                let r = res as u8;
-                if r == 0 { self.p |= FLAG_Z; }
-                if (r & 0x80) != 0 { self.p |= FLAG_N; }
-                if ((a ^ res) & (b ^ res) & 0x80) != 0 { self.p |= FLAG_V; }
-                self.a = r;
+                    let a = self.a as u16; let b = val as u16; let c = (self.p & FLAG_C) as u16;
+                    let res = a + b + c;
+                    self.p &= !0xC3;
+                    if res > 0xFF { self.p |= FLAG_C; }
+                    let r = res as u8;
+                    if r == 0 { self.p |= FLAG_Z; }
+                    if (r & 0x80) != 0 { self.p |= FLAG_N; }
+                    if ((a ^ res) & (b ^ res) & 0x80) != 0 { self.p |= FLAG_V; }
+                    self.a = r;
                 
                 }
                 cycles += 5;

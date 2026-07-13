@@ -6,7 +6,8 @@ rustflags = [
   # "-C", "linker=flip-link",
   "-C", "link-arg=-Tlink.x",
   "-C", "link-arg=-Tdefmt.x",
-  "-C", "link-arg=-Map=target/output.map"
+  "-C", "link-arg=-Map=target/output.map",
+  "-C", "panic=abort"
 ]
 
 [env]

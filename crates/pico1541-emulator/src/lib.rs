@@ -108,12 +108,7 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
             self.last_ram_execution = is_ram_execution;
         }
         
-        let elapsed = {
-            const fn inner<H: HostInterface, S: MagneticSurface>() -> [racc6502v4::opcodes::OpcodeFn<SystemBus<H, S>>; 256] {
-                racc6502v4::opcodes::get_opcodes()
-            }
-            self.cpu.step(&mut self.memory, hw, const { &inner() })
-        };
+        let elapsed = self.cpu.step(&mut self.memory, hw);
         
         if self.cpu.cycles.wrapping_sub(self.memory.next_sync_cycle) < 0x80000000 || self.memory.sync_required {
             self.memory.catch_up(self.cpu.cycles, hw);
