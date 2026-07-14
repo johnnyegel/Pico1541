@@ -25,6 +25,7 @@ defmt-test = "0.3.0"
 defmt-rtt = "1.2.0"
 embassy-rp = { version = "0.10.0", features = ["defmt", "time-driver", "critical-section-impl", "rp2040", "unstable-pac"] }
 embassy-time = { version = "0.5.1", features = ["defmt", "defmt-timestamp-uptime"] }
+embedded-alloc = "0.5.1"
 
 [[test]]
 name = "perf_6502"
@@ -36,4 +37,8 @@ harness = false
 
 [[test]]
 name = "perf_mechanics"
+harness = false
+
+[[test]]
+name = "perf_fastloader"
 harness = false

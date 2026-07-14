@@ -110,6 +110,9 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         
         let elapsed = self.cpu.step(&mut self.memory, hw);
         
+        // Poll IEC and DriveMechanics on every instruction for real-time accuracy without jitter
+        self.memory.poll_realtime(hw, elapsed);
+        
         if self.cpu.cycles.wrapping_sub(self.memory.next_sync_cycle) < 0x80000000 || self.memory.sync_required {
             self.memory.catch_up(self.cpu.cycles, hw);
             self.memory.sync_required = false;

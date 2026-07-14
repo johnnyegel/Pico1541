@@ -148,28 +148,23 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         }
     }
 
-    #[link_section = ".data.ram_func"]
-    #[inline]
-    pub fn tick_cycles(&mut self, hardware: &mut H, delta: u32) {
-        if delta == 0 { return; }
 
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    pub fn poll_realtime(&mut self, hardware: &mut H, elapsed: u32) {
         let host_iec = hardware.iec_host();
-        
-        // Update physical bus and VIA inputs if host OR drive changed
         if host_iec != self.last_host_iec {
             self.last_host_iec = host_iec;
             self.via1.set_ca1(host_iec.get_atn());
             self.update_physical_iec(hardware);
-            
-            // Notify hardware of the host bus state change
             hardware.sync(host_iec);
+            self.sync_required = true;
         }
 
         hardware.step();
 
-        // Check for hardware configuration changes every 1024 cycles (~1ms)
         let old_cc = self.cycle_counter;
-        self.cycle_counter = self.cycle_counter.wrapping_add(delta);
+        self.cycle_counter = self.cycle_counter.wrapping_add(elapsed);
         if (old_cc ^ self.cycle_counter) & !0x3FF != 0 {
             self.device_id = hardware.get_device_id();
             self.device_id_pb_bits = (self.device_id & 0x03) << 5;
@@ -182,28 +177,26 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
                 self.memory[0x001C] = 1;
             }
             
-            // 2. Read Write Protect sensor (Active LOW, but C64 logic expects inverted if necessary depending on schematic.
-            // On a real 1541: Light sensor logic -> LOW if notch present (write enabled).
-            // But we simulate standard `is_write_protected` boolean logic. 
-            // In typical emulator mapping: WP bit is 0x10. We follow standard VIA mappings.
             let wp = self.mechanics.surface.is_write_protected();
             if wp {
-                self.via2.in_b &= !0x10; // LOW = Write protected
+                self.via2.in_b &= !0x10;
             } else {
-                self.via2.in_b |= 0x10;  // HIGH = Not write protected
+                self.via2.in_b |= 0x10;
             }
         }
 
-        // Execute the VIA cycles only if active
-        if self.via1.any_active() {
-            self.via1.tick_cycles(delta);
+        self.so_active = self.mechanics.tick_cycles(hardware, &mut self.via1, &mut self.via2, elapsed);
+        if self.so_active {
+            self.so_pulsed = true;
         }
-        if self.via2.any_active() {
-            self.via2.tick_cycles(delta);
-        }
+    }
 
-        // Progress the drive mechanics and update SO pin status
-        self.so_active = self.mechanics.tick_cycles(hardware, &mut self.via1, &mut self.via2, delta);
+    #[link_section = ".data.ram_func"]
+    #[inline]
+    pub fn tick_cycles(&mut self, _hardware: &mut H, delta: u32) {
+        if delta == 0 { return; }
+        if self.via1.any_active() { self.via1.tick_cycles(delta); }
+        if self.via2.any_active() { self.via2.tick_cycles(delta); }
     }
 
     #[link_section = ".data.ram_func"]
@@ -324,12 +317,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
                 min_delta = min_delta.min(via.sr_count as u32 + 1);
             }
         }
-        
-        if (self.via2.orb & 0x04) != 0 {
-            // Motor is on: Batch tick_cycles execution up to 1 cycle for cycle-exact SO pulse precision.
-            // Using 8 cycles causes up to 8 cycles of SO pulse jitter, breaking fastloaders.
-            min_delta = min_delta.min(1);
-        }
+
 
         self.next_sync_cycle = self.last_cycle.wrapping_add(min_delta);
     }

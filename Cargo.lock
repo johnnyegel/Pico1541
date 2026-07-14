@@ -656,6 +656,16 @@ dependencies = [
 
 [[package]]
 name = "embedded-alloc"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ddae17915accbac2cfbc64ea0ae6e3b330e6ea124ba108dada63646fd3c6f815"
+dependencies = [
+ "critical-section",
+ "linked_list_allocator",
+]
+
+[[package]]
+name = "embedded-alloc"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2db634e07f552215f7a3572dc0a4d29760c637fcea5a8c18d2cc291f782c216c"
@@ -1451,6 +1461,7 @@ dependencies = [
  "defmt-test",
  "embassy-rp",
  "embassy-time",
+ "embedded-alloc 0.5.1",
  "mos6502",
  "panic-probe",
  "pico1541-common",
@@ -1478,7 +1489,7 @@ dependencies = [
  "embassy-rp",
  "embassy-sync",
  "embassy-time",
- "embedded-alloc",
+ "embedded-alloc 0.7.0",
  "embedded-graphics",
  "embedded-hal 1.0.0",
  "embedded-hal-async",
