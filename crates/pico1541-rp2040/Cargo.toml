@@ -7,7 +7,7 @@ default-run = "pico1541-rp2040"
 
 [dependencies]
 # Internal crates
-pico1541-emulator = { path = "../pico1541-emulator", features = ["flight-recorder"] }
+pico1541-emulator = { path = "../pico1541-emulator" }
 pico1541-manager = { path = "../pico1541-manager", features = ["defmt"] }
 pico1541-common = { path = "../pico1541-common", features = ["defmt"] }
 
@@ -64,3 +64,7 @@ harness = false
 name = "test_dma_streaming"
 path = "src/bin/test_dma_streaming.rs"
 harness = false
+
+[features]
+default = []
+flight-recorder = ["pico1541-emulator/flight-recorder"]
