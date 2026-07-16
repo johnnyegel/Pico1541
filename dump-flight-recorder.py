@@ -41,67 +41,101 @@ def get_flight_recorder_address(nm_path):
     sys.exit(1)
 
 def main():
-    nm_path = find_nm()
-    addr = get_flight_recorder_address(nm_path)
-    print(f"Found FLIGHT_RECORDER at address: 0x{addr:08X}")
+    import argparse
+    parser = argparse.ArgumentParser(description="Dump flight recorder")
+    parser.add_argument("-l", "--last", type=int, default=0, help="Only show the last N records")
+    parser.add_argument("--hex", action="store_true", help="Show raw hex bytes for each record")
+    parser.add_argument("-f", "--file", type=str, help="Read from an existing binary file instead of using probe-rs")
+    parser.add_argument("--offset", type=int, default=0, help="Byte offset into the buffer to start reading (default: 0)")
+    args = parser.parse_args()
     
-    # Calculate sizes based on #[repr(C)]
-    # FlightRecord: cycle(u32: 4), pc(u32: 4), event_type(u8: 1), via1(u8: 1), via2(u8: 1), pcr1(u8: 1), pcr2(u8: 1), _padding(3) = 16 bytes
-    # buffer: [FlightRecord; 512] = 512 * 16 = 8192 bytes
-    # index: usize(4 bytes)
-    # Total size = 8196 bytes
-    total_size = 8196
+    if args.file:
+        bin_out = args.file
+        print(f"Reading from file {args.file}...")
+        try:
+            with open(args.file, "rb") as f:
+                data = f.read()
+        except Exception as e:
+            print(f"Error reading file: {e}")
+            sys.exit(1)
+    else:
+        nm_path = find_nm()
+        addr = get_flight_recorder_address(nm_path)
+        print(f"Found FLIGHT_RECORDER at address: 0x{addr:X}")
+        
+        # Read 8212 bytes (buffer + last_record + index)
+        total_size = 8212
+        print(f"Reading {total_size} bytes via probe-rs...")
+        bin_out = "/tmp/fr.bin"
+        result = subprocess.run([
+            "probe-rs", "read", "b8", f"0x{addr:08X}", str(total_size),
+            "--output", bin_out, "-f", "binary", "--chip", "RP2040"
+        ])
+        
+        if result.returncode != 0:
+            print("Error: probe-rs failed to read memory.", file=sys.stderr)
+            sys.exit(1)
+            
+        with open(bin_out, "rb") as f:
+            data = f.read()
+            
+        if len(data) < total_size:
+            print("Error: Read incomplete data.", file=sys.stderr)
+            sys.exit(1)
     
-    print(f"Reading {total_size} bytes via probe-rs...")
-    # probe-rs read b8 <ADDR> <WORDS> --output /tmp/fr.bin -f binary
-    bin_out = "/tmp/fr.bin"
-    result = subprocess.run([
-        "probe-rs", "read", "b8", f"0x{addr:08X}", str(total_size),
-        "--output", bin_out, "-f", "binary", "--chip", "RP2040"
-    ])
+    # Try to find current_index at various possible offsets, default to 0 if invalid
+    current_index = 0
+    # Usually index is after the 8192 byte buffer, but struct layout may vary
+    for potential_idx_offset in [8192, 8208, 0, 16]:
+        if potential_idx_offset + 4 <= len(data):
+            idx_val = struct.unpack("<I", data[potential_idx_offset:potential_idx_offset+4])[0]
+            if idx_val < 512 and idx_val > 0:
+                current_index = idx_val
+                break
+
+    print("\n--- FLIGHT RECORDER DUMP (Current Index: {}) ---".format(current_index))
+    print(f"Using record data offset: {args.offset}")
     
-    if result.returncode != 0:
-        print("Error: probe-rs failed to read memory.", file=sys.stderr)
-        sys.exit(1)
-        
-    with open(bin_out, "rb") as f:
-        data = f.read()
-        
-    if len(data) < total_size:
-        print("Error: Read incomplete data.", file=sys.stderr)
-        sys.exit(1)
-        
-    # Read the buffer
     records = []
+    
     for i in range(512):
-        offset = i * 16
-        record_data = data[offset:offset+16]
-        # <I I B B B B B 3x
-        cycle, pc, evt, v1, v2, pcr1, pcr2 = struct.unpack("<IIBBBBB3x", record_data)
+        rec_start = args.offset + (i * 16)
+        if rec_start + 16 > len(data):
+            break
+        record_data = data[rec_start:rec_start+16]
+        
+        # Layout: cycle(4), pc(4), event(1), via1(1), via2(1), pcr1(1), pcr2(1), pa2(1), sync(1), padding(1)
+        cycle, pc, evt, v1, v2, pcr1, pcr2, pa2, sync = struct.unpack("<IIBBBBBBB1x", record_data)
+        
         records.append({
+            "idx": i,
             "cycle": cycle,
             "pc": pc,
-            "event": evt,
-            "via1": v1,
-            "via2": v2,
+            "evt": evt,
+            "v1": v1,
+            "v2": v2,
             "pcr1": pcr1,
-            "pcr2": pcr2
+            "pcr2": pcr2,
+            "pa2": pa2,
+            "sync": sync,
+            "raw": record_data
         })
+    
+    # Sort records by cycle count to ensure chronological order regardless of ring wrap
+    valid_records = [r for r in records if r["cycle"] > 0 or r["pc"] > 0]
+    
+    if args.last > 0:
+        valid_records = valid_records[-args.last:]
         
-    # Read the index
-    index_data = data[8192:8196]
-    current_index = struct.unpack("<I", index_data)[0]
-    
-    print(f"\n--- FLIGHT RECORDER DUMP (Current Index: {current_index}) ---\n")
-    
     printed_any = False
-    for i in range(512):
-        idx = (current_index + i) % 512
-        r = records[idx]
-        if r["cycle"] > 0:
-            printed_any = True
-            print(f"Cycle: {r['cycle']:10d} | PC: {r['pc']:04X} | Event: {r['event']:3d} | VIA1: {r['via1']:02X} (PCR: {r['pcr1']:02X}) | VIA2: {r['via2']:02X} (PCR: {r['pcr2']:02X})")
+    for r in valid_records:
+        printed_any = True
+        hex_str = ""
+        if args.hex:
+            hex_str = " | HEX: " + " ".join([f"{b:02X}" for b in r["raw"]])
             
+        print(f"Cycle: {r['cycle']:10d} | PC: {r['pc']:04X} | Event: {r['evt']:3d} | VIA1: {r['v1']:02X} (PCR: {r['pcr1']:02X}) | VIA2: PB={r['v2']:02X} PA={r['pa2']:02X} SYNC={r['sync']} (PCR: {r['pcr2']:02X}){hex_str}")
+        
     if not printed_any:
         print("(Flight recorder is empty)")
 

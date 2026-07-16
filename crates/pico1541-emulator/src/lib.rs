@@ -127,6 +127,7 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         #[cfg(feature = "flight-recorder")]
         unsafe {
             let ptr = core::ptr::addr_of_mut!(crate::flight_recorder::FLIGHT_RECORDER) as *mut crate::flight_recorder::FlightRecorder;
+            let is_sync = (self.memory.via2.in_b & 0x80) == 0;
             (*ptr).record(crate::flight_recorder::FlightRecord {
                 cycle: self.cpu.cycles,
                 pc: self.cpu.pc as u32,
@@ -135,7 +136,9 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
                 via2_pb: self.memory.via2.in_b,
                 pcr1: self.memory.via1.pcr,
                 pcr2: self.memory.via2.pcr,
-                _padding: [0; 3],
+                via2_pa: self.memory.via2.in_a,
+                is_sync: if is_sync { 1 } else { 0 },
+                _padding: 0,
             });
         }
         

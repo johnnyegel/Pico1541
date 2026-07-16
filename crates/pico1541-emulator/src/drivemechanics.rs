@@ -230,8 +230,8 @@ impl<S: MagneticSurface> DriveMechanics<S> {
                         let idx = (start_idx + i) % 512;
                         let rec = &(*ptr).buffer[idx];
                         if rec.pc != 0 {
-                            log::error!("FR[{}]: Cycle={}, PC={:04X}, VIA1={:02X}, VIA2={:02X}, PCR1={:02X}, PCR2={:02X}", 
-                                i, rec.cycle, rec.pc, rec.via1_pb, rec.via2_pb, rec.pcr1, rec.pcr2);
+                            log::error!("FR[{}]: Cycle={}, PC={:04X}, VIA1={:02X}, VIA2={:02X}, PCR1={:02X}, PCR2={:02X}, BYTE={:02X}, SYNC={}", 
+                                i, rec.cycle, rec.pc, rec.via1_pb, rec.via2_pb, rec.pcr1, rec.pcr2, rec.via2_pa, rec.is_sync);
                         }
                     }
                     log::error!("--- END FLIGHT RECORDER DUMP ---");
