@@ -159,10 +159,11 @@ impl PioMagneticSurface {
     #[inline(always)]
     pub fn try_read_ram_byte(&mut self) -> Option<u8> {
         unsafe {
-            let val = RING_BUFFER.0[self.ring_read_idx];
+            let ptr = core::ptr::addr_of_mut!(RING_BUFFER.0).cast::<u16>().add(self.ring_read_idx);
+            let val = core::ptr::read_volatile(ptr);
             if (val & 0x8000) == 0 {
                 let byte = (val & 0xFF) as u8;
-                RING_BUFFER.0[self.ring_read_idx] = 0x8000;
+                core::ptr::write_volatile(ptr, 0x8000);
                 self.ring_read_idx = (self.ring_read_idx + 1) & 0x0F;
                 Some(byte)
             } else {
@@ -240,7 +241,8 @@ impl MagneticSurface for PioMagneticSurface {
         unsafe {
             CURRENT_TRACK_PTR = track_ptr;
             for i in 0..16 {
-                RING_BUFFER.0[i] = 0x8000;
+                let ptr = core::ptr::addr_of_mut!(RING_BUFFER.0).cast::<u16>().add(i);
+                core::ptr::write_volatile(ptr, 0x8000);
             }
         }
         self.ring_read_idx = 0;
@@ -251,6 +253,8 @@ impl MagneticSurface for PioMagneticSurface {
 
         let mut ctrl_a = dma.ch(0).ctrl_trig().read();
         ctrl_a.set_incr_read(true);
+        ctrl_a.set_ring_size(0); // Disable wrapping (was enabled by inject_analog_noise)
+        ctrl_a.set_chain_to(1); // Restore chaining to Channel B
         dma.ch(0).ctrl_trig().write_value(ctrl_a);
         
         Self::clear_pio_fifos();
