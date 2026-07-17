@@ -251,14 +251,21 @@ impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H,
 
     #[inline(always)]
     fn get_instruction_ptr(&self, addr: u16) -> *const u8 {
-        let index = (addr & 0x3FFF) | ((addr >> 1) & 0x4000);
-        unsafe { self.memory.as_ptr().add(index as usize) }
+        if addr < 0x8000 {
+            unsafe { self.memory.as_ptr().add((addr & 0x07FF) as usize) }
+        } else {
+            let index = (addr & 0x3FFF) | ((addr >> 1) & 0x4000);
+            unsafe { self.memory.as_ptr().add(index as usize) }
+        }
     }
 
     #[inline(always)]
-    fn read(&mut self, addr: u16, cycle: u32, ctx: &mut Self::Ctx) -> u8 {
+    fn read(&mut self, addr: u16, cycle: u32, hw: &mut H) -> u8 {
         if (addr & 0x9800) == 0x1800 {
-            self.read_io(addr, cycle, ctx)
+            self.read_io(addr, cycle, hw)
+        } else if addr < 0x8000 {
+            let index = addr & 0x07FF;
+            unsafe { *self.memory.get_unchecked(index as usize) }
         } else {
             let index = (addr & 0x3FFF) | ((addr >> 1) & 0x4000);
             unsafe { *self.memory.get_unchecked(index as usize) }
@@ -270,8 +277,9 @@ impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H,
         if (addr & 0x9800) == 0x1800 {
             self.write_io(addr, val, cycle, ctx);
         } else if addr < 0x8000 {
-            unsafe { *self.memory.get_unchecked_mut(addr as usize) = val; }
-            let mapped = addr & 0x07FF;
+            let index = addr & 0x07FF;
+            unsafe { *self.memory.get_unchecked_mut(index as usize) = val; }
+            let mapped = index;
             if mapped == 0x0077 || mapped == 0x0078 {
                 ctx.update_iec_addresses(self.memory[0x0077], self.memory[0x0078]);
             }

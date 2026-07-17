@@ -53,7 +53,7 @@ mod tests {
         // Using static to avoid stack overflow
         static mut BUFFER: DualCoreTrackBuffer = DualCoreTrackBuffer::new();
         let dual_buffer = unsafe { core::ptr::addr_of_mut!(BUFFER).as_mut().unwrap() };
-        let (mut manager_handle, emulator_handle) = dual_buffer.split();
+        let (manager_handle, emulator_handle) = dual_buffer.split();
 
         info!("Loading track data ({} bytes)...", TRACK_18_DATA.len());
         let active_buf = manager_handle.start_track_modification();

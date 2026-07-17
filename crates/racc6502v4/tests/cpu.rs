@@ -1,4 +1,4 @@
-use racc6502v4::{cpu::CPU, bus::Bus, opcodes::get_opcodes};
+use racc6502v4::{cpu::CPU, bus::Bus};
 
 struct TestBus {
     mem: [u8; 65536],
@@ -13,6 +13,9 @@ impl Bus for TestBus {
         self.mem[addr as usize] = value;
     }
     
+    fn get_instruction_ptr(&self, addr: u16) -> *const u8 {
+        &self.mem[addr as usize]
+    }
 }
 
 #[test]
@@ -27,7 +30,7 @@ fn test_adc_imm() {
     cpu.pc = 0;
     cpu.a = 0x20;
     
-    let cycles = cpu.step(&mut bus, &mut (), &get_opcodes());
+    let cycles = cpu.step(&mut bus, &mut ());
     assert_eq!(cpu.a, 0x30);
     assert_eq!(cycles, 2);
 }
@@ -45,7 +48,7 @@ fn test_sta_abs() {
     cpu.pc = 0;
     cpu.a = 0x42;
     
-    let cycles = cpu.step(&mut bus, &mut (), &get_opcodes());
+    let cycles = cpu.step(&mut bus, &mut ());
     assert_eq!(bus.mem[0x1234], 0x42);
     assert_eq!(cycles, 4);
 }
@@ -77,7 +80,7 @@ fn test_lda_zp() {
     bus.mem[0x20] = 0x42;
     cpu.pc = 0;
     
-    let cycles = cpu.step(&mut bus, &mut (), &get_opcodes());
+    let cycles = cpu.step(&mut bus, &mut ());
     assert_eq!(cpu.a, 0x42);
     assert_eq!(cycles, 3);
 }
@@ -95,7 +98,7 @@ fn test_lda_zpx() {
     cpu.pc = 0;
     cpu.x = 5;
     
-    let cycles = cpu.step(&mut bus, &mut (), &get_opcodes());
+    let cycles = cpu.step(&mut bus, &mut ());
     assert_eq!(cpu.a, 0x42);
     assert_eq!(cycles, 4);
 }
@@ -114,7 +117,7 @@ fn test_lda_absx_no_page_cross() {
     cpu.pc = 0;
     cpu.x = 5;
     
-    let cycles = cpu.step(&mut bus, &mut (), &get_opcodes());
+    let cycles = cpu.step(&mut bus, &mut ());
     assert_eq!(cpu.a, 0x42);
     assert_eq!(cycles, 4);
 }
@@ -133,7 +136,7 @@ fn test_lda_absx_page_cross() {
     cpu.pc = 0;
     cpu.x = 0x15;
     
-    let cycles = cpu.step(&mut bus, &mut (), &get_opcodes());
+    let cycles = cpu.step(&mut bus, &mut ());
     assert_eq!(cpu.a, 0x42);
     assert_eq!(cycles, 5);
 }
@@ -153,7 +156,7 @@ fn test_lda_indy_no_page_cross() {
     cpu.pc = 0;
     cpu.y = 5;
     
-    let cycles = cpu.step(&mut bus, &mut (), &get_opcodes());
+    let cycles = cpu.step(&mut bus, &mut ());
     assert_eq!(cpu.a, 0x42);
     assert_eq!(cycles, 5);
 }
@@ -170,7 +173,7 @@ fn test_bne_taken_no_page_cross() {
     cpu.pc = 0x100;
     cpu.p = 0; // Zero flag clear -> taken
     
-    let cycles = cpu.step(&mut bus, &mut (), &get_opcodes());
+    let cycles = cpu.step(&mut bus, &mut ());
     assert_eq!(cpu.pc, 0x107);
     assert_eq!(cycles, 3);
 }
@@ -187,7 +190,7 @@ fn test_bne_not_taken() {
     cpu.pc = 0x100;
     cpu.p = 0x02; // Zero flag set -> not taken
     
-    let cycles = cpu.step(&mut bus, &mut (), &get_opcodes());
+    let cycles = cpu.step(&mut bus, &mut ());
     assert_eq!(cpu.pc, 0x102);
     assert_eq!(cycles, 2);
 }

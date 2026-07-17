@@ -26,7 +26,7 @@ macro_rules! measure_cycles {
 #[defmt_test::tests]
 mod tests {
     use super::*;
-    use cortex_m::peripheral::SYST;
+
 
     // A simple loop that will execute continuously
     // 0800: CA        DEX

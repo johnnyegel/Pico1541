@@ -1,5 +1,5 @@
 use racc6502v4::bus::Bus;
-use racc6502v4::{cpu::CPU, opcodes::get_opcodes};
+use racc6502v4::cpu::CPU;
 use std::fs;
 
 struct FunctionalBus {
@@ -26,7 +26,9 @@ impl Bus for FunctionalBus {
         self.memory[addr as usize] = value;
     }
 
-    
+    fn get_instruction_ptr(&self, addr: u16) -> *const u8 {
+        &self.memory[addr as usize]
+    }
 }
 
 #[test]
@@ -46,7 +48,7 @@ fn test_6502_functional() {
     println!("Starting 6502 Functional Test at $0400");
 
     while cycles < max_cycles {
-        cycles += cpu.step(&mut bus, &mut (), &get_opcodes()) as u32;
+        cycles += cpu.step(&mut bus, &mut ()) as u32;
 
         if cpu.pc == last_pc {
             // Potential trap

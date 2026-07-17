@@ -111,7 +111,7 @@ mod tests {
             const HEAP_SIZE: usize = 32768 + 1024;
             static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
             // Only init if not already initialized
-            unsafe { if super::HEAP.free() == 0 { super::HEAP.init(HEAP_MEM.as_ptr() as usize, HEAP_SIZE) } }
+            unsafe { if super::HEAP.free() == 0 { super::HEAP.init(core::ptr::addr_of_mut!(HEAP_MEM) as usize, HEAP_SIZE) } }
         }
 
         let surface = DummySurface { cycles_since_byte: 0 };
@@ -179,7 +179,7 @@ mod tests {
             use core::mem::MaybeUninit;
             const HEAP_SIZE: usize = 32768 + 1024;
             static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
-            unsafe { if super::HEAP.free() == 0 { super::HEAP.init(HEAP_MEM.as_ptr() as usize, HEAP_SIZE) } }
+            unsafe { if super::HEAP.free() == 0 { super::HEAP.init(core::ptr::addr_of_mut!(HEAP_MEM) as usize, HEAP_SIZE) } }
         }
 
         let surface = DummySurface { cycles_since_byte: 0 };
