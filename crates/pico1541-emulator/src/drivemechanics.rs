@@ -35,7 +35,6 @@ pub struct DriveMechanics<S: MagneticSurface> {
     last_gcr_byte: u8,
     last_requested_sector: u8,
     so_pulse_cycles: u32,
-    debug_pin_cycles: u32,
 }
 
 impl<S: MagneticSurface> DriveMechanics<S> {
@@ -47,7 +46,6 @@ impl<S: MagneticSurface> DriveMechanics<S> {
             last_gcr_byte: 0,
             last_requested_sector: 255,
             so_pulse_cycles: 0,
-            debug_pin_cycles: 0,
         }
     }
 }
@@ -77,16 +75,14 @@ impl<S: MagneticSurface> DriveMechanics<S> {
             let is_sync = self.surface.is_sync_active();
             let was_sync = (via2.in_b & MASK_SYNC) == 0;
             
+            if self.so_pulse_cycles > 0 {
+                self.so_pulse_cycles = self.so_pulse_cycles.saturating_sub(delta);
+                if self.so_pulse_cycles == 0 {
+                    hardware.debug_pin_0(false);
+                }
+            }
+
             if byte_opt.is_none() && is_sync == was_sync {
-                if self.so_pulse_cycles > 0 {
-                    self.so_pulse_cycles = self.so_pulse_cycles.saturating_sub(delta);
-                }
-                if self.debug_pin_cycles > 0 {
-                    self.debug_pin_cycles = self.debug_pin_cycles.saturating_sub(delta);
-                    if self.debug_pin_cycles == 0 {
-                        hardware.debug_pin_0(false);
-                    }
-                }
                 return false;
             }
 
@@ -113,19 +109,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
                     via2.ca1_irq(); // CA1 triggers ONLY WHEN SOE is set!
                     self.so_pulse_cycles = 3;
                     hardware.debug_pin_0(true); // Assert SO pulse on debug pin
-                    self.debug_pin_cycles = 16; // Hold LA pin for 16 cycles to guarantee visibility
                     so_pulsed = true;
-                }
-            }
-
-            if self.so_pulse_cycles > 0 {
-                self.so_pulse_cycles = self.so_pulse_cycles.saturating_sub(delta);
-            }
-            
-            if self.debug_pin_cycles > 0 {
-                self.debug_pin_cycles = self.debug_pin_cycles.saturating_sub(delta);
-                if self.debug_pin_cycles == 0 {
-                    hardware.debug_pin_0(false); // Release SO pulse on debug pin
                 }
             }
         } else {

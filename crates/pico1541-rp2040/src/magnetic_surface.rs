@@ -2,8 +2,6 @@ use pico1541_common::magnetic_surface::MagneticSurface;
 use embassy_rp::pac;
 use pico1541_common::track_buffer::EmulatorHandle;
 
-#[repr(align(32))]
-struct AlignedRing([u16; 16]);
 
 // Speed zone PIO timing
 // The PIO program executes exactly 8 cycles per *bit*, not per byte!
@@ -29,13 +27,13 @@ const PIO_SPEED_ZONES: [u32; 4] = [
 ];
 
 // Static buffers for DMA
-static mut RING_BUFFER: AlignedRing = AlignedRing([0x8000; 16]);
+static mut READ_BUFFER: u16 = 0x8000;
 static mut CURRENT_TRACK_PTR: u32 = 0;
 
 pub struct PioMagneticSurface {
     track_handle: EmulatorHandle,
     last_active_index: bool,
-    ring_read_idx: usize,
+
     _sync_pin: embassy_rp::pio::Pin<'static, embassy_rp::peripherals::PIO0>,
     _loaded_prg: embassy_rp::pio::LoadedProgram<'static, embassy_rp::peripherals::PIO0>,
     _sm: embassy_rp::pio::StateMachine<'static, embassy_rp::peripherals::PIO0, 0>,
@@ -76,9 +74,8 @@ impl PioMagneticSurface {
         Self::init_1541_dma_channels();
 
         Self {
+            last_active_index: !track_handle.get_active_index(), // Force initial start_reading
             track_handle,
-            last_active_index: false,
-            ring_read_idx: 0,
             _sync_pin: sync_pin,
             _loaded_prg: loaded_prg,
             _sm: sm,
@@ -132,16 +129,16 @@ impl PioMagneticSurface {
         // --- Channel C: RX Sentinel Ring (Extracts data to RAM) ---
         // Paced by PIO RX DREQ, 16-bit, read no inc, write inc, ring size 5.
         ch_c.read_addr().write_value(pio.rxf(0).as_ptr() as u32);
-        ch_c.write_addr().write_value(unsafe { core::ptr::addr_of!(RING_BUFFER.0) as u32 });
+        ch_c.write_addr().write_value(core::ptr::addr_of!(READ_BUFFER) as u32);
         ch_c.trans_count().write_value(0xFFFFFFFF); // Infinite
         
         let mut ctrl_c = ch_c.ctrl_trig().read();
         ctrl_c.set_data_size(pac::dma::vals::DataSize::SIZE_HALFWORD);
         ctrl_c.set_incr_read(false);
-        ctrl_c.set_incr_write(true);
+        ctrl_c.set_incr_write(false);
         ctrl_c.set_treq_sel(pac::dma::vals::TreqSel::PIO0_RX0);
-        ctrl_c.set_ring_sel(true); // Wrap write address
-        ctrl_c.set_ring_size(5); // 32 byte boundary
+        ctrl_c.set_ring_sel(false); 
+        ctrl_c.set_ring_size(0);
         ctrl_c.set_chain_to(2);
         ctrl_c.set_en(true);
         ch_c.ctrl_trig().write_value(ctrl_c);
@@ -159,12 +156,11 @@ impl PioMagneticSurface {
     #[inline(always)]
     pub fn try_read_ram_byte(&mut self) -> Option<u8> {
         unsafe {
-            let ptr = core::ptr::addr_of_mut!(RING_BUFFER.0).cast::<u16>().add(self.ring_read_idx);
+            let ptr = core::ptr::addr_of_mut!(READ_BUFFER);
             let val = core::ptr::read_volatile(ptr);
             if (val & 0x8000) == 0 {
                 let byte = (val & 0xFF) as u8;
                 core::ptr::write_volatile(ptr, 0x8000);
-                self.ring_read_idx = (self.ring_read_idx + 1) & 0x0F;
                 Some(byte)
             } else {
                 None
@@ -240,16 +236,10 @@ impl MagneticSurface for PioMagneticSurface {
         
         unsafe {
             CURRENT_TRACK_PTR = track_ptr;
-            for i in 0..16 {
-                let ptr = core::ptr::addr_of_mut!(RING_BUFFER.0).cast::<u16>().add(i);
-                core::ptr::write_volatile(ptr, 0x8000);
-            }
+            core::ptr::write_volatile(core::ptr::addr_of_mut!(READ_BUFFER), 0x8000);
         }
-        self.ring_read_idx = 0;
 
         let dma = pac::DMA;
-        // Reset Channel C write address to match our read index
-        dma.ch(2).write_addr().write_value(unsafe { core::ptr::addr_of!(RING_BUFFER.0) as u32 });
 
         let mut ctrl_a = dma.ch(0).ctrl_trig().read();
         ctrl_a.set_incr_read(true);
