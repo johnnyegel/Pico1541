@@ -293,17 +293,23 @@ impl MagneticSurface for PioMagneticSurface {
     }
 
     fn inject_analog_noise(&mut self) {
-        static NOISE_BUFFER: [u8; 1] = [0x22];
-
+        #[repr(align(16))]
+        struct NoiseBuffer([u8; 16]);
+        
+        static NOISE_BUFFER: NoiseBuffer = NoiseBuffer([
+            0x55, 0xAA, 0x33, 0xCC, 0x0F, 0xF0, 0x55, 0xAA,
+            0x33, 0xCC, 0x0F, 0xF0, 0x55, 0xAA, 0x33, 0xCC
+        ]);
+        
         Self::abort_dma_ch0();
         Self::clear_pio_fifos();
 
         unsafe {
-            CURRENT_TRACK_PTR = NOISE_BUFFER.as_ptr() as u32;
+            CURRENT_TRACK_PTR = NOISE_BUFFER.0.as_ptr() as u32;
         }
 
         let dma = pac::DMA;
-        dma.ch(0).read_addr().write_value(NOISE_BUFFER.as_ptr() as u32);
+        dma.ch(0).read_addr().write_value(NOISE_BUFFER.0.as_ptr() as u32);
         dma.ch(0).trans_count().write_value(0xFFFFFFFF);
         
         let mut ctrl_a = dma.ch(0).ctrl_trig().read();
