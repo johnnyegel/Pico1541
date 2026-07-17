@@ -52,8 +52,6 @@ impl<S: MagneticSurface> DriveMechanics<S> {
     }
 }
 
-
-
 impl<S: MagneticSurface> DriveMechanics<S> {
     pub fn reset(&mut self) {
         self.halftrack_head_pos = INITIAL_HALF_TRACK;
@@ -109,9 +107,10 @@ impl<S: MagneticSurface> DriveMechanics<S> {
             
             if !is_sync && new_byte_arrived {
                 let pcr_ca2 = via2.pcr & 0b0000_1110;
-                let is_so_enabled = pcr_ca2 == 0b0000_1110 || pcr_ca2 == 0b0000_1010;
+                let is_so_enabled = (pcr_ca2 & 0b0000_1010) == 0b0000_1010; // CA2 is set to pulse output mode (SOE)
+
                 if is_so_enabled {
-                    via2.ca1_irq();
+                    via2.ca1_irq(); // CA1 triggers ONLY WHEN SOE is set!
                     self.so_pulse_cycles = 3;
                     hardware.debug_pin_0(true); // Assert SO pulse on debug pin
                     self.debug_pin_cycles = 16; // Hold LA pin for 16 cycles to guarantee visibility

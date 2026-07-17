@@ -137,9 +137,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 
         // Calculate what the drive asserts on the bus
         let mut drive_combined_iec = IecBusState::default();
-        drive_combined_iec.set_data(pb_data | (pb_atna ^ host_atn));
+        drive_combined_iec.set_data(pb_data || (host_atn && !pb_atna));
         drive_combined_iec.set_clk(pb_clk);
-
 
         // Set the IEC drive lines only if they changed
         if drive_combined_iec != self.last_drive_iec {
@@ -279,8 +278,6 @@ impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H,
             }
         }
     }
-
-
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]

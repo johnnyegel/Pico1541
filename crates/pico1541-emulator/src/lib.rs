@@ -90,6 +90,11 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn tick(&mut self, hw: &mut H) -> u32 {
+        #[cfg(feature = "flight-recorder")]
+        unsafe {
+            crate::flight_recorder::RAM_POINTER = self.memory.memory.as_ptr();
+        }
+
         if self.memory.via1.irq || self.memory.via2.irq {
             self.cpu.pending_interrupt = Some(racc6502v4::cpu::Interrupt::Irq);
         }

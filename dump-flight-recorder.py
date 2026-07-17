@@ -7,7 +7,10 @@ import os
 import shutil
 
 # Configuration
-ELF_PATH = "target/thumbv6m-none-eabi/release/pico1541-rp2040"
+ELF_PATHS = [
+    "target/thumbv6m-none-eabi/release/pico1541-rp2040",
+    "target/thumbv6m-none-eabi/debug/pico1541-rp2040"
+]
 NM_CANDIDATES = [
     "nm",
     "arm-none-eabi-nm",
@@ -22,22 +25,21 @@ def find_nm():
     sys.exit(1)
 
 def get_flight_recorder_address(nm_path):
-    if not os.path.exists(ELF_PATH):
-        print(f"Error: ELF file not found at {ELF_PATH}", file=sys.stderr)
-        print("Please build the firmware first: cargo build --package pico1541-rp2040 --target thumbv6m-none-eabi --release", file=sys.stderr)
-        sys.exit(1)
-        
-    result = subprocess.run([nm_path, ELF_PATH], capture_output=True, text=True)
-    if result.returncode != 0:
-        print(f"Error running {nm_path}", file=sys.stderr)
-        sys.exit(1)
-        
-    for line in result.stdout.splitlines():
-        if "FLIGHT_RECORDER" in line:
-            addr_hex = line.split()[0]
-            return int(addr_hex, 16)
+    for path in ELF_PATHS:
+        if not os.path.exists(path):
+            continue
             
-    print("Error: Could not find FLIGHT_RECORDER symbol in ELF.", file=sys.stderr)
+        result = subprocess.run([nm_path, path], capture_output=True, text=True)
+        if result.returncode != 0:
+            continue
+            
+        for line in result.stdout.splitlines():
+            if "FLIGHT_RECORDER" in line:
+                addr_hex = line.split()[0]
+                print(f"Using ELF: {path}")
+                return int(addr_hex, 16)
+                
+    print(f"Error: Could not find FLIGHT_RECORDER symbol in any ELF: {ELF_PATHS}", file=sys.stderr)
     sys.exit(1)
 
 def main():
