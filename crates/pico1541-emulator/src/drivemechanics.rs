@@ -141,7 +141,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
     /// Updates the drive mechanics state based on VIA2 Port B outputs.
     #[link_section = ".data.ram_func"]
     pub fn update_state<H: HostInterface>(&mut self, orb: u8, ddrb: u8, hardware: &mut H) {
-        let full_state = orb & ddrb & (MASK_HARDWARE_STATE | MASK_SPEED_ZONE);
+        let full_state = (orb | !ddrb) & (MASK_HARDWARE_STATE | MASK_SPEED_ZONE);
         if full_state != self.last_state {
             self.update_state_slow(full_state, hardware);
         }
@@ -164,14 +164,14 @@ impl<S: MagneticSurface> DriveMechanics<S> {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn led_on(&self, via2: &Via6522) -> bool {
-        (via2.orb & MASK_LED) != 0
+        ((via2.orb | !via2.ddrb) & MASK_LED) != 0
     }
 
     #[cfg(feature = "debug")]
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn motor_on(&self, via2: &Via6522) -> bool {
-        (via2.orb & MASK_MOTOR) != 0
+        ((via2.orb | !via2.ddrb) & MASK_MOTOR) != 0
     }
 
     // ========== Internal helper functions ==================================================

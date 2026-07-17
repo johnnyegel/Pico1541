@@ -365,17 +365,19 @@ struct HardwareBridge {
 impl HardwareBridge {
     fn new(pins: IecPins, config: &'static SnooperConfig, activity_led: ActivityLed, dbg_pin_0: Output<'static>, dbg_pin_1: Output<'static>) -> Self {
         let device_id = config.device_id.load(Ordering::Relaxed);
-        Self {
+        let mut bridge = Self {
             _pins: pins,
             _snooper: IecSnooper::new(device_id),
             handler: IecSnoopByteHandler::new(),
             config,
             activity_led,
-            led_state: false,
-            motor_state: false,
+            led_state: true,
+            motor_state: true,
             dbg_pin_0,
             dbg_pin_1,
-        }
+        };
+        bridge.activity_led.set_state(true, true);
+        bridge
     }
 }
 

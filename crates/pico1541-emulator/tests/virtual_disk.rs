@@ -24,10 +24,10 @@ fn test_virtual_disk_skeleton_orientation() {
     
     // Patch ID in RAM to match the VirtualDiskImage default ID [0x56, 0x44] ("VD")
     // $12-$13 and $16-$17 are used for ID verification in 1541 ROM.
-    drive.bus_mut().ram[0x0012] = 0x56;
-    drive.bus_mut().ram[0x0013] = 0x44;
-    drive.bus_mut().ram[0x0016] = 0x56;
-    drive.bus_mut().ram[0x0017] = 0x44;
+    drive.bus_mut().memory[0x0012] = 0x56;
+    drive.bus_mut().memory[0x0013] = 0x44;
+    drive.bus_mut().memory[0x0016] = 0x56;
+    drive.bus_mut().memory[0x0017] = 0x44;
 
     // We want to verify that the drive can orient itself on a non-directory track.
     // We'll use a "Job" to read a sector on Track 10.
@@ -38,13 +38,13 @@ fn test_virtual_disk_skeleton_orientation() {
     let track_10 = 10;
     let sector_0 = 0;
     
-    drive.bus_mut().ram[0x0008] = track_10; // Track for job 1
-    drive.bus_mut().ram[0x0009] = sector_0; // Sector for job 1
+    drive.bus_mut().memory[0x0008] = track_10; // Track for job 1
+    drive.bus_mut().memory[0x0009] = sector_0; // Sector for job 1
     
-    log::info!("Current DOS track ($22): {}", drive.bus_mut().ram[0x0022]);
-    drive.bus_mut().ram[0x0022] = 18; // FORCE it to 18 so it knows to step!
+    log::info!("Current DOS track ($22): {}", drive.bus_mut().memory[0x0022]);
+    drive.bus_mut().memory[0x0022] = 18; // FORCE it to 18 so it knows to step!
 
-    drive.bus_mut().ram[0x0001] = 0x80;     // Execute READ job (0x80 = Read)
+    drive.bus_mut().memory[0x0001] = 0x80;     // Execute READ job (0x80 = Read)
 
     // Run for a while. The drive should:
     // 1. See the job
@@ -56,7 +56,7 @@ fn test_virtual_disk_skeleton_orientation() {
     for i in 0..2_000_000 {
         drive.tick(&mut bridge);
         
-        let status = drive.bus_mut().ram[0x0001];
+        let status = drive.bus_mut().memory[0x0001];
         if status == 0x01 {
             success = true;
             log::info!("Job completed successfully at tick {}", i);
@@ -87,7 +87,7 @@ fn test_virtual_disk_stridden_warp() {
 
     // Step to Track 1 (HT 0)
     // We'll force the state manually
-    drive.bus_mut().ram[0x0022] = 1;
+    drive.bus_mut().memory[0x0022] = 1;
     drive.bus_mut().mechanics.halftrack_head_pos = 2;
     {
         let manager = bridge.buffer.split().0;
@@ -108,7 +108,7 @@ fn test_virtual_disk_stridden_warp() {
     drive.tick(&mut bridge);
     
     // Set requested sector to 5
-    drive.bus_mut().ram[0x000C] = 5;
+    drive.bus_mut().memory[0x000C] = 5;
     
     // Tick enough to let the warp happen (it happens on the next byte ready)
     // Since we just started, it will take some cycles to reach the first byte ready.
@@ -122,7 +122,7 @@ fn test_virtual_disk_stridden_warp() {
     assert!(pos >= 1860 && pos < 2000, "Warp to sector 5 failed, pos={}", pos);
     
     // Change to sector 10
-    drive.bus_mut().ram[0x000C] = 10;
+    drive.bus_mut().memory[0x000C] = 10;
     for _ in 0..1000 {
         drive.tick(&mut bridge);
     }

@@ -25,18 +25,18 @@ fn test_hle_intercept_command_patches_ram() {
     let mut bus = SystemBus::<MockHardware, _>::new(&ROM, 8, surface);
     
     // 1. Simulate a "SYNTAX ERROR" state in RAM
-    bus.ram[0x0255] = 1; // cmdwat: command waiting
-    bus.ram[0x0200] = b'C'; // start of buffer
-    bus.ram[0x026C] = 31; // erword: Syntax Error
+    bus.memory[0x0255] = 1; // cmdwat: command waiting
+    bus.memory[0x0200] = b'C'; // start of buffer
+    bus.memory[0x026C] = 31; // erword: Syntax Error
     
     // 2. Perform HLE intercept
     HleManager::intercept_command(&mut bus);
     
     // 3. Verify RAM is patched to "00, OK"
-    assert_eq!(bus.ram[0x0255], 0);
-    assert_eq!(bus.ram[0x0200], 0);
-    assert_eq!(bus.ram[0x026C], 0);
+    assert_eq!(bus.memory[0x0255], 0);
+    assert_eq!(bus.memory[0x0200], 0);
+    assert_eq!(bus.memory[0x026C], 0);
     
     // Verify error message buffer at $02D5
-    assert_eq!(&bus.ram[0x02D5..0x02D5+6], b"00, OK");
+    assert_eq!(&bus.memory[0x02D5..0x02D5+6], b"00, OK");
 }

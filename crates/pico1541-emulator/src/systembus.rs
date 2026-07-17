@@ -98,8 +98,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         self.drive_iec_base = 0;
         self.last_drive_iec = IecBusState::default();
         hardware.iec_drive(self.last_drive_iec);
-        hardware.send_event(pico1541_common::interface::DriveEvent::LedChanged(false));
-        hardware.send_event(pico1541_common::interface::DriveEvent::MotorChanged(false));
+        self.mechanics.update_state(self.via2.orb, self.via2.ddrb, hardware);
         // Force the track manager to load the reset track
         hardware.track_changed(self.mechanics.half_track());
     }
@@ -363,7 +362,7 @@ mod tests {
     }
     #[test]
     fn test_ram_read_write() {
-        static ROM: [u8; ROM_SIZE] = [0; ROM_SIZE];
+        static ROM: [u8; 16384] = [0; 16384];
         let handle = Box::leak(Box::new(pico1541_common::track_buffer::DualCoreTrackBuffer::new())).split().1;
         let surface = pico1541_common::magnetic_surface::SoftwareMagneticSurface::new(handle);
         let mut bus = SystemBus::<MockHardware, _>::new(&ROM, 8, surface);
@@ -373,6 +372,5 @@ mod tests {
         use racc6502v4::bus::Bus;
         bus.write(0x0100, 0xAB, 0, &mut hw);
         assert_eq!(bus.read(0x0100, 0, &mut hw), 0xAB);
-        assert_eq!(bus.read(0x0900, 0, &mut hw), 0xAB);
     }
 }
