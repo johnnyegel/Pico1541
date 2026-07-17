@@ -132,12 +132,12 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                 // Read track but CANCEL if the head steps again!
                 match select(disk.read_track(target_ht, data), TRACK_CHANNEL.receive()).await {
                     Either::First(Ok(layout)) => {
+                        self.track_handle.commit_loaded_track(target_ht, layout.0, layout.1, layout.2);
                         let elapsed = start_time.elapsed().as_millis();
                         info!("Track load took {} ms", elapsed);
                         if layout.1 >= 16 {
                             info!("Track {} loaded!", target_ht);
                         }
-                        self.track_handle.commit_loaded_track(target_ht, layout.0, layout.1, layout.2);
                         break; // Success, done loading the track!
                     }
                     Either::First(Err(e)) => {
@@ -567,12 +567,12 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                     let start_time = embassy_time::Instant::now();
                                     match disk.read_track(half_track, data).await {
                                         Ok(layout) => {
+                                            self.track_handle.commit_loaded_track(half_track, layout.0, layout.1, layout.2);
                                             let elapsed = start_time.elapsed().as_millis();
                                             info!("Track load took {} ms", elapsed);
                                             if data.len() >= 16 {
                                                 info!("Track {} loaded!", half_track);
                                             }
-                                            self.track_handle.commit_loaded_track(half_track, layout.0, layout.1, layout.2);
                                         }
                                         Err(_) => {
                                             self.track_handle.set_active_layout(TrackLayout::Void);

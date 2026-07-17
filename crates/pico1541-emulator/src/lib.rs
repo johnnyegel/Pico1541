@@ -241,12 +241,16 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
                     if !was_reset {
                         self.reset(hw);
                         hw.iec_drive(pico1541_common::interface::IecBusState::default());
+                        hw.send_event(pico1541_common::interface::DriveEvent::LedChanged(false));
+                        hw.send_event(pico1541_common::interface::DriveEvent::MotorChanged(false));
                         was_reset = true;
                     }
                     hw.sync(hw.iec_host());
                 } else {
                     if was_reset {
                         self.reset(hw);
+                        hw.send_event(pico1541_common::interface::DriveEvent::LedChanged(true));
+                        hw.send_event(pico1541_common::interface::DriveEvent::MotorChanged(true));
                         was_reset = false;
                     }
                     
