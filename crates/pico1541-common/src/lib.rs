@@ -1,5 +1,6 @@
 #![cfg_attr(not(test), no_std)]
 
+pub mod context;
 pub mod disk_info;
 pub mod formats;
 pub mod gcr;
@@ -16,4 +17,3 @@ pub use interface::{DriveEvent, HostInterface, IecBus};
 pub use storage::{MemoryStorage, VectorDirectorySource, PagedDirectorySource, PagedDirectorySourceTrait};
 
 pub const SYSTEM_CLOCK_FREQ: u32 = 250_000_000;
-
