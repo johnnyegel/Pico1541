@@ -70,6 +70,7 @@ pub struct Emulator<H: HostInterface, S: MagneticSurface> {
     pub memory: SystemBus<H, S>,
     pub cycles: u32,
     last_ram_execution: bool,
+    ram_dumped: bool,
 }
 
 impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
@@ -80,6 +81,7 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
             memory: bus,
             cycles: 0,
             last_ram_execution: false,
+            ram_dumped: false,
         }
     }
 
@@ -94,6 +96,9 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         emu_debug!("Emulator Reset");
         self.memory.reset(hw);
         self.cpu.reset(&mut self.memory, hw);
+        self.last_ram_execution = false;
+        self.ram_dumped = false;
+        self.cycles = self.cpu.cycles;
         self.memory.mechanics.update_state(self.memory.via2.orb, self.memory.via2.ddrb, hw);
     }
 
@@ -118,9 +123,26 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         if is_ram_execution != self.last_ram_execution {
             if is_ram_execution {
                 emu_info!("FASTLOAD: PC jumped to RAM at ${:04X}!", pc);
+                if !self.ram_dumped {
+                    self.ram_dumped = true;
+                    emu_info!("--- RAM DUMP START ($0100-$07FF) ---");
+                    for page in 1..8 {
+                        for row in 0..16 {
+                            let addr = (page << 8) | (row << 4);
+                            emu_info!("{:04X}: {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X}",
+                                addr,
+                                self.memory.memory[addr], self.memory.memory[addr+1], self.memory.memory[addr+2], self.memory.memory[addr+3],
+                                self.memory.memory[addr+4], self.memory.memory[addr+5], self.memory.memory[addr+6], self.memory.memory[addr+7],
+                                self.memory.memory[addr+8], self.memory.memory[addr+9], self.memory.memory[addr+10], self.memory.memory[addr+11],
+                                self.memory.memory[addr+12], self.memory.memory[addr+13], self.memory.memory[addr+14], self.memory.memory[addr+15]
+                            );
+                        }
+                    }
+                    emu_info!("--- RAM DUMP END ---");
+                }
             } else {
                 emu_info!("FASTLOAD: PC returned to ROM at ${:04X}! V1(IFR={:02X},IER={:02X}) V2(IFR={:02X},IER={:02X})", 
-                    pc, self.via1.ifr, self.via1.ier, self.via2.ifr, self.via2.ier);
+                    pc, self.memory.via1.ifr, self.memory.via1.ier, self.memory.via2.ifr, self.memory.via2.ier);
             }
             self.last_ram_execution = is_ram_execution;
         }
