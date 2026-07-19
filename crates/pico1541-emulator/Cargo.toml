@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 racc6502v4 = { path = "../racc6502v4" }
 log = "0.4.20"
+defmt = { version = "1.1.0", optional = true }
 embedded-io-async = "0.7.0"
 pico1541-common = { path = "../pico1541-common" }
 
@@ -15,6 +16,7 @@ pico1541-common = { path = "../pico1541-common" }
 debug = []
 logging = []
 flight-recorder = []
+defmt = ["dep:defmt"]
 
 [dev-dependencies]
 env_logger = "0.11.10"

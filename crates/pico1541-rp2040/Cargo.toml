@@ -7,7 +7,7 @@ default-run = "pico1541-rp2040"
 
 [dependencies]
 # Internal crates
-pico1541-emulator = { path = "../pico1541-emulator" }
+pico1541-emulator = { path = "../pico1541-emulator", features = ["defmt"] }
 pico1541-manager = { path = "../pico1541-manager", features = ["defmt"] }
 pico1541-common = { path = "../pico1541-common", features = ["defmt"] }
 

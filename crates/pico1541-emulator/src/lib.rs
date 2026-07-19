@@ -2,28 +2,40 @@
 extern crate alloc;
 
 #[allow(unused_macros)]
-#[cfg(not(feature = "logging"))]
+#[cfg(all(not(feature = "logging"), not(feature = "defmt")))]
 macro_rules! emu_info { ($($arg:tt)*) => {} }
 
 #[allow(unused_macros)]
-#[cfg(not(feature = "logging"))]
+#[cfg(all(not(feature = "logging"), not(feature = "defmt")))]
 macro_rules! emu_warn { ($($arg:tt)*) => {} }
 
 #[allow(unused_macros)]
-#[cfg(not(feature = "logging"))]
+#[cfg(all(not(feature = "logging"), not(feature = "defmt")))]
 macro_rules! emu_debug { ($($arg:tt)*) => {} }
 
 #[allow(unused_macros)]
-#[cfg(feature = "logging")]
+#[cfg(all(feature = "logging", not(feature = "defmt")))]
 macro_rules! emu_info { ($($arg:tt)*) => { log::info!($($arg)*) } }
 
 #[allow(unused_macros)]
-#[cfg(feature = "logging")]
+#[cfg(all(feature = "logging", not(feature = "defmt")))]
 macro_rules! emu_warn { ($($arg:tt)*) => { log::warn!($($arg)*) } }
 
 #[allow(unused_macros)]
-#[cfg(feature = "logging")]
+#[cfg(all(feature = "logging", not(feature = "defmt")))]
 macro_rules! emu_debug { ($($arg:tt)*) => { log::debug!($($arg)*) } }
+
+#[allow(unused_macros)]
+#[cfg(feature = "defmt")]
+macro_rules! emu_info { ($($arg:tt)*) => { defmt::info!($($arg)*) } }
+
+#[allow(unused_macros)]
+#[cfg(feature = "defmt")]
+macro_rules! emu_warn { ($($arg:tt)*) => { defmt::warn!($($arg)*) } }
+
+#[allow(unused_macros)]
+#[cfg(feature = "defmt")]
+macro_rules! emu_debug { ($($arg:tt)*) => { defmt::debug!($($arg)*) } }
 
 pub mod drivemechanics;
 #[cfg(feature = "flight-recorder")]
@@ -77,6 +89,8 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
 
     /// Resets the 6502 CPU and VIAs.
     pub fn reset(&mut self, hw: &mut H) {
+        #[cfg(feature = "defmt")]
+        defmt::info!("EMULATOR CORE: Reset called! Defmt is working!");
         emu_debug!("Emulator Reset");
         self.memory.reset(hw);
         self.cpu.reset(&mut self.memory, hw);
@@ -103,9 +117,9 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         let is_ram_execution = pc < 0x8000;
         if is_ram_execution != self.last_ram_execution {
             if is_ram_execution {
-                log::info!("FASTLOAD: PC jumped to RAM at ${:04X}!", pc);
+                emu_info!("FASTLOAD: PC jumped to RAM at ${:04X}!", pc);
             } else {
-                log::info!("FASTLOAD: PC returned to ROM at ${:04X}!", pc);
+                emu_info!("FASTLOAD: PC returned to ROM at ${:04X}!", pc);
             }
             self.last_ram_execution = is_ram_execution;
         }
