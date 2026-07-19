@@ -9,6 +9,10 @@ static HEAP: embedded_alloc::LlffHeap = embedded_alloc::LlffHeap::empty();
 mod driver;
 mod flash_storage;
 
+#[allow(unused_imports)]
+use pico1541_common::context::ViaHardware;
+#[allow(unused_imports)]
+use pico1541_common::context::CatchUpContext;
 use embassy_rp::interrupt;
 
 use core::sync::atomic::Ordering;
@@ -569,34 +573,34 @@ impl HostInterface for HardwareBridge {
     }
 }
 
-impl pico1541_common::context::ViaHardware for HardwareBridge {
+impl ViaHardware for HardwareBridge {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    fn read_pa(&mut self, _ctx: &mut impl pico1541_common::context::CatchUpContext) -> u8 { 0xFF }
+    fn read_pa(&mut self, _ctx: &mut impl CatchUpContext) -> u8 { 0xFF }
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    fn read_pb(&mut self, _ctx: &mut impl pico1541_common::context::CatchUpContext) -> u8 { 0xFF }
+    fn read_pb(&mut self, _ctx: &mut impl CatchUpContext) -> u8 { 0xFF }
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    fn write_pa(&mut self, _ctx: &mut impl pico1541_common::context::CatchUpContext, _val: u8) {}
+    fn write_pa(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    fn write_pb(&mut self, _ctx: &mut impl pico1541_common::context::CatchUpContext, _val: u8) {}
+    fn write_pb(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    fn write_ddra(&mut self, _ctx: &mut impl pico1541_common::context::CatchUpContext, _val: u8) {}
+    fn write_ddra(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    fn write_ddrb(&mut self, _ctx: &mut impl pico1541_common::context::CatchUpContext, _val: u8) {}
+    fn write_ddrb(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    fn set_ca1(&mut self, _ctx: &mut impl pico1541_common::context::CatchUpContext, _active: bool) {}
+    fn set_ca1(&mut self, _ctx: &mut impl CatchUpContext, _active: bool) {}
 }
 
 #[embassy_executor::task]

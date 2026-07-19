@@ -1,3 +1,5 @@
+use pico1541_common::interface::IecBusState;
+use pico1541_common::interface::DriveEvent;
 use crate::{HardwareBridge, PioMagneticSurface};
 use pico1541_common::interface::HostInterface;
 use pico1541_common::interface::IecBus;
@@ -93,17 +95,17 @@ pub fn run(
 
                 if !was_reset {
                     emulator.reset(hw);
-                    hw.iec_drive(pico1541_common::interface::IecBusState::default());
-                    hw.send_event(pico1541_common::interface::DriveEvent::LedChanged(false));
-                    hw.send_event(pico1541_common::interface::DriveEvent::MotorChanged(false));
+                    hw.iec_drive(IecBusState::default());
+                    hw.send_event(DriveEvent::LedChanged(false));
+                    hw.send_event(DriveEvent::MotorChanged(false));
                     was_reset = true;
                 }
                 hw.sync(hw.iec_host());
             } else {
                 if was_reset {
                     emulator.reset(hw);
-                    hw.send_event(pico1541_common::interface::DriveEvent::LedChanged(true));
-                    hw.send_event(pico1541_common::interface::DriveEvent::MotorChanged(true));
+                    hw.send_event(DriveEvent::LedChanged(true));
+                    hw.send_event(DriveEvent::MotorChanged(true));
                     was_reset = false;
                 }
 

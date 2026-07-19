@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+#[allow(unused_imports)]
+use pico1541_common::context::ViaHardware;
 use defmt_rtt as _;
 use panic_probe as _;
 use embassy_rp as _;
@@ -67,7 +69,7 @@ mod tests {
         fn iec_drive(&mut self, _state: IecBusState) {}
     }
 
-    impl pico1541_common::context::ViaHardware for DummyHost {}
+    impl ViaHardware for DummyHost {}
 impl HostInterface for DummyHost {
         fn send_event(&mut self, _event: DriveEvent) {}
     }

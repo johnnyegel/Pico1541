@@ -1,4 +1,6 @@
 #![cfg(any())]
+#[allow(unused_imports)]
+use pico1541_common::context::ViaHardware;
 use pico1541_common::formats::G64Image;
 use pico1541_common::track_buffer::TrackBuffer;
 use pico1541_common::magnetic_surface::{MagneticSurface, SoftwareMagneticSurface};
@@ -8,7 +10,7 @@ use std::fs::File;
 use std::io::Read;
 
 struct DummyHost;
-impl pico1541_common::context::ViaHardware for DummyHost {}
+impl ViaHardware for DummyHost {}
 impl HostInterface for DummyHost {
     fn set_activity_led(&mut self, _on: bool) {}
     fn debug_pin_0(&mut self, _on: bool) {}

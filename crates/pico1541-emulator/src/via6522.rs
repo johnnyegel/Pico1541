@@ -6,6 +6,10 @@
 //! used by the 1541 hardware, and some features (like the shift register) 
 //! is simplified to only fire interrupts without actually shifting data.
 
+#[allow(unused_imports)]
+use pico1541_common::context::ViaHardware;
+#[allow(unused_imports)]
+use pico1541_common::context::CatchUpContext;
 #[cfg(feature = "debug")]
 use crate::MemoryMonitor;
 
@@ -58,7 +62,7 @@ impl Via6522 {
     /// Read a byte from a VIA register.
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn read<H: pico1541_common::context::ViaHardware, C: pico1541_common::context::CatchUpContext>(&mut self, addr: u16, hw: &mut H, ctx: &mut C) -> u8 {
+    pub fn read<H: ViaHardware, C: CatchUpContext>(&mut self, addr: u16, hw: &mut H, ctx: &mut C) -> u8 {
         let register = (addr & 0x0F) as usize;
         match register {
             0x00 => {
@@ -127,7 +131,7 @@ impl Via6522 {
     /// Write a byte to a VIA register.
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn write<H: pico1541_common::context::ViaHardware, C: pico1541_common::context::CatchUpContext>(&mut self, addr: u16, value: u8, hw: &mut H, ctx: &mut C) {
+    pub fn write<H: ViaHardware, C: CatchUpContext>(&mut self, addr: u16, value: u8, hw: &mut H, ctx: &mut C) {
         let register = (addr & 0x0F) as usize;
         match register {
             0x00 => {
@@ -328,7 +332,7 @@ impl Via6522 {
     /// (Fast convenience method, but this is NOT exact behavior)
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn ca1_irq<H: pico1541_common::context::ViaHardware, C: pico1541_common::context::CatchUpContext>(&mut self, hw: &mut H, ctx: &mut C) {
+    pub fn ca1_irq<H: ViaHardware, C: CatchUpContext>(&mut self, hw: &mut H, ctx: &mut C) {
         self.ifr |= 0x02;
         self.update_irq();
         if (self.acr & 0x01) != 0 {
@@ -340,7 +344,7 @@ impl Via6522 {
     /// (Fast convenience method, but this is NOT exact behavior)
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn ca2_irq<H: pico1541_common::context::ViaHardware, C: pico1541_common::context::CatchUpContext>(&mut self, _hw: &mut H, _ctx: &mut C) {
+    pub fn ca2_irq<H: ViaHardware, C: CatchUpContext>(&mut self, _hw: &mut H, _ctx: &mut C) {
         self.ifr |= 0x01;
         self.update_irq();
     }
@@ -348,7 +352,7 @@ impl Via6522 {
     
 
     #[link_section = ".data.ram_func"]
-    pub fn set_ca1<H: pico1541_common::context::ViaHardware, C: pico1541_common::context::CatchUpContext>(&mut self, val: bool, hw: &mut H, ctx: &mut C) {
+    pub fn set_ca1<H: ViaHardware, C: CatchUpContext>(&mut self, val: bool, hw: &mut H, ctx: &mut C) {
         let positive_edge = (self.pcr & 0x01) != 0;
         if (val && !self.last_ca1 && positive_edge) || (!val && self.last_ca1 && !positive_edge) {
             self.ca1_irq(hw, ctx);
@@ -357,7 +361,7 @@ impl Via6522 {
     }
 
     #[link_section = ".data.ram_func"]
-    pub fn set_ca2<H: pico1541_common::context::ViaHardware, C: pico1541_common::context::CatchUpContext>(&mut self, val: bool, hw: &mut H, ctx: &mut C) {
+    pub fn set_ca2<H: ViaHardware, C: CatchUpContext>(&mut self, val: bool, hw: &mut H, ctx: &mut C) {
         if (self.pcr & 0x08) == 0 {
             let positive_edge = (self.pcr & 0x04) != 0;
             if (val && !self.last_ca2 && positive_edge) || (!val && self.last_ca2 && !positive_edge) {
@@ -368,7 +372,7 @@ impl Via6522 {
     }
 
     #[link_section = ".data.ram_func"]
-    pub fn set_cb1<H: pico1541_common::context::ViaHardware, C: pico1541_common::context::CatchUpContext>(&mut self, val: bool, hw: &mut H, ctx: &mut C) {
+    pub fn set_cb1<H: ViaHardware, C: CatchUpContext>(&mut self, val: bool, hw: &mut H, ctx: &mut C) {
         let positive_edge = (self.pcr & 0x10) != 0;
         if (val && !self.last_cb1 && positive_edge) || (!val && self.last_cb1 && !positive_edge) {
             self.ifr |= 0x10;
@@ -381,7 +385,7 @@ impl Via6522 {
     }
 
     #[link_section = ".data.ram_func"]
-    pub fn set_cb2<H: pico1541_common::context::ViaHardware, C: pico1541_common::context::CatchUpContext>(&mut self, val: bool, _hw: &mut H, _ctx: &mut C) {
+    pub fn set_cb2<H: ViaHardware, C: CatchUpContext>(&mut self, val: bool, _hw: &mut H, _ctx: &mut C) {
         if (self.pcr & 0x80) == 0 {
             let positive_edge = (self.pcr & 0x40) != 0;
             if (val && !self.last_cb2 && positive_edge) || (!val && self.last_cb2 && !positive_edge)
@@ -416,7 +420,7 @@ impl Via6522 {
 #[cfg(feature = "debug")]
 impl MemoryMonitor for Via6522 {
     /// Peek at a VIA register without side effects.ge
-    fn peek<H: pico1541_common::context::ViaHardware, C: pico1541_common::context::CatchUpContext>(&mut self, addr: u16, hw: &mut H, ctx: &mut C) -> u8 {
+    fn peek<H: ViaHardware, C: CatchUpContext>(&mut self, addr: u16, hw: &mut H, ctx: &mut C) -> u8 {
         let register = (addr & 0x0F) as usize;
         match register {
             0x00 => {
@@ -460,7 +464,7 @@ impl MemoryMonitor for Via6522 {
         }
     }
 
-    fn poke<H: pico1541_common::context::ViaHardware, C: pico1541_common::context::CatchUpContext>(&mut self, _addr: u16, _value: u8, _hw: &mut H, _ctx: &mut C) {
+    fn poke<H: ViaHardware, C: CatchUpContext>(&mut self, _addr: u16, _value: u8, _hw: &mut H, _ctx: &mut C) {
         // NOT implemented yet!
     }
 }
@@ -469,7 +473,7 @@ impl MemoryMonitor for Via6522 {
 mod tests {
     use super::*;
     struct MockCtx;
-    impl pico1541_common::context::CatchUpContext for MockCtx {
+    impl CatchUpContext for MockCtx {
         fn catch_up(&mut self, _target_cycle: u64) {}
         fn advance_to(&mut self, _target_cycle: u64) {}
     }
@@ -478,14 +482,14 @@ mod tests {
         pa: u8,
         pb: u8,
     }
-    impl pico1541_common::context::ViaHardware for MockHw {
-        fn read_pa(&mut self, _ctx: &mut impl pico1541_common::context::CatchUpContext) -> u8 { self.pa }
-        fn read_pb(&mut self, _ctx: &mut impl pico1541_common::context::CatchUpContext) -> u8 { self.pb }
-        fn write_pa(&mut self, _ctx: &mut impl pico1541_common::context::CatchUpContext, _val: u8) {}
-        fn write_pb(&mut self, _ctx: &mut impl pico1541_common::context::CatchUpContext, _val: u8) {}
-        fn write_ddra(&mut self, _ctx: &mut impl pico1541_common::context::CatchUpContext, _val: u8) {}
-        fn write_ddrb(&mut self, _ctx: &mut impl pico1541_common::context::CatchUpContext, _val: u8) {}
-        fn set_ca1(&mut self, _ctx: &mut impl pico1541_common::context::CatchUpContext, _active: bool) {}
+    impl ViaHardware for MockHw {
+        fn read_pa(&mut self, _ctx: &mut impl CatchUpContext) -> u8 { self.pa }
+        fn read_pb(&mut self, _ctx: &mut impl CatchUpContext) -> u8 { self.pb }
+        fn write_pa(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
+        fn write_pb(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
+        fn write_ddra(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
+        fn write_ddrb(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
+        fn set_ca1(&mut self, _ctx: &mut impl CatchUpContext, _active: bool) {}
     }
 
 

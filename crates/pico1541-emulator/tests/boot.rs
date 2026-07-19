@@ -1,3 +1,6 @@
+use pico1541_common::interface::DriveEvent;
+#[allow(unused_imports)]
+use pico1541_common::context::CatchUpContext;
 use pico1541_emulator::MemoryMonitor;
 use pico1541_common::track_buffer::TrackLayout;
 use pollster::block_on;
@@ -5,7 +8,7 @@ use pico1541_common::iec_com::{IecCommander, IecError};
 
 mod common;
 struct MockCtx;
-impl pico1541_common::context::CatchUpContext for MockCtx {
+impl CatchUpContext for MockCtx {
     fn catch_up(&mut self, _target_cycle: u64) {}
     fn advance_to(&mut self, _target_cycle: u64) {}
 }
@@ -38,7 +41,7 @@ fn test_drive_boot_behavior() {
     let motor_on_events = bridge
         .events
         .iter()
-        .filter(|e| matches!(e, pico1541_common::interface::DriveEvent::MotorChanged(true)))
+        .filter(|e| matches!(e, DriveEvent::MotorChanged(true)))
         .count();
 
     // Standard 1541-II/1571 boot behavior often involves a motor spin-up and a head bump

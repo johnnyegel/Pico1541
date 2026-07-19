@@ -1,3 +1,5 @@
+#[allow(unused_imports)]
+use pico1541_common::context::ViaHardware;
 use pico1541_common::formats::{D64Image, DiskImage, G64Image};
 use pico1541_common::track_buffer::TrackLayout;
 use pico1541_common::magnetic_surface::{MagneticSurface, SoftwareMagneticSurface};
@@ -28,7 +30,7 @@ impl IecBus for MockHardware {
     fn iec_drive(&mut self, _state: IecBusState) {}
 }
 
-impl pico1541_common::context::ViaHardware for MockHardware {}
+impl ViaHardware for MockHardware {}
 impl HostInterface for MockHardware {
     
     fn send_event(&mut self, _event: DriveEvent) {}

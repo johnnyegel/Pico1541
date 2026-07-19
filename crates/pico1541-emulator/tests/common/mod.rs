@@ -1,4 +1,6 @@
 #![allow(dead_code)]
+#[allow(unused_imports)]
+use pico1541_common::context::ViaHardware;
 use log;
 use pico1541_common::formats::{AnyDiskImage, DiskImage, G64Image};
 use pico1541_common::track_buffer::TrackLayout;
@@ -197,7 +199,7 @@ impl IecBus for TestBridge {
     }
 }
 
-impl pico1541_common::context::ViaHardware for TestBridge {}
+impl ViaHardware for TestBridge {}
 impl HostInterface for TestBridge {
     fn send_event(&mut self, event: DriveEvent) {
         self.events.push(event);

@@ -1,3 +1,5 @@
+#[allow(unused_imports)]
+use pico1541_common::context::CatchUpContext;
 use pico1541_common::magnetic_surface::{MagneticSurface, SoftwareMagneticSurface};
 
 fn wait_for_pulse(mechanics: &mut DriveMechanics<SoftwareMagneticSurface>, hardware: &mut TestBridge, via1: &mut Via6522, via2: &mut Via6522, mut last_pulse: bool) -> (u32, bool) {
@@ -17,7 +19,7 @@ fn wait_for_pulse(mechanics: &mut DriveMechanics<SoftwareMagneticSurface>, hardw
 }
 mod common;
 struct MockCtx;
-impl pico1541_common::context::CatchUpContext for MockCtx {
+impl CatchUpContext for MockCtx {
     fn catch_up(&mut self, _target_cycle: u64) {}
     fn advance_to(&mut self, _target_cycle: u64) {}
 }

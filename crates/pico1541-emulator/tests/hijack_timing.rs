@@ -1,3 +1,5 @@
+#[allow(unused_imports)]
+use pico1541_common::context::ViaHardware;
 use pico1541_common::interface::{DriveEvent, HostInterface, IecBus, IecBusState};
 use pico1541_common::magnetic_surface::SoftwareMagneticSurface;
 
@@ -12,7 +14,7 @@ impl IecBus for TestHardware {
     fn iec_drive(&mut self, _: IecBusState) {}
 }
 
-impl pico1541_common::context::ViaHardware for TestHardware {}
+impl ViaHardware for TestHardware {}
 impl HostInterface for TestHardware {
     
     fn send_event(&mut self, _: DriveEvent) {}

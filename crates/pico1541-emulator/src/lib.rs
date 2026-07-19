@@ -32,6 +32,10 @@ pub mod hle;
 pub mod systembus;
 pub mod via6522;
 
+#[allow(unused_imports)]
+use pico1541_common::context::ViaHardware;
+#[allow(unused_imports)]
+use pico1541_common::context::CatchUpContext;
 use pico1541_common::interface::HostInterface;
 use pico1541_common::magnetic_surface::MagneticSurface;
 use racc6502v4::cpu::CPU;
@@ -40,8 +44,8 @@ use systembus::SystemBus;
 /// Trait for peeking and poking at memory/registers without side effects.
 #[cfg(feature = "debug")]
 pub trait MemoryMonitor {
-    fn peek<H: pico1541_common::context::ViaHardware, C: pico1541_common::context::CatchUpContext>(&mut self, addr: u16, hw: &mut H, ctx: &mut C) -> u8;
-    fn poke<H: pico1541_common::context::ViaHardware, C: pico1541_common::context::CatchUpContext>(&mut self, addr: u16, value: u8, hw: &mut H, ctx: &mut C);
+    fn peek<H: ViaHardware, C: CatchUpContext>(&mut self, addr: u16, hw: &mut H, ctx: &mut C) -> u8;
+    fn poke<H: ViaHardware, C: CatchUpContext>(&mut self, addr: u16, value: u8, hw: &mut H, ctx: &mut C);
 }
 
 /// The MOS 1541 Drive Emulator.

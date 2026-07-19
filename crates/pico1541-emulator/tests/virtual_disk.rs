@@ -1,4 +1,5 @@
 mod common;
+use pico1541_common::interface::DriveEvent;
 use common::*;
 use pico1541_common::formats::{AnyDiskImage, VirtualDiskImage};
 use pico1541_common::storage::DummySource;
@@ -160,10 +161,10 @@ fn test_virtual_disk_load_interception() {
     });
 
     // Check if the bridge captured the IecCommand event
-    let command_event = bridge.events.iter().find(|e| matches!(e, pico1541_common::interface::DriveEvent::IecCommand { .. }));
+    let command_event = bridge.events.iter().find(|e| matches!(e, DriveEvent::IecCommand { .. }));
     
     assert!(command_event.is_some(), "No IecCommand event was emitted");
-    if let Some(pico1541_common::interface::DriveEvent::IecCommand { data, len }) = command_event {
+    if let Some(DriveEvent::IecCommand { data, len }) = command_event {
         let cmd = std::str::from_utf8(&data[..*len as usize]).unwrap();
         assert_eq!(cmd, "GAME");
         log::info!("Intercepted command: {}", cmd);

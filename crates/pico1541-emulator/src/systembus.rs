@@ -1,3 +1,7 @@
+#[allow(unused_imports)]
+use pico1541_common::context::ViaHardware;
+#[allow(unused_imports)]
+use pico1541_common::context::CatchUpContext;
 use crate::drivemechanics::DriveMechanics;
 use crate::via6522::Via6522;
 #[cfg(feature = "debug")]
@@ -280,7 +284,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     }
 }
 
-impl<H: HostInterface, S: MagneticSurface> pico1541_common::context::CatchUpContext for SystemBus<H, S> {
+impl<H: HostInterface, S: MagneticSurface> CatchUpContext for SystemBus<H, S> {
     fn catch_up(&mut self, target_cycle: u64) {
         if !self.current_hw.is_null() {
             let hw = unsafe { &mut *self.current_hw };
@@ -382,7 +386,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 /// Implement MemoryMonitor for SystemBus to allow peeking at memory without affecting timing.
 #[cfg(feature = "debug")]
 impl<H: HostInterface, S: MagneticSurface> MemoryMonitor for SystemBus<H, S> {
-    fn peek<H2: pico1541_common::context::ViaHardware, C2: pico1541_common::context::CatchUpContext>(&mut self, addr: u16, hw: &mut H2, ctx: &mut C2) -> u8 {
+    fn peek<H2: ViaHardware, C2: CatchUpContext>(&mut self, addr: u16, hw: &mut H2, ctx: &mut C2) -> u8 {
         if (addr & 0x9800) == 0x1800 {
             if addr < 0x1C00 { self.via1.peek(addr, hw, ctx) } else { self.via2.peek(addr, hw, ctx) }
         } else {
@@ -391,7 +395,7 @@ impl<H: HostInterface, S: MagneticSurface> MemoryMonitor for SystemBus<H, S> {
         }
     }
 
-    fn poke<H2: pico1541_common::context::ViaHardware, C2: pico1541_common::context::CatchUpContext>(&mut self, _addr: u16, _value: u8, _hw: &mut H2, _ctx: &mut C2) {
+    fn poke<H2: ViaHardware, C2: CatchUpContext>(&mut self, _addr: u16, _value: u8, _hw: &mut H2, _ctx: &mut C2) {
         // NOT implemented yet!
     }
 }
@@ -409,7 +413,7 @@ mod tests {
         fn iec_drive(&mut self, _: IecBusState) {}
     }
 
-    impl pico1541_common::context::ViaHardware for MockHardware {}
+    impl ViaHardware for MockHardware {}
 impl HostInterface for MockHardware {
         
         fn send_event(&mut self, _: DriveEvent) {}

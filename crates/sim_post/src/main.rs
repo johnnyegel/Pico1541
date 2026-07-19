@@ -1,3 +1,5 @@
+#[allow(unused_imports)]
+use pico1541_common::context::ViaHardware;
 use pico1541_common::magnetic_surface::SoftwareMagneticSurface;
 use pico1541_common::track_buffer::{DualCoreTrackBuffer, EmulatorHandle};
 use pico1541_common::interface::{DriveEvent, HostInterface, IecBusState, IecBus};
@@ -8,7 +10,7 @@ impl IecBus for DummyHost {
     fn iec_host(&self) -> IecBusState { IecBusState::default() }
     fn iec_drive(&mut self, _state: IecBusState) {}
 }
-impl pico1541_common::context::ViaHardware for DummyHost {}
+impl ViaHardware for DummyHost {}
 impl HostInterface for DummyHost {
     fn send_event(&mut self, _event: DriveEvent) {}
     fn track_changed(&mut self, _track: u8) {}
