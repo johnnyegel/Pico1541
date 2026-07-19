@@ -68,7 +68,7 @@ impl Via6522 {
                 if (self.acr & 0x02) != 0 {
                     self.latch_b
                 } else {
-                    let pb = hw.read_pb(ctx);
+                    let pb = self.in_b & hw.read_pb(ctx);
                     (self.orb & self.ddrb) | (pb & !self.ddrb)
                 }
             }
@@ -79,7 +79,7 @@ impl Via6522 {
                 if (self.acr & 0x01) != 0 {
                     self.latch_a
                 } else {
-                    let pa = hw.read_pa(ctx);
+                    let pa = self.in_a & hw.read_pa(ctx);
                     (self.ora & self.ddra) | (pa & !self.ddra)
                 }
             }
@@ -116,7 +116,7 @@ impl Via6522 {
                 if (self.acr & 0x01) != 0 {
                     self.latch_a
                 } else {
-                    let pa = hw.read_pa(ctx);
+                    let pa = self.in_a & hw.read_pa(ctx);
                     (self.ora & self.ddra) | (pa & !self.ddra)
                 }
             }
@@ -332,7 +332,7 @@ impl Via6522 {
         self.ifr |= 0x02;
         self.update_irq();
         if (self.acr & 0x01) != 0 {
-            self.latch_a = (self.ora & self.ddra) | (hw.read_pa(ctx) & !self.ddra);
+            self.latch_a = (self.ora & self.ddra) | (self.in_a & hw.read_pa(ctx) & !self.ddra);
         }
     }
 
@@ -340,7 +340,7 @@ impl Via6522 {
     /// (Fast convenience method, but this is NOT exact behavior)
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn ca2_irq(&mut self) {
+    pub fn ca2_irq<H: pico1541_common::context::ViaHardware, C: pico1541_common::context::CatchUpContext>(&mut self, _hw: &mut H, _ctx: &mut C) {
         self.ifr |= 0x01;
         self.update_irq();
     }
@@ -357,11 +357,11 @@ impl Via6522 {
     }
 
     #[link_section = ".data.ram_func"]
-    pub fn set_ca2(&mut self, val: bool) {
+    pub fn set_ca2<H: pico1541_common::context::ViaHardware, C: pico1541_common::context::CatchUpContext>(&mut self, val: bool, hw: &mut H, ctx: &mut C) {
         if (self.pcr & 0x08) == 0 {
             let positive_edge = (self.pcr & 0x04) != 0;
             if (val && !self.last_ca2 && positive_edge) || (!val && self.last_ca2 && !positive_edge) {
-                self.ca2_irq();
+                self.ca2_irq(hw, ctx);
             }
         }
         self.last_ca2 = val;
@@ -381,7 +381,7 @@ impl Via6522 {
     }
 
     #[link_section = ".data.ram_func"]
-    pub fn set_cb2(&mut self, val: bool) {
+    pub fn set_cb2<H: pico1541_common::context::ViaHardware, C: pico1541_common::context::CatchUpContext>(&mut self, val: bool, _hw: &mut H, _ctx: &mut C) {
         if (self.pcr & 0x80) == 0 {
             let positive_edge = (self.pcr & 0x40) != 0;
             if (val && !self.last_cb2 && positive_edge) || (!val && self.last_cb2 && !positive_edge)
@@ -474,16 +474,28 @@ mod tests {
         fn advance_to(&mut self, _target_cycle: u64) {}
     }
 
-    struct MockHw;
-    impl pico1541_common::context::ViaHardware for MockHw {}
+    struct MockHw {
+        pa: u8,
+        pb: u8,
+    }
+    impl pico1541_common::context::ViaHardware for MockHw {
+        fn read_pa(&mut self, _ctx: &mut impl pico1541_common::context::CatchUpContext) -> u8 { self.pa }
+        fn read_pb(&mut self, _ctx: &mut impl pico1541_common::context::CatchUpContext) -> u8 { self.pb }
+        fn write_pa(&mut self, _ctx: &mut impl pico1541_common::context::CatchUpContext, _val: u8) {}
+        fn write_pb(&mut self, _ctx: &mut impl pico1541_common::context::CatchUpContext, _val: u8) {}
+        fn write_ddra(&mut self, _ctx: &mut impl pico1541_common::context::CatchUpContext, _val: u8) {}
+        fn write_ddrb(&mut self, _ctx: &mut impl pico1541_common::context::CatchUpContext, _val: u8) {}
+        fn set_ca1(&mut self, _ctx: &mut impl pico1541_common::context::CatchUpContext, _active: bool) {}
+    }
 
 
     #[test]
     fn test_timer1_oneshot() {
         let mut via = Via6522::new();
-        via.write(0x0E, 0xC0, &mut MockHw, &mut MockCtx);
-        via.write(0x04, 0x0A, &mut MockHw, &mut MockCtx);
-        via.write(0x05, 0x00, &mut MockHw, &mut MockCtx);
+        let mut hw = MockHw { pa: 0xFF, pb: 0xFF };
+        via.write(0x0E, 0xC0, &mut hw, &mut MockCtx);
+        via.write(0x04, 0x0A, &mut hw, &mut MockCtx);
+        via.write(0x05, 0x00, &mut hw, &mut MockCtx);
         assert!(via.active_mask & Via6522::T1_ACTIVE != 0);
         for _ in 0..11 {
             via.tick_cycles(1);
@@ -496,10 +508,11 @@ mod tests {
     #[test]
     fn test_latching() {
         let mut via = Via6522::new();
-        via.write(0x0B, 0x01, &mut MockHw, &mut MockCtx);
-        via.in_a = 0xAA;
-        via.ca1_irq(&mut MockHw, &mut MockCtx);
-        via.in_a = 0xFF;
-        assert_eq!(via.read(0x01, &mut MockHw, &mut MockCtx), 0xAA);
+        let mut hw = MockHw { pa: 0xFF, pb: 0xFF };
+        via.write(0x0B, 0x01, &mut hw, &mut MockCtx);
+        hw.pa = 0xAA;
+        via.ca1_irq(&mut hw, &mut MockCtx);
+        hw.pa = 0xFF;
+        assert_eq!(via.read(0x01, &mut hw, &mut MockCtx), 0xAA);
     }
 }
