@@ -568,6 +568,36 @@ impl HostInterface for HardwareBridge {
     }
 }
 
+impl pico1541_common::context::ViaHardware for HardwareBridge {
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    fn read_pa(&mut self, _ctx: &mut impl pico1541_common::context::CatchUpContext) -> u8 { 0xFF }
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    fn read_pb(&mut self, _ctx: &mut impl pico1541_common::context::CatchUpContext) -> u8 { 0xFF }
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    fn write_pa(&mut self, _ctx: &mut impl pico1541_common::context::CatchUpContext, _val: u8) {}
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    fn write_pb(&mut self, _ctx: &mut impl pico1541_common::context::CatchUpContext, _val: u8) {}
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    fn write_ddra(&mut self, _ctx: &mut impl pico1541_common::context::CatchUpContext, _val: u8) {}
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    fn write_ddrb(&mut self, _ctx: &mut impl pico1541_common::context::CatchUpContext, _val: u8) {}
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    fn set_ca1(&mut self, _ctx: &mut impl pico1541_common::context::CatchUpContext, _active: bool) {}
+}
+
 #[embassy_executor::task]
 async fn activity_run(mut task: DriveActivityTask<IndicatorWrapper<CriticalSectionRawMutex>>) {
     task.run().await;
