@@ -4,6 +4,7 @@ target/**
 GEMINI.md
 CLAUDE.md
 .antigravitycli/**
+.superpowers/**
 
 # 1. Ignore everything inside the local .cargo directory...
 .cargo/**
