@@ -40,8 +40,8 @@ use systembus::SystemBus;
 /// Trait for peeking and poking at memory/registers without side effects.
 #[cfg(feature = "debug")]
 pub trait MemoryMonitor {
-    fn peek(&self, addr: u16) -> u8;
-    fn poke(&mut self, addr: u16, value: u8);
+    fn peek<H: pico1541_common::context::ViaHardware, C: pico1541_common::context::CatchUpContext>(&mut self, addr: u16, hw: &mut H, ctx: &mut C) -> u8;
+    fn poke<H: pico1541_common::context::ViaHardware, C: pico1541_common::context::CatchUpContext>(&mut self, addr: u16, value: u8, hw: &mut H, ctx: &mut C);
 }
 
 pub trait ExecutionTimer {

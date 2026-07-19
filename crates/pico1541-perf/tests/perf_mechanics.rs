@@ -67,7 +67,8 @@ mod tests {
         fn iec_drive(&mut self, _state: IecBusState) {}
     }
 
-    impl HostInterface for DummyHost {
+    impl pico1541_common::context::ViaHardware for DummyHost {}
+impl HostInterface for DummyHost {
         fn send_event(&mut self, _event: DriveEvent) {}
     }
 

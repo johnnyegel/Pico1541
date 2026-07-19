@@ -15,6 +15,7 @@ impl IecBus for MockHost {
         self.log.push(format!("DRIVE IEC: {:02X}", state.0));
     }
 }
+impl pico1541_common::context::ViaHardware for MockHost {}
 impl HostInterface for MockHost {
     fn send_event(&mut self, _: DriveEvent) {}
     fn sync(&mut self, _: IecBusState) {}

@@ -147,7 +147,7 @@ pub trait IecBus {
     fn iec_drive(&mut self, state: IecBusState);
 }
 
-pub trait HostInterface: IecBus {
+pub trait HostInterface: IecBus + crate::context::ViaHardware {
     fn send_event(&mut self, event: DriveEvent);
 
     /// Returns true if the bus is currently hijacked by the manager.

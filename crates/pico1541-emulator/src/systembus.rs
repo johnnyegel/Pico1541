@@ -150,10 +150,13 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn poll_realtime(&mut self, hardware: &mut H, elapsed: u32) {
+        self.current_hw = hardware as *mut H;
         let host_iec = hardware.iec_host();
         if host_iec != self.last_host_iec {
             self.last_host_iec = host_iec;
-            self.via1.set_ca1(host_iec.get_atn());
+            let mut via = self.via1;
+            via.set_ca1(host_iec.get_atn(), hardware, self);
+            self.via1 = via;
             self.update_physical_iec(hardware);
             hardware.sync(host_iec);
             self.sync_required = true;
@@ -183,7 +186,16 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             }
         }
 
-        self.so_active = self.mechanics.tick_cycles(hardware, &mut self.via1, &mut self.via2, elapsed);
+        let mut via1 = self.via1;
+        let mut via2 = self.via2;
+        let (so, trigger_ca1) = self.mechanics.tick_cycles(hardware, &mut via1, &mut via2, elapsed);
+        if trigger_ca1 {
+            via2.ca1_irq(hardware, self);
+        }
+        self.so_active = so;
+        self.via1 = via1;
+        self.via2 = via2;
+        self.current_hw = core::ptr::null_mut();
         if self.so_active {
             self.so_pulsed = true;
         }
@@ -216,13 +228,26 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     fn read_io(&mut self, addr: u16, cycle: u32, _ctx: &mut H) -> u8 {
         self.catch_up(cycle, _ctx);
         self.sync_required = true;
-        if addr >= 0x1800 && addr <= 0x180F {
-            self.via1.read(addr)
+        
+        // Save current_hw to use inside CatchUpContext methods
+        self.current_hw = _ctx as *mut H;
+        
+        let result = if addr >= 0x1800 && addr <= 0x180F {
+            let mut via = self.via1;
+            let res = via.read(addr, _ctx, self);
+            self.via1 = via;
+            res
         } else if addr >= 0x1C00 && addr <= 0x1C0F {
-            self.via2.read(addr)
+            let mut via = self.via2;
+            let res = via.read(addr, _ctx, self);
+            self.via2 = via;
+            res
         } else {
             0
-        }
+        };
+        
+        self.current_hw = core::ptr::null_mut();
+        result
     }
 
     #[link_section = ".data.ram_func"]
@@ -230,19 +255,40 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     fn write_io(&mut self, addr: u16, val: u8, cycle: u32, ctx: &mut H) {
         self.catch_up(cycle, ctx);
         self.sync_required = true;
+        
+        self.current_hw = ctx as *mut H;
+        
         if addr >= 0x1800 && addr <= 0x180F {
             let reg = (addr & 0x0F) as usize;
-            self.via1.write(addr, val);
+            let mut via = self.via1;
+            via.write(addr, val, ctx, self);
+            self.via1 = via;
             if reg == 0x00 || reg == 0x02 || reg == 0x0F {
                 self.update_drive_iec_base(ctx);
             }
         } else if addr >= 0x1C00 && addr <= 0x1C0F {
             let reg = (addr & 0x0F) as usize;
-            self.via2.write(addr, val);
+            let mut via = self.via2;
+            via.write(addr, val, ctx, self);
+            self.via2 = via;
             if reg == 0x00 || reg == 0x02 || reg == 0x0F {
                 self.mechanics.update_state(self.via2.orb, self.via2.ddrb, ctx);
             }
         }
+        
+        self.current_hw = core::ptr::null_mut();
+    }
+}
+
+impl<H: HostInterface, S: MagneticSurface> pico1541_common::context::CatchUpContext for SystemBus<H, S> {
+    fn catch_up(&mut self, target_cycle: u64) {
+        if !self.current_hw.is_null() {
+            let hw = unsafe { &mut *self.current_hw };
+            self.catch_up(target_cycle as u32, hw);
+        }
+    }
+    fn advance_to(&mut self, target_cycle: u64) {
+        self.last_cycle = target_cycle as u32;
     }
 }
 
@@ -336,16 +382,16 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 /// Implement MemoryMonitor for SystemBus to allow peeking at memory without affecting timing.
 #[cfg(feature = "debug")]
 impl<H: HostInterface, S: MagneticSurface> MemoryMonitor for SystemBus<H, S> {
-    fn peek(&self, addr: u16) -> u8 {
+    fn peek<H2: pico1541_common::context::ViaHardware, C2: pico1541_common::context::CatchUpContext>(&mut self, addr: u16, hw: &mut H2, ctx: &mut C2) -> u8 {
         if (addr & 0x9800) == 0x1800 {
-            if addr < 0x1C00 { self.via1.peek(addr) } else { self.via2.peek(addr) }
+            if addr < 0x1C00 { self.via1.peek(addr, hw, ctx) } else { self.via2.peek(addr, hw, ctx) }
         } else {
             let index = (addr & 0x3FFF) | ((addr >> 1) & 0x4000);
             self.memory[index as usize]
         }
     }
 
-    fn poke(&mut self, _addr: u16, _value: u8) {
+    fn poke<H2: pico1541_common::context::ViaHardware, C2: pico1541_common::context::CatchUpContext>(&mut self, _addr: u16, _value: u8, _hw: &mut H2, _ctx: &mut C2) {
         // NOT implemented yet!
     }
 }
@@ -363,7 +409,8 @@ mod tests {
         fn iec_drive(&mut self, _: IecBusState) {}
     }
 
-    impl HostInterface for MockHardware {
+    impl pico1541_common::context::ViaHardware for MockHardware {}
+impl HostInterface for MockHardware {
         
         fn send_event(&mut self, _: DriveEvent) {}
         fn sync(&mut self, _: IecBusState) {}

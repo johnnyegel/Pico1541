@@ -197,6 +197,7 @@ impl IecBus for TestBridge {
     }
 }
 
+impl pico1541_common::context::ViaHardware for TestBridge {}
 impl HostInterface for TestBridge {
     fn send_event(&mut self, event: DriveEvent) {
         self.events.push(event);

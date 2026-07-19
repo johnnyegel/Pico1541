@@ -8,6 +8,7 @@ use std::fs::File;
 use std::io::Read;
 
 struct DummyHost;
+impl pico1541_common::context::ViaHardware for DummyHost {}
 impl HostInterface for DummyHost {
     fn set_activity_led(&mut self, _on: bool) {}
     fn debug_pin_0(&mut self, _on: bool) {}

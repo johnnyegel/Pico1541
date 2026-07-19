@@ -12,6 +12,7 @@ impl IecBus for TestHardware {
     fn iec_drive(&mut self, _: IecBusState) {}
 }
 
+impl pico1541_common::context::ViaHardware for TestHardware {}
 impl HostInterface for TestHardware {
     
     fn send_event(&mut self, _: DriveEvent) {}

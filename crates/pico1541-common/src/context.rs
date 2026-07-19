@@ -4,9 +4,11 @@ pub trait CatchUpContext {
 }
 
 pub trait ViaHardware {
-    fn read_pa(&mut self, ctx: &mut impl CatchUpContext) -> u8;
-    fn read_pb(&mut self, ctx: &mut impl CatchUpContext) -> u8;
-    fn write_pa(&mut self, ctx: &mut impl CatchUpContext, val: u8);
-    fn write_pb(&mut self, ctx: &mut impl CatchUpContext, val: u8);
-    fn set_ca1(&mut self, ctx: &mut impl CatchUpContext, active: bool);
+    fn read_pa(&mut self, _ctx: &mut impl CatchUpContext) -> u8 { 0xFF }
+    fn read_pb(&mut self, _ctx: &mut impl CatchUpContext) -> u8 { 0xFF }
+    fn write_pa(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
+    fn write_pb(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
+    fn write_ddra(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
+    fn write_ddrb(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
+    fn set_ca1(&mut self, _ctx: &mut impl CatchUpContext, _active: bool) {}
 }

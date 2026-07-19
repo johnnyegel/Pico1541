@@ -60,12 +60,13 @@ impl<S: MagneticSurface> DriveMechanics<S> {
     /// Progresses the drive mechanics by one CPU cycle.
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn tick_cycles<H: HostInterface>(&mut self, hardware: &mut H, _via1: &mut crate::via6522::Via6522, via2: &mut Via6522, delta: u32) -> bool {
+    pub fn tick_cycles<H: HostInterface>(&mut self, hardware: &mut H, _via1: &mut crate::via6522::Via6522, via2: &mut Via6522, delta: u32) -> (bool, bool) {
         if delta == 0 || (self.last_state & MASK_MOTOR) == 0 {
-            return false;
+            return (false, false);
         }
 
         let mut so_pulsed = false;
+        let mut trigger_ca1 = false;
 
         let pcr_cb2 = via2.pcr & 0b1110_0000;
         let is_read_mode = pcr_cb2 != 0b1100_0000;
@@ -83,7 +84,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
             }
 
             if byte_opt.is_none() && is_sync == was_sync {
-                return false;
+                return (false, false);
             }
 
             let mut new_byte_arrived = false;
@@ -106,7 +107,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
                 let is_so_enabled = (pcr_ca2 & 0b0000_1010) == 0b0000_1010; // CA2 is set to pulse output mode (SOE)
 
                 if is_so_enabled {
-                    via2.ca1_irq(); // CA1 triggers ONLY WHEN SOE is set!
+                    trigger_ca1 = true; // CA1 triggers ONLY WHEN SOE is set!
                     self.so_pulse_cycles = 3;
                     hardware.debug_pin_0(true); // Assert SO pulse on debug pin
                     so_pulsed = true;
@@ -119,7 +120,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
             self.surface.write_byte_at(index, via2.ora);
         }
         
-        so_pulsed
+        (so_pulsed, trigger_ca1)
     }
 
     /// Updates the drive mechanics state based on VIA2 Port B outputs.

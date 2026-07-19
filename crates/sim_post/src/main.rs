@@ -8,6 +8,7 @@ impl IecBus for DummyHost {
     fn iec_host(&self) -> IecBusState { IecBusState::default() }
     fn iec_drive(&mut self, _state: IecBusState) {}
 }
+impl pico1541_common::context::ViaHardware for DummyHost {}
 impl HostInterface for DummyHost {
     fn send_event(&mut self, _event: DriveEvent) {}
     fn track_changed(&mut self, _track: u8) {}
