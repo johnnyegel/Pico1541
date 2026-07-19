@@ -14,8 +14,9 @@ Systematically identify and resolve the root cause of the fast loader failures w
 Before optimizing code, we must definitively prove whether the emulator is actually dropping below 1MHz during fast loaders.
 
 - [x] **Restore `pico1541-perf` crate functionality**: Ensure performance tests build and run against the latest `ViaHardware` interfaces.
-- [ ] **Run `pico1541-perf` on hardware**: Flash the perf tests using `probe-rs run` or `cargo test --release` and log the CPU cycle counts to verify baseline throughput.
-- [ ] **Log Performance Counters**: Hook up `hw.report_performance_counters(cycle_counter, idle_counter)` in the `HardwareBridge` implementation. Have the Manager (Core 0) periodically print these counters to USB serial.
+- [x] **Run `pico1541-perf` on hardware**: Flash the perf tests using `probe-rs run` or `cargo test --release` and log the CPU cycle counts to verify baseline throughput.
+  - *Result:* 1M fastloader cycles emulated in ~14M ARM cycles. At 250MHz, this is ~18x real-time speed. Throughput is NOT the bottleneck.
+- [ ] **Log Performance Counters (Optional)**: Hook up `hw.report_performance_counters(cycle_counter, idle_counter)` in the `HardwareBridge` implementation. Have the Manager (Core 0) periodically print these counters to USB serial.
   - *Metric:* If `idle_counter` stays at 0 while `cycle_counter` falls behind real-time, it is a throughput bottleneck.
   - *Metric:* If `idle_counter` consistently increases, performance is fine, indicating a logic/cycle-exactness bug.
 

@@ -11,6 +11,7 @@ use embassy_rp as _;
 static HEAP: embedded_alloc::Heap = embedded_alloc::Heap::empty();
 #[defmt_test::tests]
 mod tests {
+    use pico1541_common::context::{ViaHardware, CatchUpContext};
     use pico1541_emulator::Emulator;
     use pico1541_common::interface::{DriveEvent, HostInterface, IecBusState};
     use pico1541_common::magnetic_surface::MagneticSurface;
@@ -22,7 +23,15 @@ mod tests {
         fn iec_drive(&mut self, _state: IecBusState) {}
     }
 
-    impl ViaHardware for DummyHost {}
+    impl ViaHardware for DummyHost {
+        fn read_pa(&mut self, _ctx: &mut impl CatchUpContext) -> u8 { 0xFF }
+        fn read_pb(&mut self, _ctx: &mut impl CatchUpContext) -> u8 { 0xFF }
+        fn write_pa(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
+        fn write_pb(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
+        fn write_ddra(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
+        fn write_ddrb(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
+        fn set_ca1(&mut self, _ctx: &mut impl CatchUpContext, _active: bool) {}
+    }
 impl HostInterface for DummyHost {
         fn sync(&mut self, _host_state: IecBusState) {}
         fn step(&mut self) {}

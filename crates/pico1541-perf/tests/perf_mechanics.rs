@@ -19,6 +19,7 @@ unsafe impl core::alloc::GlobalAlloc for DummyAlloc {
 
 #[defmt_test::tests]
 mod tests {
+    use pico1541_common::context::{ViaHardware, CatchUpContext};
     use pico1541_common::interface::{DriveEvent, HostInterface, IecBus, IecBusState};
     use pico1541_common::magnetic_surface::MagneticSurface;
     use pico1541_emulator::drivemechanics::DriveMechanics;
@@ -69,7 +70,15 @@ mod tests {
         fn iec_drive(&mut self, _state: IecBusState) {}
     }
 
-    impl ViaHardware for DummyHost {}
+    impl ViaHardware for DummyHost {
+        fn read_pa(&mut self, _ctx: &mut impl CatchUpContext) -> u8 { 0xFF }
+        fn read_pb(&mut self, _ctx: &mut impl CatchUpContext) -> u8 { 0xFF }
+        fn write_pa(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
+        fn write_pb(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
+        fn write_ddra(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
+        fn write_ddrb(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
+        fn set_ca1(&mut self, _ctx: &mut impl CatchUpContext, _active: bool) {}
+    }
 impl HostInterface for DummyHost {
         fn send_event(&mut self, _event: DriveEvent) {}
     }

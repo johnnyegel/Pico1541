@@ -105,7 +105,6 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
             } else {
                 log::info!("FASTLOAD: PC returned to ROM at ${:04X}!", pc);
             }
-            hw.debug_pin_1(is_ram_execution);
             self.last_ram_execution = is_ram_execution;
         }
         
