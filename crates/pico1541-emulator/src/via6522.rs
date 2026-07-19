@@ -220,6 +220,9 @@ impl Via6522 {
     fn update_irq(&mut self) {
         let pending = self.ifr & self.ier & 0x7F;
         if pending != 0 {
+            // #[cfg(feature = "defmt")]
+            // defmt::info!("VIA IRQ Triggered! pending={:02X} ifr={:02X} ier={:02X}", pending, self.ifr, self.ier);
+            
             self.ifr |= 0x80;
             self.irq = true;
         } else {

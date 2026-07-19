@@ -119,7 +119,8 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
             if is_ram_execution {
                 emu_info!("FASTLOAD: PC jumped to RAM at ${:04X}!", pc);
             } else {
-                emu_info!("FASTLOAD: PC returned to ROM at ${:04X}!", pc);
+                emu_info!("FASTLOAD: PC returned to ROM at ${:04X}! V1(IFR={:02X},IER={:02X}) V2(IFR={:02X},IER={:02X})", 
+                    pc, self.via1.ifr, self.via1.ier, self.via2.ifr, self.via2.ier);
             }
             self.last_ram_execution = is_ram_execution;
         }
