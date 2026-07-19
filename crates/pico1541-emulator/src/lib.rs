@@ -86,6 +86,8 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn tick(&mut self, hw: &mut H) -> u32 {
+        hw.debug_pin_0(false);
+        
         #[cfg(feature = "flight-recorder")]
         unsafe {
             crate::flight_recorder::RAM_POINTER = self.memory.memory.as_ptr();

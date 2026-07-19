@@ -60,7 +60,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
     /// Progresses the drive mechanics by one CPU cycle.
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn tick_cycles<H: HostInterface>(&mut self, hardware: &mut H, _via1: &mut crate::via6522::Via6522, via2: &mut Via6522, delta: u32) -> (bool, bool) {
+    pub fn tick_cycles<H: HostInterface>(&mut self, _hardware: &mut H, _via1: &mut crate::via6522::Via6522, via2: &mut Via6522, delta: u32) -> (bool, bool) {
         if delta == 0 || (self.last_state & MASK_MOTOR) == 0 {
             return (false, false);
         }
@@ -78,9 +78,6 @@ impl<S: MagneticSurface> DriveMechanics<S> {
             
             if self.so_pulse_cycles > 0 {
                 self.so_pulse_cycles = self.so_pulse_cycles.saturating_sub(delta);
-                if self.so_pulse_cycles == 0 {
-                    hardware.debug_pin_0(false);
-                }
             }
 
             if byte_opt.is_none() && is_sync == was_sync {
@@ -109,7 +106,6 @@ impl<S: MagneticSurface> DriveMechanics<S> {
                 if is_so_enabled {
                     trigger_ca1 = true; // CA1 triggers ONLY WHEN SOE is set!
                     self.so_pulse_cycles = 3;
-                    hardware.debug_pin_0(true); // Assert SO pulse on debug pin
                     so_pulsed = true;
                 }
             }

@@ -237,6 +237,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         self.current_hw = _ctx as *mut H;
         
         let result = if addr >= 0x1800 && addr <= 0x180F {
+            _ctx.debug_pin_0(true);
             // Jitter-free zero-delay IEC polling: Read LIVE state immediately before CPU accesses it
             let live_iec = _ctx.iec_host();
             self.via1.in_b = self.map_iec_to_via_in_b(&live_iec);
@@ -267,6 +268,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         self.current_hw = ctx as *mut H;
         
         if addr >= 0x1800 && addr <= 0x180F {
+            ctx.debug_pin_0(true);
             let reg = (addr & 0x0F) as usize;
             let mut via = self.via1;
             via.write(addr, val, ctx, self);
