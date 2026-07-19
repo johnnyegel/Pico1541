@@ -58,7 +58,6 @@ use pico1541_manager::{EVENT_CHANNEL, TRACK_CHANNEL, SETTINGS_CHANNEL, SettingsC
 use pico1541_manager::driver::{FileInfo, FileStorageDriver};
 use pico1541_manager::tasks::disk_task::{FileOpener, match_c64_filename};
 
-use pico1541_emulator::ExecutionTimer;
 
 
 
@@ -74,6 +73,8 @@ pub mod magnetic_surface;
 use littlefs_storage::LittleFsStorage;
 use flash_storage::FlashStorage;
 use magnetic_surface::PioMagneticSurface;
+
+mod emulator_loop;
 
 bind_interrupts!(struct Irqs {
     I2C0_IRQ => InterruptHandler<I2C0>;
@@ -333,7 +334,7 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
         syst.clear_current();
         syst.enable_counter();
 
-        drive.execution_loop(&mut bridge, &Rp2040Timer, unsafe { &*core::ptr::addr_of!(ROM_BUFFER) });
+        emulator_loop::run(drive, &mut bridge, unsafe { &*core::ptr::addr_of!(ROM_BUFFER) });
     });
 
     // --- Run Manager on Core 0 ---
@@ -341,7 +342,7 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
     core0_init_task(spawner, core1_pins, &SNOOPER_CONFIG, rom_name, manager_handle).await;
 }
 
-struct IecPins {
+pub(crate) struct IecPins {
     _data_rx: Input<'static>,
     _clk_rx: Input<'static>,
     _atn_rx: Input<'static>,
@@ -350,7 +351,7 @@ struct IecPins {
     reset_rx: Input<'static>,
 }
 
-struct HardwareBridge {
+pub(crate) struct HardwareBridge {
     _pins: IecPins,
     _snooper: IecSnooper,
     handler: IecSnoopByteHandler,
@@ -666,40 +667,6 @@ async fn snooper_run(mut task: SnooperTask) {
     task.run().await;
 }
 
-
-struct Rp2040Timer;
-
-impl ExecutionTimer for Rp2040Timer {
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn time_us(&self) -> u32 {
-        embassy_rp::pac::TIMER.timelr().read()
-    }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn syst_current(&self) -> u32 {
-        cortex_m::peripheral::SYST::get_current()
-    }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn syst_per_us(&self) -> u32 {
-        SYSTEM_CLOCK_FREQ / 1_000_000
-    }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn yield_cpu(&self) {
-        cortex_m::asm::nop();
-    }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn halt_delay(&self) {
-        cortex_m::asm::delay(100);
-    }
-}
 
 struct PlatformStorageManager {
     storage: StorageWrapper<MyRawBlockIo, MyDet>,
