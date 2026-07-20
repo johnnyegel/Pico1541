@@ -106,7 +106,7 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn tick(&mut self, hw: &mut H) -> u32 {
-        hw.debug_pin_0(false);
+        hw.debug_pin_1(true);
         
         #[cfg(feature = "flight-recorder")]
         unsafe {
@@ -128,26 +128,20 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         if is_ram_execution != self.last_ram_execution {
             if is_ram_execution {
                 emu_info!("FASTLOAD: PC jumped to RAM at ${:04X}!", pc);
+            } else {
+                emu_info!("FASTLOAD: PC returned to ROM at ${:04X}! V1(IFR={:02X},IER={:02X}) V2(IFR={:02X},IER={:02X})", 
+                    pc, self.memory.via1.ifr, self.memory.via1.ier, self.memory.via2.ifr, self.memory.via2.ier);
             }
+            self.last_ram_execution = is_ram_execution;
         }
-        let mut is_ram_execution = false;
-        if self.cpu.pc < 0x0800 {
-            is_ram_execution = true;
-            if !self.last_ram_execution {
-                emu_info!("FASTLOAD: PC returned to RAM at ${:04X}! V1(IFR={:02X},IER={:02X}) V2(IFR={:02X},IER={:02X})", 
-                    self.cpu.pc, self.memory.via1.ifr, self.memory.via1.ier, self.memory.via2.ifr, self.memory.via2.ier);
-            }
-        } else if self.last_ram_execution {
-            emu_info!("FASTLOAD: PC returned to ROM at ${:04X}! V1(IFR={:02X},IER={:02X}) V2(IFR={:02X},IER={:02X})", 
-                self.cpu.pc, self.memory.via1.ifr, self.memory.via1.ier, self.memory.via2.ifr, self.memory.via2.ier);
-        }
-        self.last_ram_execution = is_ram_execution;
+
         
         let elapsed = self.cpu.step(&mut self.memory, hw);
         
         // Poll IEC and DriveMechanics on every instruction for real-time accuracy without jitter
         self.memory.poll_realtime(hw, elapsed);
         
+        hw.debug_pin_1(false);
         if self.cpu.cycles.wrapping_sub(self.memory.next_sync_cycle) < 0x80000000 || self.memory.sync_required {
             self.memory.catch_up(self.cpu.cycles, hw);
             self.memory.sync_required = false;
@@ -177,6 +171,7 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
             });
         }
         
+        hw.debug_pin_0(false);
         self.cycles = self.cpu.cycles;
         elapsed as u32
     }
