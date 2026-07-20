@@ -167,7 +167,11 @@ impl<S: MagneticSurface> DriveMechanics<S> {
 
         // Check motor state change
         if state_changes & MASK_MOTOR != 0 {
-            hardware.send_event(DriveEvent::MotorChanged(full_state & MASK_MOTOR != 0));
+            let motor_on = full_state & MASK_MOTOR != 0;
+            hardware.send_event(DriveEvent::MotorChanged(motor_on));
+            if !motor_on {
+                self.surface.stop_reading();
+            }
         }
 
         // Check LED state change

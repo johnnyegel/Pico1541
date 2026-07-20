@@ -15,8 +15,9 @@ def get_ram_pointer_address(nm_path):
         result = subprocess.run([nm_path, path], capture_output=True, text=True)
         if result.returncode != 0: continue
         for line in result.stdout.splitlines():
-            if "RAM_POINTER" in line:
-                addr_hex = line.split()[0]
+            parts = line.split()
+            if len(parts) >= 3 and parts[-1] == "RAM_POINTER":
+                addr_hex = parts[0]
                 return int(addr_hex, 16)
     return None
 

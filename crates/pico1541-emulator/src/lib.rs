@@ -42,7 +42,6 @@ pub mod drivemechanics;
 pub mod flight_recorder;
 
 #[export_name = "RAM_POINTER"]
-#[link_section = ".ram_pointer"]
 #[used]
 pub static mut RAM_POINTER: *const u8 = core::ptr::null();
 pub mod hle;

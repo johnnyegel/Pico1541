@@ -31,8 +31,7 @@ use embassy_rp::Peri;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 
-use pico1541_common::interface::{DriveEvent, HostInterface, IecBus, IecBusState};
-use pico1541_common::snooper::{IecSnooper, IecSnoopByteHandler, SnooperConfig};
+use pico1541_common::snooper::{SnooperConfig};
 use pico1541_common::formats::AnyDiskImage;
 use pico1541_common::storage::{PagedDirectorySource, RuntimeStorage};
 use pico1541_emulator::Emulator;
@@ -58,7 +57,7 @@ use pico1541_common::track_buffer::{DualCoreTrackBuffer, ManagerHandle};
 use pico1541_common::formats::Error as FormatError;
 use pico1541_common::storage::{DirectoryEntry, mangle_filename};
 
-use pico1541_manager::{EVENT_CHANNEL, TRACK_CHANNEL, SETTINGS_CHANNEL, SettingsCommand};
+use pico1541_manager::{SETTINGS_CHANNEL, SettingsCommand};
 use pico1541_manager::driver::{FileInfo, FileStorageDriver};
 use pico1541_manager::tasks::disk_task::{FileOpener, match_c64_filename};
 
@@ -78,7 +77,8 @@ use littlefs_storage::LittleFsStorage;
 use flash_storage::FlashStorage;
 use magnetic_surface::PioMagneticSurface;
 
-mod emulator_loop;
+mod emulation;
+use emulation::{HardwareBridge, IecPins};
 
 bind_interrupts!(struct Irqs {
     I2C0_IRQ => InterruptHandler<I2C0>;
@@ -127,15 +127,11 @@ type MyStorage = RuntimeStorage<'static, MyFile, littlefs_storage::LittleFsFileH
 type MyDir = PagedDirectorySource<48>;
 type MyDisk = AnyDiskImage<MyStorage, MyDir>;
 
-#[allow(unused)]
-#[used]
-static KEEP_RAM_PTR: &*const u8 = unsafe { &pico1541_emulator::RAM_POINTER };
-
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     // Prevent LTO from stripping RAM_POINTER by visibly using it
-    let ptr_addr = core::hint::black_box(unsafe { core::ptr::read_volatile(&KEEP_RAM_PTR) });
-    info!("RAM_POINTER is at {}", ptr_addr as *const _ as u32);
+    let ptr_addr = core::hint::black_box(core::ptr::addr_of!(pico1541_emulator::RAM_POINTER));
+    info!("RAM_POINTER is at {}", ptr_addr as u32);
 
     {
         use core::mem::MaybeUninit;
@@ -145,6 +141,12 @@ async fn main(spawner: Spawner) {
             HEAP.init(core::ptr::addr_of_mut!(HEAP_MEM) as usize, HEAP_SIZE);
         }
     }
+
+    // Set VREG to 1.20V to safely support the 250MHz overclock
+    embassy_rp::pac::VREG_AND_CHIP_RESET.vreg().write(|w| {
+        w.set_vsel(0x0C);
+        w.set_en(true);
+    });
 
     let mut config = embassy_rp::config::Config::default();
     config.clocks = embassy_rp::clocks::ClockConfig::system_freq(SYSTEM_CLOCK_FREQ).unwrap();
@@ -346,279 +348,12 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
         syst.clear_current();
         syst.enable_counter();
 
-        emulator_loop::run(drive, &mut bridge, unsafe { &*core::ptr::addr_of!(ROM_BUFFER) });
+        emulation::run(drive, &mut bridge, unsafe { &*core::ptr::addr_of!(ROM_BUFFER) });
     });
 
     // --- Run Manager on Core 0 ---
     spawner.spawn(settings_save_task(fs_storage_inst).unwrap());
     core0_init_task(spawner, core1_pins, &SNOOPER_CONFIG, rom_name, manager_handle).await;
-}
-
-pub(crate) struct IecPins {
-    _data_rx: Input<'static>,
-    _clk_rx: Input<'static>,
-    _atn_rx: Input<'static>,
-    _data_tx: Output<'static>,
-    _clk_tx: Output<'static>,
-    reset_rx: Input<'static>,
-}
-
-pub(crate) struct HardwareBridge {
-    _pins: IecPins,
-    _snooper: IecSnooper,
-    handler: IecSnoopByteHandler,
-    config: &'static SnooperConfig,
-    activity_led: ActivityLed,
-    led_state: bool,
-    motor_state: bool,
-    dbg_pin_0: Output<'static>,
-    dbg_pin_1: Output<'static>,
-    pub base_time_us: u32,
-}
-
-impl HardwareBridge {
-    fn new(pins: IecPins, config: &'static SnooperConfig, activity_led: ActivityLed, dbg_pin_0: Output<'static>, dbg_pin_1: Output<'static>) -> Self {
-        let device_id = config.device_id.load(Ordering::Relaxed);
-        let mut bridge = Self {
-            _pins: pins,
-            _snooper: IecSnooper::new(device_id),
-            handler: IecSnoopByteHandler::new(),
-            config,
-            activity_led,
-            led_state: true,
-            motor_state: true,
-            dbg_pin_0,
-            dbg_pin_1,
-            base_time_us: 0,
-        };
-        bridge.activity_led.set_state(true, true);
-        bridge
-    }
-}
-
-impl IecBus for HardwareBridge {
-    
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn iec_host(&self) -> IecBusState {
-        // Direct SIO register read for speed.
-        // GPIO_IN at 0xd0000004
-        // Pins 16, 17, 18 are DATA, CLK, ATN
-        let pins = unsafe { core::ptr::read_volatile(0xd0000004 as *const u32) };
-        IecBusState(((pins >> 16) & 0x07) as u8)
-    }
-
-    
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn iec_drive(&mut self, state: IecBusState) {
-        // GPIO 19: DATA_TX (bit 0), 20: CLK_TX (bit 1)
-        let mut mask = (state.0 as u32 & 0x03) << 19;
-        
-        // Use a logical bitwise op instead of an if-branch for should_drive_data.
-        // This is safe because Relaxed load is just an ldr instruction on RP2040.
-        let hijack_force = (self.config.should_drive_data.load(Ordering::Relaxed) as u32) << 19;
-        mask |= hijack_force;
-        
-        unsafe {
-            // SIO GPIO_OUT_SET (0x14) and GPIO_OUT_CLR (0x18)
-            const SIO_SET: *mut u32 = 0xd0000014 as *mut u32;
-            const SIO_CLR: *mut u32 = 0xd0000018 as *mut u32;
-            const DATA_CLK_MASK: u32 = 0x03 << 19;
-            
-            core::ptr::write_volatile(SIO_SET, mask);
-            core::ptr::write_volatile(SIO_CLR, !mask & DATA_CLK_MASK);
-        }
-    }
-}
-
-impl HostInterface for HardwareBridge {
-    
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn send_event(&mut self, event: DriveEvent) {
-        let mut color_changed = false;
-        match event {
-            DriveEvent::LedChanged(on) => {
-                self.led_state = on;
-                color_changed = true;
-            }
-            DriveEvent::MotorChanged(on) => {
-                self.motor_state = on;
-                color_changed = true;
-            }
-            _ => {}
-        }
-        if color_changed {
-            self.activity_led.set_state(self.led_state, self.motor_state);
-        }
-
-        // The manager no longer processes LedChanged for the indicator.
-        // It does still need MotorChanged for other internal states though.
-        if !matches!(event, DriveEvent::LedChanged(_)) {
-            // try_send is non-blocking and safe for Core 0.
-            let _ = EVENT_CHANNEL.try_send(event);
-        }
-    }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn debug_pin_0(&mut self, state: bool) {
-        if state {
-            self.dbg_pin_0.set_high();
-        } else {
-            self.dbg_pin_0.set_low();
-        }
-    }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn debug_pin_1(&mut self, state: bool) {
-        if state {
-            self.dbg_pin_1.set_high();
-        } else {
-            self.dbg_pin_1.set_low();
-        }
-    }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn track_changed(&mut self, half_track: u8) {
-        // We notify the TRACK_CHANNEL directly instead of using DriveEvent
-        // First we drain the channel to avoid blocking if the manager is behind
-        while TRACK_CHANNEL.try_receive().is_ok() {}
-        let _ = TRACK_CHANNEL.try_send(half_track);
-        
-        // Pend TIMER_IRQ_3 on Core 0 to wake up the DiskTask!
-        embassy_rp::pac::TIMER.intf().write(|w| w.set_alarm(3, true));
-        
-        // Use the indicator to beep (from drive_activity context)
-        // Actually, indicator is inside activity task, not available here.
-        // Wait, the user said: "I would like the HostInterface to have a dedicated track_changed method, which exclusively handles head step events."
-    }
-
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn is_hijacked(&self) -> bool {
-        self.config.hijack_active.load(Ordering::Relaxed)
-    }
-
-    
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn pop_discard_request(&mut self) -> bool {
-        self.config.discard_request.swap(false, Ordering::Relaxed)
-    }
-
-    
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn update_iec_addresses(&mut self, listen: u8, talk: u8) {
-        self.config.listen_addr.store(listen, Ordering::Relaxed);
-        self.config.talk_addr.store(talk, Ordering::Relaxed);
-    }
-
-    
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn get_device_id(&self) -> u8 {
-        self.config.device_id.load(Ordering::Relaxed)
-    }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn spin_until(&mut self, target_cycle: u32) {
-        let target_time = self.base_time_us.wrapping_add(target_cycle);
-        while embassy_rp::pac::TIMER.timelr().read().wrapping_sub(target_time) as i32 < 0 {
-            cortex_m::asm::nop();
-        }
-    }
-    
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn sync(&mut self, _host: IecBusState) {
-        // The snooper is only updated if something changed on the bus.
-        // This call is fast in the "no change" case inside the snooper itself.
-        let _config = self.config;
-        let _handler = &mut self.handler;
-        
-        // self.snooper.update(host, |event| {
-        //     let _ = EVENT_CHANNEL.try_send(event);
-        //     handler.handle(event, &mut |e| {
-        //          let _ = EVENT_CHANNEL.try_send(e);
-        //     });
-        //     if handler.is_hijacked() {
-        //         config.hijack_active.store(true, Ordering::Relaxed);
-        //         config.should_drive_data.store(true, Ordering::Relaxed);
-        //     }
-        //     if handler.should_discard() {
-        //         config.discard_request.store(true, Ordering::Relaxed);
-        //         config.hijack_active.store(false, Ordering::Relaxed);
-        //         config.should_drive_data.store(false, Ordering::Relaxed);
-        //     }
-        // });
-    }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn check_halt_requested(&self) -> bool {
-        self.config.halt_emulator.load(Ordering::Relaxed)
-    }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn consume_trigger_reset(&mut self) -> bool {
-        if self.config.trigger_reset.load(Ordering::Relaxed) {
-            self.config.trigger_reset.store(false, Ordering::Relaxed);
-            true
-        } else {
-            false
-        }
-    }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn is_reset_line_asserted(&self) -> bool {
-        self._pins.reset_rx.is_high()
-    }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn report_performance_counters(&mut self, ticks: u32, idles: u32) {
-        self.config.emu_total_ticks.store(ticks, Ordering::Relaxed);
-        self.config.emu_total_idles.store(idles, Ordering::Relaxed);
-    }
-}
-
-impl ViaHardware for HardwareBridge {
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn read_pa(&mut self, _ctx: &mut impl CatchUpContext) -> u8 { 0xFF }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn read_pb(&mut self, _ctx: &mut impl CatchUpContext) -> u8 { 0xFF }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn write_pa(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn write_pb(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn write_ddra(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn write_ddrb(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn set_ca1(&mut self, _ctx: &mut impl CatchUpContext, _active: bool) {}
 }
 
 #[embassy_executor::task]
