@@ -24,17 +24,14 @@ use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::i2c::{Config, InterruptHandler};
-use embassy_rp::peripherals::{I2C0, SPI1, DMA_CH0, DMA_CH1, PIO0};
-use embassy_rp::spi::{Config as SpiConfig, Spi, Blocking};
+use embassy_rp::peripherals::{I2C0, DMA_CH0, DMA_CH1, PIO0};
+use embassy_rp::spi::{Config as SpiConfig, Spi};
 use embassy_rp::multicore::Stack;
 use embassy_rp::Peri;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 
 use pico1541_common::snooper::{SnooperConfig};
-use pico1541_common::formats::AnyDiskImage;
-use pico1541_common::storage::{PagedDirectorySource, RuntimeStorage};
-use pico1541_emulator::Emulator;
 use pico1541_manager::tasks::{
     ActionTask, DiskTask, DisplayTask, DriveActivityTask, KeyboardTask, MainMenuTask, SnooperTask
 };
@@ -44,26 +41,25 @@ use pico1541_manager::tasks::{
 #[used]
 static FS_IMAGE: [u8; 512 * 1024] = *include_bytes!(concat!(env!("OUT_DIR"), "/fs.bin"));
 
+// Local drivers
 use crate::driver::display::{DisplayWrapper, OledDisplay};
-use crate::driver::indicator::{ActivityIndicator, IndicatorWrapper};
+use crate::driver::leds::{StatusLeds, StatusLedsWrapper};
 use crate::driver::input::KeyboardInput;
-use crate::driver::leds::{ActivityLed, StatusLeds, StatusLedsWrapper};
 use crate::driver::speaker::PiezoSpeaker;
 use crate::driver::blockdevsdcard::{SdCard, SdBlockIo};
-use pico1541_manager::driver::file_storage::{FatFsFileWrapper, FatStorage, StorageWrapper};
+use pico1541_manager::driver::file_storage::{FatStorage, StorageWrapper};
+use crate::driver::indicator::{ActivityIndicator, IndicatorWrapper};
+
+// Tasks and manager components
+use pico1541_manager::{SETTINGS_CHANNEL, SettingsCommand};
 
 use pico1541_common::SYSTEM_CLOCK_FREQ;
 use pico1541_common::track_buffer::{DualCoreTrackBuffer, ManagerHandle};
-use pico1541_common::formats::Error as FormatError;
-use pico1541_common::storage::{DirectoryEntry, mangle_filename};
 
-use pico1541_manager::{SETTINGS_CHANNEL, SettingsCommand};
-use pico1541_manager::driver::{FileInfo, FileStorageDriver};
-use pico1541_manager::tasks::disk_task::{FileOpener, match_c64_filename};
+mod emulation;
 
-
-
-
+mod storage_manager;
+use storage_manager::*;
 use static_cell::StaticCell;
 pub mod pio {
     pub fn magnetic_surface_program() -> ::pio::Program<32> {
@@ -77,8 +73,6 @@ use littlefs_storage::LittleFsStorage;
 use flash_storage::FlashStorage;
 use magnetic_surface::PioMagneticSurface;
 
-mod emulation;
-use emulation::{HardwareBridge, IecPins};
 
 bind_interrupts!(struct Irqs {
     I2C0_IRQ => InterruptHandler<I2C0>;
@@ -111,21 +105,7 @@ static mut CORE1_STACK: core::mem::MaybeUninit<Stack<8192>> = core::mem::MaybeUn
 #[link_section = ".sram3"]
 static mut ROM_BUFFER: [u8; 16384] = [0; 16384];
 
-type MySpi = Spi<'static, SPI1, Blocking>;
 
-impl crate::driver::blockdevsdcard::SpiFreq for MySpi {
-    fn set_freq(&mut self, freq: u32) {
-        self.set_frequency(freq);
-    }
-}
-type MyCs = Output<'static>;
-type MyDelay = embassy_time::Delay;
-type MyDet = Input<'static>;
-type MyRawBlockIo = SdBlockIo<MySpi, MyCs, MyDelay>;
-type MyFile = FatFsFileWrapper<MyRawBlockIo, MyDet>;
-type MyStorage = RuntimeStorage<'static, MyFile, littlefs_storage::LittleFsFileHandle>;
-type MyDir = PagedDirectorySource<48>;
-type MyDisk = AnyDiskImage<MyStorage, MyDir>;
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -284,9 +264,6 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
         &mut *ptr
     };
 
-    #[link_section = ".sram3"]
-    static mut EMULATOR: core::mem::MaybeUninit<Emulator<HardwareBridge, PioMagneticSurface>> = core::mem::MaybeUninit::uninit();
-
     // Pack peripherals for Core 1
     let core1_pins = Core0Pins {
         i2c0: p.I2C0.into(),
@@ -311,45 +288,32 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
 
     // (track_addr unused)
 
-    // IEC Pins
-    let pins = IecPins {
-        _data_rx: Input::new(p.PIN_16, Pull::None),
-        _clk_rx: Input::new(p.PIN_17, Pull::None),
-        _atn_rx: Input::new(p.PIN_18, Pull::None),
-        _data_tx: Output::new(p.PIN_19, Level::Low),
-        _clk_tx: Output::new(p.PIN_20, Level::Low),
-        reset_rx: Input::new(p.PIN_21, Pull::Up),
+    let emulator_hardware = emulation::EmulatorHardware {
+        pin_16: p.PIN_16.into(),
+        pin_17: p.PIN_17.into(),
+        pin_18: p.PIN_18.into(),
+        pin_19: p.PIN_19.into(),
+        pin_20: p.PIN_20.into(),
+        pin_21: p.PIN_21.into(),
+        pin_22: p.PIN_22.into(),
+        pin_3: p.PIN_3.into(),
+        pin_0: p.PIN_0.into(),
+        pin_1: p.PIN_1.into(),
     };
-
-    let activity_led = ActivityLed::new(
-        Output::new(p.PIN_22, Level::Low),
-        Output::new(p.PIN_3, Level::Low)
-    );
-    let mut bridge = HardwareBridge::new(pins, &SNOOPER_CONFIG, activity_led,
-        Output::new(p.PIN_0, Level::Low), Output::new(p.PIN_1, Level::Low));
 
     let pio0 = embassy_rp::pio::Pio::new(p.PIO0, Irqs);
 
-    // --- Spawn Core 1 ---
     info!("Starting Emulator on Core 1...");
-    embassy_rp::multicore::spawn_core1(p.CORE1, stack, move || {
-        let drive = unsafe {
-            let ptr: *mut Emulator<HardwareBridge, PioMagneticSurface> = core::ptr::addr_of_mut!(EMULATOR).cast();
-            let surface = PioMagneticSurface::new(pio0, emulator_handle);
-            core::ptr::write(ptr, Emulator::new(&*core::ptr::addr_of!(ROM_BUFFER), drive_id, surface));
-            &mut *ptr
-        };
-        drive.reset(&mut bridge);
-        
-        cortex_m::interrupt::disable(); // Guarantee no IRQs preempt the emulator core
-        let mut syst = unsafe { cortex_m::Peripherals::steal().SYST };
-        syst.set_clock_source(cortex_m::peripheral::syst::SystClkSource::Core);
-        syst.set_reload(0x00FFFFFF);
-        syst.clear_current();
-        syst.enable_counter();
-
-        emulation::run(drive, &mut bridge, unsafe { &*core::ptr::addr_of!(ROM_BUFFER) });
-    });
+    emulation::spawn_core1(
+        p.CORE1.into(),
+        stack,
+        emulator_hardware,
+        &SNOOPER_CONFIG,
+        drive_id,
+        pio0,
+        emulator_handle,
+        unsafe { &*core::ptr::addr_of!(ROM_BUFFER) },
+    );
 
     // --- Run Manager on Core 0 ---
     spawner.spawn(settings_save_task(fs_storage_inst).unwrap());
@@ -425,99 +389,7 @@ async fn snooper_run(mut task: SnooperTask) {
 }
 
 
-struct PlatformStorageManager {
-    storage: StorageWrapper<MyRawBlockIo, MyDet>,
-}
 
-impl FileOpener for PlatformStorageManager {
-    type FileStorage = MyStorage;
-
-    async fn open_file(&self, requested_petscii: &[u8]) -> Result<Self::FileStorage, FormatError> {
-        let (dir_path, use_internal) = {
-            let guard = MOUNTED_DIR.lock().await;
-            (guard.0.clone(), guard.1)
-        };
-        
-        let mut found_filename = heapless::String::<64>::new();
-        let mut found = false;
-
-        let find_file = |info: FileInfo| {
-            if !found {
-                let mangled = mangle_filename(&info.name);
-                if match_c64_filename(&mangled, requested_petscii) {
-                    let name_len = info.name.iter().position(|&c| c == 0).unwrap_or(info.name.len());
-                    if let Ok(s) = core::str::from_utf8(&info.name[..name_len]) {
-                        let _ = found_filename.push_str(s);
-                        found = true;
-                    }
-                }
-            }
-        };
-
-        use FileStorageDriver;
-        if use_internal {
-            let mut internal = littlefs_storage::LittleFsStorage;
-            let _ = internal.list_dir_range(dir_path.as_str(), 0, 1000, find_file).await;
-        } else {
-            let mut sd = self.storage;
-            let _ = sd.list_dir_range(dir_path.as_str(), 0, 1000, find_file).await;
-        }
-        
-        if !found {
-            return Err(FormatError::FileNotFound);
-        }
-        
-        let mut full_path = heapless::String::<128>::new();
-        if dir_path == "/" || dir_path.is_empty() {
-            let _ = full_path.push_str("/");
-            let _ = full_path.push_str(found_filename.as_str());
-        } else {
-            let _ = full_path.push_str(&dir_path);
-            let _ = full_path.push_str("/");
-            let _ = full_path.push_str(found_filename.as_str());
-        }
-        
-        if use_internal {
-            let internal = littlefs_storage::LittleFsStorage;
-            let file_handle = internal.open_file_handle(full_path.as_str());
-            Ok(RuntimeStorage::File2(file_handle))
-        } else {
-            let sd = self.storage;
-            let file_handle = sd.open_file_handle(full_path.as_str());
-            Ok(RuntimeStorage::File(file_handle))
-        }
-    }
-
-
-    async fn list_dir_range(
-        &self,
-        path: &str,
-        use_internal: bool,
-        start_index: usize,
-        count: usize,
-        mut callback: impl FnMut(DirectoryEntry),
-    ) -> Result<(), FormatError> {
-        use FileStorageDriver;
-        
-        let handle_info = |info: FileInfo| {
-            let name_len = info.name.iter().position(|&c| c == 0).unwrap_or(info.name.len());
-            let entry = DirectoryEntry::from_file_info(
-                &info.name[..name_len],
-                info.is_dir,
-                info.size,
-            );
-            callback(entry);
-        };
-
-        if use_internal {
-            let mut internal = littlefs_storage::LittleFsStorage;
-            internal.list_dir_range(path, start_index, count, handle_info).await
-        } else {
-            let mut storage = self.storage;
-            storage.list_dir_range(path, start_index, count, handle_info).await
-        }
-    }
-}
 
 #[embassy_executor::task]
 async fn vdisk_run(mut task: DiskTask<'static, MyStorage, MyDir, PlatformStorageManager>) {
@@ -722,7 +594,7 @@ async fn core0_init_task(
     let vdisk_task = DiskTask::new(
         &*disk_image_mutex,
         manager_handle,
-        PlatformStorageManager { storage: StorageWrapper(sd_mutex) },
+        PlatformStorageManager { storage: StorageWrapper(sd_mutex), mounted_dir: &MOUNTED_DIR },
         &MOUNTED_DIR,
     );
 

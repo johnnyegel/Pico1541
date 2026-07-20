@@ -1,0 +1,123 @@
+use embassy_rp::gpio::Input;
+use embassy_rp::spi::{Spi, Blocking};
+use embassy_rp::peripherals::SPI1;
+use embassy_time::Delay;
+use embassy_rp::gpio::Output;
+use pico1541_common::storage::{PagedDirectorySource, RuntimeStorage};
+use pico1541_common::formats::AnyDiskImage;
+use pico1541_manager::driver::file_storage::{FatFsFileWrapper, StorageWrapper};
+use crate::driver::blockdevsdcard::SdBlockIo;
+use pico1541_common::formats::Error as FormatError;
+use pico1541_common::storage::{DirectoryEntry, mangle_filename};
+use pico1541_manager::driver::{FileInfo, FileStorageDriver};
+use pico1541_manager::tasks::disk_task::{FileOpener, match_c64_filename};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::mutex::Mutex;
+
+pub type MySpi = Spi<'static, SPI1, Blocking>;
+
+impl crate::driver::blockdevsdcard::SpiFreq for MySpi {
+    fn set_freq(&mut self, freq: u32) {
+        self.set_frequency(freq);
+    }
+}
+
+pub type MyCs = Output<'static>;
+pub type MyDelay = Delay;
+pub type MyDet = Input<'static>;
+pub type MyRawBlockIo = SdBlockIo<MySpi, MyCs, MyDelay>;
+pub type MyFile = FatFsFileWrapper<MyRawBlockIo, MyDet>;
+pub type MyStorage = RuntimeStorage<'static, MyFile, crate::littlefs_storage::LittleFsFileHandle>;
+pub type MyDir = PagedDirectorySource<48>;
+pub type MyDisk = AnyDiskImage<MyStorage, MyDir>;
+
+pub struct PlatformStorageManager {
+    pub storage: StorageWrapper<MyRawBlockIo, MyDet>,
+    pub mounted_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
+}
+
+impl FileOpener for PlatformStorageManager {
+    type FileStorage = MyStorage;
+
+    async fn open_file(&self, requested_petscii: &[u8]) -> Result<Self::FileStorage, FormatError> {
+        let (dir_path, use_internal) = {
+            let guard = self.mounted_dir.lock().await;
+            (guard.0.clone(), guard.1)
+        };
+        
+        let mut found_filename = heapless::String::<64>::new();
+        let mut found = false;
+
+        let find_file = |info: FileInfo| {
+            if !found {
+                let mangled = mangle_filename(&info.name);
+                if match_c64_filename(&mangled, requested_petscii) {
+                    let name_len = info.name.iter().position(|&c| c == 0).unwrap_or(info.name.len());
+                    if let Ok(s) = core::str::from_utf8(&info.name[..name_len]) {
+                        let _ = found_filename.push_str(s);
+                        found = true;
+                    }
+                }
+            }
+        };
+
+        if use_internal {
+            let mut internal = crate::littlefs_storage::LittleFsStorage;
+            let _ = internal.list_dir_range(dir_path.as_str(), 0, 1000, find_file).await;
+        } else {
+            let mut sd = self.storage;
+            let _ = sd.list_dir_range(dir_path.as_str(), 0, 1000, find_file).await;
+        }
+        
+        if !found {
+            return Err(FormatError::FileNotFound);
+        }
+        
+        let mut full_path = heapless::String::<128>::new();
+        if dir_path == "/" || dir_path.is_empty() {
+            let _ = full_path.push_str("/");
+            let _ = full_path.push_str(found_filename.as_str());
+        } else {
+            let _ = full_path.push_str(&dir_path);
+            let _ = full_path.push_str("/");
+            let _ = full_path.push_str(found_filename.as_str());
+        }
+        
+        if use_internal {
+            let internal = crate::littlefs_storage::LittleFsStorage;
+            let file_handle = internal.open_file_handle(full_path.as_str());
+            Ok(RuntimeStorage::File2(file_handle))
+        } else {
+            let sd = self.storage;
+            let file_handle = sd.open_file_handle(full_path.as_str());
+            Ok(RuntimeStorage::File(file_handle))
+        }
+    }
+
+    async fn list_dir_range(
+        &self,
+        path: &str,
+        use_internal: bool,
+        start_index: usize,
+        count: usize,
+        mut callback: impl FnMut(DirectoryEntry),
+    ) -> Result<(), FormatError> {
+        let handle_info = |info: FileInfo| {
+            let name_len = info.name.iter().position(|&c| c == 0).unwrap_or(info.name.len());
+            let entry = DirectoryEntry::from_file_info(
+                &info.name[..name_len],
+                info.is_dir,
+                info.size,
+            );
+            callback(entry);
+        };
+
+        if use_internal {
+            let mut internal = crate::littlefs_storage::LittleFsStorage;
+            internal.list_dir_range(path, start_index, count, handle_info).await
+        } else {
+            let mut storage = self.storage;
+            storage.list_dir_range(path, start_index, count, handle_info).await
+        }
+    }
+}

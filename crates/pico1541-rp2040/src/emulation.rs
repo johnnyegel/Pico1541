@@ -14,6 +14,74 @@ use pico1541_common::interface::IecBus;
 use pico1541_common::SYSTEM_CLOCK_FREQ;
 use pico1541_emulator::Emulator;
 
+use embassy_rp::multicore::Stack;
+use embassy_rp::pio::Pio;
+use embassy_rp::peripherals::PIO0;
+use embassy_rp::peripherals::CORE1;
+use pico1541_common::track_buffer::EmulatorHandle;
+
+pub struct EmulatorHardware {
+    pub pin_16: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_16>,
+    pub pin_17: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_17>,
+    pub pin_18: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_18>,
+    pub pin_19: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_19>,
+    pub pin_20: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_20>,
+    pub pin_21: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_21>,
+    pub pin_22: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_22>,
+    pub pin_3: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_3>,
+    pub pin_0: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_0>,
+    pub pin_1: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_1>,
+}
+
+pub fn spawn_core1(
+    core1: embassy_rp::Peri<'static, CORE1>,
+    stack: &'static mut Stack<8192>,
+    hardware: EmulatorHardware,
+    config: &'static SnooperConfig,
+    drive_id: u8,
+    pio0: Pio<'static, PIO0>,
+    emulator_handle: EmulatorHandle,
+    rom_buffer: &'static [u8; 16384],
+) {
+    let pins = IecPins {
+        _data_rx: embassy_rp::gpio::Input::new(hardware.pin_16, embassy_rp::gpio::Pull::None),
+        _clk_rx: embassy_rp::gpio::Input::new(hardware.pin_17, embassy_rp::gpio::Pull::None),
+        _atn_rx: embassy_rp::gpio::Input::new(hardware.pin_18, embassy_rp::gpio::Pull::None),
+        _data_tx: embassy_rp::gpio::Output::new(hardware.pin_19, embassy_rp::gpio::Level::Low),
+        _clk_tx: embassy_rp::gpio::Output::new(hardware.pin_20, embassy_rp::gpio::Level::Low),
+        reset_rx: embassy_rp::gpio::Input::new(hardware.pin_21, embassy_rp::gpio::Pull::Up),
+    };
+
+    let activity_led = ActivityLed::new(
+        embassy_rp::gpio::Output::new(hardware.pin_22, embassy_rp::gpio::Level::Low),
+        embassy_rp::gpio::Output::new(hardware.pin_3, embassy_rp::gpio::Level::Low)
+    );
+    let mut bridge = HardwareBridge::new(pins, config, activity_led,
+        embassy_rp::gpio::Output::new(hardware.pin_0, embassy_rp::gpio::Level::Low), embassy_rp::gpio::Output::new(hardware.pin_1, embassy_rp::gpio::Level::Low));
+
+    embassy_rp::multicore::spawn_core1(core1, stack, move || {
+        #[link_section = ".sram3"]
+        static mut EMULATOR: core::mem::MaybeUninit<Emulator<HardwareBridge, PioMagneticSurface>> = core::mem::MaybeUninit::uninit();
+
+        let drive = unsafe {
+            let ptr: *mut Emulator<HardwareBridge, PioMagneticSurface> = core::ptr::addr_of_mut!(EMULATOR).cast();
+            let surface = PioMagneticSurface::new(pio0, emulator_handle);
+            core::ptr::write(ptr, Emulator::new(rom_buffer, drive_id, surface));
+            &mut *ptr
+        };
+        drive.reset(&mut bridge);
+        
+        cortex_m::interrupt::disable(); // Guarantee no IRQs preempt the emulator core
+        let mut syst = unsafe { cortex_m::Peripherals::steal().SYST };
+        syst.set_clock_source(cortex_m::peripheral::syst::SystClkSource::Core);
+        syst.set_reload(0x00FFFFFF);
+        syst.clear_current();
+        syst.enable_counter();
+
+        run(drive, &mut bridge, rom_buffer);
+    });
+}
+
 struct Rp2040Timer;
 
 impl Rp2040Timer {
