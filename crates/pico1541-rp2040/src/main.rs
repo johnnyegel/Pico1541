@@ -365,6 +365,7 @@ pub(crate) struct HardwareBridge {
     motor_state: bool,
     dbg_pin_0: Output<'static>,
     dbg_pin_1: Output<'static>,
+    pub base_time_us: u32,
 }
 
 impl HardwareBridge {
@@ -380,6 +381,7 @@ impl HardwareBridge {
             motor_state: true,
             dbg_pin_0,
             dbg_pin_1,
+            base_time_us: 0,
         };
         bridge.activity_led.set_state(true, true);
         bridge
@@ -516,6 +518,14 @@ impl HostInterface for HardwareBridge {
         self.config.device_id.load(Ordering::Relaxed)
     }
 
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    fn spin_until(&mut self, target_cycle: u32) {
+        let target_time = self.base_time_us.wrapping_add(target_cycle);
+        while embassy_rp::pac::TIMER.timelr().read().wrapping_sub(target_time) as i32 < 0 {
+            cortex_m::asm::nop();
+        }
+    }
     
     #[link_section = ".data.ram_func"]
     #[inline(always)]

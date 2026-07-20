@@ -89,6 +89,7 @@ pub fn run(
         let is_reset = hw.is_reset_line_asserted();
 
         while (now.wrapping_sub(last_tick) as i32) > 0 && caught_up < 500 {
+            hw.base_time_us = last_tick.wrapping_sub(cycle_counter);
             if is_reset {
                 last_tick = last_tick.wrapping_add(1);
                 cycle_counter = cycle_counter.wrapping_add(1);

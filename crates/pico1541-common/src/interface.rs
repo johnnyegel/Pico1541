@@ -161,6 +161,9 @@ pub trait HostInterface: IecBus + crate::context::ViaHardware {
         false
     }
 
+    /// Spinlocks the emulator until the physical timer reaches the target cycle.
+    fn spin_until(&mut self, _target_cycle: u32) {}
+
     /// synchronization point called every cycle.
     fn sync(&mut self, _host: IecBusState) {}
 

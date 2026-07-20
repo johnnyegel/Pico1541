@@ -233,6 +233,9 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         self.catch_up(cycle, _ctx);
         self.sync_required = true;
         
+        // Spinlock to exact cycle before reading live IEC state
+        _ctx.spin_until(cycle);
+        
         // Save current_hw to use inside CatchUpContext methods
         self.current_hw = _ctx as *mut H;
         
@@ -264,6 +267,9 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     fn write_io(&mut self, addr: u16, val: u8, cycle: u32, ctx: &mut H) {
         self.catch_up(cycle, ctx);
         self.sync_required = true;
+        
+        // Spinlock to exact cycle before writing to physical pins
+        ctx.spin_until(cycle);
         
         self.current_hw = ctx as *mut H;
         
