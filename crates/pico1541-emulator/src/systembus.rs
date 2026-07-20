@@ -152,7 +152,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 
 
     #[link_section = ".data.ram_func"]
-    #[inline(always)]
+    #[inline(never)]
     pub fn poll_realtime(&mut self, hardware: &mut H, elapsed: u32) {
         self.current_hw = hardware as *mut H;
         let host_iec = hardware.iec_host();
@@ -165,9 +165,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             hardware.sync(host_iec);
             self.sync_required = true;
         }
-
         hardware.step();
-
+        
         let old_cc = self.cycle_counter;
         self.cycle_counter = self.cycle_counter.wrapping_add(elapsed);
         if (old_cc ^ self.cycle_counter) & !0x3FF != 0 {
@@ -190,15 +189,14 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             }
         }
 
-        let mut via1 = self.via1;
-        let mut via2 = self.via2;
-        let (so, trigger_ca1) = self.mechanics.tick_cycles(hardware, &mut via1, &mut via2, elapsed);
+        let (so, trigger_ca1) = self.mechanics.tick_cycles(hardware, &mut self.via1, &mut self.via2, elapsed);
+
         if trigger_ca1 {
+            let mut via2 = self.via2;
             via2.ca1_irq(hardware, self);
+            self.via2 = via2;
         }
         self.so_active = so;
-        self.via1 = via1;
-        self.via2 = via2;
         self.current_hw = core::ptr::null_mut();
         if self.so_active {
             self.so_pulsed = true;

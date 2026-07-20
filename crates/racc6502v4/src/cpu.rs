@@ -221,7 +221,7 @@ impl CPU {
     }
 
     #[link_section = ".data.ram_func"]
-    #[inline(never)]
+    #[inline(always)]
     pub fn step<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) -> u32 {
         if let Some(interrupt) = self.pending_interrupt.take() {
             let mut offset = 0;
