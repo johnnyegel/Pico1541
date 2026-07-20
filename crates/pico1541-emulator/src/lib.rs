@@ -40,6 +40,11 @@ macro_rules! emu_debug { ($($arg:tt)*) => { defmt::debug!($($arg)*) } }
 pub mod drivemechanics;
 #[cfg(feature = "flight-recorder")]
 pub mod flight_recorder;
+
+#[export_name = "RAM_POINTER"]
+#[link_section = ".ram_pointer"]
+#[used]
+pub static mut RAM_POINTER: *const u8 = core::ptr::null();
 pub mod hle;
 pub mod systembus;
 pub mod via6522;
@@ -109,7 +114,11 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         
         #[cfg(feature = "flight-recorder")]
         unsafe {
-            crate::flight_recorder::RAM_POINTER = self.memory.memory.as_ptr();
+            crate::flight_recorder::FLIGHT_RECORDER.assume_init_mut().index = 0;
+        }
+
+        unsafe {
+            crate::RAM_POINTER = self.memory.memory.as_ptr();
         }
 
         if self.memory.via1.irq || self.memory.via2.irq {

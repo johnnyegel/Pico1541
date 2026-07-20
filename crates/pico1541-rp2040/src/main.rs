@@ -127,8 +127,16 @@ type MyStorage = RuntimeStorage<'static, MyFile, littlefs_storage::LittleFsFileH
 type MyDir = PagedDirectorySource<48>;
 type MyDisk = AnyDiskImage<MyStorage, MyDir>;
 
+#[allow(unused)]
+#[used]
+static KEEP_RAM_PTR: &*const u8 = unsafe { &pico1541_emulator::RAM_POINTER };
+
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
+    // Prevent LTO from stripping RAM_POINTER by visibly using it
+    let ptr_addr = core::hint::black_box(unsafe { core::ptr::read_volatile(&KEEP_RAM_PTR) });
+    info!("RAM_POINTER is at {}", ptr_addr as *const _ as u32);
+
     {
         use core::mem::MaybeUninit;
         const HEAP_SIZE: usize = 40960;

@@ -30,13 +30,18 @@ def read_memory_binary(addr, size, filename):
         return f.read()
 
 def main():
-    nm_path = "nm"
-    addr = get_ram_pointer_address(nm_path)
-    if addr is None:
-        print("Could not find RAM_POINTER in ELF.", file=sys.stderr)
-        sys.exit(1)
+    if len(sys.argv) > 1:
+        addr = int(sys.argv[1], 0)
+        print(f"Using provided RAM_POINTER address: {hex(addr)}")
+    else:
+        nm_path = "nm"
+        addr = get_ram_pointer_address(nm_path)
+        if addr is None:
+            print("Could not find RAM_POINTER in ELF.", file=sys.stderr)
+            print("Usage: ./dump-ram.py [RAM_POINTER_ADDRESS_FROM_LOG]", file=sys.stderr)
+            sys.exit(1)
+        print(f"Found RAM_POINTER at {hex(addr)}")
         
-    print(f"Found RAM_POINTER at {hex(addr)}")
     ptr_data = read_memory_binary(addr, 4, "/tmp/ram_ptr.bin")
     ram_addr = struct.unpack("<I", ptr_data)[0]
     
@@ -44,8 +49,8 @@ def main():
         print("RAM_POINTER is null! Emulator hasn't ticked yet?", file=sys.stderr)
         sys.exit(1)
         
-    print(f"RAM is at {hex(ram_addr)}. Dumping 65536 bytes...")
-    read_memory_binary(ram_addr, 65536, "ram_dump.bin")
+    print(f"RAM is at {hex(ram_addr)}. Dumping 32768 bytes (SystemBus RAM size)...")
+    read_memory_binary(ram_addr, 32768, "ram_dump.bin")
     
     print("Dumped to ram_dump.bin")
 

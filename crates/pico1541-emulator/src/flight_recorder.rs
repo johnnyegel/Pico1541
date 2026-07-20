@@ -34,5 +34,3 @@ impl FlightRecorder {
 }
 
 pub static mut FLIGHT_RECORDER: core::mem::MaybeUninit<FlightRecorder> = core::mem::MaybeUninit::zeroed();
-
-pub static mut RAM_POINTER: *const u8 = core::ptr::null();
