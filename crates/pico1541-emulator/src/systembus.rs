@@ -30,7 +30,6 @@ pub struct SystemBus<H: HostInterface, S: MagneticSurface> {
     drive_iec_base: u8,
     last_host_iec: IecBusState,
     last_drive_iec: IecBusState,
-    pub current_hw: *mut H,
     pub last_cycle: u32,
     pub current_cycle: u32,
     pub next_sync_cycle: u32,
@@ -62,7 +61,6 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             drive_iec_base: 0,
             last_host_iec: IecBusState::default(),
             last_drive_iec: IecBusState::default(),
-            current_hw: core::ptr::null_mut(),
             last_cycle: 0,
             current_cycle: 0,
             next_sync_cycle: 1024,
@@ -154,7 +152,6 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     #[link_section = ".data.ram_func"]
     #[inline(never)]
     pub fn poll_realtime(&mut self, hardware: &mut H, elapsed: u32) {
-        self.current_hw = hardware as *mut H;
         let host_iec = hardware.iec_host();
         if host_iec != self.last_host_iec {
             self.last_host_iec = host_iec;
@@ -197,7 +194,6 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             self.via2 = via2;
         }
         self.so_active = so;
-        self.current_hw = core::ptr::null_mut();
         if self.so_active {
             self.so_pulsed = true;
         }
@@ -205,7 +201,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 
     #[link_section = ".data.ram_func"]
     #[inline]
-    pub fn tick_cycles(&mut self, _hardware: &mut H, delta: u32) {
+    pub fn tick_cycles(&mut self, delta: u32) {
         if delta == 0 { return; }
         if self.via1.any_active() { self.via1.tick_cycles(delta); }
         if self.via2.any_active() { self.via2.tick_cycles(delta); }
@@ -228,14 +224,11 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     #[link_section = ".data.ram_func"]
     #[cold]
     fn read_io(&mut self, addr: u16, cycle: u32, _ctx: &mut H) -> u8 {
-        self.catch_up(cycle, _ctx);
+        self.catch_up(cycle);
         self.sync_required = true;
         
         // Spinlock to exact cycle before reading live IEC state
         _ctx.spin_until(cycle);
-        
-        // Save current_hw to use inside CatchUpContext methods
-        self.current_hw = _ctx as *mut H;
         
         let result = if addr >= 0x1800 && addr <= 0x180F {
             if addr == 0x1800 {
@@ -258,20 +251,17 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             0
         };
         
-        self.current_hw = core::ptr::null_mut();
         result
     }
 
     #[link_section = ".data.ram_func"]
     #[cold]
     fn write_io(&mut self, addr: u16, val: u8, cycle: u32, ctx: &mut H) {
-        self.catch_up(cycle, ctx);
+        self.catch_up(cycle);
         self.sync_required = true;
         
         // Spinlock to exact cycle before writing to physical pins
         ctx.spin_until(cycle);
-        
-        self.current_hw = ctx as *mut H;
         
         if addr >= 0x1800 && addr <= 0x180F {
             if addr == 0x1800 {
@@ -293,17 +283,12 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
                 self.mechanics.update_state(self.via2.orb, self.via2.ddrb, ctx);
             }
         }
-        
-        self.current_hw = core::ptr::null_mut();
     }
 }
 
 impl<H: HostInterface, S: MagneticSurface> CatchUpContext for SystemBus<H, S> {
     fn catch_up(&mut self, target_cycle: u64) {
-        if !self.current_hw.is_null() {
-            let hw = unsafe { &mut *self.current_hw };
-            self.catch_up(target_cycle as u32, hw);
-        }
+        self.catch_up(target_cycle as u32);
     }
     fn advance_to(&mut self, target_cycle: u64) {
         self.last_cycle = target_cycle as u32;
@@ -358,15 +343,15 @@ impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H,
 impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     #[link_section = ".data.ram_func"]
     #[inline]
-    pub fn catch_up(&mut self, target_cycle: u32, hw: &mut H) {
+    pub fn catch_up(&mut self, target_cycle: u32) {
         let delta = target_cycle.wrapping_sub(self.last_cycle);
         if delta > 0 && delta < 0x80000000 {
-            self.tick_cycles(hw, delta);
+            self.tick_cycles(delta);
             if self.so_pending() {
                 self.so_pulsed = true;
             }
+            self.last_cycle = target_cycle;
         }
-        self.last_cycle = target_cycle;
         self.update_next_sync_cycle();
     }
 

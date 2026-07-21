@@ -2,8 +2,6 @@ use core::fmt;
 use core::fmt::Display;
 
 
-
-
 /// Represents the bus state of the IEC bus lines
 /// Bit 0: DATA, Bit 1: CLK, Bit 2: ATN
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -14,13 +12,14 @@ impl IecBusState {
     pub const CLK_BIT: u8 = 0b010;
     pub const ATN_BIT: u8 = 0b100;
 
+    /* FIXME! Remove this?
     pub fn from_bits(atn: bool, clk: bool, data: bool) -> Self {
         let mut bits = 0;
         if atn { bits |= Self::ATN_BIT; }
         if clk { bits |= Self::CLK_BIT; }
         if data { bits |= Self::DATA_BIT; }
         Self(bits)
-    }
+    } */
 
     /// Returns true if DATA line is asserted
     #[link_section = ".data.ram_func"]

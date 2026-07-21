@@ -143,7 +143,7 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         
         hw.debug_pin_1(false);
         if self.cpu.cycles.wrapping_sub(self.memory.next_sync_cycle) < 0x80000000 || self.memory.sync_required {
-            self.memory.catch_up(self.cpu.cycles, hw);
+            self.memory.catch_up(self.cpu.cycles);
             self.memory.sync_required = false;
         }
         
