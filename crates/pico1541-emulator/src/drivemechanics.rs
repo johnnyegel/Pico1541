@@ -1,5 +1,5 @@
 use crate::via6522::Via6522;
-use pico1541_common::{magnetic_surface::MagneticSurface, interface::{DriveEvent, HostInterface}};
+use pico1541_common::{magnetic_surface::MagneticSurface, interface::HostInterface};
 
 // The read head steps in half-track increments, so we represent the head position in half-tracks (0.5 track steps).
 // We also keep a half-track position for the head, where Half-track 0 corresponds to Track 0, 
@@ -15,8 +15,9 @@ const INITIAL_HALF_TRACK: i8 = 34; // Start at track 18 (Half-track 34)
 
 // Masks for individual hardware state bits on VIA2 Port B
 const MASK_MOTOR: u8 = 0x04;
-const MASK_LED: u8 = 0x08;
 const MASK_STEP: u8 = 0x03;
+#[cfg(feature = "debug")]
+const MASK_LED: u8 = 0x08;
 
 // Mask used to determine the last state of stepper motor phases (PB0, PB1), MOTOR bit and ACT LED and (PB2, PB3)
 const MASK_HARDWARE_STATE: u8 = 0x0F;
@@ -168,18 +169,13 @@ impl<S: MagneticSurface> DriveMechanics<S> {
         // Check motor state change
         if state_changes & MASK_MOTOR != 0 {
             let motor_on = full_state & MASK_MOTOR != 0;
-            hardware.send_event(DriveEvent::MotorChanged(motor_on));
+            
             if !motor_on {
                 self.surface.stop_reading();
             }
         }
 
-        // Check LED state change
-        if state_changes & MASK_LED != 0 {
-            hardware.send_event(DriveEvent::LedChanged(full_state & MASK_LED != 0));
-        }
-
-        // 4. Update stepper motor and tracking
+        // :: Update stepper motor and tracking
         // Did speed-zone change? (PB5, PB6)
         if (state_changes & MASK_SPEED_ZONE) != 0 {
             let speed_zone = (full_state & MASK_SPEED_ZONE) >> SHIFT_SPEED_ZONE;

@@ -1,6 +1,6 @@
 #[allow(unused_imports)]
 use pico1541_common::context::ViaHardware;
-use pico1541_common::interface::{DriveEvent, HostInterface, IecBus, IecBusState};
+use pico1541_common::interface::{DriveEvent, HostInterface};
 use pico1541_common::magnetic_surface::SoftwareMagneticSurface;
 
 struct TestHardware {
@@ -9,18 +9,13 @@ struct TestHardware {
     hijacked: bool,
 }
 
-impl IecBus for TestHardware {
-    fn iec_host(&self) -> IecBusState { IecBusState::default() }
-    fn iec_drive(&mut self, _: IecBusState) {}
-}
 
 impl ViaHardware for TestHardware {}
 impl HostInterface for TestHardware {
     
     fn send_event(&mut self, _: DriveEvent) {}
     fn is_hijacked(&self) -> bool { self.hijacked }
-    fn sync(&mut self, _: IecBusState) { self.cycles += 1; }
-}
+    }
 
 #[test]
 #[ignore]

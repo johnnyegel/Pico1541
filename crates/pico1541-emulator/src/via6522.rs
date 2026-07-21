@@ -62,7 +62,7 @@ impl Via6522 {
     /// Read a byte from a VIA register.
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn read<H: ViaHardware, C: CatchUpContext>(&mut self, addr: u16, hw: &mut H, ctx: &mut C) -> u8 {
+    pub fn read(&mut self, addr: u16) -> u8 {
         let register = (addr & 0x0F) as usize;
         match register {
             0x00 => {
@@ -72,7 +72,7 @@ impl Via6522 {
                 if (self.acr & 0x02) != 0 {
                     self.latch_b
                 } else {
-                    let pb = self.in_b & hw.read_pb(ctx);
+                    let pb = self.in_b & self.in_b;
                     (self.orb & self.ddrb) | (pb & !self.ddrb)
                 }
             }
@@ -83,7 +83,7 @@ impl Via6522 {
                 if (self.acr & 0x01) != 0 {
                     self.latch_a
                 } else {
-                    let pa = self.in_a & hw.read_pa(ctx);
+                    let pa = self.in_a & self.in_a;
                     (self.ora & self.ddra) | (pa & !self.ddra)
                 }
             }
@@ -120,7 +120,7 @@ impl Via6522 {
                 if (self.acr & 0x01) != 0 {
                     self.latch_a
                 } else {
-                    let pa = self.in_a & hw.read_pa(ctx);
+                    let pa = self.in_a & self.in_a;
                     (self.ora & self.ddra) | (pa & !self.ddra)
                 }
             }
@@ -131,30 +131,26 @@ impl Via6522 {
     /// Write a byte to a VIA register.
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn write<H: ViaHardware, C: CatchUpContext>(&mut self, addr: u16, value: u8, hw: &mut H, ctx: &mut C) {
+    pub fn write(&mut self, addr: u16, value: u8) {
         let register = (addr & 0x0F) as usize;
         match register {
             0x00 => {
                 // ORB
                 self.orb = value;
-                hw.write_pb(ctx, value);
                 self.ifr &= !0x18; // Clear CB1 and CB2 interrupt flags
                 self.update_irq();
             }
             0x01 => {
                 // ORA
                 self.ora = value;
-                hw.write_pa(ctx, value);
                 self.ifr &= !0x03; // Clear CA1 and CA2 interrupt flags
                 self.update_irq();
             }
             0x02 => {
                 self.ddrb = value;
-                hw.write_ddrb(ctx, value);
             }
             0x03 => {
                 self.ddra = value;
-                hw.write_ddra(ctx, value);
             }
             0x04 => self.t1l = (self.t1l & 0xFF00) | (value as u16), // T1L-L
             0x05 => {
@@ -208,7 +204,6 @@ impl Via6522 {
             }
             0x0F => {
                 self.ora = value; // ORA (no handshake)
-                hw.write_pa(ctx, value);
             }
             _ => {}
         }
@@ -335,11 +330,11 @@ impl Via6522 {
     /// (Fast convenience method, but this is NOT exact behavior)
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn ca1_irq<H: ViaHardware, C: CatchUpContext>(&mut self, hw: &mut H, ctx: &mut C) {
+    pub fn ca1_irq(&mut self) {
         self.ifr |= 0x02;
         self.update_irq();
         if (self.acr & 0x01) != 0 {
-            self.latch_a = (self.ora & self.ddra) | (self.in_a & hw.read_pa(ctx) & !self.ddra);
+            self.latch_a = (self.ora & self.ddra) | (self.in_a & self.in_a & !self.ddra);
         }
     }
 
@@ -347,48 +342,64 @@ impl Via6522 {
     /// (Fast convenience method, but this is NOT exact behavior)
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn ca2_irq<H: ViaHardware, C: CatchUpContext>(&mut self, _hw: &mut H, _ctx: &mut C) {
+    pub fn ca2_irq(&mut self) {
         self.ifr |= 0x01;
         self.update_irq();
     }
 
-    
+    /// Trigger the CA1 edge IRQ, when we already know that the edge has changed
+    /// (Fast convenience method, but this is NOT exact behavior)
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    pub fn ca1_edge(&mut self, edge: bool) {
+        self.last_ca1 = edge;
+
+        let positive_edge = (self.pcr & 0x01) != 0;
+
+        if edge == positive_edge {
+            self.ca1_irq();
+        }
+    }
 
     #[link_section = ".data.ram_func"]
-    pub fn set_ca1<H: ViaHardware, C: CatchUpContext>(&mut self, val: bool, hw: &mut H, ctx: &mut C) {
+    #[inline(always)]
+    pub fn set_ca1(&mut self, val: bool) {
         let positive_edge = (self.pcr & 0x01) != 0;
         if (val && !self.last_ca1 && positive_edge) || (!val && self.last_ca1 && !positive_edge) {
-            self.ca1_irq(hw, ctx);
+            self.ca1_irq();
         }
         self.last_ca1 = val;
     }
 
     #[link_section = ".data.ram_func"]
-    pub fn set_ca2<H: ViaHardware, C: CatchUpContext>(&mut self, val: bool, hw: &mut H, ctx: &mut C) {
+    #[inline(always)]
+    pub fn set_ca2(&mut self, val: bool) {
         if (self.pcr & 0x08) == 0 {
             let positive_edge = (self.pcr & 0x04) != 0;
             if (val && !self.last_ca2 && positive_edge) || (!val && self.last_ca2 && !positive_edge) {
-                self.ca2_irq(hw, ctx);
+                self.ca2_irq();
             }
         }
         self.last_ca2 = val;
     }
 
     #[link_section = ".data.ram_func"]
-    pub fn set_cb1<H: ViaHardware, C: CatchUpContext>(&mut self, val: bool, hw: &mut H, ctx: &mut C) {
+    #[inline(always)]
+    pub fn set_cb1(&mut self, val: bool) {
         let positive_edge = (self.pcr & 0x10) != 0;
         if (val && !self.last_cb1 && positive_edge) || (!val && self.last_cb1 && !positive_edge) {
             self.ifr |= 0x10;
             self.update_irq();
             if (self.acr & 0x02) != 0 {
-                self.latch_b = (self.orb & self.ddrb) | (hw.read_pb(ctx) & !self.ddrb);
+                self.latch_b = (self.orb & self.ddrb) | (self.in_b & !self.ddrb);
             }
         }
         self.last_cb1 = val;
     }
 
     #[link_section = ".data.ram_func"]
-    pub fn set_cb2<H: ViaHardware, C: CatchUpContext>(&mut self, val: bool, _hw: &mut H, _ctx: &mut C) {
+    #[inline(always)]
+    pub fn set_cb2(&mut self, val: bool) {
         if (self.pcr & 0x80) == 0 {
             let positive_edge = (self.pcr & 0x40) != 0;
             if (val && !self.last_cb2 && positive_edge) || (!val && self.last_cb2 && !positive_edge)
@@ -423,7 +434,7 @@ impl Via6522 {
 #[cfg(feature = "debug")]
 impl MemoryMonitor for Via6522 {
     /// Peek at a VIA register without side effects.ge
-    fn peek<H: ViaHardware, C: CatchUpContext>(&mut self, addr: u16, hw: &mut H, ctx: &mut C) -> u8 {
+    fn peek<H: ViaHardware, C: CatchUpContext>(&mut self, addr: u16, _hw: &mut H, _ctx: &mut C) -> u8 {
         let register = (addr & 0x0F) as usize;
         match register {
             0x00 => {
@@ -431,7 +442,7 @@ impl MemoryMonitor for Via6522 {
                 if (self.acr & 0x02) != 0 {
                     self.latch_b
                 } else {
-                    (self.orb & self.ddrb) | (hw.read_pb(ctx) & !self.ddrb)
+                    (self.orb & self.ddrb) | (self.in_b & !self.ddrb)
                 }
             }
             0x01 => {
@@ -439,7 +450,7 @@ impl MemoryMonitor for Via6522 {
                 if (self.acr & 0x01) != 0 {
                     self.latch_a
                 } else {
-                    (self.ora & self.ddra) | (hw.read_pa(ctx) & !self.ddra)
+                    (self.ora & self.ddra) | (self.in_a & !self.ddra)
                 }
             }
             0x02 => self.ddrb,
@@ -460,7 +471,7 @@ impl MemoryMonitor for Via6522 {
                 if (self.acr & 0x01) != 0 {
                     self.latch_a
                 } else {
-                    (self.ora & self.ddra) | (hw.read_pa(ctx) & !self.ddra)
+                    (self.ora & self.ddra) | (self.in_a & !self.ddra)
                 }
             }
             _ => 0,
@@ -475,34 +486,12 @@ impl MemoryMonitor for Via6522 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    struct MockCtx;
-    impl CatchUpContext for MockCtx {
-        fn catch_up(&mut self, _target_cycle: u64) {}
-        fn advance_to(&mut self, _target_cycle: u64) {}
-    }
-
-    struct MockHw {
-        pa: u8,
-        pb: u8,
-    }
-    impl ViaHardware for MockHw {
-        fn read_pa(&mut self, _ctx: &mut impl CatchUpContext) -> u8 { self.pa }
-        fn read_pb(&mut self, _ctx: &mut impl CatchUpContext) -> u8 { self.pb }
-        fn write_pa(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
-        fn write_pb(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
-        fn write_ddra(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
-        fn write_ddrb(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
-        fn set_ca1(&mut self, _ctx: &mut impl CatchUpContext, _active: bool) {}
-    }
-
-
     #[test]
     fn test_timer1_oneshot() {
         let mut via = Via6522::new();
-        let mut hw = MockHw { pa: 0xFF, pb: 0xFF };
-        via.write(0x0E, 0xC0, &mut hw, &mut MockCtx);
-        via.write(0x04, 0x0A, &mut hw, &mut MockCtx);
-        via.write(0x05, 0x00, &mut hw, &mut MockCtx);
+        via.write(0x0E, 0xC0);
+        via.write(0x04, 0x0A);
+        via.write(0x05, 0x00);
         assert!(via.active_mask & Via6522::T1_ACTIVE != 0);
         for _ in 0..11 {
             via.tick_cycles(1);
@@ -515,11 +504,10 @@ mod tests {
     #[test]
     fn test_latching() {
         let mut via = Via6522::new();
-        let mut hw = MockHw { pa: 0xFF, pb: 0xFF };
-        via.write(0x0B, 0x01, &mut hw, &mut MockCtx);
-        hw.pa = 0xAA;
-        via.ca1_irq(&mut hw, &mut MockCtx);
-        hw.pa = 0xFF;
-        assert_eq!(via.read(0x01, &mut hw, &mut MockCtx), 0xAA);
+        via.write(0x0B, 0x01);
+        via.in_a = 0xAA;
+        via.ca1_irq();
+        via.in_a = 0xFF;
+        assert_eq!(via.read(0x01), 0xAA);
     }
 }

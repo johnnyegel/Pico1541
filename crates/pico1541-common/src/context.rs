@@ -4,11 +4,19 @@ pub trait CatchUpContext {
 }
 
 pub trait ViaHardware {
-    fn read_pa(&mut self, _ctx: &mut impl CatchUpContext) -> u8 { 0xFF }
-    fn read_pb(&mut self, _ctx: &mut impl CatchUpContext) -> u8 { 0xFF }
-    fn write_pa(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
-    fn write_pb(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
-    fn write_ddra(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
-    fn write_ddrb(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
-    fn set_ca1(&mut self, _ctx: &mut impl CatchUpContext, _active: bool) {}
+    const IEC_DATA_RX: u8 = 0b0000_0001; // PB0
+    const IEC_DATA_TX: u8 = 0b0000_0010; // PB1
+    const IEC_CLK_RX:  u8 = 0b0000_0100; // PB2
+    const IEC_CLK_TX:  u8 = 0b0000_1000; // PB3
+    const IEC_ATNA:    u8 = 0b0001_0000; // PB4
+    const IEC_ATN_RX:  u8 = 0b1000_0000; // PB7
+    
+    const VIA2_MOTOR:  u8 = 0b0000_0100; // PB2
+    const VIA2_LED:    u8 = 0b0000_1000; // PB3
+
+    fn read_iec_port(&mut self) -> u8 { 0xFF }
+    fn write_iec_port(&mut self, _via_port_b: u8) {}
+    fn write_mechanics_port(&mut self, _via_port_b: u8) {}
+    fn consume_trigger_reset(&mut self) -> bool { false }
+    fn is_reset_line_asserted(&self) -> bool { false }
 }

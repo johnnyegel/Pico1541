@@ -1,5 +1,78 @@
-use crate::interface::{IecBusState, DriveEvent};
+use crate::interface::DriveEvent;
+use core::fmt::{self, Display};
 use portable_atomic::{AtomicU8, Ordering, AtomicBool};
+
+
+/// Represents the bus state of the IEC bus lines
+/// Bit 0: DATA, Bit 1: CLK, Bit 2: ATN
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct IecBusState(pub u8);
+
+impl IecBusState {
+    pub const DATA_BIT: u8 = 0b001;
+    pub const CLK_BIT: u8 = 0b010;
+    pub const ATN_BIT: u8 = 0b100;
+
+    #[inline(always)]
+    pub fn get_data(&self) -> bool {
+        self.0 & 0b001 != 0
+    }
+    #[inline(always)]
+    pub fn get_clk(&self) -> bool {
+        self.0 & 0b010 != 0
+    }
+    #[inline(always)]
+    pub fn get_atn(&self) -> bool {
+        self.0 & 0b100 != 0
+    }
+
+    #[inline(always)]
+    pub fn set_data(&mut self, asserted: bool) {
+        if asserted {
+            self.0 |= Self::DATA_BIT;
+        } else {
+            self.0 &= !Self::DATA_BIT;
+        }
+    }
+
+    #[inline(always)]
+    pub fn set_clk(&mut self, asserted: bool) {
+         if asserted {
+            self.0 |= Self::CLK_BIT;
+        } else {
+            self.0 &= !Self::CLK_BIT;
+        }
+    }
+
+    #[inline(always)]
+    pub fn set_atn(&mut self, asserted: bool) {
+         if asserted {
+            self.0 |= Self::ATN_BIT;
+        } else {
+            self.0 &= !Self::ATN_BIT;
+        }
+    }
+
+    #[inline(always)]
+    pub fn combine(&self, other: &IecBusState) -> IecBusState {
+        IecBusState(self.0 | other.0)
+    }
+
+    #[inline(always)]
+    pub fn delta(&self, last_state: &IecBusState) -> IecBusState {
+        IecBusState(self.0 ^ last_state.0)
+    }
+}
+
+impl Display for IecBusState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "IecBusState({:#02X}: ATN={}, CLK={}, DATA={})",
+            self.0,
+            self.get_atn(),
+            self.get_clk(),
+            self.get_data())
+    }
+}
 
 pub struct SnooperConfig {
     pub device_id: AtomicU8,

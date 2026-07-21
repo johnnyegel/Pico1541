@@ -13,7 +13,7 @@ pub mod magnetic_surface;
 
 pub use formats::{AnyDiskImage, D64Image, DiskImage, Error, G64Image};
 pub use iec_com::{IecComHostBus, IecCommander, IecError, IecTransaction};
-pub use interface::{DriveEvent, HostInterface, IecBus};
+pub use interface::{DriveEvent, HostInterface};
 pub use storage::{MemoryStorage, VectorDirectorySource, PagedDirectorySource, PagedDirectorySourceTrait};
 
 pub const SYSTEM_CLOCK_FREQ: u32 = 250_000_000;

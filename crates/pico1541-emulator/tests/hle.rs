@@ -1,6 +1,6 @@
 #[allow(unused_imports)]
 use pico1541_common::context::ViaHardware;
-use pico1541_common::interface::{DriveEvent, HostInterface, IecBus, IecBusState};
+use pico1541_common::interface::{DriveEvent, HostInterface};
 use pico1541_emulator::systembus::SystemBus;
 use pico1541_emulator::hle::HleManager;
 use pico1541_common::magnetic_surface::SoftwareMagneticSurface;
@@ -9,10 +9,6 @@ struct MockHardware {
     
 }
 
-impl IecBus for MockHardware {
-    fn iec_host(&self) -> IecBusState { IecBusState::default() }
-    fn iec_drive(&mut self, _: IecBusState) {}
-}
 
 impl ViaHardware for MockHardware {}
 impl HostInterface for MockHardware {

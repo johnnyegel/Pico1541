@@ -3,7 +3,7 @@ use pico1541_common::context::ViaHardware;
 use pico1541_common::formats::{D64Image, DiskImage, G64Image};
 use pico1541_common::track_buffer::TrackLayout;
 use pico1541_common::magnetic_surface::{MagneticSurface, SoftwareMagneticSurface};
-use pico1541_common::interface::{DriveEvent, HostInterface, IecBus, IecBusState};
+use pico1541_common::interface::{DriveEvent, HostInterface};
 use pico1541_common::storage::MemoryStorage;
 use pico1541_emulator::drivemechanics::DriveMechanics;
 use pico1541_emulator::via6522::Via6522;
@@ -23,12 +23,6 @@ impl MockHardware {
 
 }
 
-impl IecBus for MockHardware {
-    fn iec_host(&self) -> IecBusState {
-        IecBusState::default()
-    }
-    fn iec_drive(&mut self, _state: IecBusState) {}
-}
 
 impl ViaHardware for MockHardware {}
 impl HostInterface for MockHardware {
@@ -41,8 +35,7 @@ impl HostInterface for MockHardware {
         false
     }
     fn update_iec_addresses(&mut self, _listen: u8, _talk: u8) {}
-    fn sync(&mut self, _: IecBusState) {}
-}
+    }
 
 #[test]
 fn test_g64_track_reading_low_level() {

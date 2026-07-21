@@ -17,9 +17,6 @@ impl<I: IndicatorDriver> DriveActivityTask<I> {
         loop {
             let event = ACTIVITY_CHANNEL.receive().await;
             match event {
-                DriveEvent::MotorChanged(active) => {
-                    let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::MotorState(active));
-                }
 
                 DriveEvent::IecCommand { data, len } => {
                     let cmd_str =

@@ -1,14 +1,14 @@
-#[allow(unused_imports)]
-use pico1541_common::context::ViaHardware;
-#[allow(unused_imports)]
-use pico1541_common::context::CatchUpContext;
 use crate::drivemechanics::DriveMechanics;
 use crate::via6522::Via6522;
 #[cfg(feature = "debug")]
 use crate::MemoryMonitor;
-use pico1541_common::interface::{HostInterface, IecBusState};
-use pico1541_common::magnetic_surface::MagneticSurface;
 use core::marker::PhantomData;
+#[allow(unused_imports)]
+use pico1541_common::context::CatchUpContext;
+#[allow(unused_imports)]
+use pico1541_common::context::ViaHardware;
+use pico1541_common::interface::HostInterface;
+use pico1541_common::magnetic_surface::MagneticSurface;
 
 const MEMORY_SIZE: usize = 32768;
 
@@ -27,9 +27,6 @@ pub struct SystemBus<H: HostInterface, S: MagneticSurface> {
     pub device_id: u8,
     cycle_counter: u32,
     device_id_pb_bits: u8,
-    drive_iec_base: u8,
-    last_host_iec: IecBusState,
-    last_drive_iec: IecBusState,
     pub last_cycle: u32,
     pub current_cycle: u32,
     pub next_sync_cycle: u32,
@@ -44,7 +41,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         let via1 = Via6522::new();
 
         let mem_ptr = unsafe {
-            alloc::alloc::alloc_zeroed(core::alloc::Layout::new::<[u8; MEMORY_SIZE]>()) as *mut [u8; MEMORY_SIZE]
+            alloc::alloc::alloc_zeroed(core::alloc::Layout::new::<[u8; MEMORY_SIZE]>())
+                as *mut [u8; MEMORY_SIZE]
         };
         let mut memory = unsafe { alloc::boxed::Box::from_raw(mem_ptr) };
         memory[0x4000..0x8000].copy_from_slice(rom);
@@ -58,9 +56,6 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             device_id,
             cycle_counter: 0,
             device_id_pb_bits: (device_id & 0x03) << 5,
-            drive_iec_base: 0,
-            last_host_iec: IecBusState::default(),
-            last_drive_iec: IecBusState::default(),
             last_cycle: 0,
             current_cycle: 0,
             next_sync_cycle: 1024,
@@ -71,7 +66,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 
         // Set up the VIA1 initial state
         systembus.via1.in_a = 0x0;
-        systembus.via1.in_b = systembus.map_iec_to_via_in_b(&IecBusState::default());
+        systembus.via1.in_b = 0x0;
 
         systembus
     }
@@ -97,73 +92,38 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         self.mechanics.reset();
         self.so_active = false;
         self.device_id_pb_bits = (self.device_id & 0x03) << 5;
-        self.drive_iec_base = 0;
-        self.last_drive_iec = IecBusState::default();
-        hardware.iec_drive(self.last_drive_iec);
-        self.mechanics.update_state(self.via2.orb, self.via2.ddrb, hardware);
+        self.mechanics
+            .update_state(self.via2.orb, self.via2.ddrb, hardware);
         // Force the track manager to load the reset track
         hardware.track_changed(self.mechanics.half_track());
     }
 
     #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn update_drive_iec_base(&mut self, hardware: &mut H) {
-        let orb_ddr = self.via1.orb & self.via1.ddrb;
-        
-        // PB1: DATA OUT, PB3: CLK OUT, PB4: ATNA
-        let data_bit = (orb_ddr & 0x02) != 0;
-        let clk_bit = (orb_ddr & 0x08) != 0;
-        let atna_bit = (orb_ddr & 0x10) != 0;
-
-        let mut base = 0u8;
-        if data_bit { base |= 0x01; }
-        if clk_bit { base |= 0x02; }
-        if atna_bit { base |= 0x04; }
-
-        self.drive_iec_base = base;
-        self.update_physical_iec(hardware);
-    }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn update_physical_iec(&mut self, hardware: &mut H) {
-        let host_atn = self.last_host_iec.get_atn();
-
-        let pb_data = (self.drive_iec_base & 0x01) != 0;
-        let pb_clk = (self.drive_iec_base & 0x02) != 0;
-        let pb_atna = (self.drive_iec_base & 0x04) != 0;
-
-        // Map ONLY host lines to VIA inputs (Signal Isolation Mandate)
-        self.via1.in_b = self.map_iec_to_via_in_b(&self.last_host_iec);
-
-        // Calculate what the drive asserts on the bus
-        let mut drive_combined_iec = IecBusState::default();
-        drive_combined_iec.set_data(pb_data || (host_atn && !pb_atna));
-        drive_combined_iec.set_clk(pb_clk);
-
-        // Set the IEC drive lines only if they changed
-        if drive_combined_iec != self.last_drive_iec {
-            hardware.iec_drive(drive_combined_iec);
-            self.last_drive_iec = drive_combined_iec;
-        }
-    }
-
-
-    #[link_section = ".data.ram_func"]
     #[inline(never)]
     pub fn poll_realtime(&mut self, hardware: &mut H, elapsed: u32) {
-        let host_iec = hardware.iec_host();
-        if host_iec != self.last_host_iec {
-            self.last_host_iec = host_iec;
-            let mut via = self.via1;
-            via.set_ca1(host_iec.get_atn(), hardware, self);
-            self.via1 = via;
-            self.update_physical_iec(hardware);
-            hardware.sync(host_iec);
+        // :: Capture the IEC bus state, and update the VIA1 input register
+        let iec_in = hardware.read_iec_port() | self.device_id_pb_bits;
+        let prev_atn = self.via1.in_b & H::IEC_ATN_RX;
+        let curr_atn = iec_in & H::IEC_ATN_RX;
+        self.via1.in_b = iec_in;
+
+        // :? Did the ATN state change?
+        if prev_atn != curr_atn {
+            // -> Yes, then call the VIA1 CA1 edge handler to trigger an interrupt if needed
+            self.via1.ca1_edge(curr_atn != 0);
             self.sync_required = true;
         }
+
+        // :: Calculate the effective VIA1 Port B output
+        let mut effective_orb = self.via1.orb & self.via1.ddrb;
+
+        // Auto-acknowledge ATN: if ATN is asseted and ATNA is not asserted
+        effective_orb |= (curr_atn >> 6) & (!effective_orb >> 3) & 0x2;
+
+        // :: Write the effective VIA1 Port B output to the physical IEC bus
+        hardware.write_iec_port(effective_orb);
         hardware.step();
-        
+
         let old_cc = self.cycle_counter;
         self.cycle_counter = self.cycle_counter.wrapping_add(elapsed);
         if (old_cc ^ self.cycle_counter) & !0x3FF != 0 {
@@ -172,12 +132,13 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 
             if hardware.pop_discard_request() {
                 crate::hle::HleManager::intercept_command(self);
-                self.update_physical_iec(hardware);
+                // Also write iec port here?
             }
+            // FIXME! What the actual fuck is this?
             if self.mechanics.surface.pop_force_disk_change() {
                 self.memory[0x001C] = 1;
             }
-            
+
             let wp = self.mechanics.surface.is_write_protected();
             if wp {
                 self.via2.in_b &= !0x10;
@@ -186,12 +147,12 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             }
         }
 
-        let (so, trigger_ca1) = self.mechanics.tick_cycles(hardware, &mut self.via1, &mut self.via2, elapsed);
+        let (so, trigger_ca1) =
+            self.mechanics
+                .tick_cycles(hardware, &mut self.via1, &mut self.via2, elapsed);
 
         if trigger_ca1 {
-            let mut via2 = self.via2;
-            via2.ca1_irq(hardware, self);
-            self.via2 = via2;
+            self.via2.ca1_irq();
         }
         self.so_active = so;
         if self.so_active {
@@ -202,23 +163,15 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     #[link_section = ".data.ram_func"]
     #[inline]
     pub fn tick_cycles(&mut self, delta: u32) {
-        if delta == 0 { return; }
-        if self.via1.any_active() { self.via1.tick_cycles(delta); }
-        if self.via2.any_active() { self.via2.tick_cycles(delta); }
-    }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn map_iec_to_via_in_b(&self, bus_state: &IecBusState) -> u8 {
-        // Map the physical IEC state to the VIA1 input bits for PB0, PB2, and PB7.
-        // The physical pins are an open-collector bus, so the Host and Drive signals
-        // are already combined in hardware. We just map them to the VIA here.
-        let data = bus_state.0 & IecBusState::DATA_BIT; // PB0 = DATA_IN
-        let clk = (bus_state.0 & IecBusState::CLK_BIT) << 1; // PB2 = CLK_IN
-        let atn = (bus_state.0 & IecBusState::ATN_BIT) << 5; // PB7 = ATN_IN
-
-        // Or all together with cached device ID bits to get the full PB input value for VIA1.
-        self.device_id_pb_bits | atn | clk | data
+        if delta == 0 {
+            return;
+        }
+        if self.via1.any_active() {
+            self.via1.tick_cycles(delta);
+        }
+        if self.via2.any_active() {
+            self.via2.tick_cycles(delta);
+        }
     }
 
     #[link_section = ".data.ram_func"]
@@ -226,31 +179,25 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     fn read_io(&mut self, addr: u16, cycle: u32, _ctx: &mut H) -> u8 {
         self.catch_up(cycle);
         self.sync_required = true;
-        
+
         // Spinlock to exact cycle before reading live IEC state
         _ctx.spin_until(cycle);
-        
+
         let result = if addr >= 0x1800 && addr <= 0x180F {
             if addr == 0x1800 {
                 _ctx.debug_pin_0(true);
             }
             // Jitter-free zero-delay IEC polling: Read LIVE state immediately before CPU accesses it
-            let live_iec = _ctx.iec_host();
-            self.via1.in_b = self.map_iec_to_via_in_b(&live_iec);
+            let iec_in = _ctx.read_iec_port() | self.device_id_pb_bits;
+            self.via1.in_b = iec_in;
 
-            let mut via = self.via1;
-            let val = via.read(addr, _ctx, self);
-            self.via1 = via;
-            val
+            self.via1.read(addr)
         } else if addr >= 0x1C00 && addr <= 0x1C0F {
-            let mut via = self.via2;
-            let res = via.read(addr, _ctx, self);
-            self.via2 = via;
-            res
+            self.via2.read(addr)
         } else {
             0
         };
-        
+
         result
     }
 
@@ -259,28 +206,30 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     fn write_io(&mut self, addr: u16, val: u8, cycle: u32, ctx: &mut H) {
         self.catch_up(cycle);
         self.sync_required = true;
-        
+
         // Spinlock to exact cycle before writing to physical pins
         ctx.spin_until(cycle);
-        
+
         if addr >= 0x1800 && addr <= 0x180F {
             if addr == 0x1800 {
                 ctx.debug_pin_0(true);
             }
             let reg = (addr & 0x0F) as usize;
-            let mut via = self.via1;
-            via.write(addr, val, ctx, self);
-            self.via1 = via;
+            self.via1.write(addr, val);
             if reg == 0x00 || reg == 0x02 || reg == 0x0F {
-                self.update_drive_iec_base(ctx);
+                let mut effective_orb = self.via1.orb | !self.via1.ddrb;
+                let atna = (effective_orb & H::IEC_ATNA) == 0;
+                let atn_in_asserted = (ctx.read_iec_port() & H::IEC_ATN_RX) != 0;
+                if atn_in_asserted && atna {
+                    effective_orb |= H::IEC_DATA_TX; // Assert Data Out
+                }
+                ctx.write_iec_port(effective_orb);
             }
         } else if addr >= 0x1C00 && addr <= 0x1C0F {
             let reg = (addr & 0x0F) as usize;
-            let mut via = self.via2;
-            via.write(addr, val, ctx, self);
-            self.via2 = via;
+            self.via2.write(addr, val);
             if reg == 0x00 || reg == 0x02 || reg == 0x0F {
-                self.mechanics.update_state(self.via2.orb, self.via2.ddrb, ctx);
+                ctx.write_mechanics_port(self.via2.orb | !self.via2.ddrb);
             }
         }
     }
@@ -327,7 +276,9 @@ impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H,
             self.write_io(addr, val, cycle, ctx);
         } else if addr < 0x8000 {
             let index = addr & 0x07FF;
-            unsafe { *self.memory.get_unchecked_mut(index as usize) = val; }
+            unsafe {
+                *self.memory.get_unchecked_mut(index as usize) = val;
+            }
             let mapped = index;
             if mapped == 0x0077 || mapped == 0x0078 {
                 ctx.update_iec_addresses(self.memory[0x0077], self.memory[0x0078]);
@@ -337,7 +288,9 @@ impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H,
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    fn irq_pending(&self) -> bool { self.via1.irq || self.via2.irq }
+    fn irq_pending(&self) -> bool {
+        self.via1.irq || self.via2.irq
+    }
 }
 
 impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
@@ -371,7 +324,6 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             }
         }
 
-
         self.next_sync_cycle = self.last_cycle.wrapping_add(min_delta);
     }
 
@@ -385,16 +337,31 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 /// Implement MemoryMonitor for SystemBus to allow peeking at memory without affecting timing.
 #[cfg(feature = "debug")]
 impl<H: HostInterface, S: MagneticSurface> MemoryMonitor for SystemBus<H, S> {
-    fn peek<H2: ViaHardware, C2: CatchUpContext>(&mut self, addr: u16, hw: &mut H2, ctx: &mut C2) -> u8 {
+    fn peek<H2: ViaHardware, C2: CatchUpContext>(
+        &mut self,
+        addr: u16,
+        hw: &mut H2,
+        ctx: &mut C2,
+    ) -> u8 {
         if (addr & 0x9800) == 0x1800 {
-            if addr < 0x1C00 { self.via1.peek(addr, hw, ctx) } else { self.via2.peek(addr, hw, ctx) }
+            if addr < 0x1C00 {
+                self.via1.peek(addr, hw, ctx)
+            } else {
+                self.via2.peek(addr, hw, ctx)
+            }
         } else {
             let index = (addr & 0x3FFF) | ((addr >> 1) & 0x4000);
             self.memory[index as usize]
         }
     }
 
-    fn poke<H2: ViaHardware, C2: CatchUpContext>(&mut self, _addr: u16, _value: u8, _hw: &mut H2, _ctx: &mut C2) {
+    fn poke<H2: ViaHardware, C2: CatchUpContext>(
+        &mut self,
+        _addr: u16,
+        _value: u8,
+        _hw: &mut H2,
+        _ctx: &mut C2,
+    ) {
         // NOT implemented yet!
     }
 }
@@ -402,31 +369,25 @@ impl<H: HostInterface, S: MagneticSurface> MemoryMonitor for SystemBus<H, S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pico1541_common::interface::{DriveEvent, HostInterface, IecBus};
+    use pico1541_common::interface::{DriveEvent, HostInterface};
     struct MockHardware;
 
-    impl IecBus for MockHardware {
-        fn iec_host(&self) -> IecBusState {
-            IecBusState::default()
-        }
-        fn iec_drive(&mut self, _: IecBusState) {}
-    }
-
     impl ViaHardware for MockHardware {}
-impl HostInterface for MockHardware {
-        
+
+    impl HostInterface for MockHardware {
         fn send_event(&mut self, _: DriveEvent) {}
-        fn sync(&mut self, _: IecBusState) {}
     }
     #[test]
     fn test_ram_read_write() {
         static ROM: [u8; 16384] = [0; 16384];
-        let handle = Box::leak(Box::new(pico1541_common::track_buffer::DualCoreTrackBuffer::new())).split().1;
+        let handle = Box::leak(Box::new(
+            pico1541_common::track_buffer::DualCoreTrackBuffer::new(),
+        ))
+        .split()
+        .1;
         let surface = pico1541_common::magnetic_surface::SoftwareMagneticSurface::new(handle);
         let mut bus = SystemBus::<MockHardware, _>::new(&ROM, 8, surface);
-        let mut hw = MockHardware { 
-            
-        };
+        let mut hw = MockHardware {};
         use racc6502v4::bus::Bus;
         bus.write(0x0100, 0xAB, 0, &mut hw);
         assert_eq!(bus.read(0x0100, 0, &mut hw), 0xAB);

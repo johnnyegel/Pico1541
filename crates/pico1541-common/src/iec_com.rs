@@ -146,8 +146,13 @@ impl<'a, B: IecComHostBus> IecTransaction<'a, B> {
         self.bus.set_clk(false);
         self.bus.wait_for_data(false, DELAY_ACK_TIMEOUT_US).await?;
 
-        // Then simply wait for drive to ACK EOI
-        self.bus.wait_for_data(true, DELAY_ACK_TIMEOUT_US).await?;
+        // Wait for drive to ACK EOI by asserting DATA
+        // We wait up to the EOI timeout plus some extra margin.
+        // During this time, the drive's timer will expire and it will assert DATA.
+        self.bus.wait_for_data(true, DELAY_EOI_TIMEOUT_US + 500).await?;
+
+        // Wait for drive to release DATA after EOI ACK
+        self.bus.wait_for_data(false, DELAY_ACK_TIMEOUT_US).await?;
 
         // Then send the byte as normal
         self.send(byte).await

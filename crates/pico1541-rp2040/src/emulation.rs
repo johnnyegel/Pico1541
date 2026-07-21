@@ -1,17 +1,16 @@
 use core::sync::atomic::Ordering;
 use embassy_rp::gpio::{Input, Output};
-use pico1541_common::context::{ViaHardware, CatchUpContext};
-use pico1541_common::snooper::{IecSnooper, IecSnoopByteHandler, SnooperConfig};
+use pico1541_common::context::ViaHardware;
+use pico1541_common::snooper::{IecSnooper, SnooperConfig};
 use crate::driver::leds::ActivityLed;
-use pico1541_manager::{EVENT_CHANNEL, TRACK_CHANNEL};
+use pico1541_manager::{EVENT_CHANNEL, TRACK_CHANNEL, CMD_CHANNEL, InternalCommand};
 use embassy_rp::pac;
 use cortex_m::asm::nop;
-use pico1541_common::interface::IecBusState;
-use pico1541_common::interface::DriveEvent;
-use crate::PioMagneticSurface;
 use pico1541_common::interface::HostInterface;
-use pico1541_common::interface::IecBus;
+use crate::PioMagneticSurface;
 use pico1541_common::SYSTEM_CLOCK_FREQ;
+use pico1541_common::DriveEvent;
+
 use pico1541_emulator::Emulator;
 
 use embassy_rp::multicore::Stack;
@@ -172,17 +171,11 @@ pub fn run(
 
                 if !was_reset {
                     emulator.reset(hw);
-                    hw.iec_drive(IecBusState::default());
-                    hw.send_event(DriveEvent::LedChanged(false));
-                    hw.send_event(DriveEvent::MotorChanged(false));
                     was_reset = true;
                 }
-                hw.sync(hw.iec_host());
             } else {
                 if was_reset {
                     emulator.reset(hw);
-                    hw.send_event(DriveEvent::LedChanged(true));
-                    hw.send_event(DriveEvent::MotorChanged(true));
                     was_reset = false;
                 }
 
@@ -216,7 +209,6 @@ pub(crate) struct IecPins {
 pub(crate) struct HardwareBridge {
     _pins: IecPins,
     _snooper: IecSnooper,
-    handler: IecSnoopByteHandler,
     config: &'static SnooperConfig,
     activity_led: ActivityLed,
     led_state: bool,
@@ -232,7 +224,6 @@ impl HardwareBridge {
         let mut bridge = Self {
             _pins: pins,
             _snooper: IecSnooper::new(device_id),
-            handler: IecSnoopByteHandler::new(),
             config,
             activity_led,
             led_state: true,
@@ -246,69 +237,13 @@ impl HardwareBridge {
     }
 }
 
-impl IecBus for HardwareBridge {
-    
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn iec_host(&self) -> IecBusState {
-        // Direct SIO register read for speed.
-        // GPIO_IN at 0xd0000004
-        // Pins 16, 17, 18 are DATA, CLK, ATN
-        let pins = unsafe { core::ptr::read_volatile(0xd0000004 as *const u32) };
-        IecBusState(((pins >> 16) & 0x07) as u8)
-    }
-
-    
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn iec_drive(&mut self, state: IecBusState) {
-        // GPIO 19: DATA_TX (bit 0), 20: CLK_TX (bit 1)
-        let mut mask = (state.0 as u32 & 0x03) << 19;
-        
-        // Use a logical bitwise op instead of an if-branch for should_drive_data.
-        // This is safe because Relaxed load is just an ldr instruction on RP2040.
-        let hijack_force = (self.config.should_drive_data.load(Ordering::Relaxed) as u32) << 19;
-        mask |= hijack_force;
-        
-        unsafe {
-            // SIO GPIO_OUT_SET (0x14) and GPIO_OUT_CLR (0x18)
-            const SIO_SET: *mut u32 = 0xd0000014 as *mut u32;
-            const SIO_CLR: *mut u32 = 0xd0000018 as *mut u32;
-            const DATA_CLK_MASK: u32 = 0x03 << 19;
-            
-            core::ptr::write_volatile(SIO_SET, mask);
-            core::ptr::write_volatile(SIO_CLR, !mask & DATA_CLK_MASK);
-        }
-    }
-}
-
 impl HostInterface for HardwareBridge {
     
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn send_event(&mut self, event: DriveEvent) {
-        let mut color_changed = false;
-        match event {
-            DriveEvent::LedChanged(on) => {
-                self.led_state = on;
-                color_changed = true;
-            }
-            DriveEvent::MotorChanged(on) => {
-                self.motor_state = on;
-                color_changed = true;
-            }
-            _ => {}
-        }
-        if color_changed {
-            self.activity_led.set_state(self.led_state, self.motor_state);
-        }
-
-        // The manager no longer processes LedChanged for the indicator.
-        // It does still need MotorChanged for other internal states though.
-        if !matches!(event, DriveEvent::LedChanged(_)) {
-            // try_send is non-blocking and safe for Core 0.
-            let _ = EVENT_CHANNEL.try_send(event);
-        }
+        // try_send is non-blocking and safe for Core 0.
+        let _ = EVENT_CHANNEL.try_send(event);
     }
 
     #[link_section = ".data.ram_func"]
@@ -384,36 +319,70 @@ impl HostInterface for HardwareBridge {
             nop();
         }
     }
-    
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn sync(&mut self, _host: IecBusState) {
-        // The snooper is only updated if something changed on the bus.
-        // This call is fast in the "no change" case inside the snooper itself.
-        let _config = self.config;
-        let _handler = &mut self.handler;
-        
-        // self.snooper.update(host, |event| {
-        //     let _ = EVENT_CHANNEL.try_send(event);
-        //     handler.handle(event, &mut |e| {
-        //          let _ = EVENT_CHANNEL.try_send(e);
-        //     });
-        //     if handler.is_hijacked() {
-        //         config.hijack_active.store(true, Ordering::Relaxed);
-        //         config.should_drive_data.store(true, Ordering::Relaxed);
-        //     }
-        //     if handler.should_discard() {
-        //         config.discard_request.store(true, Ordering::Relaxed);
-        //         config.hijack_active.store(false, Ordering::Relaxed);
-        //         config.should_drive_data.store(false, Ordering::Relaxed);
-        //     }
-        // });
-    }
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn check_halt_requested(&self) -> bool {
         self.config.halt_emulator.load(Ordering::Relaxed)
+    }
+
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    fn report_performance_counters(&mut self, ticks: u32, idles: u32) {
+        self.config.emu_total_ticks.store(ticks, Ordering::Relaxed);
+        self.config.emu_total_idles.store(idles, Ordering::Relaxed);
+    }
+}
+
+impl ViaHardware for HardwareBridge {
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    fn read_iec_port(&mut self) -> u8 {
+        let pins = unsafe { core::ptr::read_volatile(0xd0000004 as *const u32) };
+        let data = ((pins >> 16) & 1) as u8;
+        let clk = (((pins >> 17) & 1) << 2) as u8;
+        let atn = (((pins >> 18) & 1) << 7) as u8;
+        data | clk | atn
+    }
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    fn write_iec_port(&mut self, via_port_b: u8) {
+        let pb_data = (via_port_b & Self::IEC_DATA_TX) != 0;
+        let pb_clk = (via_port_b & Self::IEC_CLK_TX) != 0;
+        
+        let mut mask = 0u32;
+        if pb_data { mask |= 1 << 19; }
+        if pb_clk { mask |= 1 << 20; }
+        
+        let hijack_force = (self.config.should_drive_data.load(Ordering::Relaxed) as u32) << 19;
+        mask |= hijack_force;
+        
+        unsafe {
+            const SIO_SET: *mut u32 = 0xd0000014 as *mut u32;
+            const SIO_CLR: *mut u32 = 0xd0000018 as *mut u32;
+            const DATA_CLK_MASK: u32 = (1 << 19) | (1 << 20);
+            
+            core::ptr::write_volatile(SIO_SET, mask);
+            core::ptr::write_volatile(SIO_CLR, !mask & DATA_CLK_MASK);
+        }
+    }
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+        fn write_mechanics_port(&mut self, via_port_b: u8) {
+        let motor_on = (via_port_b & Self::VIA2_MOTOR) != 0;
+        let led_on = (via_port_b & Self::VIA2_LED) != 0;
+        
+        if self.motor_state != motor_on || self.led_state != led_on {
+            if self.motor_state != motor_on {
+                let _ = CMD_CHANNEL.try_send(InternalCommand::MotorState(motor_on));
+            }
+            self.motor_state = motor_on;
+            self.led_state = led_on;
+            self.activity_led.set_state(self.led_state, self.motor_state);
+        }
     }
 
     #[link_section = ".data.ram_func"]
@@ -432,42 +401,4 @@ impl HostInterface for HardwareBridge {
     fn is_reset_line_asserted(&self) -> bool {
         self._pins.reset_rx.is_high()
     }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn report_performance_counters(&mut self, ticks: u32, idles: u32) {
-        self.config.emu_total_ticks.store(ticks, Ordering::Relaxed);
-        self.config.emu_total_idles.store(idles, Ordering::Relaxed);
-    }
 }
-
-impl ViaHardware for HardwareBridge {
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn read_pa(&mut self, _ctx: &mut impl CatchUpContext) -> u8 { 0xFF }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn read_pb(&mut self, _ctx: &mut impl CatchUpContext) -> u8 { 0xFF }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn write_pa(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn write_pb(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn write_ddra(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn write_ddrb(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn set_ca1(&mut self, _ctx: &mut impl CatchUpContext, _active: bool) {}
-}
-

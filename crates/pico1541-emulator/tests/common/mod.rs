@@ -1,14 +1,14 @@
-#![allow(dead_code)]
+use pico1541_common::snooper::IecBusState;
+#[allow(dead_code)]
 #[allow(unused_imports)]
 use pico1541_common::context::ViaHardware;
 use log;
 use pico1541_common::formats::{AnyDiskImage, DiskImage, G64Image};
 use pico1541_common::track_buffer::TrackLayout;
 use pico1541_common::iec_com::IecComHostBus;
-use pico1541_common::interface::IecBusState;
 use pico1541_common::storage::DummySource;
 use pico1541_common::snooper::{IecSnooper, IecSnoopByteHandler};
-use pico1541_common::interface::{DriveEvent, HostInterface, IecBus};
+use pico1541_common::interface::{DriveEvent, HostInterface};
 use pico1541_common::magnetic_surface::SoftwareMagneticSurface;
 use pico1541_emulator::Emulator;
 use pollster::block_on;
@@ -107,13 +107,13 @@ where
 pub struct TestBridge {
     pub buffer: &'static pico1541_common::track_buffer::DualCoreTrackBuffer,
     pub events: Vec<DriveEvent>,
-    pub host_iec: IecBusState,
-    pub drive_iec: IecBusState,
     pub snooper: IecSnooper,
     pub snoop_handler: IecSnoopByteHandler,
     pub device_id: u8,
     pub discard_request: bool,
     pub total_cycles: u64,
+    pub host_iec: IecBusState,
+    pub drive_iec: IecBusState,
     pub sync_hook: Option<Box<dyn FnMut(&'static pico1541_common::track_buffer::DualCoreTrackBuffer)>>,
 }
 
@@ -122,13 +122,13 @@ impl TestBridge {
         Self {
             buffer,
             events: Vec::new(),
-            host_iec: IecBusState::default(),
-            drive_iec: IecBusState::default(),
             snooper: IecSnooper::new(device_id),
             snoop_handler: IecSnoopByteHandler::new(),
             device_id,
             discard_request: false,
             total_cycles: 0,
+            host_iec: IecBusState::default(),
+            drive_iec: IecBusState::default(),
             sync_hook: None,
         }
     }
@@ -189,17 +189,28 @@ impl TestBridge {
     }
 }
 
-impl IecBus for TestBridge {
-    fn iec_host(&self) -> IecBusState {
-        self.host_iec
+
+impl ViaHardware for TestBridge {
+    fn read_iec_port(&mut self) -> u8 {
+        let mut val = 0x00;
+        let mut combined = self.host_iec;
+        if self.drive_iec.get_data() { combined.set_data(true); }
+        if self.drive_iec.get_clk() { combined.set_clk(true); }
+        if self.drive_iec.get_atn() { combined.set_atn(true); }
+
+        if combined.get_data() { val |= Self::IEC_DATA_RX; } // 1 = asserted
+        if combined.get_clk() { val |= Self::IEC_CLK_RX; } // 1 = asserted
+        if combined.get_atn() { val |= Self::IEC_ATN_RX; } // 1 = asserted
+        val
     }
-    
-    fn iec_drive(&mut self, state: IecBusState) {
-        self.drive_iec = state;
+
+    fn write_iec_port(&mut self, via_port_b: u8) {
+        let assert_data = (via_port_b & Self::IEC_DATA_TX) != 0;
+        let assert_clk = (via_port_b & Self::IEC_CLK_TX) != 0;
+        self.drive_iec.set_data(assert_data);
+        self.drive_iec.set_clk(assert_clk);
     }
 }
-
-impl ViaHardware for TestBridge {}
 impl HostInterface for TestBridge {
     fn send_event(&mut self, event: DriveEvent) {
         self.events.push(event);
@@ -229,11 +240,11 @@ impl HostInterface for TestBridge {
         self.snooper.set_listen_addr(listen);
     }
 
-    fn sync(&mut self, host: IecBusState) {
+    fn step(&mut self) {
         let mut events = Vec::new();
-        // Update the snooper using ONLY host physical state (Mandate: Snooper must only observe host lines)
-        self.snooper.update(host, |event| {
-            events.push(event);
+        // Update the snooper using ONLY host physical state (Mandate that it doesn't see drive state)
+        self.snooper.update(self.host_iec, |event| {
+             events.push(event);
         });
 
         for event in events {
@@ -257,9 +268,7 @@ impl HostInterface for TestBridge {
                 self.discard_request = true;
             }
         }
-    }
-
-    fn step(&mut self) {
+        
         self.total_cycles += 1;
         if let Some(mut hook) = self.sync_hook.take() {
             hook(self.buffer);

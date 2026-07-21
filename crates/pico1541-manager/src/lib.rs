@@ -38,11 +38,11 @@ pub static ACTIVITY_CHANNEL: Channel<CriticalSectionRawMutex, DriveEvent, 16> = 
 
 #[derive(Clone, Copy, Debug)]
 pub enum InternalCommand {
+    MotorState(bool),
     LoadFile([u8; 16]),
     CloseChannel(u8),
     ImageMounted,
     ImageUnmounted,
-    MotorState(bool),
 }
 
 pub static CMD_CHANNEL: Channel<CriticalSectionRawMutex, InternalCommand, 128> = Channel::new();

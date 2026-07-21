@@ -1,4 +1,3 @@
-use pico1541_common::interface::DriveEvent;
 #[allow(unused_imports)]
 use pico1541_common::context::CatchUpContext;
 use pico1541_emulator::MemoryMonitor;
@@ -31,21 +30,6 @@ fn test_drive_boot() {
     log::info!("Drive boot test took {} cycles", cycles);
     let pc = drive.pc();
     assert!(pc >= common::IDLE_LOW && pc <= common::IDLE_HIGH, "Drive did not reach idle loop within timeout (PC=${:04X})", pc);
-}
-
-#[test]
-fn test_drive_boot_behavior() {
-    let (_, bridge) = common::setup_drive(true, 8);
-
-    // Filter events to check for Motor ON and Head Step
-    let motor_on_events = bridge
-        .events
-        .iter()
-        .filter(|e| matches!(e, DriveEvent::MotorChanged(true)))
-        .count();
-
-    // Standard 1541-II/1571 boot behavior often involves a motor spin-up and a head bump
-    assert_eq!(motor_on_events, 1, "Expected exactly one Motor ON event during boot");
 }
 
 #[test]
@@ -286,6 +270,11 @@ fn test_dir_listing_g64() {
                 .execute()
                 .await?;
         }
+
+        let cmd_len = 255;
+        let cmd = &drive.bus().memory[0x0200..0x0200 + cmd_len as usize];
+        println!("COMMAND LEN: {}", cmd_len);
+        println!("COMMAND BUF: {:?}", String::from_utf8_lossy(cmd));
 
         bridge.ticks(&mut drive, 25_000_000);
 
