@@ -76,7 +76,7 @@ fn test_g64_track_reading_low_level() {
     // Motor ON (PB2), Bitrate Zone 3 (PB5=1, PB6=1) for Track 0
     via2.ddrb = 0xFF;
     via2.orb = 0b01100100; // Bit 6=1, Bit 5=1, Bit 2=1 (Motor ON, Zone 0)
-    mechanics.update_state(via2.orb, via2.ddrb, &mut hw);
+    mechanics.update_state(via2.get_pb_out(), &mut hw);
     
     via2.pcr = 0b1110_1110; // Enable Read mode and SO
 

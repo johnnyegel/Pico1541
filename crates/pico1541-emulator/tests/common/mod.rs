@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use pico1541_common::snooper::IecBusState;
 #[allow(dead_code)]
 #[allow(unused_imports)]

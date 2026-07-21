@@ -122,8 +122,8 @@ impl<S: MagneticSurface> DriveMechanics<S> {
 
     /// Updates the drive mechanics state based on VIA2 Port B outputs.
     #[link_section = ".data.ram_func"]
-    pub fn update_state<H: HostInterface>(&mut self, orb: u8, ddrb: u8, hardware: &mut H) {
-        let full_state = (orb | !ddrb) & (MASK_HARDWARE_STATE | MASK_SPEED_ZONE);
+    pub fn update_state<H: HostInterface>(&mut self, effective_orb: u8, hardware: &mut H) {
+        let full_state = effective_orb & (MASK_HARDWARE_STATE | MASK_SPEED_ZONE);
         if full_state != self.last_state {
             self.update_state_slow(full_state, hardware);
         }
@@ -169,9 +169,19 @@ impl<S: MagneticSurface> DriveMechanics<S> {
         // Check motor state change
         if state_changes & MASK_MOTOR != 0 {
             let motor_on = full_state & MASK_MOTOR != 0;
+            log::info!("Motor state changed: motor_on = {}, head_pos = {}", motor_on, self.halftrack_head_pos);
             
             if !motor_on {
                 self.surface.stop_reading();
+            } else {
+                if self.halftrack_head_pos >= 0 && self.halftrack_head_pos <= MAX_HALF_TRACK {
+                    log::info!("Starting reading on half-track {}", self.halftrack_head_pos);
+                    self.surface.start_reading(self.halftrack_head_pos as u8, 0);
+                    
+                    if self.surface.get_active_track_length() == 0 {
+                        self.surface.inject_analog_noise();
+                    }
+                }
             }
         }
 

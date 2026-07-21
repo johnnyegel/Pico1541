@@ -13,6 +13,7 @@ pub trait ViaHardware {
     
     const VIA2_MOTOR:  u8 = 0b0000_0100; // PB2
     const VIA2_LED:    u8 = 0b0000_1000; // PB3
+    const VIA2_LED_MOTOR_MASK: u8 = Self::VIA2_MOTOR | Self::VIA2_LED;
 
     fn read_iec_port(&mut self) -> u8 { 0xFF }
     fn write_iec_port(&mut self, _via_port_b: u8) {}

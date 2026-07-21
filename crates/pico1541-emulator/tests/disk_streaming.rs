@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 #[allow(unused_imports)]
 use pico1541_common::context::CatchUpContext;
 use pico1541_common::magnetic_surface::{MagneticSurface, SoftwareMagneticSurface};
@@ -19,6 +20,7 @@ fn wait_for_pulse(mechanics: &mut DriveMechanics<SoftwareMagneticSurface>, hardw
 }
 mod common;
 struct MockCtx;
+
 impl CatchUpContext for MockCtx {
     fn catch_up(&mut self, _target_cycle: u64) {}
     fn advance_to(&mut self, _target_cycle: u64) {}
@@ -55,7 +57,7 @@ fn test_disk_streaming_data() {
     // In our implementation Zone 3 (26 cycles) is bits 5,6 = 11 (0x60)
     via2.ddrb = 0xFF; // All bits are output
     via2.orb = (via2.orb & !0x60) | 0x60 | 0x04; // Zone 3 (26 cycles) + Motor ON
-    mechanics.update_state(via2.orb, via2.ddrb, &mut hardware);
+    mechanics.update_state(via2.get_pb_out(), &mut hardware);
 
     // Set READ mode (CB2 out = true) AND enable SO (CA2 out = true)
 
@@ -94,7 +96,7 @@ fn test_disk_streaming_sync() {
     mechanics.surface.start_reading(0, 0);
     via2.ddrb = 0xFF;
     via2.orb = (via2.orb & !0x60) | 0x60 | 0x04; // Zone 3 (26 cycles) + Motor ON
-    mechanics.update_state(via2.orb, via2.ddrb, &mut hardware);
+    mechanics.update_state(via2.get_pb_out(), &mut hardware);
     
     // Set READ mode (CB2 out = true) AND enable SO (CA2 out = true)
     via2.pcr = 0b1110_1110;
@@ -162,25 +164,25 @@ fn test_disk_bitrate_zones() {
 
     // Test Zone 3: 26 cycles (bits 5,6 = 11 -> 0x60)
     via2.orb = 0x60 | 0x04; // Motor ON
-    mechanics.update_state(via2.orb, via2.ddrb, &mut hardware);
+    mechanics.update_state(via2.get_pb_out(), &mut hardware);
     let (ticks, lp3) = wait_for_pulse(&mut mechanics, &mut hardware, &mut via1, &mut via2, false);
     assert_eq!(ticks, 26, "Zone 3 should take 26 cycles");
 
     // Test Zone 2: 28 cycles (bits 5,6 = 10 -> 0x40)
     via2.orb = 0x40 | 0x04;
-    mechanics.update_state(via2.orb, via2.ddrb, &mut hardware);
+    mechanics.update_state(via2.get_pb_out(), &mut hardware);
     let (ticks, lp2) = wait_for_pulse(&mut mechanics, &mut hardware, &mut via1, &mut via2, lp3);
     assert_eq!(ticks, 28, "Zone 2 should take 28 cycles");
 
     // Test Zone 1: 30 cycles (bits 5,6 = 01 -> 0x20)
     via2.orb = 0x20 | 0x04;
-    mechanics.update_state(via2.orb, via2.ddrb, &mut hardware);
+    mechanics.update_state(via2.get_pb_out(), &mut hardware);
     let (ticks, lp1) = wait_for_pulse(&mut mechanics, &mut hardware, &mut via1, &mut via2, lp2);
     assert_eq!(ticks, 30, "Zone 1 should take 30 cycles");
 
     // Test Zone 0: 32 cycles (bits 5,6 = 00 -> 0x00)
     via2.orb = 0x00 | 0x04;
-    mechanics.update_state(via2.orb, via2.ddrb, &mut hardware);
+    mechanics.update_state(via2.get_pb_out(), &mut hardware);
     let (ticks, _) = wait_for_pulse(&mut mechanics, &mut hardware, &mut via1, &mut via2, lp1);
     assert_eq!(ticks, 32, "Zone 0 should take 32 cycles");
 }

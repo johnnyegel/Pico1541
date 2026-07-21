@@ -100,7 +100,7 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         self.cpu.reset(&mut self.memory, hw);
         self.last_ram_execution = false;
         self.cycles = self.cpu.cycles;
-        self.memory.mechanics.update_state(self.memory.via2.orb, self.memory.via2.ddrb, hw);
+        self.memory.mechanics.update_state(self.memory.via2.get_pb_out(), hw);
     }
 
     #[link_section = ".data.ram_func"]

@@ -211,8 +211,7 @@ pub(crate) struct HardwareBridge {
     _snooper: IecSnooper,
     config: &'static SnooperConfig,
     activity_led: ActivityLed,
-    led_state: bool,
-    motor_state: bool,
+    via_state: u8,
     dbg_pin_0: Output<'static>,
     dbg_pin_1: Output<'static>,
     pub base_time_us: u32,
@@ -226,8 +225,7 @@ impl HardwareBridge {
             _snooper: IecSnooper::new(device_id),
             config,
             activity_led,
-            led_state: true,
-            motor_state: true,
+            via_state: 0,
             dbg_pin_0,
             dbg_pin_1,
             base_time_us: 0,
@@ -371,17 +369,26 @@ impl ViaHardware for HardwareBridge {
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-        fn write_mechanics_port(&mut self, via_port_b: u8) {
-        let motor_on = (via_port_b & Self::VIA2_MOTOR) != 0;
-        let led_on = (via_port_b & Self::VIA2_LED) != 0;
-        
-        if self.motor_state != motor_on || self.led_state != led_on {
-            if self.motor_state != motor_on {
+    fn write_mechanics_port(&mut self, via_port_b: u8) {
+        let curr_via_state = via_port_b & Self::VIA2_LED_MOTOR_MASK;
+        let changed = curr_via_state ^ self.via_state;
+
+        if changed != 0 {
+            // [Slow Path] - Only executed when states actually toggle
+            self.via_state = curr_via_state;
+
+            let motor_on = (curr_via_state & Self::VIA2_MOTOR) != 0;
+            
+            // We only need to isolate the LED bit here if `set_state` 
+            // explicitly requires a `bool`.
+            self.activity_led.set_state(
+                (curr_via_state & Self::VIA2_LED) != 0, 
+                motor_on
+            );
+
+            if (changed & Self::VIA2_MOTOR) != 0 {
                 let _ = CMD_CHANNEL.try_send(InternalCommand::MotorState(motor_on));
             }
-            self.motor_state = motor_on;
-            self.led_state = led_on;
-            self.activity_led.set_state(self.led_state, self.motor_state);
         }
     }
 

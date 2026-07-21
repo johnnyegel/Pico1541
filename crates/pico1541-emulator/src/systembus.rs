@@ -93,7 +93,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         self.so_active = false;
         self.device_id_pb_bits = (self.device_id & 0x03) << 5;
         self.mechanics
-            .update_state(self.via2.orb, self.via2.ddrb, hardware);
+            .update_state(self.via2.get_pb_out(), hardware);
         // Force the track manager to load the reset track
         hardware.track_changed(self.mechanics.half_track());
     }
@@ -115,10 +115,10 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         }
 
         // :: Calculate the effective VIA1 Port B output
-        let mut effective_orb = self.via1.orb & self.via1.ddrb;
+        let mut effective_orb = self.via1.get_pb_out();
 
         // Auto-acknowledge ATN: if ATN is asseted and ATNA is not asserted
-        effective_orb |= (curr_atn >> 6) & (!effective_orb >> 3) & 0x2;
+        effective_orb |= (curr_atn >> 6) & (!effective_orb >> 3) & H::IEC_DATA_TX;
 
         // :: Write the effective VIA1 Port B output to the physical IEC bus
         hardware.write_iec_port(effective_orb);
@@ -217,7 +217,9 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             let reg = (addr & 0x0F) as usize;
             self.via1.write(addr, val);
             if reg == 0x00 || reg == 0x02 || reg == 0x0F {
-                let mut effective_orb = self.via1.orb | !self.via1.ddrb;
+                // FIXME! This is code duplication at best!
+                //        Handling of ATN assertion and deassertion must be done external to this.
+                let mut effective_orb = self.via1.get_pb_out();
                 let atna = (effective_orb & H::IEC_ATNA) == 0;
                 let atn_in_asserted = (ctx.read_iec_port() & H::IEC_ATN_RX) != 0;
                 if atn_in_asserted && atna {
@@ -229,7 +231,9 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             let reg = (addr & 0x0F) as usize;
             self.via2.write(addr, val);
             if reg == 0x00 || reg == 0x02 || reg == 0x0F {
-                ctx.write_mechanics_port(self.via2.orb | !self.via2.ddrb);
+                let effective_orb = self.via2.get_pb_out();
+                ctx.write_mechanics_port(effective_orb);
+                self.mechanics.update_state(effective_orb, ctx);
             }
         }
     }

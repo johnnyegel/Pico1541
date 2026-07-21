@@ -240,6 +240,7 @@ impl CPU {
                         self.push(bus, ctx, &mut offset, self.p | FLAG_U);
                         self.p |= FLAG_I;
                         self.pc = self.read_word(bus, ctx, &mut offset, 0xFFFE);
+                        
                         let elapsed = 7;
                         self.cycles = self.cycles.wrapping_add(elapsed);
                         return elapsed;

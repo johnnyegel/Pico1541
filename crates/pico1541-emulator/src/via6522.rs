@@ -303,6 +303,20 @@ impl Via6522 {
         }
     }
 
+    /// Convenience function to get the value of PB, masked by the direction register.
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    pub fn get_pb_out(&self) -> u8 {
+        self.orb & self.ddrb
+    }
+
+    /// Convenience function to get the value of PA, masked by the direction register.
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    pub fn get_pa_out(&self) -> u8 {
+        self.ora & self.ddra
+    }
+
     /// Convenience function to get the value of CB1, if it an output
     #[link_section = ".data.ram_func"]
     #[inline(always)]
@@ -331,6 +345,7 @@ impl Via6522 {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn ca1_irq(&mut self) {
+        log::info!("ca1_irq triggered!");
         self.ifr |= 0x02;
         self.update_irq();
         if (self.acr & 0x01) != 0 {
@@ -353,9 +368,9 @@ impl Via6522 {
     #[inline(always)]
     pub fn ca1_edge(&mut self, edge: bool) {
         self.last_ca1 = edge;
-
         let positive_edge = (self.pcr & 0x01) != 0;
-
+        log::info!("ca1_edge: edge={}, positive_edge={}, IER={:02X}", edge, positive_edge, self.ier);
+        
         if edge == positive_edge {
             self.ca1_irq();
         }
@@ -409,26 +424,7 @@ impl Via6522 {
             }
         }
         self.last_cb2 = val;
-    }
-
-    #[link_section = ".data.ram_func"]
-    pub fn get_port_b(&self) -> u8 {
-        let mut out = (self.orb & self.ddrb) | (self.in_b & !self.ddrb);
-        if (self.acr & 0x80) != 0 {
-            if self.t1_pb7 {
-                out |= 0x80;
-            } else {
-                out &= 0x7F;
-            }
-        }
-        out
-    }
-
-    #[link_section = ".data.ram_func"]
-    pub fn get_port_a(&self) -> u8 {
-        (self.ora & self.ddra) | (self.in_a & !self.ddra)
-    }
-    
+    }    
 }
 
 #[cfg(feature = "debug")]

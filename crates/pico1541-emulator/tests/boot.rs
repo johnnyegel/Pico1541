@@ -271,12 +271,14 @@ fn test_dir_listing_g64() {
                 .await?;
         }
 
+        bridge.ticks(&mut drive, 25_000_000);
+
         let cmd_len = 255;
         let cmd = &drive.bus().memory[0x0200..0x0200 + cmd_len as usize];
+        let erword = drive.bus().memory[0x026C];
         println!("COMMAND LEN: {}", cmd_len);
         println!("COMMAND BUF: {:?}", String::from_utf8_lossy(cmd));
-
-        bridge.ticks(&mut drive, 25_000_000);
+        println!("ERROR CODE: {}", erword);
 
         let mut received = Vec::new();
         {
