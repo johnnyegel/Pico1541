@@ -135,7 +135,7 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
             self.last_ram_execution = is_ram_execution;
         }
 
-        
+        self.memory.iec_synced_this_instruction = false;
         let elapsed = self.cpu.step(&mut self.memory, hw);
         
         // Poll IEC and DriveMechanics on every instruction for real-time accuracy without jitter

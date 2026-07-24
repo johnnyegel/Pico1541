@@ -32,6 +32,7 @@ pub struct SystemBus<H: HostInterface, S: MagneticSurface> {
     pub next_sync_cycle: u32,
     pub sync_required: bool,
     pub so_pulsed: bool,
+    pub iec_synced_this_instruction: bool,
     _phantom: PhantomData<H>,
 }
 
@@ -61,6 +62,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             next_sync_cycle: 1024,
             sync_required: false,
             so_pulsed: false,
+            iec_synced_this_instruction: false,
             _phantom: PhantomData,
         };
 
@@ -99,8 +101,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     }
 
     #[link_section = ".data.ram_func"]
-    #[inline(never)]
-    pub fn poll_realtime(&mut self, hardware: &mut H, elapsed: u32) {
+    #[inline(always)]
+    pub fn sync_iec_bus(&mut self, hardware: &mut H) {
         // :: Capture the IEC bus state, and update the VIA1 input register
         let iec_in = hardware.read_iec_port() | self.device_id_pb_bits;
         let prev_atn = self.via1.in_b & H::IEC_ATN_RX;
@@ -122,6 +124,17 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 
         // :: Write the effective VIA1 Port B output to the physical IEC bus
         hardware.write_iec_port(effective_orb);
+        
+        self.iec_synced_this_instruction = true;
+    }
+
+    #[link_section = ".data.ram_func"]
+    #[inline(never)]
+    pub fn poll_realtime(&mut self, hardware: &mut H, elapsed: u32) {
+        if !self.iec_synced_this_instruction {
+            self.sync_iec_bus(hardware);
+        }
+
         hardware.step();
 
         let old_cc = self.cycle_counter;
@@ -187,10 +200,11 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             if addr == 0x1800 {
                 _ctx.debug_pin_0(true);
             }
-            // Jitter-free zero-delay IEC polling: Read LIVE state immediately before CPU accesses it
-            let iec_in = _ctx.read_iec_port() | self.device_id_pb_bits;
-            self.via1.in_b = iec_in;
-
+            let reg = (addr & 0x0F) as usize;
+            if reg == 0x00 || reg == 0x0F {
+                self.sync_iec_bus(_ctx);
+            }
+            
             self.via1.read(addr)
         } else if addr >= 0x1C00 && addr <= 0x1C0F {
             self.via2.read(addr)
@@ -217,15 +231,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             let reg = (addr & 0x0F) as usize;
             self.via1.write(addr, val);
             if reg == 0x00 || reg == 0x02 || reg == 0x0F {
-                // FIXME! This is code duplication at best!
-                //        Handling of ATN assertion and deassertion must be done external to this.
-                let mut effective_orb = self.via1.get_pb_out();
-                let atna = (effective_orb & H::IEC_ATNA) == 0;
-                let atn_in_asserted = (ctx.read_iec_port() & H::IEC_ATN_RX) != 0;
-                if atn_in_asserted && atna {
-                    effective_orb |= H::IEC_DATA_TX; // Assert Data Out
-                }
-                ctx.write_iec_port(effective_orb);
+                self.sync_iec_bus(ctx);
             }
         } else if addr >= 0x1C00 && addr <= 0x1C0F {
             let reg = (addr & 0x0F) as usize;
