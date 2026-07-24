@@ -122,6 +122,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
 
     /// Updates the drive mechanics state based on VIA2 Port B outputs.
     #[link_section = ".data.ram_func"]
+    #[inline(always)]
     pub fn update_state<H: HostInterface>(&mut self, effective_orb: u8, hardware: &mut H) {
         let full_state = effective_orb & (MASK_HARDWARE_STATE | MASK_SPEED_ZONE);
         if full_state != self.last_state {
