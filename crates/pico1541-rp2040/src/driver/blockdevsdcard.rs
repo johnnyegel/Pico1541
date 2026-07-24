@@ -311,10 +311,7 @@ where
 }
 
 pub struct SdBlockIo<Spi, Cs, Delay>
-where
-    Spi: SpiBus<u8> + SpiFreq + 'static,
-    Cs: OutputPin + 'static,
-    Delay: embedded_hal::delay::DelayNs + 'static,
+
 {
     card_ptr: *mut SdCard<Spi, Cs, Delay>,
     offset: u64,
@@ -322,24 +319,10 @@ where
     cached_sector: Option<u32>,
 }
 
-unsafe impl<Spi, Cs, Delay> Send for SdBlockIo<Spi, Cs, Delay>
-where
-    Spi: SpiBus<u8> + SpiFreq + 'static,
-    Cs: OutputPin + 'static,
-    Delay: embedded_hal::delay::DelayNs + 'static,
-{}
-unsafe impl<Spi, Cs, Delay> Sync for SdBlockIo<Spi, Cs, Delay>
-where
-    Spi: SpiBus<u8> + SpiFreq + 'static,
-    Cs: OutputPin + 'static,
-    Delay: embedded_hal::delay::DelayNs + 'static,
-{}
+unsafe impl<Spi, Cs, Delay> Send for SdBlockIo<Spi, Cs, Delay> {}
+unsafe impl<Spi, Cs, Delay> Sync for SdBlockIo<Spi, Cs, Delay> {}
 
 impl<Spi, Cs, Delay> Clone for SdBlockIo<Spi, Cs, Delay>
-where
-    Spi: SpiBus<u8> + SpiFreq + 'static,
-    Cs: OutputPin + 'static,
-    Delay: embedded_hal::delay::DelayNs + 'static,
 {
     fn clone(&self) -> Self {
         Self {

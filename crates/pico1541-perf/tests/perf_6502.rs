@@ -66,6 +66,8 @@ mod tests {
                     cpu.execute_instruction(instr);
                 }
             }
+            core::hint::black_box(&cpu);
+            core::hint::black_box(&mem);
         });
         
         defmt::info!("mos6502 1000 instructions took {} CPU cycles", cycles);
@@ -96,6 +98,8 @@ mod tests {
             for _ in 0..3000 {
                 cpu.tick(&mut bus, &mut ());
             }
+            core::hint::black_box(&cpu);
+            core::hint::black_box(&bus);
         });
         
         defmt::info!("racc6502 3000 ticks took {} CPU cycles", cycles);
@@ -124,6 +128,8 @@ mod tests {
             for _ in 0..3000 {
                 cpu.tick(&mut bus, &mut ());
             }
+            core::hint::black_box(&cpu);
+            core::hint::black_box(&bus);
         });
         
         defmt::info!("racc6502v2 3000 ticks took {} CPU cycles", cycles);
@@ -157,6 +163,8 @@ mod tests {
             for _ in 0..1000 {
                 cpu.step(&mut bus, &mut ());
             }
+            core::hint::black_box(&cpu);
+            core::hint::black_box(&bus);
         });
         
         defmt::info!("racc6502v3 1000 instructions took {} CPU cycles", cycles);
@@ -186,6 +194,8 @@ mod tests {
             for _ in 0..1000 {
                 cpu.step(&mut bus, &mut ());
             }
+            core::hint::black_box(&cpu);
+            core::hint::black_box(&bus);
         });
         
         defmt::info!("racc6502v4 1000 instructions took {} CPU cycles", cycles);

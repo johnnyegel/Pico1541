@@ -38,37 +38,16 @@ mod tests {
         }};
     }
 
-    struct MockCtx;
-    #[allow(unused_imports)]
-    use pico1541_common::context::CatchUpContext;
-    #[allow(unused_imports)]
-    use pico1541_common::context::ViaHardware;
-
-    impl CatchUpContext for MockCtx {
-        fn catch_up(&mut self, _target: u64) {}
-        fn advance_to(&mut self, _target: u64) {}
-    }
-
-    struct MockHw;
-    impl ViaHardware for MockHw {
-        fn read_pa(&mut self, _ctx: &mut impl CatchUpContext) -> u8 { 0 }
-        fn read_pb(&mut self, _ctx: &mut impl CatchUpContext) -> u8 { 0 }
-        fn write_pa(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
-        fn write_pb(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
-        fn write_ddra(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
-        fn write_ddrb(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
-        fn set_ca1(&mut self, _ctx: &mut impl CatchUpContext, _active: bool) {}
-    }
+    // Removed MockCtx and MockHw because they are no longer needed by Via6522
 
     #[test]
     fn test_via6522_tick() {
         let mut via = Via6522::new();
-        let mut hw = MockHw;
-        let mut ctx = MockCtx;
+        // Removed hw and ctx
         
         // Setup VIA to actually do some work
-        via.write(0x04, 0xFF, &mut hw, &mut ctx); // T1L-L
-        via.write(0x05, 0xFF, &mut hw, &mut ctx); // T1C-H (Starts T1)
+        via.write(0x04, 0xFF); // T1L-L
+        via.write(0x05, 0xFF); // T1C-H (Starts T1)
         
         let cycles = measure_cycles!({
             for _ in 0..1000 {
@@ -83,22 +62,21 @@ mod tests {
     #[test]
     fn test_via6522_read_write() {
         let mut via = Via6522::new();
-        let mut hw = MockHw;
-        let mut ctx = MockCtx;
+        // Removed hw and ctx
         
         let mut i = 0u16;
         let cycles = measure_cycles!({
             for _ in 0..100 {
-                via.write(0, i as u8, &mut hw, &mut ctx); core::hint::black_box(via.read(0, &mut hw, &mut ctx)); i += 1;
-                via.write(1, i as u8, &mut hw, &mut ctx); core::hint::black_box(via.read(1, &mut hw, &mut ctx)); i += 1;
-                via.write(2, i as u8, &mut hw, &mut ctx); core::hint::black_box(via.read(2, &mut hw, &mut ctx)); i += 1;
-                via.write(3, i as u8, &mut hw, &mut ctx); core::hint::black_box(via.read(3, &mut hw, &mut ctx)); i += 1;
-                via.write(4, i as u8, &mut hw, &mut ctx); core::hint::black_box(via.read(4, &mut hw, &mut ctx)); i += 1;
-                via.write(5, i as u8, &mut hw, &mut ctx); core::hint::black_box(via.read(5, &mut hw, &mut ctx)); i += 1;
-                via.write(6, i as u8, &mut hw, &mut ctx); core::hint::black_box(via.read(6, &mut hw, &mut ctx)); i += 1;
-                via.write(7, i as u8, &mut hw, &mut ctx); core::hint::black_box(via.read(7, &mut hw, &mut ctx)); i += 1;
-                via.write(8, i as u8, &mut hw, &mut ctx); core::hint::black_box(via.read(8, &mut hw, &mut ctx)); i += 1;
-                via.write(9, i as u8, &mut hw, &mut ctx); core::hint::black_box(via.read(9, &mut hw, &mut ctx)); i += 1;
+                via.write(0, i as u8); core::hint::black_box(via.read(0)); i += 1;
+                via.write(1, i as u8); core::hint::black_box(via.read(1)); i += 1;
+                via.write(2, i as u8); core::hint::black_box(via.read(2)); i += 1;
+                via.write(3, i as u8); core::hint::black_box(via.read(3)); i += 1;
+                via.write(4, i as u8); core::hint::black_box(via.read(4)); i += 1;
+                via.write(5, i as u8); core::hint::black_box(via.read(5)); i += 1;
+                via.write(6, i as u8); core::hint::black_box(via.read(6)); i += 1;
+                via.write(7, i as u8); core::hint::black_box(via.read(7)); i += 1;
+                via.write(8, i as u8); core::hint::black_box(via.read(8)); i += 1;
+                via.write(9, i as u8); core::hint::black_box(via.read(9)); i += 1;
             }
         });
         

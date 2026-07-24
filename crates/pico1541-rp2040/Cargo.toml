@@ -68,3 +68,8 @@ harness = false
 [features]
 default = []
 flight-recorder = ["pico1541-emulator/flight-recorder"]
+
+[[bin]]
+name = "pico1541-rp2040"
+path = "src/main.rs"
+test = false

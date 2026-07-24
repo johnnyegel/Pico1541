@@ -19,8 +19,8 @@ unsafe impl core::alloc::GlobalAlloc for DummyAlloc {
 
 #[defmt_test::tests]
 mod tests {
-    use pico1541_common::context::{ViaHardware, CatchUpContext};
-    use pico1541_common::interface::{DriveEvent, HostInterface, IecBus, IecBusState};
+    use pico1541_common::context::ViaHardware;
+    use pico1541_common::interface::{DriveEvent, HostInterface};
     use pico1541_common::magnetic_surface::MagneticSurface;
     use pico1541_emulator::drivemechanics::DriveMechanics;
     use pico1541_emulator::via6522::Via6522;
@@ -65,19 +65,14 @@ mod tests {
 
     struct DummyHost;
 
-    impl IecBus for DummyHost {
-        fn iec_host(&self) -> IecBusState { IecBusState::default() }
-        fn iec_drive(&mut self, _state: IecBusState) {}
-    }
+
 
     impl ViaHardware for DummyHost {
-        fn read_pa(&mut self, _ctx: &mut impl CatchUpContext) -> u8 { 0xFF }
-        fn read_pb(&mut self, _ctx: &mut impl CatchUpContext) -> u8 { 0xFF }
-        fn write_pa(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
-        fn write_pb(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
-        fn write_ddra(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
-        fn write_ddrb(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
-        fn set_ca1(&mut self, _ctx: &mut impl CatchUpContext, _active: bool) {}
+        fn read_iec_port(&mut self) -> u8 { 0xFF }
+        fn write_iec_port(&mut self, _via_port_b: u8) {}
+        fn write_mechanics_port(&mut self, _via_port_b: u8) {}
+        fn consume_trigger_reset(&mut self) -> bool { false }
+        fn is_reset_line_asserted(&self) -> bool { false }
     }
 impl HostInterface for DummyHost {
         fn send_event(&mut self, _event: DriveEvent) {}
@@ -92,7 +87,7 @@ impl HostInterface for DummyHost {
         let mut via2 = Via6522::new();
 
         // Setup Motor ON (Bit 2 = 0x04)
-        mechanics.update_state(0x04, 0x04, &mut host);
+        mechanics.update_state(0x04, &mut host);
         
         let cycles = measure_cycles!({
             for _ in 0..1000 {
@@ -114,7 +109,7 @@ impl HostInterface for DummyHost {
         let mut via1 = Via6522::new();
         let mut via2 = Via6522::new();
 
-        mechanics.update_state(0x04, 0x04, &mut host);
+        mechanics.update_state(0x04, &mut host);
         
         let cycles = measure_cycles!({
             for _ in 0..1000 {

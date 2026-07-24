@@ -11,35 +11,27 @@ use embassy_rp as _;
 static HEAP: embedded_alloc::Heap = embedded_alloc::Heap::empty();
 #[defmt_test::tests]
 mod tests {
-    use pico1541_common::context::{ViaHardware, CatchUpContext};
-    use pico1541_emulator::Emulator;
-    use pico1541_common::interface::{DriveEvent, HostInterface, IecBusState};
+    use pico1541_common::context::ViaHardware;
+    use pico1541_common::interface::{DriveEvent, HostInterface};
     use pico1541_common::magnetic_surface::MagneticSurface;
+    use pico1541_emulator::Emulator;
 
     struct DummyHost;
 
-    impl pico1541_common::interface::IecBus for DummyHost {
-        fn iec_host(&self) -> IecBusState { IecBusState::default() }
-        fn iec_drive(&mut self, _state: IecBusState) {}
-    }
+
 
     impl ViaHardware for DummyHost {
-        fn read_pa(&mut self, _ctx: &mut impl CatchUpContext) -> u8 { 0xFF }
-        fn read_pb(&mut self, _ctx: &mut impl CatchUpContext) -> u8 { 0xFF }
-        fn write_pa(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
-        fn write_pb(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
-        fn write_ddra(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
-        fn write_ddrb(&mut self, _ctx: &mut impl CatchUpContext, _val: u8) {}
-        fn set_ca1(&mut self, _ctx: &mut impl CatchUpContext, _active: bool) {}
+        fn read_iec_port(&mut self) -> u8 { 0xFF }
+        fn write_iec_port(&mut self, _via_port_b: u8) {}
+        fn write_mechanics_port(&mut self, _via_port_b: u8) {}
+        fn consume_trigger_reset(&mut self) -> bool { false }
+        fn is_reset_line_asserted(&self) -> bool { false }
     }
 impl HostInterface for DummyHost {
-        fn sync(&mut self, _host_state: IecBusState) {}
         fn step(&mut self) {}
         fn get_device_id(&self) -> u8 { 8 }
         fn pop_discard_request(&mut self) -> bool { false }
         fn check_halt_requested(&self) -> bool { false }
-        fn consume_trigger_reset(&mut self) -> bool { false }
-        fn is_reset_line_asserted(&self) -> bool { false }
         fn track_changed(&mut self, _half_track: u8) {}
         fn debug_pin_1(&mut self, _on: bool) {}
         fn send_event(&mut self, _event: DriveEvent) {}
@@ -134,7 +126,8 @@ impl HostInterface for DummyHost {
 
         // Turn on motor to ensure DriveMechanics operates properly and generates SO pulses
         emulator.memory.via2.orb |= 0x04;
-        emulator.memory.mechanics.update_state(emulator.memory.via2.orb, emulator.memory.via2.ddrb, &mut host);
+        emulator.memory.via2.pcr = 0x0E; // Enable SO (CA2 output)
+        emulator.memory.mechanics.update_state(emulator.memory.via2.orb, &mut host);
 
         // Pre-run a few cycles to get the CPU past the reset vector logic and into our loop
         emulator.run_for(&mut host, 100);
@@ -200,7 +193,8 @@ impl HostInterface for DummyHost {
 
         emulator.reset(&mut host);
         emulator.memory.via2.orb |= 0x04;
-        emulator.memory.mechanics.update_state(emulator.memory.via2.orb, emulator.memory.via2.ddrb, &mut host);
+        emulator.memory.via2.pcr = 0x0E; // Enable SO (CA2 output)
+        emulator.memory.mechanics.update_state(emulator.memory.via2.orb, &mut host);
         emulator.run_for(&mut host, 100);
         
         let test_start_cycles = emulator.cycles;
