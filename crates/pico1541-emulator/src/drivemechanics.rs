@@ -1,3 +1,4 @@
+#[cfg(feature = "debug")]
 use crate::via6522::Via6522;
 use pico1541_common::{magnetic_surface::MagneticSurface, interface::HostInterface};
 
@@ -22,7 +23,7 @@ const MASK_LED: u8 = 0x08;
 // Mask used to determine the last state of stepper motor phases (PB0, PB1), MOTOR bit and ACT LED and (PB2, PB3)
 const MASK_HARDWARE_STATE: u8 = 0x0F;
 const MASK_SPEED_ZONE: u8 = 0x60;
-const MASK_SYNC: u8 = 0x80;
+
 const SHIFT_SPEED_ZONE: u8 = 5;
 
 /// DriveMechanics struct to represent the state of the drive's mechanical components, such as the head position and motor state.
@@ -33,9 +34,7 @@ pub struct DriveMechanics<S: MagneticSurface> {
     pub surface: S,
     
     last_state: u8,
-    last_gcr_byte: u8,
     last_requested_sector: u8,
-    so_pulse_cycles: u32,
 }
 
 impl<S: MagneticSurface> DriveMechanics<S> {
@@ -44,9 +43,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
             halftrack_head_pos: INITIAL_HALF_TRACK,
             surface,
             last_state: 0,
-            last_gcr_byte: 0,
             last_requested_sector: 255,
-            so_pulse_cycles: 0,
         }
     }
 }
@@ -56,68 +53,6 @@ impl<S: MagneticSurface> DriveMechanics<S> {
         self.halftrack_head_pos = INITIAL_HALF_TRACK;
         self.last_state = 0;
         self.last_requested_sector = 0xFF;
-    }
-
-    /// Progresses the drive mechanics by one CPU cycle.
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    pub fn tick_cycles<H: HostInterface>(&mut self, _hardware: &mut H, _via1: &mut crate::via6522::Via6522, via2: &mut Via6522, delta: u32) -> (bool, bool) {
-        if delta == 0 || (self.last_state & MASK_MOTOR) == 0 {
-            return (false, false);
-        }
-
-        let mut so_pulsed = false;
-        let mut trigger_ca1 = false;
-
-        let pcr_cb2 = via2.pcr & 0b1110_0000;
-        let is_read_mode = pcr_cb2 != 0b1100_0000;
-
-        if is_read_mode {
-            let byte_opt = self.surface.try_read_byte(delta);
-            let is_sync = self.surface.is_sync_active();
-            let was_sync = (via2.in_b & MASK_SYNC) == 0;
-            
-            if self.so_pulse_cycles > 0 {
-                self.so_pulse_cycles = self.so_pulse_cycles.saturating_sub(delta);
-            }
-
-            if byte_opt.is_none() && is_sync == was_sync {
-                return (false, false);
-            }
-
-            let mut new_byte_arrived = false;
-            if let Some(byte) = byte_opt {
-                via2.in_a = byte;
-                self.last_gcr_byte = byte;
-                new_byte_arrived = true;
-            }
-            
-            if is_sync != was_sync {
-                if is_sync {
-                    via2.in_b &= !MASK_SYNC; // Assert SYNC (Pull PB7 Low)
-                } else {
-                    via2.in_b |= MASK_SYNC;  // Release SYNC
-                }
-            }
-            
-            if !is_sync && new_byte_arrived {
-                let pcr_ca2 = via2.pcr & 0b0000_1110;
-                let is_so_enabled = (pcr_ca2 & 0b0000_1010) == 0b0000_1010; // CA2 is set to pulse output mode (SOE)
-
-                if is_so_enabled {
-                    trigger_ca1 = true; // CA1 triggers ONLY WHEN SOE is set!
-                    self.so_pulse_cycles = 3;
-                    so_pulsed = true;
-                }
-            }
-        } else {
-            // WRITE mode
-            self.surface.stop_reading();
-            let index = self.surface.get_absolute_head_position(0);
-            self.surface.write_byte_at(index, via2.ora);
-        }
-        
-        (so_pulsed, trigger_ca1)
     }
 
     /// Updates the drive mechanics state based on VIA2 Port B outputs.

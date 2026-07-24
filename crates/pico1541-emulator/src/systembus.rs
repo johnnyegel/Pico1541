@@ -24,7 +24,6 @@ pub struct SystemBus<H: HostInterface, S: MagneticSurface> {
     pub via1: Via6522,
     pub via2: Via6522,
     pub mechanics: DriveMechanics<S>,
-    pub so_active: bool,
     pub device_id: u8,
     cycle_counter: u32,
     device_id_pb_bits: u8,
@@ -56,7 +55,6 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             via1,
             via2: Via6522::new(),
             mechanics: DriveMechanics::new(surface),
-            so_active: false,
             device_id,
             cycle_counter: 0,
             device_id_pb_bits: (device_id & 0x03) << 5,
@@ -97,7 +95,6 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         self.via1.reset();
         self.via2.reset();
         self.mechanics.reset();
-        self.so_active = false;
         self.device_id_pb_bits = (self.device_id & 0x03) << 5;
         self.last_iec_out = 0xFF; // Force first write
         self.last_via2_out = 0xFF;
@@ -172,17 +169,9 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             }
         }
 
-        let (so, trigger_ca1) =
-            self.mechanics
-                .tick_cycles(hardware, &mut self.via1, &mut self.via2, elapsed);
-
-        if trigger_ca1 {
-            self.via2.ca1_irq();
-        }
-        self.so_active = so;
-        if self.so_active {
-            self.so_pulsed = true;
-        }
+        // Hardware wiring and VIA tick logic is now handled in catch_up,
+        // which guarantees it executes precisely mid-instruction if an I/O read/write occurs!
+        // We no longer tick mechanics here.
     }
 
     #[link_section = ".data.ram_func"]
@@ -197,6 +186,47 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         if self.via2.any_active() {
             self.via2.tick_cycles(delta);
         }
+
+        // Hardware Wiring: Pull bytes from the DMA buffer and wire SYNC/SO directly to VIA2/CPU.
+        let is_motor_on = (self.via2.orb | !self.via2.ddrb) & 0x04 != 0;
+        if is_motor_on {
+            let pcr_cb2 = self.via2.pcr & 0b1110_0000;
+            let is_read_mode = pcr_cb2 != 0b1100_0000;
+
+            if is_read_mode {
+                let byte_opt = self.mechanics.surface.try_read_byte(delta);
+                let is_sync = self.mechanics.surface.is_sync_active();
+                let was_sync = (self.via2.in_b & 0x80) == 0;
+                
+                let mut new_byte_arrived = false;
+                if let Some(byte) = byte_opt {
+                    self.via2.in_a = byte;
+                    new_byte_arrived = true;
+                }
+                
+                if is_sync != was_sync {
+                    if is_sync {
+                        self.via2.in_b &= !0x80; // Assert SYNC (Pull PB7 Low)
+                    } else {
+                        self.via2.in_b |= 0x80;  // Release SYNC
+                    }
+                }
+                
+                if !is_sync && new_byte_arrived {
+                    let pcr_ca2 = self.via2.pcr & 0b0000_1110;
+                    let is_so_enabled = (pcr_ca2 & 0b0000_1010) == 0b0000_1010;
+                    if is_so_enabled {
+                        self.via2.ca1_irq();
+                        self.so_pulsed = true;
+                    }
+                }
+            } else {
+                // WRITE mode
+                self.mechanics.surface.stop_reading();
+                let index = self.mechanics.surface.get_absolute_head_position(0);
+                self.mechanics.surface.write_byte_at(index, self.via2.ora);
+            }
+        }
     }
 
     #[link_section = ".data.ram_func"]
@@ -208,8 +238,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         // Spinlock to exact cycle before reading live IEC state
         _ctx.spin_until(cycle);
 
-        let result = if addr >= 0x1800 && addr <= 0x180F {
-            if addr == 0x1800 {
+        let result = if (addr & 0x0400) == 0 {
+            if (addr & 0x0F) == 0x00 {
                 _ctx.debug_pin_0(true);
             }
             let reg = (addr & 0x0F) as usize;
@@ -218,10 +248,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             }
             
             self.via1.read(addr)
-        } else if addr >= 0x1C00 && addr <= 0x1C0F {
-            self.via2.read(addr)
         } else {
-            0
+            self.via2.read(addr)
         };
 
         result
@@ -236,8 +264,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         // Spinlock to exact cycle before writing to physical pins
         ctx.spin_until(cycle);
 
-        if addr >= 0x1800 && addr <= 0x180F {
-            if addr == 0x1800 {
+        if (addr & 0x0400) == 0 {
+            if (addr & 0x0F) == 0x00 {
                 ctx.debug_pin_0(true);
             }
             let reg = (addr & 0x0F) as usize;
@@ -245,7 +273,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             if reg == 0x00 || reg == 0x02 || reg == 0x0F {
                 self.sync_iec_bus(ctx);
             }
-        } else if addr >= 0x1C00 && addr <= 0x1C0F {
+        } else {
             let reg = (addr & 0x0F) as usize;
             self.via2.write(addr, val);
             if reg == 0x00 || reg == 0x02 || reg == 0x0F {
@@ -325,9 +353,6 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         let delta = target_cycle.wrapping_sub(self.last_cycle);
         if delta > 0 && delta < 0x80000000 {
             self.tick_cycles(delta);
-            if self.so_pending() {
-                self.so_pulsed = true;
-            }
             self.last_cycle = target_cycle;
         }
         self.update_next_sync_cycle();
@@ -348,14 +373,22 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
                 min_delta = min_delta.min(via.sr_count as u32 + 1);
             }
         }
+        
+        let is_motor_on = (self.via2.orb | !self.via2.ddrb) & 0x04 != 0;
+        if is_motor_on {
+            min_delta = 1;
+        }
 
         self.next_sync_cycle = self.last_cycle.wrapping_add(min_delta);
     }
 
+    
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn so_pending(&self) -> bool {
-        self.so_active
+    pub fn so_pending(&mut self) -> bool {
+        let result = self.so_pulsed;
+        self.so_pulsed = false;
+        result
     }
 }
 

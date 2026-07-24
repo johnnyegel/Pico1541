@@ -5,10 +5,14 @@ use pico1541_common::track_buffer::TrackLayout;
 use pico1541_common::magnetic_surface::{MagneticSurface, SoftwareMagneticSurface};
 use pico1541_common::interface::{DriveEvent, HostInterface};
 use pico1541_common::storage::MemoryStorage;
-use pico1541_emulator::drivemechanics::DriveMechanics;
-use pico1541_emulator::via6522::Via6522;
 use pollster::block_on;
 use std::fs;
+
+static DUMMY_ROM: [u8; 16384] = [0; 16384];
+
+fn get_system_bus(surface: SoftwareMagneticSurface) -> pico1541_emulator::systembus::SystemBus<MockHardware, SoftwareMagneticSurface> {
+    pico1541_emulator::systembus::SystemBus::new(&DUMMY_ROM, 8, surface)
+}
 
 struct MockHardware {
     
@@ -40,12 +44,11 @@ impl HostInterface for MockHardware {
 #[test]
 fn test_g64_track_reading_low_level() {
     let mut hw = MockHardware::new();
-    let mut via2 = Via6522::new();
     let hw_buffer = Box::leak(Box::new(pico1541_common::track_buffer::DualCoreTrackBuffer::new()));
     let surface = SoftwareMagneticSurface::new(hw_buffer.split().1);
-    let mut mechanics = DriveMechanics::new(surface);
-    mechanics.halftrack_head_pos = 0; // Set track 0
-    mechanics.surface.start_reading(0, 0);
+    let mut bus = get_system_bus(surface);
+    bus.mechanics.halftrack_head_pos = 0; // Set track 0
+    bus.mechanics.surface.start_reading(0, 0);
 
     // 1. Load G64 Track 0 (HT 0)
     let g64_data = fs::read("tests/data/test.g64").expect("Failed to read G64");
@@ -64,8 +67,8 @@ fn test_g64_track_reading_low_level() {
         manager.commit_loaded_track(2, layout.0, layout.1, None);
     }
     
-    mechanics.halftrack_head_pos = 2;
-    mechanics.surface.start_reading(2, 0);
+    bus.mechanics.halftrack_head_pos = 2;
+    bus.mechanics.surface.start_reading(2, 0);
 
     match layout.0 {
         TrackLayout::Accurate => log::debug!("Track accurate layout"),
@@ -74,11 +77,11 @@ fn test_g64_track_reading_low_level() {
 
     // 2. Setup Drive State
     // Motor ON (PB2), Bitrate Zone 3 (PB5=1, PB6=1) for Track 0
-    via2.ddrb = 0xFF;
-    via2.orb = 0b01100100; // Bit 6=1, Bit 5=1, Bit 2=1 (Motor ON, Zone 0)
-    mechanics.update_state(via2.get_pb_out(), &mut hw);
+    bus.via2.ddrb = 0xFF;
+    bus.via2.orb = 0b01100100; // Bit 6=1, Bit 5=1, Bit 2=1 (Motor ON, Zone 0)
+    bus.mechanics.update_state(bus.via2.get_pb_out(), &mut hw);
     
-    via2.pcr = 0b1110_1110; // Enable Read mode and SO
+    bus.via2.pcr = 0b1110_1110; // Enable Read mode and SO
 
     // 4. Capture one revolution
     let mut captured_bytes = Vec::new();
@@ -90,9 +93,9 @@ fn test_g64_track_reading_low_level() {
     // However, some tracks in Zone 0 can take up to 246,144 cycles.
     // We use 300,000 to be safe.
     for i in 0..300_000 {
-        let mut via1 = pico1541_emulator::via6522::Via6522::new(); let byte_ready = mechanics.tick_cycles(&mut hw, &mut via1, &mut via2, 1).0;
+        bus.tick_cycles(1); let byte_ready = bus.so_pending();
 
-        let sync_active = (via2.in_b & 0x80) == 0;
+        let sync_active = (bus.via2.in_b & 0x80) == 0;
 
         if sync_active && !in_sync {
             sync_assertions += 1;
@@ -103,7 +106,7 @@ fn test_g64_track_reading_low_level() {
 
         if byte_ready {
             byte_ready_pulses += 1;
-            captured_bytes.push(via2.in_a);
+            captured_bytes.push(bus.via2.in_a);
             
             // Success Criteria: Byte Ready MUST NOT pulse during SYNC
             assert!(!sync_active, "Byte Ready pulsed during SYNC at cycle {}", i);
