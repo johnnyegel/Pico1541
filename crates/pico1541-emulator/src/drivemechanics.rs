@@ -162,14 +162,14 @@ impl<S: MagneticSurface> DriveMechanics<S> {
     /// Updates the drive mechanics state, and issues events accordingly.
     #[link_section = ".data.ram_func"]
     #[inline(never)]
-    fn update_state_slow(&mut self, full_state: u8, hardware: &mut impl HostInterface) {
+    fn update_state_slow<H: HostInterface>(&mut self, full_state: u8, hardware: &mut H) {
         let last_state = self.last_state;
-        let state_changes = last_state ^ full_state;
+        let state_changes = full_state ^ last_state;
         self.last_state = full_state;
 
-        // Check motor state change
-        if state_changes & MASK_MOTOR != 0 {
-            let motor_on = full_state & MASK_MOTOR != 0;
+        if (state_changes & MASK_MOTOR) != 0 {
+            let motor_on = (full_state & MASK_MOTOR) != 0;
+            
             log::info!("Motor state changed: motor_on = {}, head_pos = {}", motor_on, self.halftrack_head_pos);
             
             if !motor_on {

@@ -199,15 +199,15 @@ impl ViaHardware for TestBridge {
         if self.drive_iec.get_clk() { combined.set_clk(true); }
         if self.drive_iec.get_atn() { combined.set_atn(true); }
 
-        if combined.get_data() { val |= Self::IEC_DATA_RX; } // 1 = asserted
-        if combined.get_clk() { val |= Self::IEC_CLK_RX; } // 1 = asserted
-        if combined.get_atn() { val |= Self::IEC_ATN_RX; } // 1 = asserted
+        if combined.get_data() { val |= Self::VIA1_IEC_MASK_DATA_RX; } // 1 = asserted
+        if combined.get_clk() { val |= Self::VIA1_IEC_MASK_CLK_RX; } // 1 = asserted
+        if combined.get_atn() { val |= Self::VIA1_IEC_MASK_ATN_RX; } // 1 = asserted
         val
     }
 
     fn write_iec_port(&mut self, via_port_b: u8) {
-        let assert_data = (via_port_b & Self::IEC_DATA_TX) != 0;
-        let assert_clk = (via_port_b & Self::IEC_CLK_TX) != 0;
+        let assert_data = (via_port_b & Self::VIA1_IEC_MASK_DATA_TX) != 0;
+        let assert_clk = (via_port_b & Self::VIA1_IEC_MASK_CLK_TX) != 0;
         self.drive_iec.set_data(assert_data);
         self.drive_iec.set_clk(assert_clk);
     }

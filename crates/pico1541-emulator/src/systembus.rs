@@ -9,6 +9,7 @@ use pico1541_common::context::CatchUpContext;
 use pico1541_common::context::ViaHardware;
 use pico1541_common::interface::HostInterface;
 use pico1541_common::magnetic_surface::MagneticSurface;
+use pico1541_common::util::bit_align_u8;
 
 const MEMORY_SIZE: usize = 32768;
 
@@ -33,6 +34,8 @@ pub struct SystemBus<H: HostInterface, S: MagneticSurface> {
     pub sync_required: bool,
     pub so_pulsed: bool,
     pub iec_synced_this_instruction: bool,
+    last_iec_out: u8,
+    last_via2_out: u8,
     _phantom: PhantomData<H>,
 }
 
@@ -63,6 +66,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             sync_required: false,
             so_pulsed: false,
             iec_synced_this_instruction: false,
+            last_iec_out: 0xFF, // Force first write
+            last_via2_out: 0xFF,
             _phantom: PhantomData,
         };
 
@@ -94,6 +99,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         self.mechanics.reset();
         self.so_active = false;
         self.device_id_pb_bits = (self.device_id & 0x03) << 5;
+        self.last_iec_out = 0xFF; // Force first write
+        self.last_via2_out = 0xFF;
         self.mechanics
             .update_state(self.via2.get_pb_out(), hardware);
         // Force the track manager to load the reset track
@@ -105,8 +112,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     pub fn sync_iec_bus(&mut self, hardware: &mut H) {
         // :: Capture the IEC bus state, and update the VIA1 input register
         let iec_in = hardware.read_iec_port() | self.device_id_pb_bits;
-        let prev_atn = self.via1.in_b & H::IEC_ATN_RX;
-        let curr_atn = iec_in & H::IEC_ATN_RX;
+        let prev_atn = self.via1.in_b & H::VIA1_IEC_MASK_ATN_RX;
+        let curr_atn = iec_in & H::VIA1_IEC_MASK_ATN_RX;
         self.via1.in_b = iec_in;
 
         // :? Did the ATN state change?
@@ -120,16 +127,21 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         let mut effective_orb = self.via1.get_pb_out();
 
         // Auto-acknowledge ATN: if ATN is asseted and ATNA is not asserted
-        effective_orb |= (curr_atn >> 6) & (!effective_orb >> 3) & H::IEC_DATA_TX;
+        effective_orb |= bit_align_u8(curr_atn, H::VIA1_IEC_BIT_ATN_RX, H::VIA1_IEC_BIT_DATA_TX)
+                & bit_align_u8(!effective_orb, H::VIA1_IEC_BIT_ATN_ACK, H::VIA1_IEC_BIT_DATA_TX)
+                & H::VIA1_IEC_MASK_DATA_TX;
 
         // :: Write the effective VIA1 Port B output to the physical IEC bus
-        hardware.write_iec_port(effective_orb);
+        if effective_orb != self.last_iec_out {
+            hardware.write_iec_port(effective_orb);
+            self.last_iec_out = effective_orb;
+        }
         
         self.iec_synced_this_instruction = true;
     }
 
     #[link_section = ".data.ram_func"]
-    #[inline(never)]
+    #[inline(always)]
     pub fn poll_realtime(&mut self, hardware: &mut H, elapsed: u32) {
         if !self.iec_synced_this_instruction {
             self.sync_iec_bus(hardware);
@@ -238,7 +250,10 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             self.via2.write(addr, val);
             if reg == 0x00 || reg == 0x02 || reg == 0x0F {
                 let effective_orb = self.via2.get_pb_out();
-                ctx.write_mechanics_port(effective_orb);
+                if effective_orb != self.last_via2_out {
+                    ctx.write_mechanics_port(effective_orb);
+                    self.last_via2_out = effective_orb;
+                }
                 self.mechanics.update_state(effective_orb, ctx);
             }
         }

@@ -2,6 +2,7 @@ use core::sync::atomic::Ordering;
 use embassy_rp::gpio::{Input, Output};
 use pico1541_common::context::ViaHardware;
 use pico1541_common::snooper::{IecSnooper, SnooperConfig};
+use pico1541_common::util::bit_align_u32;
 use crate::driver::leds::ActivityLed;
 use pico1541_manager::{EVENT_CHANNEL, TRACK_CHANNEL, CMD_CHANNEL, InternalCommand};
 use embassy_rp::pac;
@@ -211,13 +212,37 @@ pub(crate) struct HardwareBridge {
     _snooper: IecSnooper,
     config: &'static SnooperConfig,
     activity_led: ActivityLed,
-    via_state: u8,
+    motor_on: bool,
     dbg_pin_0: Output<'static>,
     dbg_pin_1: Output<'static>,
     pub base_time_us: u32,
 }
 
 impl HardwareBridge {
+    // Constants for GPIO IEC pin bit position
+    const GPIO_IEC_BIT_DATA_RX: usize = 16; // GPIO 16 (PB0)
+    const GPIO_IEC_BIT_CLK_RX: usize = 17;  // GPIO 17 (PB2)
+    const GPIO_IEC_BIT_ATN_RX: usize = 18;  // GPIO 18 (PB7)
+    const GPIO_IEC_BIT_DATA_TX: usize = 19; // GPIO 19 (PB0)
+    const GPIO_IEC_BIT_CLK_TX: usize = 20;  // GPIO 20 (PB1)
+    //const GPIO_IEC_BIT_RESET: usize = 21;   // GPIO 21 (PB6)
+
+    // Constants for GPIO pin masking
+    const GPIO_IEC_MASK_DATA_RX: u32 = 1 << Self::GPIO_IEC_BIT_DATA_RX;
+    const GPIO_IEC_MASK_CLK_RX: u32 = 1 << Self::GPIO_IEC_BIT_CLK_RX;
+    const GPIO_IEC_MASK_ATN_RX: u32 = 1 << Self::GPIO_IEC_BIT_ATN_RX;
+    const GPIO_IEC_MASK_DATA_TX: u32 = 1 << Self::GPIO_IEC_BIT_DATA_TX;
+    const GPIO_IEC_MASK_CLK_TX: u32 = 1 << Self::GPIO_IEC_BIT_CLK_TX;
+    //const GPIO_IEC_MASK_RESET: u32 = 1 << Self::GPIO_IEC_BIT_RESET;
+
+    // Constants for GPIO LED pins
+    const GPIO_LED_BIT_GREEN: usize = 22;  // GPIO 22 (LED)
+    const GPIO_LED_BIT_RED: usize = 3;   // GPIO 3 (LED)
+
+    const GPIO_LED_MASK_GREEN: u32 = 1 << Self::GPIO_LED_BIT_GREEN;
+    const GPIO_LED_MASK_RED: u32 = 1 << Self::GPIO_LED_BIT_RED;
+
+
     pub(crate) fn new(pins: IecPins, config: &'static SnooperConfig, activity_led: ActivityLed, dbg_pin_0: Output<'static>, dbg_pin_1: Output<'static>) -> Self {
         let device_id = config.device_id.load(Ordering::Relaxed);
         let mut bridge = Self {
@@ -225,7 +250,7 @@ impl HardwareBridge {
             _snooper: IecSnooper::new(device_id),
             config,
             activity_led,
-            via_state: 0,
+            motor_on: true,
             dbg_pin_0,
             dbg_pin_1,
             base_time_us: 0,
@@ -280,13 +305,11 @@ impl HostInterface for HardwareBridge {
         // Wait, the user said: "I would like the HostInterface to have a dedicated track_changed method, which exclusively handles head step events."
     }
 
-
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn is_hijacked(&self) -> bool {
         self.config.hijack_active.load(Ordering::Relaxed)
     }
-
     
     #[link_section = ".data.ram_func"]
     #[inline(always)]
@@ -294,7 +317,6 @@ impl HostInterface for HardwareBridge {
         self.config.discard_request.swap(false, Ordering::Relaxed)
     }
 
-    
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn update_iec_addresses(&mut self, listen: u8, talk: u8) {
@@ -334,63 +356,72 @@ impl HostInterface for HardwareBridge {
 }
 
 impl ViaHardware for HardwareBridge {
+
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn read_iec_port(&mut self) -> u8 {
-        let pins = unsafe { core::ptr::read_volatile(0xd0000004 as *const u32) };
-        let data = ((pins >> 16) & 1) as u8;
-        let clk = (((pins >> 17) & 1) << 2) as u8;
-        let atn = (((pins >> 18) & 1) << 7) as u8;
+        // Sample GPIO inputs
+        let pins = embassy_rp::pac::SIO.gpio_in(0).read();
+
+        // Align the bits to match the VIA1 input register layout
+        let data = bit_align_u32(pins & Self::GPIO_IEC_MASK_DATA_RX, 
+            Self::GPIO_IEC_BIT_DATA_RX, Self::VIA1_IEC_BIT_DATA_RX) as u8;
+        let clk = bit_align_u32(pins & Self::GPIO_IEC_MASK_CLK_RX, 
+            Self::GPIO_IEC_BIT_CLK_RX, Self::VIA1_IEC_BIT_CLK_RX) as u8;
+        let atn = bit_align_u32(pins & Self::GPIO_IEC_MASK_ATN_RX, 
+            Self::GPIO_IEC_BIT_ATN_RX, Self::VIA1_IEC_BIT_ATN_RX) as u8;
+
+        // Return the combined value in the VIA1 input register format
         data | clk | atn
     }
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn write_iec_port(&mut self, via_port_b: u8) {
-        let pb_data = (via_port_b & Self::IEC_DATA_TX) != 0;
-        let pb_clk = (via_port_b & Self::IEC_CLK_TX) != 0;
+
+        let pb_data_mask = bit_align_u32((via_port_b & Self::VIA1_IEC_MASK_DATA_TX) as u32,
+            Self::VIA1_IEC_BIT_DATA_TX, Self::GPIO_IEC_BIT_DATA_TX);
+
+        // IEC_CLK_TX is bit 3, we want it at bit 20 -> shift by 17
+        let pb_clk_mask = bit_align_u32((via_port_b & Self::VIA1_IEC_MASK_CLK_TX) as u32,
+            Self::VIA1_IEC_BIT_CLK_TX, Self::GPIO_IEC_BIT_CLK_TX);
+
+        // FIXME! Disable hijacking for now, as we do not need it yet!
+        // let hijack_force = (self.config.should_drive_data.load(Ordering::Relaxed) as u32) << 19;
+        let set_mask = pb_data_mask | pb_clk_mask /* | hijack_force */;
+        let clr_mask = !set_mask & (Self::GPIO_IEC_MASK_DATA_TX | Self::GPIO_IEC_MASK_CLK_TX);
         
-        let mut mask = 0u32;
-        if pb_data { mask |= 1 << 19; }
-        if pb_clk { mask |= 1 << 20; }
-        
-        let hijack_force = (self.config.should_drive_data.load(Ordering::Relaxed) as u32) << 19;
-        mask |= hijack_force;
-        
-        unsafe {
-            const SIO_SET: *mut u32 = 0xd0000014 as *mut u32;
-            const SIO_CLR: *mut u32 = 0xd0000018 as *mut u32;
-            const DATA_CLK_MASK: u32 = (1 << 19) | (1 << 20);
-            
-            core::ptr::write_volatile(SIO_SET, mask);
-            core::ptr::write_volatile(SIO_CLR, !mask & DATA_CLK_MASK);
-        }
+        embassy_rp::pac::SIO.gpio_out(0).value_set().write_value(set_mask);
+        embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(clr_mask);
     }
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn write_mechanics_port(&mut self, via_port_b: u8) {
-        let curr_via_state = via_port_b & Self::VIA2_LED_MOTOR_MASK;
-        let changed = curr_via_state ^ self.via_state;
+        // Map the VIA2 activity LED pin to the RED GPIO LED pin
+        let led_bit = bit_align_u32((via_port_b & Self::VIA2_MASK_LED) as u32,
+                Self::VIA2_BIT_LED, Self::GPIO_LED_BIT_RED);
 
-        if changed != 0 {
-            // [Slow Path] - Only executed when states actually toggle
-            self.via_state = curr_via_state;
+        let motor_bit = bit_align_u32((via_port_b & Self::VIA2_MASK_MOTOR) as u32,
+                Self::VIA2_BIT_MOTOR, Self::GPIO_LED_BIT_GREEN);
 
-            let motor_on = (curr_via_state & Self::VIA2_MOTOR) != 0;
-            
-            // We only need to isolate the LED bit here if `set_state` 
-            // explicitly requires a `bool`.
-            self.activity_led.set_state(
-                (curr_via_state & Self::VIA2_LED) != 0, 
-                motor_on
-            );
+        let led_override = bit_align_u32(led_bit, 
+                Self::GPIO_LED_BIT_RED, Self::GPIO_LED_BIT_GREEN);
 
-            if (changed & Self::VIA2_MOTOR) != 0 {
-                let _ = CMD_CHANNEL.try_send(InternalCommand::MotorState(motor_on));
-            }
+        let set_mask = led_bit | (motor_bit & !led_override);
+        let clr_mask = !set_mask & (Self::GPIO_LED_MASK_RED | Self::GPIO_LED_MASK_GREEN);
+
+        embassy_rp::pac::SIO.gpio_out(0).value_set().write_value(set_mask);
+        embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(clr_mask);
+
+        let motor_on_bool = motor_bit != 0;
+        if motor_on_bool != self.motor_on {
+            self.motor_on = motor_on_bool;
+            let _ = CMD_CHANNEL.try_send(InternalCommand::MotorState(motor_on_bool));
         }
     }
+
+
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]

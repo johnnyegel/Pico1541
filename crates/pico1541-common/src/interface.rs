@@ -36,8 +36,6 @@ pub trait HostInterface: crate::context::ViaHardware {
     /// Spinlocks the emulator until the physical timer reaches the target cycle.
     fn spin_until(&mut self, _target_cycle: u32) {}
 
-
-
     /// Called every emulator tick cycle, independent of bus changes.
     fn step(&mut self) {}
 
