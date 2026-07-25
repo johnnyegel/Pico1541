@@ -201,13 +201,6 @@ impl MagneticSurface for PioMagneticSurface {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn try_read_byte(&mut self, _delta_cycles: u32) -> Option<u8> {
-        let current_active_index = self.track_handle.get_active_index();
-        if current_active_index != self.last_active_index {
-            self.last_active_index = current_active_index;
-            let track_id = self.track_handle.get_active_track_id();
-            self.start_reading(track_id, 0);
-        }
-
         self.try_read_ram_byte()
     }
 
@@ -318,5 +311,15 @@ impl MagneticSurface for PioMagneticSurface {
 
     fn get_active_track_length(&self) -> usize {
         self.track_handle.get_active_track_length()
+    }
+
+    fn poll_active_index(&mut self) -> bool {
+        let current_active_index = self.track_handle.get_active_index();
+        if current_active_index != self.last_active_index {
+            self.last_active_index = current_active_index;
+            true
+        } else {
+            false
+        }
     }
 }

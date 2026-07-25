@@ -180,6 +180,9 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         if delta == 0 {
             return;
         }
+        
+        self.mechanics.tick();
+        
         if self.via1.any_active() {
             self.via1.tick_cycles(delta);
         }
@@ -236,7 +239,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         self.sync_required = true;
 
         // Spinlock to exact cycle before reading live IEC state
-        _ctx.spin_until(cycle);
+        _ctx.spin_until(cycle + 1);
 
         let result = if (addr & 0x0400) == 0 {
             if (addr & 0x0F) == 0x00 {

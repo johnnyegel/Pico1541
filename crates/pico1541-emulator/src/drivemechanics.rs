@@ -92,6 +92,17 @@ impl<S: MagneticSurface> DriveMechanics<S> {
         ((via2.orb | !via2.ddrb) & MASK_MOTOR) != 0
     }
 
+    #[inline(always)]
+    pub fn tick(&mut self) {
+        if self.surface.poll_active_index() {
+            let motor_on = (self.last_state & MASK_MOTOR) != 0;
+            if motor_on && self.halftrack_head_pos >= 0 && self.halftrack_head_pos <= MAX_HALF_TRACK {
+                log::info!("Track data changed! Restarting reading on half-track {}", self.halftrack_head_pos);
+                self.surface.start_reading(self.halftrack_head_pos as u8, 0);
+            }
+        }
+    }
+
     // ========== Internal helper functions ==================================================
 
     /// Updates the drive mechanics state, and issues events accordingly.

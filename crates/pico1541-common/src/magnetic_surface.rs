@@ -16,6 +16,7 @@ pub trait MagneticSurface {
     fn inject_analog_noise(&mut self);
     fn get_active_speed_zone(&self) -> Option<u8>;
     fn get_active_track_length(&self) -> usize;
+    fn poll_active_index(&mut self) -> bool { false }
 }
 
 pub struct SoftwareMagneticSurface {
