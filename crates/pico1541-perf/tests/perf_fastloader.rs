@@ -33,7 +33,9 @@ impl HostInterface for DummyHost {
         fn pop_discard_request(&mut self) -> bool { false }
         fn check_halt_requested(&self) -> bool { false }
         fn track_changed(&mut self, _half_track: u8) {}
-        fn debug_pin_1(&mut self, _on: bool) {}
+        fn set_debug_0(&mut self) {}
+        fn set_debug_1(&mut self) {}
+        fn clear_debug_pins(&mut self) {}
         fn send_event(&mut self, _event: DriveEvent) {}
         fn update_iec_addresses(&mut self, _listen: u8, _talk: u8) {}
     }

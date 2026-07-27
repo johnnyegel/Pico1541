@@ -39,8 +39,12 @@ pub trait HostInterface: crate::context::ViaHardware {
     /// Called every emulator tick cycle, independent of bus changes.
     fn step(&mut self) {}
 
-    fn debug_pin_0(&mut self, _state: bool) {}
-    fn debug_pin_1(&mut self, _state: bool) {}
+    #[inline(always)]
+    fn set_debug_0(&mut self) {}
+    #[inline(always)]
+    fn set_debug_1(&mut self) {}
+    #[inline(always)]
+    fn clear_debug_pins(&mut self) {}
 
     /// Update the IEC addresses (LISTEN and TALK) snooped by the manager.
     /// Usually called by the emulator when it detects a change in drive RAM.

@@ -145,7 +145,7 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
             hw.spin_until(self.cpu.cycles);
         }
 
-        hw.debug_pin_1(false);
+        hw.clear_debug_pins();
         self.memory.catch_up(self.cpu.cycles);
         self.memory.sync_required = false;
         

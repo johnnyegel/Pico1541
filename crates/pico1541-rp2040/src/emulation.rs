@@ -4,9 +4,7 @@ use pico1541_common::context::ViaHardware;
 use pico1541_common::snooper::{IecSnooper, SnooperConfig};
 use pico1541_common::util::bit_align_u32;
 use crate::driver::leds::ActivityLed;
-use pico1541_manager::{EVENT_CHANNEL, TRACK_CHANNEL, CMD_CHANNEL, InternalCommand};
-use embassy_rp::pac;
-use cortex_m::asm::nop;
+use pico1541_manager::{EVENT_CHANNEL};
 use pico1541_common::interface::HostInterface;
 use crate::PioMagneticSurface;
 
@@ -89,7 +87,7 @@ pub fn run(
     rom_buffer: &'static [u8; 16384],
 ) -> ! {
     let mut was_reset = false;
-    hw.timekeeper.base_time_us = embassy_rp::pac::TIMER.timelr().read().wrapping_sub(emulator.cycles);
+    hw.timekeeper.update_base(emulator.cycles);
 
     loop {
         if hw.check_halt_requested() {
@@ -98,35 +96,42 @@ pub fn run(
                 cortex_m::asm::nop();
             }
             // Update base time so we don't instantly try to catch up the halted time
-            hw.timekeeper.base_time_us = embassy_rp::pac::TIMER.timelr().read().wrapping_sub(emulator.cycles);
+            hw.timekeeper.update_base(emulator.cycles);
             continue;
         }
 
         if hw.consume_trigger_reset() {
             emulator.update_rom(rom_buffer);
             emulator.reset(hw);
-            hw.timekeeper.base_time_us = embassy_rp::pac::TIMER.timelr().read().wrapping_sub(emulator.cycles);
+            hw.timekeeper.update_base(emulator.cycles);
         }
 
         let is_reset = hw.is_reset_line_asserted();
-        let _elapsed = if is_reset {
+        if is_reset {
             if !was_reset {
                 emulator.reset(hw);
                 was_reset = true;
             }
-            hw.timekeeper.base_time_us = embassy_rp::pac::TIMER.timelr().read().wrapping_sub(emulator.cycles);
-            1
+            hw.timekeeper.update_base(emulator.cycles);
+            cortex_m::asm::nop();
         } else {
             if was_reset {
                 emulator.reset(hw);
-                hw.timekeeper.base_time_us = embassy_rp::pac::TIMER.timelr().read().wrapping_sub(emulator.cycles);
+                hw.timekeeper.update_base(emulator.cycles);
                 was_reset = false;
             }
-            emulator.tick(hw)
-        };
-        
-        // At the end of every instruction, we sync up to the new current cycle!
-        hw.timekeeper.sync_until(emulator.cycles);
+            
+            let mut caught_up = 0;
+            while hw.timekeeper.tick_allowed(emulator.cycles) && caught_up < 500 {
+                emulator.tick(hw);
+                caught_up += 1;
+            }
+
+            if caught_up == 0 {
+                hw.timekeeper.idle_counter = hw.timekeeper.idle_counter.wrapping_add(1);
+                cortex_m::asm::nop();
+            }
+        }
 
         // Report exactly on every loop, HostInterface does a fast atomic write
         hw.report_performance_counters(emulator.cycles, hw.timekeeper.idle_counter);
@@ -135,6 +140,7 @@ pub fn run(
 pub(crate) struct TimeKeeper {
     pub base_time_us: u32,
     pub idle_counter: u32,
+    pub lag_pin_active: bool,
 }
 
 impl TimeKeeper {
@@ -142,29 +148,59 @@ impl TimeKeeper {
         Self {
             base_time_us: embassy_rp::pac::TIMER.timelr().read(),
             idle_counter: 0,
+            lag_pin_active: false,
+        }
+    }
+
+    #[inline(always)]
+    pub fn update_base(&mut self, current_cycles: u32) {
+        self.base_time_us = embassy_rp::pac::TIMER.timelr().read().wrapping_sub(current_cycles);
+    }
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    pub fn tick_allowed(&mut self, target_cycle: u32) -> bool {
+        let target_time = self.base_time_us.wrapping_add(target_cycle);
+        let now = embassy_rp::pac::TIMER.timelr().read();
+        
+        let lag = now.wrapping_sub(target_time) as i32;
+        if lag > 0 {
+            if lag > 5 {
+                if !self.lag_pin_active {
+                    embassy_rp::pac::SIO.gpio_out(0).value_set().write_value(1 << 0);
+                    self.lag_pin_active = true;
+                }
+            } else {
+                if self.lag_pin_active {
+                    embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(1 << 0);
+                    self.lag_pin_active = false;
+                }
+            }
+            true
+        } else {
+            if self.lag_pin_active {
+                embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(1 << 0);
+                self.lag_pin_active = false;
+            }
+            false
         }
     }
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn sync_until(&mut self, target_cycle: u32) {
+    pub fn spin_until(&mut self, target_cycle: u32) {
         let target_time = self.base_time_us.wrapping_add(target_cycle);
         let mut now = embassy_rp::pac::TIMER.timelr().read();
         
-        let lag = now.wrapping_sub(target_time) as i32;
-        if lag > 0 {
-            // We are lagging behind real-time! Set pin HIGH.
-            embassy_rp::pac::SIO.gpio_out(0).value_set().write_value(1 << 0);
-        } else {
-            // We are ahead of real time (or exactly on time), wait for real time to catch up
-            // Clear the lag pin to indicate we are successfully synchronized.
+        if self.lag_pin_active {
             embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(1 << 0);
-            
-            while target_time.wrapping_sub(now) < 0x8000_0000 {
-                self.idle_counter = self.idle_counter.wrapping_add(1);
-                cortex_m::asm::nop();
-                now = embassy_rp::pac::TIMER.timelr().read();
-            }
+            self.lag_pin_active = false;
+        }
+
+        while target_time.wrapping_sub(now) < 0x8000_0000 {
+            self.idle_counter = self.idle_counter.wrapping_add(1);
+            cortex_m::asm::nop();
+            now = embassy_rp::pac::TIMER.timelr().read();
         }
     }
 }
@@ -242,21 +278,20 @@ impl HostInterface for HardwareBridge {
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    fn debug_pin_0(&mut self, state: bool) {
-        if state {
-            embassy_rp::pac::SIO.gpio_out(0).value_set().write_value(1 << 0);
-        } else {
-            embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(1 << 0);
-        }
+    fn set_debug_0(&mut self) {
+        embassy_rp::pac::SIO.gpio_out(0).value_set().write_value(1 << 0);
     }
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    fn debug_pin_1(&mut self, state: bool) {
-        if state {
-            // Ignore state, just toggle to make it easily visible on logic analyzer
-            embassy_rp::pac::SIO.gpio_out(0).value_xor().write_value(1 << 1);
-        }
+    fn set_debug_1(&mut self) {
+        embassy_rp::pac::SIO.gpio_out(0).value_set().write_value(1 << 1);
+    }
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    fn clear_debug_pins(&mut self) {
+        embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(1 << 1);
     }
 
 
@@ -298,7 +333,7 @@ impl HostInterface for HardwareBridge {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn spin_until(&mut self, target_cycle: u32) {
-        self.timekeeper.sync_until(target_cycle);
+        self.timekeeper.spin_until(target_cycle);
     }
 
     #[link_section = ".data.ram_func"]

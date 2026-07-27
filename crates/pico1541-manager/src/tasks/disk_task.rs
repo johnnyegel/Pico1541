@@ -3,7 +3,7 @@ use pico1541_common::formats::{AnyDiskImage, DiskImage};
 use pico1541_common::track_buffer::{ManagerHandle, TrackLayout};
 use pico1541_common::storage::DirectorySource;
 use crate::{CMD_CHANNEL, TRACK_CHANNEL, InternalCommand};
-use embassy_futures::select::{select, select3, Either, Either3};
+use embassy_futures::select::{select, Either};
 #[cfg(feature = "defmt")]
 use defmt::{info, warn, error};
 #[cfg(not(feature = "defmt"))]

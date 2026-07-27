@@ -13,8 +13,9 @@ struct DummyHost;
 impl ViaHardware for DummyHost {}
 impl HostInterface for DummyHost {
     fn set_activity_led(&mut self, _on: bool) {}
-    fn debug_pin_0(&mut self, _on: bool) {}
-    fn debug_pin_1(&mut self, _on: bool) {}
+    fn set_debug_0(&mut self) {}
+    fn set_debug_1(&mut self) {}
+    fn clear_debug_pins(&mut self) {}
     fn debug_pin_2(&mut self, _on: bool) {}
     fn debug_pin_3(&mut self, _on: bool) {}
 }
