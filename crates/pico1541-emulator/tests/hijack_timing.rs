@@ -27,8 +27,9 @@ fn test_hijack_latency() {
     };
     static DRIVE_ROM: [u8; 16384] = [0u8; 16384];
     let handle = Box::leak(Box::new(pico1541_common::track_buffer::DualCoreTrackBuffer::new())).split().1;
-    let surface = SoftwareMagneticSurface::new(handle);
-    let mut drive = pico1541_emulator::Emulator::new(&DRIVE_ROM, 8, surface);
+    let surface = SoftwareMagneticSurface::new();
+    let mechanics = pico1541_emulator::drivemechanics::DriveMechanics::new(surface, handle);
+    let mut drive = pico1541_emulator::Emulator::new(&DRIVE_ROM, 8, mechanics);
     
     // 1. Run for some cycles
     for _ in 0..100 {

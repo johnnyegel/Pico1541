@@ -21,7 +21,7 @@ fn test_virtual_disk_skeleton_orientation() {
     }));
 
     // Start on Track 17 (HT 34)
-    assert_eq!(bridge.buffer.split().0.get_active_half_track(), 34);
+    assert_eq!(bridge.buffer.split().0.get_head_half_track(), 34);
     
     // Patch ID in RAM to match the VirtualDiskImage default ID [0x56, 0x44] ("VD")
     // $12-$13 and $16-$17 are used for ID verification in 1541 ROM.
@@ -93,7 +93,7 @@ fn test_virtual_disk_stridden_warp() {
     {
         let manager = bridge.buffer.split().0;
         let inactive = manager.get_dormant_buffer_mut();
-        inactive.track_id = 2;
+        inactive.identifier = pico1541_common::track_buffer::TrackIdentifier::new(2, pico1541_common::track_buffer::default_speed_zone(2));
         manager.commit_dormant_buffer();
     }
     

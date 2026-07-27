@@ -1,4 +1,4 @@
-use crate::track_buffer::EmulatorHandle;
+use crate::track_buffer::TrackStream;
 
 pub trait MagneticSurface {
     /// Returns whether a SYNC mark is currently active.
@@ -7,21 +7,14 @@ pub trait MagneticSurface {
     fn is_sync_active(&self) -> bool { false }
     fn try_read_byte(&mut self, delta_cycles: u32) -> Option<u8>;
     fn get_absolute_head_position(&self, master_clock: u32) -> u32;
-    fn write_byte_at(&mut self, index: u32, data: u8);
-    fn start_reading(&mut self, track_id: u8, rotation_fixed: u32);
-    fn stop_reading(&mut self);
-    fn is_write_protected(&self) -> bool;
-    fn pop_force_disk_change(&mut self) -> bool;
+    fn set_motor_running(&mut self, is_running: bool);
     fn set_speed_zone(&mut self, zone: u8);
-    fn inject_analog_noise(&mut self);
-    fn get_active_speed_zone(&self) -> Option<u8>;
-    fn get_active_track_length(&self) -> usize;
-    fn poll_active_index(&mut self) -> bool { false }
-    fn update_head_half_track(&mut self, track_id: u8);
+    fn set_stream_source(&mut self, stream: TrackStream);
 }
 
 pub struct SoftwareMagneticSurface {
-    pub track_handle: EmulatorHandle,
+    stream: TrackStream,
+    stream_idx: usize,
     is_sync: bool,
     bit_shift_reg: u8,
     bits_in_reg: u8,
@@ -33,9 +26,10 @@ pub struct SoftwareMagneticSurface {
 }
 
 impl SoftwareMagneticSurface {
-    pub fn new(track_handle: EmulatorHandle) -> Self {
+    pub fn new() -> Self {
         Self { 
-            track_handle, 
+            stream: TrackStream::noise(),
+            stream_idx: 0,
             is_sync: false,
             bit_shift_reg: 0,
             bits_in_reg: 0,
@@ -60,12 +54,18 @@ impl MagneticSurface for SoftwareMagneticSurface {
         }
         self.cycle_counter -= self.cycle_limit;
 
-        let expected_track_id = self.track_handle.get_head_half_track();
         let mut assembled_byte = None;
         
         for _ in 0..8 {
             if self.pending_bit_count == 0 {
-                let byte = self.track_handle.next_read_byte(expected_track_id, 0xFF, true);
+                let slice = self.stream.as_slice();
+                let byte = if slice.len() > 0 {
+                    let b = slice[self.stream_idx];
+                    self.stream_idx = (self.stream_idx + 1) % slice.len();
+                    b
+                } else {
+                    0x55
+                };
                 self.pending_bits = byte as u16;
                 self.pending_bit_count = 8;
             }
@@ -104,52 +104,25 @@ impl MagneticSurface for SoftwareMagneticSurface {
     }
 
     fn get_absolute_head_position(&self, _master_clock: u32) -> u32 {
-        self.track_handle.get_current_byte_idx() as u32
+        self.stream_idx as u32
     }
 
-    fn write_byte_at(&mut self, index: u32, data: u8) {
-        self.track_handle.seek_to_byte(index);
-        let expected_track_id = self.track_handle.get_head_half_track();
-        self.track_handle.next_write_byte(expected_track_id, 0xFF, data);
+    fn set_motor_running(&mut self, _is_running: bool) {
+        // Software surface is implicitly always running or stopped by the emulator logic
     }
 
-    fn start_reading(&mut self, track_id: u8, _rotation_fixed: u32) {
-        self.track_handle.update_head_half_track(track_id);
-    }
-
-    fn stop_reading(&mut self) {}
-
-    fn is_write_protected(&self) -> bool {
-        self.track_handle.is_write_protected()
-    }
-
-    fn pop_force_disk_change(&mut self) -> bool {
-        self.track_handle.pop_force_disk_change()
-    }
-
-    fn set_speed_zone(&mut self, zone: u8) {
-        self.cycle_limit = match zone {
+    fn set_speed_zone(&mut self, expected_speed_zone: u8) {
+        self.cycle_limit = match expected_speed_zone {
             3 => 26, // CYCLES_ZONE_3
             2 => 28, // CYCLES_ZONE_2
             1 => 30, // CYCLES_ZONE_1
             _ => 32, // CYCLES_ZONE_0
         };
     }
-
-    fn inject_analog_noise(&mut self) {
-        // No-op for software surface. Test harnesses could use this to verify behavior.
-    }
-
-    fn get_active_speed_zone(&self) -> Option<u8> {
-        self.track_handle.get_active_speed_zone()
-    }
-
-    fn get_active_track_length(&self) -> usize {
-        self.track_handle.get_active_track_length()
-    }
     
-    fn update_head_half_track(&mut self, track_id: u8) {
-        self.track_handle.update_head_half_track(track_id);
+    fn set_stream_source(&mut self, stream: TrackStream) {
+        self.stream = stream;
+        self.stream_idx = 0;
     }
 }
 
@@ -170,10 +143,14 @@ mod tests {
         active_buf[2] = 0xFE; // 11111110 (7 ones, then a 0)
         active_buf[3] = 0x55; // 01010101
         active_buf[4] = 0x55;
-        manager.commit_loaded_track(0, crate::track_buffer::TrackLayout::Accurate, 5, None);
+        manager.commit_loaded_track(crate::track_buffer::TrackIdentifier(0), crate::track_buffer::TrackLayout::Accurate, 5);
 
-        let mut surface = SoftwareMagneticSurface::new(emulator);
-        surface.start_reading(0, 0);
+        let mut surface = SoftwareMagneticSurface::new();
+        let track_ptr = emulator.get_full_buffer_ptr();
+        let track_len = emulator.get_active_track_length();
+        let stream = TrackStream::from_active_buffer(track_ptr, track_len as u32);
+        surface.set_stream_source(stream);
+        surface.set_motor_running(true);
         
         let out0 = surface.try_read_byte(32); 
         assert_eq!(out0, Some(0x7F)); // The first byte is pushed normally

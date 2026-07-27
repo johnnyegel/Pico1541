@@ -56,6 +56,7 @@ use pico1541_common::interface::HostInterface;
 use pico1541_common::magnetic_surface::MagneticSurface;
 use racc6502v4::cpu::CPU;
 use systembus::SystemBus;
+pub use crate::drivemechanics::DriveMechanics;
 
 /// Trait for peeking and poking at memory/registers without side effects.
 #[cfg(feature = "debug")]
@@ -77,8 +78,8 @@ pub struct Emulator<H: HostInterface, S: MagneticSurface> {
 }
 
 impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
-    pub fn new(rom: &'static [u8; 16384], device_id: u8, surface: S) -> Self {
-        let bus = SystemBus::new(rom, device_id, surface);
+    pub fn new(rom: &'static [u8; 16384], device_id: u8, mechanics: DriveMechanics<S>) -> Self {
+        let bus = SystemBus::new(rom, device_id, mechanics);
         Self {
             cpu: CPU::new(),
             memory: bus,

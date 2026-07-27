@@ -2,7 +2,8 @@
 use pico1541_common::context::ViaHardware;
 use pico1541_common::formats::{D64Image, DiskImage, G64Image};
 use pico1541_common::track_buffer::TrackLayout;
-use pico1541_common::magnetic_surface::{MagneticSurface, SoftwareMagneticSurface};
+use pico1541_common::magnetic_surface::{SoftwareMagneticSurface};
+use pico1541_common::track_buffer::DualCoreTrackBuffer;
 use pico1541_common::interface::{DriveEvent, HostInterface};
 use pico1541_common::storage::MemoryStorage;
 use pollster::block_on;
@@ -10,8 +11,9 @@ use std::fs;
 
 static DUMMY_ROM: [u8; 16384] = [0; 16384];
 
-fn get_system_bus(surface: SoftwareMagneticSurface) -> pico1541_emulator::systembus::SystemBus<MockHardware, SoftwareMagneticSurface> {
-    pico1541_emulator::systembus::SystemBus::new(&DUMMY_ROM, 8, surface)
+fn get_system_bus(surface: SoftwareMagneticSurface, handle: pico1541_common::track_buffer::EmulatorHandle) -> pico1541_emulator::systembus::SystemBus<MockHardware, SoftwareMagneticSurface> {
+    let mechanics = pico1541_emulator::drivemechanics::DriveMechanics::new(surface, handle);
+    pico1541_emulator::systembus::SystemBus::new(&DUMMY_ROM, 8, mechanics)
 }
 
 struct MockHardware {
@@ -44,11 +46,13 @@ impl HostInterface for MockHardware {
 #[test]
 fn test_g64_track_reading_low_level() {
     let mut hw = MockHardware::new();
-    let hw_buffer = Box::leak(Box::new(pico1541_common::track_buffer::DualCoreTrackBuffer::new()));
-    let surface = SoftwareMagneticSurface::new(hw_buffer.split().1);
-    let mut bus = get_system_bus(surface);
-    bus.mechanics.halftrack_head_pos = 0; // Set track 0
-    bus.mechanics.surface.start_reading(0, 0);
+    let hw_buffer = Box::leak(Box::new(DualCoreTrackBuffer::new()));
+    let handle = hw_buffer.split().1;
+    let surface = SoftwareMagneticSurface::new();
+    let mut bus = get_system_bus(surface, handle);
+    bus.mechanics.force_state_for_testing(0, 3);
+    
+    
 
     // 1. Load G64 Track 0 (HT 0)
     let g64_data = fs::read("tests/data/test.g64").expect("Failed to read G64");
@@ -64,11 +68,12 @@ fn test_g64_track_reading_low_level() {
         let manager = hw_buffer.split().0;
         let inactive = manager.get_dormant_buffer_mut();
         inactive.data.copy_from_slice(&track_data);
-        manager.commit_loaded_track(2, layout.0, layout.1, None);
+        manager.commit_loaded_track(pico1541_common::track_buffer::TrackIdentifier::new(2, pico1541_common::track_buffer::default_speed_zone(2)), layout.0, layout.1);
     }
     
     bus.mechanics.halftrack_head_pos = 2;
-    bus.mechanics.surface.start_reading(2, 0);
+    
+    bus.mechanics.force_state_for_testing(2, 3);
 
     match layout.0 {
         TrackLayout::Accurate => log::debug!("Track accurate layout"),

@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 #[allow(unused_imports)]
 use pico1541_common::context::CatchUpContext;
-use pico1541_common::magnetic_surface::{MagneticSurface, SoftwareMagneticSurface};
+use pico1541_common::magnetic_surface::{SoftwareMagneticSurface};
 
 fn wait_for_pulse(bus: &mut pico1541_emulator::systembus::SystemBus<TestBridge, SoftwareMagneticSurface>, mut last_pulse: bool) -> (u32, bool) {
     let mut ticks = 0;
@@ -20,8 +20,9 @@ mod common;
 
 static DUMMY_ROM: [u8; 16384] = [0; 16384];
 
-fn get_system_bus(surface: SoftwareMagneticSurface) -> pico1541_emulator::systembus::SystemBus<TestBridge, SoftwareMagneticSurface> {
-    pico1541_emulator::systembus::SystemBus::new(&DUMMY_ROM, 8, surface)
+fn get_system_bus(surface: SoftwareMagneticSurface, handle: pico1541_common::track_buffer::EmulatorHandle) -> pico1541_emulator::systembus::SystemBus<TestBridge, SoftwareMagneticSurface> {
+    let mechanics = pico1541_emulator::drivemechanics::DriveMechanics::new(surface, handle);
+    pico1541_emulator::systembus::SystemBus::new(&DUMMY_ROM, 8, mechanics)
 }
 
 struct MockCtx;
@@ -48,12 +49,13 @@ fn test_disk_streaming_data() {
         inactive.data[2] = 0x01;
         inactive.data[3] = 0xFE;
     }
-    manager.commit_loaded_track(0, TrackLayout::Accurate, track_bytes, None);
+    manager.commit_loaded_track(pico1541_common::track_buffer::TrackIdentifier::new(0, pico1541_common::track_buffer::default_speed_zone(0)), TrackLayout::Accurate, track_bytes);
 
-    let surface = SoftwareMagneticSurface::new(emulator);
-    let mut bus = get_system_bus(surface);
+    let surface = SoftwareMagneticSurface::new();
+    let mut bus = get_system_bus(surface, emulator);
     bus.mechanics.halftrack_head_pos = 0; // Align head with Track 1 (half-track 0)
-    bus.mechanics.surface.start_reading(0, 0);
+    
+    bus.mechanics.force_state_for_testing(0, 3);
 
     // Set bitrate Zone 3 (26 cycles) explicitly
     // In our implementation Zone 3 (26 cycles) is bits 5,6 = 11 (0x60)
@@ -89,12 +91,13 @@ fn test_disk_streaming_sync() {
     inactive[0] = 0xFF; // SYNC (First byte, will be treated as data)
     inactive[1] = 0xFF; // SYNC (Second byte, establishes SYNC)
     inactive[2] = 0x55; // DATA
-    manager.commit_loaded_track(0, TrackLayout::Accurate, 3, None);
+    manager.commit_loaded_track(pico1541_common::track_buffer::TrackIdentifier::new(0, pico1541_common::track_buffer::default_speed_zone(0)), TrackLayout::Accurate, 3);
 
-    let surface = SoftwareMagneticSurface::new(emulator);
-    let mut bus = get_system_bus(surface);
+    let surface = SoftwareMagneticSurface::new();
+    let mut bus = get_system_bus(surface, emulator);
     bus.mechanics.halftrack_head_pos = 0; // Align head with Track 1 (half-track 0)
-    bus.mechanics.surface.start_reading(0, 0);
+    
+    bus.mechanics.force_state_for_testing(0, 3);
     bus.via2.ddrb = 0xFF;
     bus.via2.orb = (bus.via2.orb & !0x60) | 0x60 | 0x04; // Zone 3 (26 cycles) + Motor ON
     bus.mechanics.update_state(bus.via2.get_pb_out(), &mut hardware);
@@ -153,12 +156,13 @@ fn test_disk_bitrate_zones() {
         let inactive = manager.get_dormant_buffer_mut();
         inactive.data.fill(0x55); // Use data, not SYNC
     }
-    manager.commit_loaded_track(0, TrackLayout::Accurate, track_bytes, None);
+    manager.commit_loaded_track(pico1541_common::track_buffer::TrackIdentifier::new(0, pico1541_common::track_buffer::default_speed_zone(0)), TrackLayout::Accurate, track_bytes);
 
-    let surface = SoftwareMagneticSurface::new(emulator);
-    let mut bus = get_system_bus(surface);
+    let surface = SoftwareMagneticSurface::new();
+    let mut bus = get_system_bus(surface, emulator);
     bus.mechanics.halftrack_head_pos = 0; // Align head with Track 1 (half-track 0)
-    bus.mechanics.surface.start_reading(0, 0);
+    
+    bus.mechanics.force_state_for_testing(0, 3);
     bus.via2.ddrb = 0xFF;
     bus.via2.pcr = 0b1110_1110; // Enable SO
 

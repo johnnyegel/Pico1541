@@ -12,7 +12,7 @@ use crate::PioMagneticSurface;
 use pico1541_common::SYSTEM_CLOCK_FREQ;
 use pico1541_common::DriveEvent;
 
-use pico1541_emulator::Emulator;
+use pico1541_emulator::{DriveMechanics, Emulator};
 
 use embassy_rp::multicore::Stack;
 use embassy_rp::pio::Pio;
@@ -65,8 +65,9 @@ pub fn spawn_core1(
 
         let drive = unsafe {
             let ptr: *mut Emulator<HardwareBridge, PioMagneticSurface> = core::ptr::addr_of_mut!(EMULATOR).cast();
-            let surface = PioMagneticSurface::new(pio0, emulator_handle);
-            core::ptr::write(ptr, Emulator::new(rom_buffer, drive_id, surface));
+            let surface = PioMagneticSurface::new(pio0);
+            let mechanics = DriveMechanics::new(surface, emulator_handle);
+            core::ptr::write(ptr, Emulator::new(rom_buffer, drive_id, mechanics));
             &mut *ptr
         };
         drive.reset(&mut bridge);

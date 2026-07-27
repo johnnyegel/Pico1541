@@ -163,7 +163,7 @@ fn test_dir_listing_virtual() {
         let inactive = manager.get_dormant_buffer_mut();
         inactive.data.copy_from_slice(&gcr_data);
         inactive.layout = layout.0;
-        inactive.length = layout.1; inactive.track_id = 34;
+        inactive.length = layout.1; inactive.identifier = pico1541_common::track_buffer::TrackIdentifier::new(34, pico1541_common::track_buffer::default_speed_zone(34));
         manager.commit_dormant_buffer();
     }
 
@@ -171,16 +171,16 @@ fn test_dir_listing_virtual() {
     let mut last_ht = 0xFF;
     bridge.sync_hook = Some(Box::new(move |track| {
         let manager = track.split().0;
-        let current_ht = manager.get_active_half_track();
+        let current_ht = manager.get_active_track_identifier().half_track();
         if current_ht != last_ht {
             manager.duplicate_active_to_inactive();
             let b = manager.get_dormant_buffer_mut();
             println!("MOCK HANDLER HT: {}", current_ht);
             if current_ht != 34 {
-                b.layout = TrackLayout::Void; b.track_id = current_ht; b.track_id = current_ht;
+                b.layout = TrackLayout::Void; b.identifier = pico1541_common::track_buffer::TrackIdentifier::new(current_ht, pico1541_common::track_buffer::default_speed_zone(current_ht));
             } else {
                 b.layout = layout.0;
-                b.length = layout.1; b.track_id = current_ht; b.track_id = current_ht;
+                b.length = layout.1; b.identifier = pico1541_common::track_buffer::TrackIdentifier::new(current_ht, pico1541_common::track_buffer::default_speed_zone(current_ht));
             }
             manager.commit_dormant_buffer();
             last_ht = current_ht;
@@ -380,7 +380,7 @@ fn test_dir_listing_stable() {
         let inactive = manager.get_dormant_buffer_mut();
         inactive.data.copy_from_slice(&gcr_data);
         inactive.layout = layout.0;
-        inactive.length = layout.1; inactive.track_id = 34;
+        inactive.length = layout.1; inactive.identifier = pico1541_common::track_buffer::TrackIdentifier::new(34, pico1541_common::track_buffer::default_speed_zone(34));
         manager.commit_dormant_buffer();
     }
 
@@ -393,17 +393,17 @@ fn test_dir_listing_stable() {
     let mut last_ht = 0xFF;
     bridge.sync_hook = Some(Box::new(move |track| {
         let manager = track.split().0;
-        let current_ht = manager.get_active_half_track();
+        let current_ht = manager.get_active_track_identifier().half_track();
         if current_ht != last_ht {
             manager.duplicate_active_to_inactive();
             let b = manager.get_dormant_buffer_mut();
             println!("MOCK HANDLER HT: {}", current_ht);
             if current_ht != 34 {
-                b.layout = TrackLayout::Void; b.track_id = current_ht; b.track_id = current_ht;
+                b.layout = TrackLayout::Void; b.identifier = pico1541_common::track_buffer::TrackIdentifier::new(current_ht, pico1541_common::track_buffer::default_speed_zone(current_ht));
             } else {
                 let lc = *layout_clone.borrow();
                 b.layout = lc.0;
-                b.length = lc.1; b.track_id = current_ht; b.track_id = current_ht;
+                b.length = lc.1; b.identifier = pico1541_common::track_buffer::TrackIdentifier::new(current_ht, pico1541_common::track_buffer::default_speed_zone(current_ht));
             }
             manager.commit_dormant_buffer();
             last_ht = current_ht;
@@ -477,7 +477,7 @@ fn test_dir_listing_stable() {
         let inactive = manager.get_dormant_buffer_mut();
         inactive.data.copy_from_slice(&gcr_data);
         inactive.layout = layout2.0;
-        inactive.length = layout2.1; inactive.track_id = 34;
+        inactive.length = layout2.1; inactive.identifier = pico1541_common::track_buffer::TrackIdentifier::new(34, pico1541_common::track_buffer::default_speed_zone(34));
         manager.commit_dormant_buffer();
     }
     *layout_rc.borrow_mut() = layout2;

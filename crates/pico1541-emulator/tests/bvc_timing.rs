@@ -1,6 +1,6 @@
 use pico1541_emulator::*;
 use pico1541_common::interface::*;
-use pico1541_common::magnetic_surface::{MagneticSurface, SoftwareMagneticSurface};
+use pico1541_common::magnetic_surface::{SoftwareMagneticSurface};
 use pico1541_common::context::ViaHardware;
 use pico1541_common::track_buffer::{DualCoreTrackBuffer, TrackLayout};
 
@@ -18,9 +18,10 @@ fn test_bvc_so_timing() {
     let mut hw = MockHardware;
     let hw_buffer = Box::leak(Box::new(DualCoreTrackBuffer::new()));
     let (manager, emulator) = hw_buffer.split();
-    let surface = SoftwareMagneticSurface::new(emulator);
+    let surface = SoftwareMagneticSurface::new();
     
-    let mut emu = Emulator::new(&DUMMY_ROM, 8, surface);
+    let mechanics = pico1541_emulator::drivemechanics::DriveMechanics::new(surface, emulator);
+    let mut emu = Emulator::new(&DUMMY_ROM, 8, mechanics);
 
     // Setup a GCR track with a single byte for testing
     {
@@ -29,7 +30,7 @@ fn test_bvc_so_timing() {
         inactive.data[3] = 0x55;
         inactive.data[4] = 0xAA;
     }
-    manager.commit_loaded_track(36, TrackLayout::Accurate, 8000, None);
+    manager.commit_loaded_track(pico1541_common::track_buffer::TrackIdentifier::new(0, pico1541_common::track_buffer::default_speed_zone(0)), TrackLayout::Accurate, 8000);
 
     // Write a tiny program to RAM:
     // $0000: BVC $0000 (50 FE)
@@ -55,7 +56,8 @@ fn test_bvc_so_timing() {
     // update state
     let effective_orb = emu.memory.via2.get_pb_out();
     emu.memory.mechanics.update_state(effective_orb, &mut hw);
-    emu.memory.mechanics.surface.start_reading(0, 0);
+    
+    emu.memory.mechanics.force_state_for_testing(0, 3);
 
     // Run until BRK (PC >= 0x0009)
     let mut finished = false;

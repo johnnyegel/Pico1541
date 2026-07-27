@@ -31,13 +31,15 @@ fn main() {
     let track_data = g64.get_track(34).unwrap();
     handle.update_track_buffer(track_data);
     
-    let mut surface = SoftwareMagneticSurface::new(handle);
-    surface.start_reading(34, 0); // start reading track 34 (17)
+    let mut surface = SoftwareMagneticSurface::new();
+    
+    emu.memory.mechanics.force_state_for_testing(34, 3);
     
     let mut rom = Vec::new();
     File::open("/home/johnny/git/dev/Pico1541/docs/dos1541-master/dos.bin").unwrap().read_to_end(&mut rom).unwrap();
     
-    let mut emu = Emulator::new(&rom, 8, surface);
+    let mechanics = pico1541_emulator::drivemechanics::DriveMechanics::new(surface, handle);
+    let mut emu = Emulator::new(&rom, 8, mechanics);
     let mut host = DummyHost;
     
     emu.reset(&mut host);

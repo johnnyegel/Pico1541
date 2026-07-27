@@ -1,6 +1,8 @@
+use pico1541_common::track_buffer::{EmulatorHandle, TrackIdentifier, TrackStream};
+use pico1541_common::{magnetic_surface::MagneticSurface, interface::HostInterface};
+
 #[cfg(feature = "debug")]
 use crate::via6522::Via6522;
-use pico1541_common::{magnetic_surface::MagneticSurface, interface::HostInterface};
 
 // The read head steps in half-track increments, so we represent the head position in half-tracks (0.5 track steps).
 // We also keep a half-track position for the head, where Half-track 0 corresponds to Track 0, 
@@ -32,18 +34,24 @@ pub struct DriveMechanics<S: MagneticSurface> {
     pub halftrack_head_pos: i8,
     
     pub surface: S,
+    pub track_handle: EmulatorHandle,
+    pub current_identifier: TrackIdentifier,
     
     last_state: u8,
     last_requested_sector: u8,
+    last_active_index: u8,
 }
 
 impl<S: MagneticSurface> DriveMechanics<S> {
-    pub fn new(surface: S) -> Self {
+    pub fn new(surface: S, track_handle: EmulatorHandle) -> Self {
         Self {
             halftrack_head_pos: INITIAL_HALF_TRACK,
             surface,
+            track_handle,
+            current_identifier: TrackIdentifier::void(),
             last_state: 0,
             last_requested_sector: 255,
+            last_active_index: 0,
         }
     }
 }
@@ -51,8 +59,23 @@ impl<S: MagneticSurface> DriveMechanics<S> {
 impl<S: MagneticSurface> DriveMechanics<S> {
     pub fn reset(&mut self) {
         self.halftrack_head_pos = INITIAL_HALF_TRACK;
+        self.current_identifier = TrackIdentifier::void();
         self.last_state = 0;
         self.last_requested_sector = 0xFF;
+    }
+
+    pub fn is_write_protected(&self) -> bool {
+        self.track_handle.is_write_protected()
+    }
+
+    pub fn pop_force_disk_change(&mut self) -> bool {
+        self.track_handle.pop_force_disk_change()
+    }
+    
+    pub fn write_byte_at(&mut self, index: u32, data: u8) {
+        self.track_handle.seek_to_byte(index);
+        let expected_identifier = self.current_identifier;
+        self.track_handle.next_write_byte(expected_identifier, 0xFF, data);
     }
 
     /// Updates the drive mechanics state based on VIA2 Port B outputs.
@@ -94,24 +117,29 @@ impl<S: MagneticSurface> DriveMechanics<S> {
 
     #[inline(always)]
     pub fn tick(&mut self) {
-        if self.surface.poll_active_index() {
-            let motor_on = (self.last_state & MASK_MOTOR) != 0;
-            if motor_on && self.halftrack_head_pos >= 0 && self.halftrack_head_pos <= MAX_HALF_TRACK {
-                log::info!("Track data changed! Restarting reading on half-track {}", self.halftrack_head_pos);
-                self.surface.start_reading(self.halftrack_head_pos as u8, 0);
-                
-                if self.surface.get_active_track_length() == 0 {
-                    self.surface.inject_analog_noise();
-                }
-            }
+        let current_active_index = self.track_handle.get_generation();
+        if current_active_index != self.last_active_index {
+            log::info!("TICK SEES CHANGE! current={} last={}", current_active_index, self.last_active_index);
+            self.last_active_index = current_active_index;
+            self.evaluate_track_source();
         }
     }
 
     // ========== Internal helper functions ==================================================
 
+    
+    pub fn force_state_for_testing(&mut self, halftrack: u8, speed_zone: u8) {
+        self.current_identifier = TrackIdentifier::new(halftrack, speed_zone);
+        self.halftrack_head_pos = halftrack as i8;
+        self.last_state = (self.last_state & !MASK_SPEED_ZONE) | (speed_zone << SHIFT_SPEED_ZONE);
+        self.track_handle.update_head_half_track(halftrack);
+        self.surface.set_speed_zone(speed_zone);
+        self.evaluate_track_source();
+    }
+
     /// Updates the drive mechanics state, and issues events accordingly.
     #[link_section = ".data.ram_func"]
-    #[inline(never)]
+    #[inline(always)]
     fn update_state_slow<H: HostInterface>(&mut self, full_state: u8, hardware: &mut H) {
         let last_state = self.last_state;
         let state_changes = full_state ^ last_state;
@@ -119,35 +147,17 @@ impl<S: MagneticSurface> DriveMechanics<S> {
 
         if (state_changes & MASK_MOTOR) != 0 {
             let motor_on = (full_state & MASK_MOTOR) != 0;
-            
             log::info!("Motor state changed: motor_on = {}, head_pos = {}", motor_on, self.halftrack_head_pos);
-            
-            if !motor_on {
-                self.surface.stop_reading();
-            } else {
-                if self.halftrack_head_pos >= 0 && self.halftrack_head_pos <= MAX_HALF_TRACK {
-                    log::info!("Starting reading on half-track {}", self.halftrack_head_pos);
-                    self.surface.start_reading(self.halftrack_head_pos as u8, 0);
-                    
-                    if self.surface.get_active_track_length() == 0 {
-                        self.surface.inject_analog_noise();
-                    }
-                }
-            }
+            self.surface.set_motor_running(motor_on);
         }
 
         // :: Update stepper motor and tracking
         // Did speed-zone change? (PB5, PB6)
         if (state_changes & MASK_SPEED_ZONE) != 0 {
             let speed_zone = (full_state & MASK_SPEED_ZONE) >> SHIFT_SPEED_ZONE;
+            self.current_identifier = self.current_identifier.with_speed_zone(speed_zone);
             self.surface.set_speed_zone(speed_zone);
-            
-            if speed_zone != self.surface.get_active_speed_zone().unwrap_or(speed_zone) {
-                let motor_on = (self.last_state & MASK_MOTOR) != 0;
-                if motor_on {
-                    self.surface.inject_analog_noise();
-                }
-            }
+            self.evaluate_track_source();
         }
         
         let is_track_step = state_changes & MASK_STEP != 0;
@@ -163,39 +173,36 @@ impl<S: MagneticSurface> DriveMechanics<S> {
                 _ => 0,
             };
 
-            if step == -1 && last_half_track_pos <= MIN_HALF_TRACK {
-                log::error!("HEAD BUMP DETECTED! last_half_track_pos={}, delta={}, full_state={:02X}", last_half_track_pos, delta, full_state);
-                #[cfg(feature = "flight-recorder")]
-                unsafe {
-                    let ptr = core::ptr::addr_of_mut!(crate::flight_recorder::FLIGHT_RECORDER) as *mut crate::flight_recorder::FlightRecorder;
-                    log::error!("--- FLIGHT RECORDER DUMP ---");
-                    let start_idx = (*ptr).index;
-                    for i in 0..512 {
-                        let idx = (start_idx + i) % 512;
-                        let rec = &(*ptr).buffer[idx];
-                        if rec.pc != 0 {
-                            log::error!("FR[{}]: Cycle={}, PC={:04X}, VIA1={:02X}, VIA2={:02X}, PCR1={:02X}, PCR2={:02X}, BYTE={:02X}, SYNC={}", 
-                                i, rec.cycle, rec.pc, rec.via1_pb, rec.via2_pb, rec.pcr1, rec.pcr2, rec.via2_pa, rec.is_sync);
-                        }
-                    }
-                    log::error!("--- END FLIGHT RECORDER DUMP ---");
-                }
-            }
-
             if step != 0 {
                 self.halftrack_head_pos = (last_half_track_pos + step)
                         .clamp(MIN_HALF_TRACK, MAX_HALF_TRACK);
 
                 if self.halftrack_head_pos >= 0 && self.halftrack_head_pos <= MAX_HALF_TRACK {
-                    let motor_on = (self.last_state & MASK_MOTOR) != 0;
-                    if motor_on {
-                        self.surface.inject_analog_noise();
-                    }
-                    self.surface.update_head_half_track(self.halftrack_head_pos as u8);
+                    let current_half_track = self.halftrack_head_pos as u8;
+                    self.current_identifier = self.current_identifier.with_half_track(current_half_track);
+                    self.track_handle.update_head_half_track(current_half_track);
+                    self.evaluate_track_source();
                     
-                    hardware.track_changed(self.halftrack_head_pos as u8);
+                    hardware.track_changed(current_half_track);
                 }
             }
+        }
+    }
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    fn evaluate_track_source(&mut self) {
+        let loaded_identifier = self.track_handle.get_active_track_identifier();
+        
+        log::info!("EVAL current={:?} loaded={:?}", self.current_identifier, loaded_identifier);
+        
+        if self.current_identifier == loaded_identifier {
+            let stream = TrackStream::from_active_buffer(
+                self.track_handle.get_full_buffer_ptr(), 
+                self.track_handle.get_active_track_length() as u32);
+            self.surface.set_stream_source(stream);
+        } else {
+            self.surface.set_stream_source(TrackStream::noise());
         }
     }
 }

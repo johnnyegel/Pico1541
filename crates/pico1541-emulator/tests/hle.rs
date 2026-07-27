@@ -20,8 +20,9 @@ impl HostInterface for MockHardware {
 fn test_hle_intercept_command_patches_ram() {
     static ROM: [u8; 0x4000] = [0; 0x4000];
     let handle = Box::leak(Box::new(pico1541_common::track_buffer::DualCoreTrackBuffer::new())).split().1;
-    let surface = SoftwareMagneticSurface::new(handle);
-    let mut bus = SystemBus::<MockHardware, _>::new(&ROM, 8, surface);
+    let surface = SoftwareMagneticSurface::new();
+    let mechanics = pico1541_emulator::drivemechanics::DriveMechanics::new(surface, handle);
+    let mut bus = SystemBus::<MockHardware, _>::new(&ROM, 8, mechanics);
     
     // 1. Simulate a "SYNTAX ERROR" state in RAM
     bus.memory[0x0255] = 1; // cmdwat: command waiting

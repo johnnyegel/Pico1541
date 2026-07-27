@@ -22,25 +22,94 @@ pub enum TrackLayout {
     Accurate,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct TrackIdentifier(pub u16);
+
+#[inline]
+pub fn default_speed_zone(half_track: u8) -> u8 {
+    let track = half_track / 2 + 1;
+    if track <= 17 { 3 } else if track <= 24 { 2 } else if track <= 30 { 1 } else { 0 }
+}
+
+impl TrackIdentifier {
+    #[inline(always)]
+    pub fn new(half_track: u8, speed_zone: u8) -> Self {
+        Self(((speed_zone as u16) << 8) | (half_track as u16))
+    }
+    
+    #[inline(always)]
+    pub fn void() -> Self {
+        Self(0xFF)
+    }
+
+    #[inline(always)]
+    pub fn half_track(&self) -> u8 {
+        (self.0 & 0xFF) as u8
+    }
+
+    #[inline(always)]
+    pub fn with_speed_zone(&self, speed_zone: u8) -> Self {
+        Self(self.0 & 0xFF | (speed_zone as u16) << 8)
+    }
+
+    #[inline(always)]
+    pub fn with_half_track(&self, half_track: u8) -> Self {
+        Self(self.0 & 0xFF00 | (half_track as u16))
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct TrackStream {
+    ptr: *const u8,
+    pub length: u32,
+}
+
+impl TrackStream {
+    pub const fn noise() -> Self {
+        #[repr(align(16))]
+        struct NoiseBuffer([u8; 16]);
+        
+        static NOISE_BUFFER: NoiseBuffer = NoiseBuffer([
+            0x55, 0xAA, 0x33, 0xCC, 0x0F, 0xF0, 0x55, 0xAA,
+            0x33, 0xCC, 0x0F, 0xF0, 0x55, 0xAA, 0x33, 0xCC
+        ]);
+        
+        Self {
+            ptr: NOISE_BUFFER.0.as_ptr(),
+            length: 16,
+        }
+    }
+    
+    pub const fn from_active_buffer(ptr: *const u8, length: u32) -> Self {
+        Self { ptr, length }
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        unsafe { core::slice::from_raw_parts(self.ptr, self.length as usize) }
+    }
+    
+    pub fn as_dma_ptr(&self) -> u32 {
+        self.ptr as u32
+    }
+}
+
 /// Represents a single track buffer which holds the GCR-encoded data for a track,
 /// along with metadata about the track such as its ID and layout.
 #[repr(C, align(8192))]
 pub struct TrackBuffer {
     pub data: [u8; 8192],
-    pub track_id: u8,  // The half-track index (0-83)
+    pub identifier: TrackIdentifier,
     pub length: usize, // Valid bytes in the buffer
     pub layout: TrackLayout,
-    pub speed_zone: Option<u8>,
 }
 
 impl TrackBuffer {
     const fn new() -> Self {
         Self {
             data: [0; 8192],
-            track_id: 0xFF, // 0xFF represents invalid/unloaded
+            identifier: TrackIdentifier(0xFF), // 0xFF represents invalid/unloaded
             length: 0,
             layout: TrackLayout::Void,
-            speed_zone: None,
         }
     }
 }
@@ -49,7 +118,7 @@ impl TrackBuffer {
 pub struct DualCoreTrackBuffer {
     // Now holding our unified struct
     buffers: UnsafeCell<[TrackBuffer; 2]>,
-    active_index: AtomicBool,
+    generation: core::sync::atomic::AtomicU8,
     pub is_write_protected: AtomicBool,
     pub force_disk_change: AtomicBool,
     pub current_byte_idx: core::sync::atomic::AtomicUsize,
@@ -63,7 +132,7 @@ impl DualCoreTrackBuffer {
     pub const fn new() -> Self {
         Self {
             buffers: UnsafeCell::new([TrackBuffer::new(), TrackBuffer::new()]),
-            active_index: AtomicBool::new(false),
+            generation: core::sync::atomic::AtomicU8::new(0),
             is_write_protected: AtomicBool::new(false),
             force_disk_change: AtomicBool::new(false),
             current_byte_idx: core::sync::atomic::AtomicUsize::new(0),
@@ -108,10 +177,10 @@ impl ManagerHandle {
 
     pub fn load_next_track<F>(&self, fill_buffer: F)
     where
-        F: FnOnce(&mut [u8; TRACK_SIZE], &mut TrackLayout, &mut u8),
+        F: FnOnce(&mut [u8; TRACK_SIZE], &mut TrackLayout, &mut TrackIdentifier),
     {
-        let current_active = self.core_buffer.active_index.load(Ordering::Acquire);
-        let back_idx = if current_active { 0 } else { 1 };
+        let generation = self.core_buffer.generation.load(Ordering::Acquire);
+        let back_idx = ((generation % 2) ^ 1) as usize;
 
         // SAFELY isolate the mutable reference to the dormant buffer.
         let back_buffer = unsafe { &mut (*self.core_buffer.buffers.get())[back_idx] };
@@ -119,56 +188,41 @@ impl ManagerHandle {
         fill_buffer(
             &mut back_buffer.data,
             &mut back_buffer.layout,
-            &mut back_buffer.track_id,
+            &mut back_buffer.identifier,
         );
-        self.core_buffer
-            .active_index
-            .store(!current_active, Ordering::Release);
+        self.core_buffer.generation.store(generation.wrapping_add(1), Ordering::Release);
     }
 
     pub fn set_active_layout(&self, layout: TrackLayout) {
-        let active_idx = if self.core_buffer.active_index.load(Ordering::Acquire) {
-            1
-        } else {
-            0
-        };
+        let active_idx = (self.core_buffer.generation.load(Ordering::Acquire) % 2) as usize;
         unsafe { (*self.core_buffer.buffers.get())[active_idx].layout = layout };
     }
 
-    pub fn get_active_half_track(&self) -> u8 {
-        let active_idx = if self.core_buffer.active_index.load(Ordering::Acquire) {
-            1
-        } else {
-            0
-        };
-        unsafe { (*self.core_buffer.buffers.get())[active_idx].track_id }
+    pub fn get_active_track_identifier(&self) -> TrackIdentifier {
+        let active_idx = (self.core_buffer.generation.load(Ordering::Acquire) % 2) as usize;
+        unsafe { (*self.core_buffer.buffers.get())[active_idx].identifier }
     }
 
     pub fn get_active_layout(&self) -> TrackLayout {
-        let active_idx = if self.core_buffer.active_index.load(Ordering::Acquire) {
-            1
-        } else {
-            0
-        };
+        let active_idx = (self.core_buffer.generation.load(Ordering::Acquire) % 2) as usize;
         unsafe { (*self.core_buffer.buffers.get())[active_idx].layout }
     }
 
     #[allow(clippy::mut_from_ref)]
     pub fn start_track_load(&self) -> &mut [u8] {
-        let current_active = self.core_buffer.active_index.load(Ordering::Acquire);
-        let back_idx = if current_active { 0 } else { 1 };
+        let generation = self.core_buffer.generation.load(Ordering::Acquire);
+        let back_idx = ((generation % 2) ^ 1) as usize;
         unsafe { &mut (*self.core_buffer.buffers.get())[back_idx].data }
     }
 
     pub fn commit_loaded_track(
         &self,
-        track_id: u8,
+        identifier: TrackIdentifier,
         layout: TrackLayout,
         length: usize,
-        speed_zone: Option<u8>,
     ) {
-        let current_active = self.core_buffer.active_index.load(Ordering::Acquire);
-        let back_idx = if current_active { 0 } else { 1 };
+        let generation = self.core_buffer.generation.load(Ordering::Acquire);
+        let back_idx = ((generation % 2) ^ 1) as usize;
         let back_buffer = unsafe { &mut (*self.core_buffer.buffers.get())[back_idx] };
 
         back_buffer.layout = layout;
@@ -181,23 +235,21 @@ impl ManagerHandle {
         let mut final_length = length;
         if final_length == 0 {
             // An empty track (e.g. half-tracks) should still produce random noise or gap bytes.
-            // If length is 0, the PIO/DMA stalls and the 6502 Emulator gets stuck waiting for SO pulses.
-            final_length = 8192;
+            final_length = 8000;
         }
-        back_buffer.length = final_length;
-        back_buffer.track_id = track_id;
-        back_buffer.speed_zone = speed_zone;
 
-        self.core_buffer
-            .active_index
-            .store(!current_active, Ordering::Release);
+        back_buffer.identifier = identifier;
+        back_buffer.length = final_length;
+
+        // Atomically switch active buffer
+        self.core_buffer.generation.store(generation.wrapping_add(1), Ordering::Release);
     }
 
     #[allow(clippy::mut_from_ref)]
-    pub fn start_track_modification(&self) -> &mut [u8] {
-        let current_active = self.core_buffer.active_index.load(Ordering::Acquire);
-        let active_idx = if current_active { 1 } else { 0 };
-        let back_idx = if current_active { 0 } else { 1 };
+    pub fn start_track_modification(&self) -> &mut [u8; TRACK_SIZE] {
+        let generation = self.core_buffer.generation.load(Ordering::Acquire);
+        let active_idx = (generation % 2) as usize;
+        let back_idx = ((generation % 2) ^ 1) as usize;
 
         unsafe {
             let buffers_ptr = self.core_buffer.buffers.get();
@@ -206,7 +258,7 @@ impl ManagerHandle {
 
             back_buffer.data.copy_from_slice(&active_buffer.data);
             back_buffer.layout = active_buffer.layout;
-            back_buffer.track_id = active_buffer.track_id;
+            back_buffer.identifier = active_buffer.identifier;
             back_buffer.length = active_buffer.length;
 
             &mut back_buffer.data
@@ -214,33 +266,26 @@ impl ManagerHandle {
     }
 
     pub fn commit_modified_track(&self) {
-        let current_active = self.core_buffer.active_index.load(Ordering::Acquire);
-        self.core_buffer
-            .active_index
-            .store(!current_active, Ordering::Release);
+        let generation = self.core_buffer.generation.load(Ordering::Acquire);
+        self.core_buffer.generation.store(generation.wrapping_add(1), Ordering::Release);
     }
 
-    #[allow(dead_code)]
     #[allow(clippy::mut_from_ref)]
     pub fn get_dormant_buffer_mut(&self) -> &mut TrackBuffer {
-        let current_active = self.core_buffer.active_index.load(Ordering::Acquire);
-        let back_idx = if current_active { 0 } else { 1 };
+        let generation = self.core_buffer.generation.load(Ordering::Acquire);
+        let back_idx = ((generation % 2) ^ 1) as usize;
         unsafe { &mut (*self.core_buffer.buffers.get())[back_idx] }
     }
 
-    #[allow(dead_code)]
     pub fn commit_dormant_buffer(&self) {
-        let current_active = self.core_buffer.active_index.load(Ordering::Acquire);
-        self.core_buffer
-            .active_index
-            .store(!current_active, Ordering::Release);
+        let generation = self.core_buffer.generation.load(Ordering::Acquire);
+        self.core_buffer.generation.store(generation.wrapping_add(1), Ordering::Release);
     }
 
-    #[allow(dead_code)]
     pub fn duplicate_active_to_inactive(&self) {
-        let current_active = self.core_buffer.active_index.load(Ordering::Acquire);
-        let active_idx = if current_active { 1 } else { 0 };
-        let back_idx = if current_active { 0 } else { 1 };
+        let generation = self.core_buffer.generation.load(Ordering::Acquire);
+        let active_idx = (generation % 2) as usize;
+        let back_idx = ((generation % 2) ^ 1) as usize;
 
         unsafe {
             let buffers_ptr = self.core_buffer.buffers.get();
@@ -249,7 +294,7 @@ impl ManagerHandle {
 
             back_buffer.data.copy_from_slice(&active_buffer.data);
             back_buffer.layout = active_buffer.layout;
-            back_buffer.track_id = active_buffer.track_id;
+            back_buffer.identifier = active_buffer.identifier;
             back_buffer.length = active_buffer.length;
         }
     }
@@ -315,35 +360,31 @@ impl EmulatorHandle {
     }
 
     #[inline(always)]
-    pub fn get_active_index(&self) -> bool {
-        self.core_buffer.active_index.load(Ordering::Relaxed)
+    pub fn get_generation(&self) -> u8 {
+        self.core_buffer.generation.load(Ordering::Relaxed)
     }
 
     #[inline(always)]
-    pub fn get_active_track_id(&self) -> u8 {
-        let active_idx = if self.get_active_index() { 1 } else { 0 };
+    pub fn get_active_track_identifier(&self) -> TrackIdentifier {
+        let active_idx = (self.get_generation() % 2) as usize;
         let buffer = unsafe { &(*self.core_buffer.buffers.get())[active_idx] };
-        buffer.track_id
+        buffer.identifier
     }
 
     pub fn get_active_track_length(&self) -> usize {
-        let active_idx = if self.get_active_index() { 1 } else { 0 };
+        let active_idx = (self.get_generation() % 2) as usize;
         let buffer = unsafe { &(*self.core_buffer.buffers.get())[active_idx] };
         buffer.length
     }
 
     pub fn get_active_buffer_slice(&self) -> &[u8] {
-        let active_idx = if self.get_active_index() { 1 } else { 0 };
+        let active_idx = (self.get_generation() % 2) as usize;
         let buffer = unsafe { &(*self.core_buffer.buffers.get())[active_idx] };
         &buffer.data[..buffer.length]
     }
 
     pub fn get_full_buffer_ptr(&self) -> *const u8 {
-        let active_idx = if self.core_buffer.active_index.load(Ordering::Acquire) {
-            1
-        } else {
-            0
-        };
+        let active_idx = (self.core_buffer.generation.load(Ordering::Acquire) % 2) as usize;
         let buffer = unsafe { &(*self.core_buffer.buffers.get())[active_idx] };
         buffer.data.as_ptr()
     }
@@ -359,11 +400,11 @@ impl EmulatorHandle {
     fn resolve_and_advance_index(
         &mut self,
         buffer: &TrackBuffer,
-        expected_track_id: u8,
+        expected_identifier: TrackIdentifier,
         requested_sector: u8,
         just_started_reading: bool,
     ) -> Option<usize> {
-        if buffer.track_id != expected_track_id || buffer.length == 0 {
+        if buffer.identifier != expected_identifier || buffer.length == 0 {
             self.last_requested_sector = 0xFF;
             return None;
         }
@@ -418,7 +459,7 @@ impl EmulatorHandle {
     #[inline(always)]
     pub fn next_read_byte(
         &mut self,
-        expected_track_id: u8,
+        expected_identifier: TrackIdentifier,
         requested_sector: u8,
         is_listening: bool,
     ) -> u8 {
@@ -427,11 +468,7 @@ impl EmulatorHandle {
         self.last_is_listening = is_listening;
 
         // 1. Lock-free active buffer resolution
-        let active_idx = if self.core_buffer.active_index.load(Ordering::Acquire) {
-            1
-        } else {
-            0
-        };
+        let active_idx = (self.core_buffer.generation.load(Ordering::Acquire) % 2) as usize;
 
         // SAFETY: We only dereference the active index.
         // Core 0 guarantees it only ever mutates the dormant index.
@@ -439,7 +476,7 @@ impl EmulatorHandle {
 
         if let Some(ix) = self.resolve_and_advance_index(
             buffer,
-            expected_track_id,
+            expected_identifier,
             requested_sector,
             just_started_listening,
         ) {
@@ -451,11 +488,7 @@ impl EmulatorHandle {
 
     #[inline(always)]
     pub fn peek_next_byte(&mut self) -> u8 {
-        let active_idx = if self.core_buffer.active_index.load(Ordering::Acquire) {
-            1
-        } else {
-            0
-        };
+        let active_idx = (self.core_buffer.generation.load(Ordering::Acquire) % 2) as usize;
         let buffer = unsafe { &(*self.core_buffer.buffers.get())[active_idx] };
         if buffer.length == 0 {
             return VOID_BYTE;
@@ -469,45 +502,27 @@ impl EmulatorHandle {
 
     /// Safely writes a GCR byte back to the disk buffer and flags it for background SD flush.
     #[inline(always)]
-    pub fn next_write_byte(&mut self, expected_track_id: u8, requested_sector: u8, _data: u8) {
-        let active_idx = if self.core_buffer.active_index.load(Ordering::Acquire) {
-            1
-        } else {
-            0
-        };
+    pub fn next_write_byte(&mut self, expected_identifier: TrackIdentifier, requested_sector: u8, _data: u8) {
+        let active_idx = (self.core_buffer.generation.load(Ordering::Acquire) % 2) as usize;
 
         let buffer = unsafe { &mut (*self.core_buffer.buffers.get())[active_idx] };
 
         // FIXME! Write support is not yet implemented.
         // We only advance the index so the drive mechanics keep ticking correctly.
-        let _ = self.resolve_and_advance_index(buffer, expected_track_id, requested_sector, false);
+        let _ = self.resolve_and_advance_index(buffer, expected_identifier, requested_sector, false);
     }
 
     /// Fetches the track layout to calculate bit-rates (Speed Zones).
     /// Returns None if the track is in transit.
     #[inline(always)]
-    pub fn get_layout(&self, expected_track_id: u8) -> Option<TrackLayout> {
-        let active_idx = if self.core_buffer.active_index.load(Ordering::Acquire) {
-            1
-        } else {
-            0
-        };
+    pub fn get_layout(&self, expected_identifier: TrackIdentifier) -> Option<TrackLayout> {
+        let active_idx = (self.core_buffer.generation.load(Ordering::Acquire) % 2) as usize;
         let buffer = unsafe { &(*self.core_buffer.buffers.get())[active_idx] };
 
-        if buffer.track_id == expected_track_id {
+        if buffer.identifier == expected_identifier {
             Some(buffer.layout)
         } else {
             None
         }
-    }
-
-    pub fn get_active_speed_zone(&self) -> Option<u8> {
-        let active_idx = if self.core_buffer.active_index.load(Ordering::Acquire) {
-            1
-        } else {
-            0
-        };
-        let active_buffer = unsafe { &(*self.core_buffer.buffers.get())[active_idx] };
-        active_buffer.speed_zone
     }
 }

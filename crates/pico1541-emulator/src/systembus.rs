@@ -39,7 +39,7 @@ pub struct SystemBus<H: HostInterface, S: MagneticSurface> {
 }
 
 impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
-    pub fn new(rom: &'static [u8; 16384], device_id: u8, surface: S) -> Self {
+    pub fn new(rom: &'static [u8; 16384], device_id: u8, mechanics: DriveMechanics<S>) -> Self {
         // :: Intialize VIA1
         let via1 = Via6522::new();
 
@@ -54,7 +54,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             memory,
             via1,
             via2: Via6522::new(),
-            mechanics: DriveMechanics::new(surface),
+            mechanics,
             device_id,
             cycle_counter: 0,
             device_id_pb_bits: (device_id & 0x03) << 5,
@@ -157,11 +157,11 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
                 // Also write iec port here?
             }
             // FIXME! What the actual fuck is this?
-            if self.mechanics.surface.pop_force_disk_change() {
+            if self.mechanics.pop_force_disk_change() {
                 self.memory[0x001C] = 1;
             }
 
-            let wp = self.mechanics.surface.is_write_protected();
+            let wp = self.mechanics.is_write_protected();
             if wp {
                 self.via2.in_b &= !0x10;
             } else {
@@ -225,9 +225,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
                 }
             } else {
                 // WRITE mode
-                self.mechanics.surface.stop_reading();
                 let index = self.mechanics.surface.get_absolute_head_position(0);
-                self.mechanics.surface.write_byte_at(index, self.via2.ora);
+                self.mechanics.write_byte_at(index, self.via2.ora);
             }
         }
     }
@@ -446,8 +445,9 @@ mod tests {
         ))
         .split()
         .1;
-        let surface = pico1541_common::magnetic_surface::SoftwareMagneticSurface::new(handle);
-        let mut bus = SystemBus::<MockHardware, _>::new(&ROM, 8, surface);
+        let surface = pico1541_common::magnetic_surface::SoftwareMagneticSurface::new();
+        let mechanics = crate::drivemechanics::DriveMechanics::new(surface, handle);
+        let mut bus = SystemBus::<MockHardware, _>::new(&ROM, 8, mechanics);
         let mut hw = MockHardware {};
         use racc6502v4::bus::Bus;
         bus.write(0x0100, 0xAB, 0, &mut hw);

@@ -132,7 +132,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                 // Read track but CANCEL if the head steps again!
                 match select(disk.read_track(target_ht, data), TRACK_CHANNEL.receive()).await {
                     Either::First(Ok(layout)) => {
-                        self.track_handle.commit_loaded_track(target_ht, layout.0, layout.1, layout.2);
+                        self.track_handle.commit_loaded_track(pico1541_common::track_buffer::TrackIdentifier::new(target_ht, layout.2.unwrap_or_else(|| pico1541_common::track_buffer::default_speed_zone(target_ht))), layout.0, layout.1);
                         let elapsed = start_time.elapsed().as_millis();
                         info!("Track load took {} ms", elapsed);
                         if layout.1 >= 16 {
@@ -153,7 +153,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                     }
                 }
             } else {
-                self.track_handle.commit_loaded_track(target_ht, TrackLayout::Void, 0, None);
+                self.track_handle.commit_loaded_track(pico1541_common::track_buffer::TrackIdentifier::new(target_ht, pico1541_common::track_buffer::default_speed_zone(target_ht)), TrackLayout::Void, 0);
                 break;
             }
         }
@@ -305,7 +305,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                         }
 
                                         // We fetched new blocks. If the active track is 18, we must regenerate the GCR data!
-                                        let active_ht = self.track_handle.get_active_half_track();
+                                        let active_ht = self.track_handle.get_head_half_track();
                                         if active_ht == 34 || active_ht == 35 {
                                             vdir.next_sector_to_update = 1;
                                             let data = self.track_handle.start_track_modification();
@@ -414,7 +414,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                     let data = self.track_handle.start_track_load();
                                     match disk.read_track(half_track, data).await {
                                         Ok(layout) => {
-                                            self.track_handle.commit_loaded_track(half_track, layout.0, layout.1, layout.2);
+                                            self.track_handle.commit_loaded_track(pico1541_common::track_buffer::TrackIdentifier::new(half_track, layout.2.unwrap_or_else(|| pico1541_common::track_buffer::default_speed_zone(half_track))), layout.0, layout.1);
                                         }
                                         Err(e) => {
                                             error!("Failed to read track on mount: {:?}", &e);
@@ -567,7 +567,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                     let start_time = embassy_time::Instant::now();
                                     match disk.read_track(half_track, data).await {
                                         Ok(layout) => {
-                                            self.track_handle.commit_loaded_track(half_track, layout.0, layout.1, layout.2);
+                                            self.track_handle.commit_loaded_track(pico1541_common::track_buffer::TrackIdentifier::new(half_track, layout.2.unwrap_or_else(|| pico1541_common::track_buffer::default_speed_zone(half_track))), layout.0, layout.1);
                                             let elapsed = start_time.elapsed().as_millis();
                                             info!("Track load took {} ms", elapsed);
                                             if data.len() >= 16 {

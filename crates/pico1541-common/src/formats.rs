@@ -800,12 +800,18 @@ impl<S: Read + Seek> G64Image<S> {
         }
         
         storage.seek(SeekFrom::Start(0x015C)).await.map_err(|_| Error::Io)?;
-        let mut speed_bytes = [0u8; 84];
+        let mut speed_bytes = [0u8; 84 * 4];
         storage.read_exact(&mut speed_bytes).await.map_err(|_| Error::Io)?;
         
-        for (i, &speed) in speed_bytes.iter().enumerate() {
+        for i in 0..84 {
+            let speed = u32::from_le_bytes([
+                speed_bytes[i * 4],
+                speed_bytes[i * 4 + 1],
+                speed_bytes[i * 4 + 2],
+                speed_bytes[i * 4 + 3],
+            ]);
             if speed < 4 {
-                lookup_table.speed_zones[i] = Some(speed);
+                lookup_table.speed_zones[i] = Some(speed as u8);
             }
         }
         

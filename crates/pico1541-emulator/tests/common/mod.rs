@@ -32,8 +32,9 @@ pub fn setup_drive(
     let buffer = Box::leak(Box::new(pico1541_common::track_buffer::DualCoreTrackBuffer::new()));
     let (_manager, emulator) = buffer.split();
 
-    let surface = SoftwareMagneticSurface::new(emulator);
-    let mut drive = Emulator::<TestBridge, SoftwareMagneticSurface>::new(&ROM_BYTES, device_id, surface);
+    let surface = SoftwareMagneticSurface::new();
+    let mechanics = pico1541_emulator::drivemechanics::DriveMechanics::new(surface, emulator);
+    let mut drive = Emulator::new(&ROM_BYTES, device_id, mechanics);
     let mut bridge = TestBridge::new(device_id, buffer);
 
     log::info!(
@@ -85,7 +86,7 @@ where
 {
     pub fn sync(&mut self, buffer: &'static pico1541_common::track_buffer::DualCoreTrackBuffer) {
         let manager = buffer.split().0;
-        let track_ht = manager.get_active_half_track();
+        let track_ht = manager.get_head_half_track();
         if track_ht != self.last_half_track {
             log::info!(
                 "[DiskRunner] Loading track data for half-track {}",
@@ -98,7 +99,9 @@ where
             let layout = block_on(self.image.read_track(track_ht, &mut inactive.data))
                 .unwrap_or((TrackLayout::Void, 0, None));
 
-            manager.commit_loaded_track(track_ht, layout.0, layout.1, layout.2);
+            manager.commit_loaded_track(pico1541_common::track_buffer::TrackIdentifier::new(track_ht, layout.2.unwrap_or_else(|| pico1541_common::track_buffer::default_speed_zone(track_ht))), layout.0, layout.1);
+
+            log::info!("[DiskRunner] Loading track data DONE");
 
             self.last_half_track = track_ht;
         }
@@ -136,9 +139,7 @@ impl TestBridge {
 
     pub fn reset(&mut self) {
         let manager = self.buffer.split().0;
-        let inactive = manager.get_dormant_buffer_mut();
-        inactive.track_id = 36;
-        manager.commit_dormant_buffer();
+        manager.commit_loaded_track(pico1541_common::track_buffer::TrackIdentifier::new(36, pico1541_common::track_buffer::default_speed_zone(36)), pico1541_common::track_buffer::TrackLayout::Void, 0);
         self.events.clear();
         self.host_iec = IecBusState::default();
         self.drive_iec = IecBusState::default();
@@ -223,7 +224,7 @@ impl HostInterface for TestBridge {
         let manager = self.buffer.split().0;
         manager.duplicate_active_to_inactive();
         let inactive = manager.get_dormant_buffer_mut();
-        inactive.track_id = half_track;
+        inactive.identifier = pico1541_common::track_buffer::TrackIdentifier::new(half_track, pico1541_common::track_buffer::default_speed_zone(half_track));
         manager.commit_dormant_buffer();
     }
     fn is_hijacked(&self) -> bool {

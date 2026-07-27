@@ -1,6 +1,6 @@
 use pico1541_common::magnetic_surface::MagneticSurface;
+use pico1541_common::track_buffer::TrackStream;
 use embassy_rp::pac;
-use pico1541_common::track_buffer::EmulatorHandle;
 
 
 // Speed zone PIO timing
@@ -31,8 +31,8 @@ static mut READ_BUFFER: u16 = 0x8000;
 static mut CURRENT_TRACK_PTR: u32 = 0;
 
 pub struct PioMagneticSurface {
-    track_handle: EmulatorHandle,
-    last_active_index: bool,
+    is_motor_on: bool,
+    stream_length: u32,
 
     _sync_pin: embassy_rp::pio::Pin<'static, embassy_rp::peripherals::PIO0>,
     _loaded_prg: embassy_rp::pio::LoadedProgram<'static, embassy_rp::peripherals::PIO0>,
@@ -42,7 +42,6 @@ pub struct PioMagneticSurface {
 impl PioMagneticSurface {
     pub fn new(
         mut pio: embassy_rp::pio::Pio<'static, embassy_rp::peripherals::PIO0>,
-        track_handle: EmulatorHandle,
     ) -> Self {
         let prg = crate::pio::magnetic_surface_program();
         let loaded_prg = pio.common.load_program(&prg);
@@ -61,12 +60,10 @@ impl PioMagneticSurface {
         cfg.shift_out.direction = embassy_rp::pio::ShiftDirection::Left;
 
         // SET pin mapping to GPIO 10
-        // SIO will be used to read this pin state directly
         let sync_pin = pio.common.make_pio_pin(unsafe { embassy_rp::peripherals::PIN_10::steal() });
-        cfg.set_set_pins(&[&sync_pin]);
-
         cfg.use_program(&loaded_prg, &[]);
-
+        cfg.set_out_pins(&[&sync_pin]);
+        cfg.set_set_pins(&[&sync_pin]);
         sm.set_config(&cfg);
         sm.set_pin_dirs(embassy_rp::pio::Direction::Out, &[&sync_pin]);
         sm.set_enable(true);
@@ -74,8 +71,8 @@ impl PioMagneticSurface {
         Self::init_1541_dma_channels();
 
         Self {
-            last_active_index: !track_handle.get_active_index(), // Force initial start_reading
-            track_handle,
+            is_motor_on: false,
+            stream_length: 0,
             _sync_pin: sync_pin,
             _loaded_prg: loaded_prg,
             _sm: sm,
@@ -208,70 +205,31 @@ impl MagneticSurface for PioMagneticSurface {
     fn get_absolute_head_position(&self, _master_clock: u32) -> u32 {
         let dma = pac::DMA;
         let remaining = dma.ch(0).trans_count().read();
-        let track_length = self.track_handle.get_active_track_length() as u32;
-        track_length.saturating_sub(remaining)
+        self.stream_length.saturating_sub(remaining)
     }
 
-    #[link_section = ".data.ram_func"]
-    fn write_byte_at(&mut self, index: u32, data: u8) {
-        self.track_handle.seek_to_byte(index);
-        self.track_handle.next_write_byte(0, 0xFF, data);
-    }
-    
-    #[link_section = ".data.ram_func"]
-    fn start_reading(&mut self, track_id: u8, _rotation_fixed: u32) {
-        self.track_handle.update_head_half_track(track_id);
-        
-        let track_ptr = self.track_handle.get_full_buffer_ptr() as u32;
-        let track_length = self.track_handle.get_active_track_length() as u32;
-
-        Self::abort_dma_ch0();
-        
-        unsafe {
-            CURRENT_TRACK_PTR = track_ptr;
-            core::ptr::write_volatile(core::ptr::addr_of_mut!(READ_BUFFER), 0x8000);
+    fn set_motor_running(&mut self, is_running: bool) {
+        if self.is_motor_on == is_running {
+            return;
         }
-
-        let dma = pac::DMA;
-
-        let mut ctrl_a = dma.ch(0).ctrl_trig().read();
-        ctrl_a.set_incr_read(true);
-        ctrl_a.set_ring_size(0); // Disable wrapping (was enabled by inject_analog_noise)
-        ctrl_a.set_chain_to(1); // Restore chaining to Channel B
-        dma.ch(0).ctrl_trig().write_value(ctrl_a);
+        self.is_motor_on = is_running;
         
-        Self::clear_pio_fifos();
-        
-        dma.ch(0).read_addr().write_value(track_ptr);
-        dma.ch(0).trans_count().write_value(track_length);
-        
-        if track_length > 0 {
+        if is_running {
+            // Motor turned on, start DMA!
+            let dma = pac::DMA;
+            let mut ctrl_a = dma.ch(0).ctrl_trig().read();
             ctrl_a.set_en(true);
             dma.ch(0).ctrl_trig().write_value(ctrl_a);
+        } else {
+            // Motor turned off, stop DMA!
+            Self::abort_dma_ch0();
         }
     }
-    
-    #[link_section = ".data.ram_func"]
-    fn stop_reading(&mut self) {
-        Self::abort_dma_ch0();
-    }
 
-    fn is_write_protected(&self) -> bool {
-        self.track_handle.is_write_protected()
-    }
-
-    fn pop_force_disk_change(&mut self) -> bool {
-        self.track_handle.pop_force_disk_change()
-    }
-
-    fn set_speed_zone(&mut self, zone: u8) {
-        // Bitwise AND with 3 safely bounds the zone to [0, 1, 2, 3]
-        let register_value = PIO_SPEED_ZONES[(zone & 3) as usize];
-        
-        // Slice the pre-calculated fixed-point value into Int and Frac
+    fn set_speed_zone(&mut self, expected_speed_zone: u8) {
+        let register_value = PIO_SPEED_ZONES[(expected_speed_zone & 3) as usize];
         let clk_int = (register_value >> 8) as u16;
         let clk_frac = (register_value & 0xFF) as u8;
-    
         let pio = pac::PIO0;
         pio.sm(0).clkdiv().write(|w| {
             w.set_int(clk_int);
@@ -279,51 +237,34 @@ impl MagneticSurface for PioMagneticSurface {
         });
     }
 
-    fn inject_analog_noise(&mut self) {
-        #[repr(align(16))]
-        struct NoiseBuffer([u8; 16]);
+    fn set_stream_source(&mut self, stream: TrackStream) {
+        let track_ptr = stream.as_dma_ptr();
+        let track_length = stream.length;
+        self.stream_length = track_length;
         
-        static NOISE_BUFFER: NoiseBuffer = NoiseBuffer([
-            0x55, 0xAA, 0x33, 0xCC, 0x0F, 0xF0, 0x55, 0xAA,
-            0x33, 0xCC, 0x0F, 0xF0, 0x55, 0xAA, 0x33, 0xCC
-        ]);
+        let trans_count = if track_length == 16 { 0xFFFFFFFF } else { track_length };
+        let incr_read = track_length != 16;
         
-        Self::abort_dma_ch0();
-        Self::clear_pio_fifos();
-
         unsafe {
-            CURRENT_TRACK_PTR = NOISE_BUFFER.0.as_ptr() as u32;
+            CURRENT_TRACK_PTR = track_ptr;
         }
 
         let dma = pac::DMA;
-        dma.ch(0).read_addr().write_value(NOISE_BUFFER.0.as_ptr() as u32);
-        dma.ch(0).trans_count().write_value(0xFFFFFFFF);
         
-        let mut ctrl_a = dma.ch(0).ctrl_trig().read();
-        ctrl_a.set_incr_read(false);
-        ctrl_a.set_en(true);
-        dma.ch(0).ctrl_trig().write_value(ctrl_a);
-    }
-
-    fn get_active_speed_zone(&self) -> Option<u8> {
-        self.track_handle.get_active_speed_zone()
-    }
-
-    fn get_active_track_length(&self) -> usize {
-        self.track_handle.get_active_track_length()
-    }
-
-    fn poll_active_index(&mut self) -> bool {
-        let current_active_index = self.track_handle.get_active_index();
-        if current_active_index != self.last_active_index {
-            self.last_active_index = current_active_index;
-            true
-        } else {
-            false
+        // If the motor is on, we must apply the new track/noise configuration immediately
+        if self.is_motor_on {
+            Self::abort_dma_ch0();
+            Self::clear_pio_fifos();
+            
+            dma.ch(0).read_addr().write_value(track_ptr);
+            dma.ch(0).trans_count().write_value(trans_count);
+            
+            let mut ctrl_a = dma.ch(0).ctrl_trig().read();
+            ctrl_a.set_incr_read(incr_read);
+            ctrl_a.set_ring_size(0);
+            ctrl_a.set_chain_to(1); // Always chain to B to support ping-pong loop for actual tracks
+            ctrl_a.set_en(true);
+            dma.ch(0).ctrl_trig().write_value(ctrl_a);
         }
-    }
-    
-    fn update_head_half_track(&mut self, track_id: u8) {
-        self.track_handle.update_head_half_track(track_id);
     }
 }

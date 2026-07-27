@@ -23,7 +23,9 @@ fn main() {
     let (manager, emulator_handle) = dual_buffer.split();
     manager.set_write_protected(true);
 
-    let mut drive = Emulator::new(&ROM, 8, SoftwareMagneticSurface::new(emulator_handle));
+    let surface = SoftwareMagneticSurface::new();
+    let mechanics = pico1541_emulator::drivemechanics::DriveMechanics::new(surface, emulator_handle);
+    let mut drive = Emulator::new(&ROM, 8, mechanics);
     let mut bridge = DummyHost {};
     for _ in 0..4000000 {
         drive.tick(&mut bridge);

@@ -62,7 +62,7 @@ mod tests {
         manager_handle.commit_loaded_track(34, TrackLayout::Accurate, TRACK_18_DATA.len(), Some(2));
         
         // Spin up PIO and DMA
-        let mut surface = PioMagneticSurface::new(pio, emulator_handle);
+        let mut surface = PioMagneticSurface::new(pio);
         surface.start_reading(34, 0);
         surface.set_speed_zone(2);
 
