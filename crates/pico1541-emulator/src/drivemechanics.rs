@@ -99,6 +99,10 @@ impl<S: MagneticSurface> DriveMechanics<S> {
             if motor_on && self.halftrack_head_pos >= 0 && self.halftrack_head_pos <= MAX_HALF_TRACK {
                 log::info!("Track data changed! Restarting reading on half-track {}", self.halftrack_head_pos);
                 self.surface.start_reading(self.halftrack_head_pos as u8, 0);
+                
+                if self.surface.get_active_track_length() == 0 {
+                    self.surface.inject_analog_noise();
+                }
             }
         }
     }
@@ -139,7 +143,10 @@ impl<S: MagneticSurface> DriveMechanics<S> {
             self.surface.set_speed_zone(speed_zone);
             
             if speed_zone != self.surface.get_active_speed_zone().unwrap_or(speed_zone) {
-                self.surface.inject_analog_noise();
+                let motor_on = (self.last_state & MASK_MOTOR) != 0;
+                if motor_on {
+                    self.surface.inject_analog_noise();
+                }
             }
         }
         
@@ -180,11 +187,11 @@ impl<S: MagneticSurface> DriveMechanics<S> {
                         .clamp(MIN_HALF_TRACK, MAX_HALF_TRACK);
 
                 if self.halftrack_head_pos >= 0 && self.halftrack_head_pos <= MAX_HALF_TRACK {
-                    self.surface.start_reading(self.halftrack_head_pos as u8, 0);
-                    
-                    if self.surface.get_active_track_length() == 0 {
+                    let motor_on = (self.last_state & MASK_MOTOR) != 0;
+                    if motor_on {
                         self.surface.inject_analog_noise();
                     }
+                    self.surface.update_head_half_track(self.halftrack_head_pos as u8);
                     
                     hardware.track_changed(self.halftrack_head_pos as u8);
                 }
