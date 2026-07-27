@@ -30,7 +30,6 @@ pub struct SystemBus<H: HostInterface, S: MagneticSurface> {
     pub last_cycle: u32,
     pub current_cycle: u32,
     pub next_sync_cycle: u32,
-    pub sync_required: bool,
     pub so_pulsed: bool,
     pub iec_synced_this_instruction: bool,
     last_iec_out: u8,
@@ -61,7 +60,6 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             last_cycle: 0,
             current_cycle: 0,
             next_sync_cycle: 1024,
-            sync_required: false,
             so_pulsed: false,
             iec_synced_this_instruction: false,
             last_iec_out: 0xFF, // Force first write
@@ -117,7 +115,6 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         if prev_atn != curr_atn {
             // -> Yes, then call the VIA1 CA1 edge handler to trigger an interrupt if needed
             self.via1.ca1_edge(curr_atn != 0);
-            self.sync_required = true;
         }
 
         // :: Calculate the effective VIA1 Port B output
@@ -241,18 +238,17 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 
     #[link_section = ".data.ram_func"]
     #[cold]
-    fn read_io(&mut self, addr: u16, cycle: u32, _ctx: &mut H) -> u8 {
+    fn read_io(&mut self, addr: u16, cycle: u32, ctx: &mut H) -> u8 {
         self.catch_up(cycle);
-        self.sync_required = true;
 
         // Spinlock to exact cycle before reading live IEC state
-        _ctx.spin_until(cycle + 1);
+        ctx.spin_until(cycle);
 
         let result = if (addr & 0x0400) == 0 {
-            _ctx.set_debug_1();
+            ctx.set_debug_1();
             let reg = (addr & 0x0F) as usize;
             if reg == 0x00 || reg == 0x0F {
-                self.sync_iec_bus(_ctx);
+                self.sync_iec_bus(ctx);
             }
             
             self.via1.read(addr)
@@ -267,7 +263,6 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     #[cold]
     fn write_io(&mut self, addr: u16, val: u8, cycle: u32, ctx: &mut H) {
         self.catch_up(cycle);
-        self.sync_required = true;
 
         // Spinlock to exact cycle before writing to physical pins
         ctx.spin_until(cycle);

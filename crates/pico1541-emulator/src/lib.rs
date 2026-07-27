@@ -74,7 +74,6 @@ pub struct Emulator<H: HostInterface, S: MagneticSurface> {
     pub cpu: CPU,
     pub memory: SystemBus<H, S>,
     pub cycles: u32,
-    last_ram_execution: bool,
 }
 
 impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
@@ -84,7 +83,6 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
             cpu: CPU::new(),
             memory: bus,
             cycles: 0,
-            last_ram_execution: false,
         }
     }
 
@@ -99,7 +97,6 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         emu_debug!("Emulator Reset");
         self.memory.reset(hw);
         self.cpu.reset(&mut self.memory, hw);
-        self.last_ram_execution = false;
         self.cycles = self.cpu.cycles;
         self.memory.mechanics.update_state(self.memory.via2.get_pb_out(), hw);
     }
@@ -123,31 +120,18 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         let start_cycle = self.cpu.cycles;
         self.memory.current_cycle = start_cycle;
         
-        let pc = self.cpu.pc;
-        let is_ram_execution = pc < 0x8000;
-        if is_ram_execution != self.last_ram_execution {
-            if is_ram_execution {
-                emu_info!("FASTLOAD: PC jumped to RAM at ${:04X}!", pc);
-            } else {
-                emu_info!("FASTLOAD: PC returned to ROM at ${:04X}! V1(IFR={:02X},IER={:02X}) V2(IFR={:02X},IER={:02X})", 
-                    pc, self.memory.via1.ifr, self.memory.via1.ier, self.memory.via2.ifr, self.memory.via2.ier);
-            }
-            self.last_ram_execution = is_ram_execution;
-        }
-
         self.memory.iec_synced_this_instruction = false;
         let elapsed = self.cpu.step(&mut self.memory, hw);
         
         // Poll IEC and DriveMechanics on every instruction for real-time accuracy without jitter
         self.memory.poll_realtime(hw, elapsed);
         
-        if self.cpu.cycles.wrapping_sub(self.memory.next_sync_cycle) < 0x80000000 || self.memory.sync_required {
+        if self.cpu.cycles.wrapping_sub(self.memory.next_sync_cycle) < 0x80000000 {
             hw.spin_until(self.cpu.cycles);
         }
 
         hw.clear_debug_pins();
         self.memory.catch_up(self.cpu.cycles);
-        self.memory.sync_required = false;
         
         if self.memory.so_pulsed {
             self.memory.so_pulsed = false;
