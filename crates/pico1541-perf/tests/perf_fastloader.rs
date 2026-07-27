@@ -14,7 +14,7 @@ mod tests {
     use pico1541_common::context::ViaHardware;
     use pico1541_common::interface::{DriveEvent, HostInterface};
     use pico1541_common::magnetic_surface::MagneticSurface;
-    use pico1541_emulator::Emulator;
+    use pico1541_emulator::{Emulator, DriveMechanics};
 
     struct DummyHost;
 
@@ -43,8 +43,6 @@ impl HostInterface for DummyHost {
     }
 
     impl MagneticSurface for DummySurface {
-        fn pop_force_disk_change(&mut self) -> bool { false }
-        fn is_write_protected(&self) -> bool { true }
         fn try_read_byte(&mut self, delta_cycles: u32) -> Option<u8> {
             self.cycles_since_byte += delta_cycles;
             if self.cycles_since_byte >= 26 {
@@ -56,13 +54,9 @@ impl HostInterface for DummyHost {
         }
         fn is_sync_active(&self) -> bool { false }
         fn get_absolute_head_position(&self, _master_clock: u32) -> u32 { 0 }
-        fn write_byte_at(&mut self, _index: u32, _data: u8) {}
-        fn start_reading(&mut self, _track_id: u8, _rotation_fixed: u32) {}
-        fn stop_reading(&mut self) {}
         fn set_speed_zone(&mut self, _zone: u8) {}
-        fn inject_analog_noise(&mut self) {}
-        fn get_active_speed_zone(&self) -> Option<u8> { Some(0) }
-        fn get_active_track_length(&self) -> usize { 0 }
+        fn set_motor_running(&mut self, _running: bool) {}
+        fn set_stream_source(&mut self, _source: pico1541_common::track_buffer::TrackStream) {}
     }
 
     static ROM: [u8; 16384] = {
@@ -119,7 +113,9 @@ impl HostInterface for DummyHost {
         }
 
         let surface = DummySurface { cycles_since_byte: 0 };
-        let mut emulator = Emulator::new(&ROM, 8, surface);
+        static BUFFER: pico1541_common::track_buffer::DualCoreTrackBuffer = pico1541_common::track_buffer::DualCoreTrackBuffer::new();
+        let mechanics = DriveMechanics::new(surface, BUFFER.split().1);
+        let mut emulator = Emulator::new(&ROM, 8, mechanics);
         let mut host = DummyHost;
 
         emulator.reset(&mut host);
@@ -188,7 +184,9 @@ impl HostInterface for DummyHost {
         }
 
         let surface = DummySurface { cycles_since_byte: 0 };
-        let mut emulator = Emulator::new(&ROM_2BIT, 8, surface);
+        static BUFFER: pico1541_common::track_buffer::DualCoreTrackBuffer = pico1541_common::track_buffer::DualCoreTrackBuffer::new();
+        let mechanics = DriveMechanics::new(surface, BUFFER.split().1);
+        let mut emulator = Emulator::new(&ROM_2BIT, 8, mechanics);
         let mut host = DummyHost;
 
         emulator.reset(&mut host);

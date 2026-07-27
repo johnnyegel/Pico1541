@@ -169,26 +169,17 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             }
         }
 
-        // Hardware wiring and VIA tick logic is now handled in catch_up,
-        // which guarantees it executes precisely mid-instruction if an I/O read/write occurs!
-        // We no longer tick mechanics here.
+        self.poll_mechanics(elapsed);
     }
 
     #[link_section = ".data.ram_func"]
-    #[inline]
-    pub fn tick_cycles(&mut self, delta: u32) {
+    #[inline(always)]
+    pub fn poll_mechanics(&mut self, delta: u32) {
         if delta == 0 {
             return;
         }
         
         self.mechanics.tick();
-        
-        if self.via1.any_active() {
-            self.via1.tick_cycles(delta);
-        }
-        if self.via2.any_active() {
-            self.via2.tick_cycles(delta);
-        }
 
         // Hardware Wiring: Pull bytes from the DMA buffer and wire SYNC/SO directly to VIA2/CPU.
         let is_motor_on = (self.via2.orb | !self.via2.ddrb) & 0x04 != 0;
@@ -228,6 +219,21 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
                 let index = self.mechanics.surface.get_absolute_head_position(0);
                 self.mechanics.write_byte_at(index, self.via2.ora);
             }
+        }
+    }
+
+    #[link_section = ".data.ram_func"]
+    #[inline]
+    pub fn tick_cycles(&mut self, delta: u32) {
+        if delta == 0 {
+            return;
+        }
+        
+        if self.via1.any_active() {
+            self.via1.tick_cycles(delta);
+        }
+        if self.via2.any_active() {
+            self.via2.tick_cycles(delta);
         }
     }
 

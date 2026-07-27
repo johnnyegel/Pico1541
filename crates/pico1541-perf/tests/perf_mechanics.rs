@@ -52,15 +52,9 @@ mod tests {
         fn is_sync_active(&self) -> bool { self.sync_active }
         fn try_read_byte(&mut self, _delta: u32) -> Option<u8> { self.next_byte.take() }
         fn get_absolute_head_position(&self, _master_clock: u32) -> u32 { 0 }
-        fn write_byte_at(&mut self, _index: u32, _data: u8) {}
-        fn start_reading(&mut self, _track_id: u8, _rotation_fixed: u32) {}
-        fn stop_reading(&mut self) {}
-        fn is_write_protected(&self) -> bool { true }
-        fn pop_force_disk_change(&mut self) -> bool { false }
         fn set_speed_zone(&mut self, _zone: u8) {}
-        fn inject_analog_noise(&mut self) {}
-        fn get_active_speed_zone(&self) -> Option<u8> { Some(0) }
-        fn get_active_track_length(&self) -> usize { 0 }
+        fn set_motor_running(&mut self, _running: bool) {}
+        fn set_stream_source(&mut self, _source: pico1541_common::track_buffer::TrackStream) {}
     }
 
     struct DummyHost;
@@ -81,17 +75,16 @@ impl HostInterface for DummyHost {
     #[test]
     fn test_mechanics_fast_path() {
         let surface = DummySurface { sync_active: false, next_byte: None };
-        let mut mechanics = DriveMechanics::new(surface);
+        static BUFFER: pico1541_common::track_buffer::DualCoreTrackBuffer = pico1541_common::track_buffer::DualCoreTrackBuffer::new();
+        let mut mechanics = DriveMechanics::new(surface, BUFFER.split().1);
         let mut host = DummyHost;
-        let mut via1 = Via6522::new();
-        let mut via2 = Via6522::new();
 
         // Setup Motor ON (Bit 2 = 0x04)
         mechanics.update_state(0x04, &mut host);
         
         let cycles = measure_cycles!({
             for _ in 0..1000 {
-                mechanics.tick_cycles(&mut host, &mut via1, &mut via2, 1);
+                mechanics.tick();
             }
             core::hint::black_box(&mechanics);
         });
@@ -99,12 +92,30 @@ impl HostInterface for DummyHost {
         defmt::info!("DriveMechanics 1000 tick_cycles(1) fast-path took {} CPU cycles", cycles);
     }
 
+    #[test]
+    fn test_mechanics_sync_active() {
+        let surface = DummySurface { sync_active: true, next_byte: None };
+        static BUFFER: pico1541_common::track_buffer::DualCoreTrackBuffer = pico1541_common::track_buffer::DualCoreTrackBuffer::new();
+        let mut mechanics = DriveMechanics::new(surface, BUFFER.split().1);
+        let mut host = DummyHost;
 
+        mechanics.update_state(0x04, &mut host);
+        
+        let cycles = measure_cycles!({
+            for _ in 0..1000 {
+                mechanics.tick();
+            }
+            core::hint::black_box(&mechanics);
+        });
+        
+        defmt::info!("DriveMechanics 1000 tick_cycles(1) sync-active took {} CPU cycles", cycles);
+    }
 
     #[test]
     fn test_mechanics_slow_path() {
         let surface = DummySurface { sync_active: false, next_byte: Some(0x55) };
-        let mut mechanics = DriveMechanics::new(surface);
+        static BUFFER: pico1541_common::track_buffer::DualCoreTrackBuffer = pico1541_common::track_buffer::DualCoreTrackBuffer::new();
+        let mut mechanics = DriveMechanics::new(surface, BUFFER.split().1);
         let mut host = DummyHost;
         let mut via1 = Via6522::new();
         let mut via2 = Via6522::new();
@@ -115,7 +126,7 @@ impl HostInterface for DummyHost {
             for _ in 0..1000 {
                 // Ensure there is always a byte available to force slow path
                 unsafe { core::ptr::write_volatile(&mut mechanics.surface.next_byte, Some(0x55)) };
-                mechanics.tick_cycles(&mut host, &mut via1, &mut via2, 1);
+                mechanics.tick();
             }
             core::hint::black_box(&mechanics);
         });

@@ -202,12 +202,15 @@ impl MagneticSurface for PioMagneticSurface {
     }
 
     #[link_section = ".data.ram_func"]
+    #[inline(always)]
     fn get_absolute_head_position(&self, _master_clock: u32) -> u32 {
         let dma = pac::DMA;
         let remaining = dma.ch(0).trans_count().read();
         self.stream_length.saturating_sub(remaining)
     }
 
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
     fn set_motor_running(&mut self, is_running: bool) {
         if self.is_motor_on == is_running {
             return;
@@ -226,6 +229,8 @@ impl MagneticSurface for PioMagneticSurface {
         }
     }
 
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
     fn set_speed_zone(&mut self, expected_speed_zone: u8) {
         let register_value = PIO_SPEED_ZONES[(expected_speed_zone & 3) as usize];
         let clk_int = (register_value >> 8) as u16;
@@ -237,6 +242,8 @@ impl MagneticSurface for PioMagneticSurface {
         });
     }
 
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
     fn set_stream_source(&mut self, stream: TrackStream) {
         let track_ptr = stream.as_dma_ptr();
         let track_length = stream.length;
