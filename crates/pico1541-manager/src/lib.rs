@@ -47,8 +47,6 @@ pub enum InternalCommand {
 
 pub static CMD_CHANNEL: Channel<CriticalSectionRawMutex, InternalCommand, 128> = Channel::new();
 pub static TRACK_CHANNEL: Channel<CriticalSectionRawMutex, u8, 1> = Channel::new();
-pub static SHARED_MOTOR_ON: portable_atomic::AtomicBool = portable_atomic::AtomicBool::new(false);
-pub static SHARED_HALF_TRACK: portable_atomic::AtomicU8 = portable_atomic::AtomicU8::new(36);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

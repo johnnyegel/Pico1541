@@ -393,7 +393,8 @@ async fn core0_perf_task(config: &'static pico1541_common::snooper::SnooperConfi
             config.emu_speed_hz.store(speed_hz, Ordering::Relaxed);
             config.core0_avg_raw.store(max_load, Ordering::Relaxed);
             
-            defmt::info!("SPEED: {} Hz, MAX LOAD: {} (out of {})", speed_hz, max_load, (SYSTEM_CLOCK_FREQ / 50));
+            // FIXME! Remove this
+            //defmt::info!("SPEED: {} Hz, MAX LOAD: {} (out of {})", speed_hz, max_load, (SYSTEM_CLOCK_FREQ / 50));
 
             ticks_since_last = 0;
             max_load = 0;

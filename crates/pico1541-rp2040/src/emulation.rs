@@ -4,7 +4,7 @@ use pico1541_common::context::ViaHardware;
 use pico1541_common::snooper::{IecSnooper, SnooperConfig};
 use pico1541_common::util::bit_align_u32;
 use crate::driver::leds::ActivityLed;
-use pico1541_manager::{EVENT_CHANNEL};
+use pico1541_manager::{EVENT_CHANNEL, TRACK_CHANNEL, CMD_CHANNEL, InternalCommand};
 use pico1541_common::interface::HostInterface;
 use crate::PioMagneticSurface;
 
@@ -319,7 +319,11 @@ impl HostInterface for HardwareBridge {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn track_changed(&mut self, half_track: u8) {
-        self.config.half_track.store(half_track, Ordering::Relaxed);
+        // We notify the TRACK_CHANNEL directly instead of using DriveEvent
+        // First we drain the channel to avoid blocking if the manager is behind
+        while TRACK_CHANNEL.try_receive().is_ok() {}
+        let _ = TRACK_CHANNEL.try_send(half_track);
+        
         // Pend TIMER_IRQ_3 on Core 0 to wake up the DiskTask!
         embassy_rp::pac::TIMER.intf().write(|w| w.set_alarm(3, true));
     }
@@ -413,9 +417,7 @@ impl ViaHardware for HardwareBridge {
         let motor_on_bool = motor_bit != 0;
         if motor_on_bool != self.motor_on {
             self.motor_on = motor_on_bool;
-            self.config.motor_on.store(motor_on_bool, Ordering::Relaxed);
-            // Pend TIMER_IRQ_3 to wake up Core 0 (DiskTask) without locks
-            embassy_rp::pac::TIMER.intf().write(|w| w.set_alarm(3, true));
+            let _ = CMD_CHANNEL.try_send(InternalCommand::MotorState(motor_on_bool));
         }
     }
 
