@@ -33,5 +33,14 @@ SECTIONS {
         *(.sram3 .sram3.*);
         . = ALIGN(4);
     } > SRAM3
+
+    .ram_rodata : ALIGN(4) {
+        __sram_rodata = .;
+        *pico1541_emulator*(.rodata .rodata.*);
+        *racc6502v4*(.rodata .rodata.*);
+        . = ALIGN(4);
+        __eram_rodata = .;
+    } > RAM AT > FLASH
+    __siram_rodata = LOADADDR(.ram_rodata);
 }
-INSERT AFTER .bss;
+INSERT AFTER .data;

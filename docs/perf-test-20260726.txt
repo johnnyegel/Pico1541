@@ -1,0 +1,58 @@
+   Compiling pico1541-perf v0.1.0 (/home/johnny/git/dev/Pico1541/crates/pico1541-perf)
+    Finished `release` profile [optimized] target(s) in 1.65s
+     Running tests/perf_6502.rs (/home/johnny/git/dev/Pico1541/target/thumbv6m-none-eabi/release/deps/perf_6502-9338e9403acc6a1f)
+ WARN probe_rs::util::rtt::processing: Insufficient DWARF info; compile your program with `debug = 2` to enable location info.
+      Erasing ✔ 100% [####################]  68.00 KiB @  43.90 KiB/s (took 2s)
+  Programming ✔ 100% [####################]  68.00 KiB @  21.37 KiB/s (took 3s)                                                                                             Finished in 4.84s
+(1/5) running `test_mos6502`...
+0.001671 [INFO ] mos6502 1000 instructions took 179869 CPU cycles (<crate> └─ <invalid location: defmt frame-index: 3>:0)
+(2/5) running `test_racc6502`...
+0.002218 [INFO ] racc6502 3000 ticks took 218127 CPU cycles (<crate> └─ <invalid location: defmt frame-index: 4>:0)
+(3/5) running `test_racc6502v2`...
+0.002712 [INFO ] racc6502v2 3000 ticks took 191278 CPU cycles (<crate> └─ <invalid location: defmt frame-index: 5>:0)
+(4/5) running `test_racc6502v3`...
+0.003052 [INFO ] racc6502v3 1000 instructions took 113762 CPU cycles (<crate> └─ <invalid location: defmt frame-index: 6>:0)
+(5/5) running `test_racc6502v4`...
+0.003343 [INFO ] racc6502v4 1000 instructions took 87114 CPU cycles (<crate> └─ <invalid location: defmt frame-index: 7>:0)
+all tests passed!
+Firmware exited successfully
+ WARN probe_rs::architecture::arm::communication_interface: Failed to switch to DP Multidrop(11002927): An error occurred in the communication with an access port or debug port.
+     Running tests/perf_fastloader.rs (/home/johnny/git/dev/Pico1541/target/thumbv6m-none-eabi/release/deps/perf_fastloader-ea262eed2fa016be)
+ WARN probe_rs::util::rtt::processing: Insufficient DWARF info; compile your program with `debug = 2` to enable location info.
+      Erasing ✔ 100% [####################] 108.00 KiB @  46.70 KiB/s (took 2s)                                                                                             Finished in 7.41s
+(1/2) running `test_fastloader_stress`...
+0.237425 [INFO ] Emulated 1,000,000 cycles in 3437939 ARM CPU cycles (<crate> └─ <invalid location: defmt frame-index: 6>:0)
+0.237436 [INFO ] Total CPU instructions (ticks) executed: 333334 (<crate> └─ <invalid location: defmt frame-index: 7>:0)
+(2/2) running `test_fastloader_2bit_unrolled`...
+0.519145 [INFO ] 2-BIT UNROLLED: Emulated 1,000,000 cycles in 9721677 ARM CPU cycles (<crate> └─ <invalid location: defmt frame-index: 4>:0)
+0.519156 [INFO ] 2-BIT UNROLLED: Total CPU instructions executed: 358975 (<crate> └─ <invalid location: defmt frame-index: 5>:0)
+all tests passed!
+Firmware exited successfully
+ WARN probe_rs::architecture::arm::communication_interface: Failed to switch to DP Multidrop(11002927): An error occurred in the communication with an access port or debug port.
+     Running tests/perf_mechanics.rs (/home/johnny/git/dev/Pico1541/target/thumbv6m-none-eabi/release/deps/perf_mechanics-c2f8b5821b680fbb)
+ WARN probe_rs::util::rtt::processing: Insufficient DWARF info; compile your program with `debug = 2` to enable location info.
+      Erasing ✔ 100% [####################]  12.00 KiB @  23.71 KiB/s (took 1s)
+  Programming ✔ 100% [####################]  12.00 KiB @  17.39 KiB/s (took 1s)                                                                                             Finished in 1.30s
+(1/2) running `test_mechanics_fast_path`...
+0.000715 [INFO ] DriveMechanics 1000 tick_cycles(1) fast-path took 9686 CPU cycles (<crate> └─ <invalid location: defmt frame-index: 3>:0)
+(2/2) running `test_mechanics_slow_path`...
+0.000741 [INFO ] DriveMechanics 1000 tick_cycles(1) slow-path took 7547 CPU cycles (<crate> └─ <invalid location: defmt frame-index: 4>:0)
+all tests passed!
+Firmware exited successfully
+ WARN probe_rs::architecture::arm::communication_interface: Failed to switch to DP Multidrop(11002927): An error occurred in the communication with an access port or debug port.
+     Running tests/perf_via.rs (/home/johnny/git/dev/Pico1541/target/thumbv6m-none-eabi/release/deps/perf_via-84867e8a089bc671)
+ WARN probe_rs::util::rtt::processing: Insufficient DWARF info; compile your program with `debug = 2` to enable location info.
+      Erasing ✔ 100% [####################]  12.00 KiB @  27.92 KiB/s (took 0s)
+  Programming ✔ 100% [####################]  12.00 KiB @  17.52 KiB/s (took 1s)                                                                                             Finished in 1.22s
+(1/2) running `test_via6522_tick`...
+0.000722 [INFO ] Via6522 1000 tick_cycles(1) took 13860 CPU cycles (<crate> └─ <invalid location: defmt frame-index: 4>:0)
+(2/2) running `test_via6522_read_write`...
+0.000747 [INFO ] Via6522 1000 read/write operations took 7374 CPU cycles (<crate> └─ <invalid location: defmt frame-index: 3>:0)
+all tests passed!
+Firmware exited successfully
+ WARN probe_rs::architecture::arm::communication_interface: Failed to switch to DP Multidrop(11002927): An error occurred in the communication with an access port or debug port.
+   Doc-tests pico1541_perf
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

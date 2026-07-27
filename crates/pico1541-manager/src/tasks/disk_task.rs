@@ -129,8 +129,18 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                 let data = self.track_handle.start_track_load();
                 
                 let start_time = embassy_time::Instant::now();
+                let track_change_fut = async {
+                    loop {
+                        let current_ht = crate::SHARED_HALF_TRACK.load(portable_atomic::Ordering::Relaxed);
+                        if current_ht != target_ht {
+                            return current_ht;
+                        }
+                        embassy_time::Timer::after_millis(1).await;
+                    }
+                };
+
                 // Read track but CANCEL if the head steps again!
-                match select(disk.read_track(target_ht, data), TRACK_CHANNEL.receive()).await {
+                match select(disk.read_track(target_ht, data), track_change_fut).await {
                     Either::First(Ok(layout)) => {
                         self.track_handle.commit_loaded_track(pico1541_common::track_buffer::TrackIdentifier::new(target_ht, layout.2.unwrap_or_else(|| pico1541_common::track_buffer::default_speed_zone(target_ht))), layout.0, layout.1);
                         let elapsed = start_time.elapsed().as_millis();
@@ -161,23 +171,43 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
 
     pub async fn run(&mut self) {
         let mut motor_on = false;
+        let mut last_ht = crate::SHARED_HALF_TRACK.load(portable_atomic::Ordering::Relaxed);
+        let mut last_motor = crate::SHARED_MOTOR_ON.load(portable_atomic::Ordering::Relaxed);
         loop {
-            // Check if there is a pending track event IMMEDIATELY.
-            // If so, handle it first to prevent select3 from randomly choosing the timer/cmd.
-            if let Ok(half_track) = TRACK_CHANNEL.try_receive() {
-                self.handle_track_event(half_track).await;
+            let current_ht = crate::SHARED_HALF_TRACK.load(portable_atomic::Ordering::Relaxed);
+            if current_ht != last_ht {
+                last_ht = current_ht;
+                self.handle_track_event(current_ht).await;
                 continue;
             }
 
-            let track_fut = TRACK_CHANNEL.receive();
-            let timer_fut = embassy_time::Timer::after_millis(20);
+            let current_motor = crate::SHARED_MOTOR_ON.load(portable_atomic::Ordering::Relaxed);
+            if current_motor != last_motor {
+                last_motor = current_motor;
+                let active = current_motor;
+                if active && !motor_on {
+                    let mut disk_opt = self.disk_image.lock().await;
+                    if let Some(disk) = disk_opt.as_mut() {
+                        if let Some(vdir) = disk.as_virtual_disk_mut() {
+                            vdir.source.rewind();
+                            vdir.next_sector_to_update = 1;
+                            let data = self.track_handle.start_track_modification();
+                            vdir.force_update_directory_sectors(data).await;
+                            self.track_handle.commit_modified_track();
+                            vdir.treadmill_spinup_delay = 10;
+                        }
+                    }
+                }
+                motor_on = active;
+                // Motor state is tracked in the `motor_on` variable
+                continue;
+            }
+
+            let timer_fut = embassy_time::Timer::after_micros(500);
             let cmd_fut = CMD_CHANNEL.receive();
 
-            match select3(track_fut, timer_fut, cmd_fut).await {
-                Either3::First(half_track) => {
-                    self.handle_track_event(half_track).await;
-                }
-                Either3::Second(_) => {
+            match select(timer_fut, cmd_fut).await {
+                Either::First(_) => {
                     // (first_missing_block, batch_count)
                     let mut block_batch: Option<(usize, usize)> = None;
                     {
@@ -321,24 +351,9 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                         self.track_handle.set_active_layout(old_layout);
                     }
                 }
-                Either3::Third(cmd) => {
+                Either::Second(cmd) => {
                     match cmd {
-                        InternalCommand::MotorState(active) => {
-                            if active && !motor_on {
-                                let mut disk_opt = self.disk_image.lock().await;
-                                if let Some(disk) = disk_opt.as_mut() {
-                                    if let Some(vdir) = disk.as_virtual_disk_mut() {
-                                        vdir.source.rewind();
-                                        vdir.next_sector_to_update = 1;
-                                        let data = self.track_handle.start_track_modification();
-                                        vdir.force_update_directory_sectors(data).await;
-                                        self.track_handle.commit_modified_track();
-                                        vdir.treadmill_spinup_delay = 10;
-                                    }
-                                }
-                            }
-                            motor_on = active;
-                        }
+                        InternalCommand::MotorState(_) => {}
                         
 
                         InternalCommand::ImageMounted => {

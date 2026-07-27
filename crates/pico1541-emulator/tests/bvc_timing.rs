@@ -26,9 +26,11 @@ fn test_bvc_so_timing() {
     // Setup a GCR track with a single byte for testing
     {
         let inactive = manager.get_dormant_buffer_mut();
-        inactive.data[0] = 0xFF; inactive.data[1] = 0xFF; inactive.data[2] = 0xFF;
-        inactive.data[3] = 0x55;
-        inactive.data[4] = 0xAA;
+        inactive.data[0] = 0x55;
+        inactive.data[1] = 0xAA;
+        inactive.data[2] = 0x55;
+        inactive.data[3] = 0xAA;
+        inactive.data[4] = 0x55;
     }
     manager.commit_loaded_track(pico1541_common::track_buffer::TrackIdentifier::new(0, pico1541_common::track_buffer::default_speed_zone(0)), TrackLayout::Accurate, 8000);
 
@@ -63,8 +65,10 @@ fn test_bvc_so_timing() {
     let mut finished = false;
     for _ in 0..1000 {
         emu.step(&mut hw);
-        
-        
+        let pc = emu.cpu.pc;
+        let a = emu.cpu.a;
+        println!("PC: {:04X}, A: {:02X}, in_a: {:02X}", pc, a, emu.memory.via2.in_a);
+
         if emu.cpu.pc >= 0x0009 {
             finished = true;
             break;

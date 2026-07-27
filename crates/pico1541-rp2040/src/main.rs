@@ -109,6 +109,23 @@ static mut ROM_BUFFER: [u8; 16384] = [0; 16384];
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
+    // Copy .ram_rodata from Flash to RAM
+    unsafe {
+        extern "C" {
+            static mut __sram_rodata: u32;
+            static mut __eram_rodata: u32;
+            static __siram_rodata: u32;
+        }
+        let mut dest = core::ptr::addr_of_mut!(__sram_rodata);
+        let end = core::ptr::addr_of_mut!(__eram_rodata);
+        let mut src = core::ptr::addr_of!(__siram_rodata);
+        while dest < end {
+            core::ptr::write(dest, core::ptr::read(src));
+            dest = dest.add(1);
+            src = src.add(1);
+        }
+    }
+
     // Prevent LTO from stripping RAM_POINTER by visibly using it
     let ptr_addr = core::hint::black_box(core::ptr::addr_of!(pico1541_emulator::RAM_POINTER));
     info!("RAM_POINTER is at {}", ptr_addr as u32);
@@ -376,6 +393,8 @@ async fn core0_perf_task(config: &'static pico1541_common::snooper::SnooperConfi
             config.emu_speed_hz.store(speed_hz, Ordering::Relaxed);
             config.core0_avg_raw.store(max_load, Ordering::Relaxed);
             
+            defmt::info!("SPEED: {} Hz, MAX LOAD: {} (out of {})", speed_hz, max_load, (SYSTEM_CLOCK_FREQ / 50));
+
             ticks_since_last = 0;
             max_load = 0;
             last_time = now;

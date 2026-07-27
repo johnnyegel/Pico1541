@@ -169,7 +169,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             }
         }
 
-        self.poll_mechanics(elapsed);
+        // Mechanics are now polled in catch_up
     }
 
     #[link_section = ".data.ram_func"]
@@ -229,6 +229,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             return;
         }
         
+        self.poll_mechanics(delta);
+
         if self.via1.any_active() {
             self.via1.tick_cycles(delta);
         }
@@ -247,9 +249,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         _ctx.spin_until(cycle + 1);
 
         let result = if (addr & 0x0400) == 0 {
-            if (addr & 0x0F) == 0x00 {
-                _ctx.debug_pin_0(true);
-            }
+            _ctx.debug_pin_1(true);
             let reg = (addr & 0x0F) as usize;
             if reg == 0x00 || reg == 0x0F {
                 self.sync_iec_bus(_ctx);
@@ -273,9 +273,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         ctx.spin_until(cycle);
 
         if (addr & 0x0400) == 0 {
-            if (addr & 0x0F) == 0x00 {
-                ctx.debug_pin_0(true);
-            }
+            ctx.debug_pin_1(true);
             let reg = (addr & 0x0F) as usize;
             self.via1.write(addr, val);
             if reg == 0x00 || reg == 0x02 || reg == 0x0F {

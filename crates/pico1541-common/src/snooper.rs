@@ -92,6 +92,8 @@ pub struct SnooperConfig {
     pub halt_emulator: AtomicBool,
     pub emu_total_ticks: portable_atomic::AtomicU32,
     pub emu_total_idles: portable_atomic::AtomicU32,
+    pub motor_on: AtomicBool,
+    pub half_track: AtomicU8,
 }
 
 impl SnooperConfig {
@@ -114,6 +116,8 @@ impl SnooperConfig {
             halt_emulator: AtomicBool::new(false),
             emu_total_ticks: portable_atomic::AtomicU32::new(0),
             emu_total_idles: portable_atomic::AtomicU32::new(0),
+            motor_on: AtomicBool::new(false),
+            half_track: AtomicU8::new(36), // Default track 18
         }
     }
 

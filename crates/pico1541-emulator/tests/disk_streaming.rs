@@ -7,7 +7,6 @@ fn wait_for_pulse(bus: &mut pico1541_emulator::systembus::SystemBus<TestBridge, 
     let mut ticks = 0;
     loop {
         ticks += 1;
-        bus.poll_mechanics(1);
         bus.tick_cycles(1);
         let pulse = bus.so_pending();
         if pulse && !last_pulse {
@@ -109,8 +108,7 @@ fn test_disk_streaming_sync() {
     // First byte idx 0: 0xFF
     // Due to the new SYNC logic, the FIRST 0xFF is treated as data and pulses SO!
     let mut ticks = 0;
-    while !({ bus.poll_mechanics(1);
-        bus.tick_cycles(1); bus.so_pending() }) {
+    while !({ bus.tick_cycles(1); bus.so_pending() }) {
         ticks += 1;
         if ticks > 100 {
              panic!("Timeout waiting for first byte");
@@ -119,15 +117,13 @@ fn test_disk_streaming_sync() {
     assert!(bus.via2.in_b & 0x80 != 0, "SYNC should NOT be indicated yet");
     
     // Wait for the SO pulse to clear
-    while { bus.poll_mechanics(1);
-        bus.tick_cycles(1); bus.so_pending() } {}
+    while { bus.tick_cycles(1); bus.so_pending() } {}
 
     // Second byte idx 1: 0xFF
     // Now last_gcr_byte == 0xFF, so it establishes SYNC!
     for i in 0..26 {
         assert!(
-            !( { bus.poll_mechanics(1);
-        bus.tick_cycles(1); bus.so_pending() } ),
+            !( { bus.tick_cycles(1); bus.so_pending() } ),
             "SYNC should NOT pulse SO (cycle {})", i
         );
     }
@@ -136,8 +132,7 @@ fn test_disk_streaming_sync() {
     // Third byte idx 2: 0x55 (Data)
     // This one IS data, so it should return true on the 26th cycle.
     let mut ticks = 0;
-    while !({ bus.poll_mechanics(1);
-        bus.tick_cycles(1); bus.so_pending() }) {
+    while !({ bus.tick_cycles(1); bus.so_pending() }) {
         ticks += 1;
         if ticks > 100 {
              panic!("Timeout waiting for data byte after SYNC");

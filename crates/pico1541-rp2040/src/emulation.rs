@@ -9,7 +9,7 @@ use embassy_rp::pac;
 use cortex_m::asm::nop;
 use pico1541_common::interface::HostInterface;
 use crate::PioMagneticSurface;
-use pico1541_common::SYSTEM_CLOCK_FREQ;
+
 use pico1541_common::DriveEvent;
 
 use pico1541_emulator::{DriveMechanics, Emulator};
@@ -63,6 +63,8 @@ pub fn spawn_core1(
         #[link_section = ".sram3"]
         static mut EMULATOR: core::mem::MaybeUninit<Emulator<HardwareBridge, PioMagneticSurface>> = core::mem::MaybeUninit::uninit();
 
+        defmt::info!("Core 1 spawned! Initializing emulator...");
+
         let drive = unsafe {
             let ptr: *mut Emulator<HardwareBridge, PioMagneticSurface> = core::ptr::addr_of_mut!(EMULATOR).cast();
             let surface = PioMagneticSurface::new(pio0);
@@ -72,49 +74,11 @@ pub fn spawn_core1(
         };
         drive.reset(&mut bridge);
         
-        cortex_m::interrupt::disable(); // Guarantee no IRQs preempt the emulator core
-        let mut syst = unsafe { cortex_m::Peripherals::steal().SYST };
-        syst.set_clock_source(cortex_m::peripheral::syst::SystClkSource::Core);
-        syst.set_reload(0x00FFFFFF);
-        syst.clear_current();
-        syst.enable_counter();
+        defmt::info!("Emulator initialized. Starting run loop...");
 
+        cortex_m::interrupt::disable(); // Guarantee no IRQs preempt the emulator core
         run(drive, &mut bridge, rom_buffer);
     });
-}
-
-struct Rp2040Timer;
-
-impl Rp2040Timer {
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn time_us(&self) -> u32 {
-        embassy_rp::pac::TIMER.timelr().read()
-    }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn syst_current(&self) -> u32 {
-        cortex_m::peripheral::SYST::get_current()
-    }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn syst_per_us(&self) -> u32 {
-        SYSTEM_CLOCK_FREQ / 1_000_000
-    }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn yield_cpu(&self) {
-        cortex_m::asm::nop();
-    }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn halt_delay(&self) {
-        cortex_m::asm::delay(100);
-    }
 }
 
 #[link_section = ".data.ram_func"]
@@ -124,79 +88,87 @@ pub fn run(
     hw: &mut HardwareBridge,
     rom_buffer: &'static [u8; 16384],
 ) -> ! {
-    let timer = Rp2040Timer;
-    let mut idle_counter = 0u32;
-    let mut cycle_counter = 0u32;
-
-    let mut last_tick = timer.time_us();
     let mut was_reset = false;
-
-    let syst_per_us = timer.syst_per_us();
-    let mut last_syst = timer.syst_current();
-    let mut syst_accum = 0u32;
-    let mut now_us = last_tick;
+    hw.timekeeper.base_time_us = embassy_rp::pac::TIMER.timelr().read().wrapping_sub(emulator.cycles);
 
     loop {
-        let current_syst = timer.syst_current();
-        let diff_syst = last_syst.wrapping_sub(current_syst) & 0x00FFFFFF;
-        last_syst = current_syst;
-
-        syst_accum += diff_syst;
-        while syst_accum >= syst_per_us {
-            syst_accum -= syst_per_us;
-            now_us = now_us.wrapping_add(1);
-        }
-        let now = now_us;
-
         if hw.check_halt_requested() {
-            timer.halt_delay();
-            now_us = timer.time_us();
-            last_tick = now_us;
-            last_syst = timer.syst_current();
-            syst_accum = 0;
+            let start = embassy_rp::pac::TIMER.timelr().read();
+            while embassy_rp::pac::TIMER.timelr().read().wrapping_sub(start) < 100 {
+                cortex_m::asm::nop();
+            }
+            // Update base time so we don't instantly try to catch up the halted time
+            hw.timekeeper.base_time_us = embassy_rp::pac::TIMER.timelr().read().wrapping_sub(emulator.cycles);
             continue;
         }
 
         if hw.consume_trigger_reset() {
             emulator.update_rom(rom_buffer);
             emulator.reset(hw);
+            hw.timekeeper.base_time_us = embassy_rp::pac::TIMER.timelr().read().wrapping_sub(emulator.cycles);
         }
 
-        let mut caught_up = 0;
         let is_reset = hw.is_reset_line_asserted();
-
-        while (now.wrapping_sub(last_tick) as i32) > 0 && caught_up < 500 {
-            hw.base_time_us = last_tick.wrapping_sub(cycle_counter);
-            if is_reset {
-                last_tick = last_tick.wrapping_add(1);
-                cycle_counter = cycle_counter.wrapping_add(1);
-
-                if !was_reset {
-                    emulator.reset(hw);
-                    was_reset = true;
-                }
-            } else {
-                if was_reset {
-                    emulator.reset(hw);
-                    was_reset = false;
-                }
-
-                let elapsed = emulator.tick(hw);
-                last_tick = last_tick.wrapping_add(elapsed);
-                cycle_counter = cycle_counter.wrapping_add(elapsed as u32);
+        let _elapsed = if is_reset {
+            if !was_reset {
+                emulator.reset(hw);
+                was_reset = true;
             }
-            caught_up += 1;
-        }
-
-        if caught_up == 0 {
-            idle_counter = idle_counter.wrapping_add(1);
-            timer.yield_cpu();
-        }
+            hw.timekeeper.base_time_us = embassy_rp::pac::TIMER.timelr().read().wrapping_sub(emulator.cycles);
+            1
+        } else {
+            if was_reset {
+                emulator.reset(hw);
+                hw.timekeeper.base_time_us = embassy_rp::pac::TIMER.timelr().read().wrapping_sub(emulator.cycles);
+                was_reset = false;
+            }
+            emulator.tick(hw)
+        };
+        
+        // At the end of every instruction, we sync up to the new current cycle!
+        hw.timekeeper.sync_until(emulator.cycles);
 
         // Report exactly on every loop, HostInterface does a fast atomic write
-        hw.report_performance_counters(cycle_counter, idle_counter);
+        hw.report_performance_counters(emulator.cycles, hw.timekeeper.idle_counter);
     }
 }
+pub(crate) struct TimeKeeper {
+    pub base_time_us: u32,
+    pub idle_counter: u32,
+}
+
+impl TimeKeeper {
+    pub fn new() -> Self {
+        Self {
+            base_time_us: embassy_rp::pac::TIMER.timelr().read(),
+            idle_counter: 0,
+        }
+    }
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    pub fn sync_until(&mut self, target_cycle: u32) {
+        let target_time = self.base_time_us.wrapping_add(target_cycle);
+        let mut now = embassy_rp::pac::TIMER.timelr().read();
+        
+        let lag = now.wrapping_sub(target_time) as i32;
+        if lag > 0 {
+            // We are lagging behind real-time! Set pin HIGH.
+            embassy_rp::pac::SIO.gpio_out(0).value_set().write_value(1 << 0);
+        } else {
+            // We are ahead of real time (or exactly on time), wait for real time to catch up
+            // Clear the lag pin to indicate we are successfully synchronized.
+            embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(1 << 0);
+            
+            while target_time.wrapping_sub(now) < 0x8000_0000 {
+                self.idle_counter = self.idle_counter.wrapping_add(1);
+                cortex_m::asm::nop();
+                now = embassy_rp::pac::TIMER.timelr().read();
+            }
+        }
+    }
+}
+
 pub(crate) struct IecPins {
     pub(crate) _data_rx: Input<'static>,
     pub(crate) _clk_rx: Input<'static>,
@@ -212,9 +184,9 @@ pub(crate) struct HardwareBridge {
     config: &'static SnooperConfig,
     activity_led: ActivityLed,
     motor_on: bool,
-    dbg_pin_0: Output<'static>,
-    dbg_pin_1: Output<'static>,
-    pub base_time_us: u32,
+    _dbg_pin_0: Output<'static>,
+    _dbg_pin_1: Output<'static>,
+    pub timekeeper: TimeKeeper,
 }
 
 impl HardwareBridge {
@@ -250,9 +222,9 @@ impl HardwareBridge {
             config,
             activity_led,
             motor_on: true,
-            dbg_pin_0,
-            dbg_pin_1,
-            base_time_us: 0,
+            _dbg_pin_0: dbg_pin_0,
+            _dbg_pin_1: dbg_pin_1,
+            timekeeper: TimeKeeper::new(),
         };
         bridge.activity_led.set_state(true, true);
         bridge
@@ -272,9 +244,9 @@ impl HostInterface for HardwareBridge {
     #[inline(always)]
     fn debug_pin_0(&mut self, state: bool) {
         if state {
-            self.dbg_pin_0.set_high();
+            embassy_rp::pac::SIO.gpio_out(0).value_set().write_value(1 << 0);
         } else {
-            self.dbg_pin_0.set_low();
+            embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(1 << 0);
         }
     }
 
@@ -282,27 +254,12 @@ impl HostInterface for HardwareBridge {
     #[inline(always)]
     fn debug_pin_1(&mut self, state: bool) {
         if state {
-            self.dbg_pin_1.set_high();
-        } else {
-            self.dbg_pin_1.set_low();
+            // Ignore state, just toggle to make it easily visible on logic analyzer
+            embassy_rp::pac::SIO.gpio_out(0).value_xor().write_value(1 << 1);
         }
     }
 
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn track_changed(&mut self, half_track: u8) {
-        // We notify the TRACK_CHANNEL directly instead of using DriveEvent
-        // First we drain the channel to avoid blocking if the manager is behind
-        while TRACK_CHANNEL.try_receive().is_ok() {}
-        let _ = TRACK_CHANNEL.try_send(half_track);
-        
-        // Pend TIMER_IRQ_3 on Core 0 to wake up the DiskTask!
-        embassy_rp::pac::TIMER.intf().write(|w| w.set_alarm(3, true));
-        
-        // Use the indicator to beep (from drive_activity context)
-        // Actually, indicator is inside activity task, not available here.
-        // Wait, the user said: "I would like the HostInterface to have a dedicated track_changed method, which exclusively handles head step events."
-    }
+
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
@@ -326,6 +283,14 @@ impl HostInterface for HardwareBridge {
     
     #[link_section = ".data.ram_func"]
     #[inline(always)]
+    fn track_changed(&mut self, half_track: u8) {
+        self.config.half_track.store(half_track, Ordering::Relaxed);
+        // Pend TIMER_IRQ_3 on Core 0 to wake up the DiskTask!
+        embassy_rp::pac::TIMER.intf().write(|w| w.set_alarm(3, true));
+    }
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
     fn get_device_id(&self) -> u8 {
         self.config.device_id.load(Ordering::Relaxed)
     }
@@ -333,10 +298,7 @@ impl HostInterface for HardwareBridge {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn spin_until(&mut self, target_cycle: u32) {
-        let target_time = self.base_time_us.wrapping_add(target_cycle);
-        while target_time.wrapping_sub(pac::TIMER.timelr().read()) < 0x8000_0000 {
-            nop();
-        }
+        self.timekeeper.sync_until(target_cycle);
     }
 
     #[link_section = ".data.ram_func"]
@@ -416,14 +378,12 @@ impl ViaHardware for HardwareBridge {
         let motor_on_bool = motor_bit != 0;
         if motor_on_bool != self.motor_on {
             self.motor_on = motor_on_bool;
-            let _ = CMD_CHANNEL.try_send(InternalCommand::MotorState(motor_on_bool));
+            self.config.motor_on.store(motor_on_bool, Ordering::Relaxed);
+            // Pend TIMER_IRQ_3 to wake up Core 0 (DiskTask) without locks
+            embassy_rp::pac::TIMER.intf().write(|w| w.set_alarm(3, true));
         }
     }
 
-
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
     fn consume_trigger_reset(&mut self) -> bool {
         if self.config.trigger_reset.load(Ordering::Relaxed) {
             self.config.trigger_reset.store(false, Ordering::Relaxed);
