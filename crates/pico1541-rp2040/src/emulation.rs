@@ -180,9 +180,7 @@ pub fn run(
                     was_reset = false;
                 }
 
-                hw.debug_pin_1(true);
                 let elapsed = emulator.tick(hw);
-                hw.debug_pin_1(false);
                 last_tick = last_tick.wrapping_add(elapsed);
                 cycle_counter = cycle_counter.wrapping_add(elapsed as u32);
             }

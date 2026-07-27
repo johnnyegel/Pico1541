@@ -106,7 +106,8 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn tick(&mut self, hw: &mut H) -> u32 {
-        hw.debug_pin_1(true);
+        let pc = self.cpu.pc;
+        hw.debug_pin_1(pc >= 0x0300 && pc < 0x0800);
         
         #[cfg(feature = "flight-recorder")]
         unsafe {

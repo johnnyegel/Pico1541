@@ -17,6 +17,7 @@ pub trait MagneticSurface {
     fn get_active_speed_zone(&self) -> Option<u8>;
     fn get_active_track_length(&self) -> usize;
     fn poll_active_index(&mut self) -> bool { false }
+    fn update_head_half_track(&mut self, track_id: u8);
 }
 
 pub struct SoftwareMagneticSurface {
@@ -145,6 +146,10 @@ impl MagneticSurface for SoftwareMagneticSurface {
 
     fn get_active_track_length(&self) -> usize {
         self.track_handle.get_active_track_length()
+    }
+    
+    fn update_head_half_track(&mut self, track_id: u8) {
+        self.track_handle.update_head_half_track(track_id);
     }
 }
 

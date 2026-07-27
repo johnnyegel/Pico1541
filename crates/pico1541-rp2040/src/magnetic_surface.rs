@@ -322,4 +322,8 @@ impl MagneticSurface for PioMagneticSurface {
             false
         }
     }
+    
+    fn update_head_half_track(&mut self, track_id: u8) {
+        self.track_handle.update_head_half_track(track_id);
+    }
 }
