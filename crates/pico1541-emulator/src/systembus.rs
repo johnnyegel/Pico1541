@@ -242,7 +242,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         self.catch_up(cycle);
 
         // Spinlock to exact cycle before reading live IEC state
-        ctx.spin_until(cycle);
+        ctx.spin_until(cycle + 1);
 
         let result = if (addr & 0x0400) == 0 {
             ctx.set_debug_1();
@@ -265,7 +265,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         self.catch_up(cycle);
 
         // Spinlock to exact cycle before writing to physical pins
-        ctx.spin_until(cycle);
+        ctx.spin_until(cycle + 1);
 
         if (addr & 0x0400) == 0 {
             ctx.set_debug_1();
