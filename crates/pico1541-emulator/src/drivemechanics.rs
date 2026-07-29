@@ -209,10 +209,13 @@ impl<S: MagneticSurface> DriveMechanics<S> {
         log::info!("EVAL current={:?} loaded={:?}", self.current_identifier, loaded_identifier);
         
         if self.current_identifier == loaded_identifier {
-            let stream = TrackStream::from_active_buffer(
-                self.track_handle.get_full_buffer_ptr(), 
-                self.track_handle.get_active_track_length() as u32);
-            self.surface.set_stream_source(stream);
+            let length = self.track_handle.get_active_track_length() as u32;
+            if length > 0 {
+                let stream = TrackStream::from_active_buffer(self.track_handle.get_full_buffer_ptr(), length);
+                self.surface.set_stream_source(stream);
+            } else {
+                self.surface.set_stream_source(TrackStream::noise());
+            }
         } else {
             self.surface.set_stream_source(TrackStream::noise());
         }

@@ -25,10 +25,58 @@ pub enum TrackLayout {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct TrackIdentifier(pub u16);
 
-#[inline]
-pub fn default_speed_zone(half_track: u8) -> u8 {
-    let track = half_track / 2 + 1;
+/// Converts a full CBM track (1-35) into its corresponding physical half-track index (0-68).
+#[inline(always)]
+pub const fn track_to_half_track(track: u8) -> u8 {
+    (track.saturating_sub(1)) * 2
+}
+
+/// Converts a physical half-track index (0-68) into its corresponding full CBM track (1-35).
+#[inline(always)]
+pub const fn half_track_to_track(half_track: u8) -> u8 {
+    half_track / 2 + 1
+}
+
+#[inline(always)]
+pub const fn default_speed_zone(half_track: u8) -> u8 {
+    let track = half_track_to_track(half_track);
     if track <= 17 { 3 } else if track <= 24 { 2 } else if track <= 30 { 1 } else { 0 }
+}
+
+/// Returns the standard exact track capacity in bytes for a given speed zone
+#[inline]
+pub const fn speed_zone_capacity(zone: u8) -> usize {
+    match zone & 3 {
+        3 => 7692,
+        2 => 7142,
+        1 => 6666,
+        0 => 6250,
+        _ => 6250,
+    }
+}
+
+/// Returns the exact bitrate in bytes/sec for a given speed zone
+#[inline]
+pub const fn speed_zone_bitrate(zone: u8) -> u32 {
+    match zone & 3 {
+        3 => 38461, // 307.69 kbps / 8 (3.25 us/bit)
+        2 => 35714, // 285.71 kbps / 8 (3.50 us/bit)
+        1 => 33333, // 266.66 kbps / 8 (3.75 us/bit)
+        0 => 31250, // 250.00 kbps / 8 (4.00 us/bit)
+        _ => 31250,
+    }
+}
+
+/// Returns the bit period in tenths of a nanosecond (0.1 ns) for a given speed zone
+#[inline]
+pub const fn speed_zone_bit_period_100ps(zone: u8) -> u32 {
+    match zone & 3 {
+        3 => 32500, // 3.25 us = 32500 * 0.1 ns
+        2 => 35000,
+        1 => 37500,
+        0 => 40000,
+        _ => 40000,
+    }
 }
 
 impl TrackIdentifier {

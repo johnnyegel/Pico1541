@@ -428,7 +428,7 @@ where
         {
             let fs = storage.ensure_mounted().await?;
             #[cfg(feature = "defmt")]
-            defmt::info!("SD: list_dir_range path: '{}'", path);
+            defmt::debug!("SD: list_dir_range path: '{}'", path);
 
             let normalized = normalize_path(path);
             let dir = if normalized.is_empty() {

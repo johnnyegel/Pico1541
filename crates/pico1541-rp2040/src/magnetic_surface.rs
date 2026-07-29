@@ -22,10 +22,10 @@ const fn calc_speed_zone_register(multiplier: u64) -> u32 {
 }
 
 const PIO_SPEED_ZONES: [u32; 4] = [
-    calc_speed_zone_register(400), // Zone 0: 4.00 µs
-    calc_speed_zone_register(375), // Zone 1: 3.75 µs
-    calc_speed_zone_register(350), // Zone 2: 3.50 µs
-    calc_speed_zone_register(325), // Zone 3: 3.25 µs
+    calc_speed_zone_register((pico1541_common::track_buffer::speed_zone_bit_period_100ps(0) / 100) as u64),
+    calc_speed_zone_register((pico1541_common::track_buffer::speed_zone_bit_period_100ps(1) / 100) as u64),
+    calc_speed_zone_register((pico1541_common::track_buffer::speed_zone_bit_period_100ps(2) / 100) as u64),
+    calc_speed_zone_register((pico1541_common::track_buffer::speed_zone_bit_period_100ps(3) / 100) as u64),
 ];
 
 // Static buffers for DMA
@@ -40,6 +40,8 @@ pub struct PioMagneticSurface {
     _sync_pin: embassy_rp::pio::Pin<'static, embassy_rp::peripherals::PIO0>,
     _loaded_prg: embassy_rp::pio::LoadedProgram<'static, embassy_rp::peripherals::PIO0>,
     _sm: embassy_rp::pio::StateMachine<'static, embassy_rp::peripherals::PIO0, 0>,
+    
+    current_speed_zone: u8,
 }
 
 impl PioMagneticSurface {
@@ -84,6 +86,7 @@ impl PioMagneticSurface {
             _sync_pin: sync_pin,
             _loaded_prg: loaded_prg,
             _sm: sm,
+            current_speed_zone: 0,
         }
     }
 
@@ -315,7 +318,8 @@ impl MagneticSurface for PioMagneticSurface {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn set_speed_zone(&mut self, expected_speed_zone: u8) {
-        let register_value = PIO_SPEED_ZONES[(expected_speed_zone & 3) as usize];
+        self.current_speed_zone = expected_speed_zone & 3;
+        let register_value = PIO_SPEED_ZONES[self.current_speed_zone as usize];
         let clk_int = (register_value >> 8) as u16;
         let clk_frac = (register_value & 0xFF) as u8;
         let pio = pac::PIO0;

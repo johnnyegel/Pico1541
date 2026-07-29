@@ -36,12 +36,12 @@ pub static EVENT_CHANNEL: Channel<CriticalSectionRawMutex, DriveEvent, 64> = Cha
 /// Channel for high-level events (LEDs, Motor, Decoded Commands) handled by the Manager.
 pub static ACTIVITY_CHANNEL: Channel<CriticalSectionRawMutex, DriveEvent, 16> = Channel::new();
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub enum InternalCommand {
     MotorState(bool),
     LoadFile([u8; 16]),
     CloseChannel(u8),
-    ImageMounted,
+    ImageMounted(heapless::String<128>),
     ImageUnmounted,
 }
 

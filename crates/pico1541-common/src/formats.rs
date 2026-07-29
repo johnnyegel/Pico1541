@@ -318,7 +318,8 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
         if track == 1 {
             // Track 1: Infinite File Track
             let sectors = 21;
-            let speed_zone_len: usize = 7692;
+            let speed_zone = crate::track_buffer::default_speed_zone(crate::track_buffer::track_to_half_track(1));
+            let speed_zone_len: usize = crate::track_buffer::speed_zone_capacity(speed_zone);
             let base_sector_len = 10 + 10 + 9 + 10 + 325; // 364
             let total_base_len = sectors as usize * base_sector_len;
             let remaining_gap = speed_zone_len.saturating_sub(total_base_len);
@@ -413,7 +414,8 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
         if half_track == 34 || half_track == 35 {
             // Track 18: Generate BAM and initial directory sectors
             let sectors = 19;
-            let speed_zone_len: usize = 7142;
+            let speed_zone = crate::track_buffer::default_speed_zone(crate::track_buffer::track_to_half_track(18));
+            let speed_zone_len: usize = crate::track_buffer::speed_zone_capacity(speed_zone);
             let base_sector_len = 5 + 10 + 9 + 5 + 325;
             let total_base_len = sectors as usize * base_sector_len;
             let remaining_gap = speed_zone_len.saturating_sub(total_base_len);
@@ -551,7 +553,8 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
 
         // Generate Skeleton Track for other tracks
         let sectors = sectors_per_track(track);
-        let speed_zone_len: usize = if track <= 17 { 7692 } else if track <= 24 { 7142 } else if track <= 30 { 6666 } else { 6250 };
+        let speed_zone = crate::track_buffer::default_speed_zone(crate::track_buffer::track_to_half_track(track));
+        let speed_zone_len: usize = crate::track_buffer::speed_zone_capacity(speed_zone);
         let base_sector_len = 5 + 10 + 9 + 5 + 325;
         let total_base_len = sectors as usize * base_sector_len;
         let remaining_gap = speed_zone_len.saturating_sub(total_base_len);
@@ -683,7 +686,8 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
             return Err(Error::InvalidTrack);
         }
         let sectors = sectors_per_track(track);
-        let speed_zone_len: usize = if track <= 17 { 7692 } else if track <= 24 { 7142 } else if track <= 30 { 6666 } else { 6250 };
+        let speed_zone = crate::track_buffer::default_speed_zone(crate::track_buffer::track_to_half_track(track));
+        let speed_zone_len: usize = crate::track_buffer::speed_zone_capacity(speed_zone);
         let base_sector_len = 5 + 10 + 9 + 5 + 325; // 5 sync + 10 header + 9 gap + 5 sync + 325 data
         let total_base_len = sectors as usize * base_sector_len;
         let remaining_gap = speed_zone_len.saturating_sub(total_base_len);

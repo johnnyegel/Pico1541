@@ -5,9 +5,9 @@ use pico1541_common::storage::DirectorySource;
 use crate::{CMD_CHANNEL, TRACK_CHANNEL, InternalCommand};
 use embassy_futures::select::{select, select3, Either, Either3};
 #[cfg(feature = "defmt")]
-use defmt::{info, warn, error};
+use defmt::{info, warn, error, debug};
 #[cfg(not(feature = "defmt"))]
-use log::{info, warn, error};
+use log::{info, warn, error, debug};
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
@@ -118,7 +118,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                 target_ht = ht;
             }
             
-            info!("Manager loading half-track: {}", target_ht);
+            debug!("Manager loading half-track: {}", target_ht);
 
             // Prevent DOS from reading the old track data by stalling it safely.
             let old_layout = self.track_handle.get_active_layout();
@@ -134,10 +134,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                     Either::First(Ok(layout)) => {
                         self.track_handle.commit_loaded_track(pico1541_common::track_buffer::TrackIdentifier::new(target_ht, layout.2.unwrap_or_else(|| pico1541_common::track_buffer::default_speed_zone(target_ht))), layout.0, layout.1);
                         let elapsed = start_time.elapsed().as_millis();
-                        info!("Track load took {} ms", elapsed);
-                        if layout.1 >= 16 {
-                            info!("Track {} loaded!", target_ht);
-                        }
+                        info!("Half-Track {} load took {} ms", target_ht, elapsed);
                         break; // Success, done loading the track!
                     }
                     Either::First(Err(e)) => {
@@ -154,6 +151,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                 }
             } else {
                 self.track_handle.commit_loaded_track(pico1541_common::track_buffer::TrackIdentifier::new(target_ht, pico1541_common::track_buffer::default_speed_zone(target_ht)), TrackLayout::Void, 0);
+                info!("Half-Track {} is void...", target_ht);
                 break;
             }
         }
@@ -340,9 +338,8 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                             motor_on = active;
                         }
                         
-
-                        InternalCommand::ImageMounted => {
-                            info!("Image mounted. Simulating disk insertion.");
+                        InternalCommand::ImageMounted(path) => {
+                            info!("Disk Image mounted: {}. Simulating physical disk swap.", path.as_str());
                             
                             // 1. Unmount sequence (in case a disk was already there)
                             self.track_handle.set_active_layout(TrackLayout::Void);
@@ -433,8 +430,6 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                             
                             // Wait a bit for the C64 DOS to process the WP change before logging the final state
                             embassy_time::Timer::after_millis(50).await;
-                            
-                            info!("Image unmounted. Simulating disk removal completed.");
                         }
                         InternalCommand::CloseChannel(sa) => {
                             if sa == 0 {

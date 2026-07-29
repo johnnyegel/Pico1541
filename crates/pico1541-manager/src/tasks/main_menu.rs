@@ -316,7 +316,9 @@ where
                 {
                     let mut disk_lock = self._disk_image.lock().await;
                     *disk_lock = Some(pico1541_common::formats::AnyDiskImage::VirtualDisk(vdisk));
-                    crate::CMD_CHANNEL.send(crate::InternalCommand::ImageMounted).await;
+                    let mut default_name: heapless::String<128> = heapless::String::new();
+                    let _ = default_name.push_str("Internal Virtual Disk");
+                    crate::CMD_CHANNEL.send(crate::InternalCommand::ImageMounted(default_name)).await;
                 }
                 self.leds.set_status(StatusLedMode::VirtualDisk);
             }
@@ -663,7 +665,7 @@ where
                                     {
                                         let mut disk = self._disk_image.lock().await;
                                         *disk = Some(pico1541_common::formats::AnyDiskImage::D64(d64));
-                                        crate::CMD_CHANNEL.send(crate::InternalCommand::ImageMounted).await;
+                                        crate::CMD_CHANNEL.send(crate::InternalCommand::ImageMounted(full_path.clone())).await;
                                     }
                                     self.leds.set_status(StatusLedMode::NonAccurateDisk);
                                     self.mounted_file_path = Some(full_path.clone());
@@ -675,7 +677,7 @@ where
                                 {
                                     let mut disk = self._disk_image.lock().await;
                                     *disk = Some(pico1541_common::formats::AnyDiskImage::D64(d64));
-                                    crate::CMD_CHANNEL.send(crate::InternalCommand::ImageMounted).await;
+                                    crate::CMD_CHANNEL.send(crate::InternalCommand::ImageMounted(full_path.clone())).await;
                                 }
                                 self.leds.set_status(StatusLedMode::NonAccurateDisk);
                                 self.mounted_file_path = Some(full_path.clone());
@@ -689,7 +691,7 @@ where
                                     {
                                         let mut disk = self._disk_image.lock().await;
                                         *disk = Some(pico1541_common::formats::AnyDiskImage::G64(g64));
-                                        crate::CMD_CHANNEL.send(crate::InternalCommand::ImageMounted).await;
+                                        crate::CMD_CHANNEL.send(crate::InternalCommand::ImageMounted(full_path.clone())).await;
                                     }
                                     self.leds.set_status(StatusLedMode::AccurateDisk);
                                     self.mounted_file_path = Some(full_path.clone());
@@ -702,7 +704,7 @@ where
                                     {
                                         let mut disk = self._disk_image.lock().await;
                                         *disk = Some(pico1541_common::formats::AnyDiskImage::G64(g64));
-                                        crate::CMD_CHANNEL.send(crate::InternalCommand::ImageMounted).await;
+                                        crate::CMD_CHANNEL.send(crate::InternalCommand::ImageMounted(full_path.clone())).await;
                                     }
                                     self.leds.set_status(StatusLedMode::AccurateDisk);
                                     self.mounted_file_path = Some(full_path.clone());
@@ -730,7 +732,7 @@ where
                                 {
                                     let mut disk = self._disk_image.lock().await;
                                     *disk = Some(pico1541_common::formats::AnyDiskImage::VirtualDisk(vdisk));
-                                    crate::CMD_CHANNEL.send(crate::InternalCommand::ImageMounted).await;
+                                    crate::CMD_CHANNEL.send(crate::InternalCommand::ImageMounted(full_path.clone())).await;
                                 }
                                 self.leds.set_status(StatusLedMode::VirtualDisk);
                                 self.mounted_file_path = Some(full_path.clone());
@@ -743,7 +745,7 @@ where
                                 {
                                     let mut disk = self._disk_image.lock().await;
                                     *disk = Some(pico1541_common::formats::AnyDiskImage::VirtualDisk(vdisk));
-                                    crate::CMD_CHANNEL.send(crate::InternalCommand::ImageMounted).await;
+                                    crate::CMD_CHANNEL.send(crate::InternalCommand::ImageMounted(full_path.clone())).await;
                                 }
                                 self.leds.set_status(StatusLedMode::VirtualDisk);
                                 self.mounted_file_path = Some(full_path.clone());
