@@ -121,15 +121,8 @@ pub fn run(
                 was_reset = false;
             }
             
-            let mut caught_up = 0;
-            while hw.timekeeper.tick_allowed(emulator.cycles) && caught_up < 500 {
+            for _ in 0..500 {
                 emulator.tick(hw);
-                caught_up += 1;
-            }
-
-            if caught_up == 0 {
-                hw.timekeeper.idle_counter = hw.timekeeper.idle_counter.wrapping_add(1);
-                cortex_m::asm::nop();
             }
         }
 
@@ -155,35 +148,6 @@ impl TimeKeeper {
     #[inline(always)]
     pub fn update_base(&mut self, current_cycles: u32) {
         self.base_time_us = embassy_rp::pac::TIMER.timelr().read().wrapping_sub(current_cycles);
-    }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    pub fn tick_allowed(&mut self, target_cycle: u32) -> bool {
-        let target_time = self.base_time_us.wrapping_add(target_cycle);
-        let now = embassy_rp::pac::TIMER.timelr().read();
-        
-        let lag = now.wrapping_sub(target_time) as i32;
-        if lag > 0 {
-            if lag > 5 {
-                if !self.lag_pin_active {
-                    embassy_rp::pac::SIO.gpio_out(0).value_set().write_value(1 << 0);
-                    self.lag_pin_active = true;
-                }
-            } else {
-                if self.lag_pin_active {
-                    embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(1 << 0);
-                    self.lag_pin_active = false;
-                }
-            }
-            true
-        } else {
-            if self.lag_pin_active {
-                embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(1 << 0);
-                self.lag_pin_active = false;
-            }
-            false
-        }
     }
 
     #[link_section = ".data.ram_func"]
@@ -387,12 +351,12 @@ impl ViaHardware for HardwareBridge {
             Self::VIA1_IEC_BIT_CLK_TX, Self::GPIO_IEC_BIT_CLK_TX);
 
         // FIXME! Disable hijacking for now, as we do not need it yet!
-        // let hijack_force = (self.config.should_drive_data.load(Ordering::Relaxed) as u32) << 19;
-        let set_mask = pb_data_mask | pb_clk_mask /* | hijack_force */;
-        let clr_mask = !set_mask & (Self::GPIO_IEC_MASK_DATA_TX | Self::GPIO_IEC_MASK_CLK_TX);
+        let target_state = pb_data_mask | pb_clk_mask;
+        let mask = Self::GPIO_IEC_MASK_DATA_TX | Self::GPIO_IEC_MASK_CLK_TX;
+        let current_state = embassy_rp::pac::SIO.gpio_out(0).value().read();
+        let xor_mask = (current_state ^ target_state) & mask;
         
-        embassy_rp::pac::SIO.gpio_out(0).value_set().write_value(set_mask);
-        embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(clr_mask);
+        embassy_rp::pac::SIO.gpio_out(0).value_xor().write_value(xor_mask);
     }
 
     #[link_section = ".data.ram_func"]
@@ -421,6 +385,8 @@ impl ViaHardware for HardwareBridge {
         }
     }
 
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
     fn consume_trigger_reset(&mut self) -> bool {
         if self.config.trigger_reset.load(Ordering::Relaxed) {
             self.config.trigger_reset.store(false, Ordering::Relaxed);

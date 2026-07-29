@@ -239,10 +239,10 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     #[link_section = ".data.ram_func"]
     #[cold]
     fn read_io(&mut self, addr: u16, cycle: u32, ctx: &mut H) -> u8 {
-        self.catch_up(cycle);
-
         // Spinlock to exact cycle before reading live IEC state
         ctx.spin_until(cycle + 1);
+        
+        self.catch_up(cycle);
 
         let result = if (addr & 0x0400) == 0 {
             ctx.set_debug_1();
@@ -262,10 +262,10 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     #[link_section = ".data.ram_func"]
     #[cold]
     fn write_io(&mut self, addr: u16, val: u8, cycle: u32, ctx: &mut H) {
-        self.catch_up(cycle);
-
         // Spinlock to exact cycle before writing to physical pins
         ctx.spin_until(cycle + 1);
+        
+        self.catch_up(cycle);
 
         if (addr & 0x0400) == 0 {
             ctx.set_debug_1();

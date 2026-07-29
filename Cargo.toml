@@ -9,8 +9,7 @@ members = [
     "crates/mos6502",
     "crates/racc6502v3",
     "crates/racc6502v4",
-    "crates/pico1541-perf"
-]
+    "crates/pico1541-perf"]
 resolver = "2"
 
 default-members = [
