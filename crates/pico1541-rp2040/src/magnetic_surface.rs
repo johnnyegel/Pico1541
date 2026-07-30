@@ -35,6 +35,7 @@ static mut CURRENT_TRACK_PTR: u32 = 0;
 pub struct PioMagneticSurface {
     is_motor_on: bool,
     stream_length: u32,
+    last_head_pos: u32,
 
     _sync_pin: embassy_rp::pio::Pin<'static, embassy_rp::peripherals::PIO0>,
     _loaded_prg: embassy_rp::pio::LoadedProgram<'static, embassy_rp::peripherals::PIO0>,
@@ -78,7 +79,8 @@ impl PioMagneticSurface {
 
         Self {
             is_motor_on: false,
-            stream_length: 0,
+            stream_length: 1, // Initialize to 1 to avoid divide by zero!
+            last_head_pos: 0,
             _sync_pin: sync_pin,
             _loaded_prg: loaded_prg,
             _sm: sm,
@@ -217,6 +219,57 @@ impl PioMagneticSurface {
             w.set_sm_enable(1 << 0);
         });
     }
+
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    fn set_stream_source_offset(&self, stream: TrackStream, offset: u32) {
+        // :: Ensure the floppy DMA channels are stopped and the PIO FIFOs are cleared.
+        Self::stop_floppy_dma();
+        Self::clear_pio_fifos();
+
+        // :: Set the new track pointer and length for the DMA transfer    
+        let track_ptr = stream.as_dma_ptr();
+        let track_length = stream.length;
+
+        unsafe {
+            // Store the unmodified track pointer to our reset DMA channel.
+            CURRENT_TRACK_PTR = track_ptr;
+        }
+
+        // :: Realign the track for fun and benefit
+        let mut adjusted_track_ptr = track_ptr;
+        let mut adjusted_track_length = track_length;
+
+        // Prevent buffer overflow, which can crash the drive emulation
+        let safe_offset = if offset < track_length {
+            offset
+        } else {
+            offset - track_length    
+        };
+
+        // Adjust the track_ptr and length to adjust to the start byte index
+        adjusted_track_ptr += safe_offset;
+        adjusted_track_length -= safe_offset;
+
+        // :: Reconfigure the track pointer and length for the new track
+        let dma_ch0 = pac::DMA.ch(0);
+        dma_ch0.read_addr().write_value(adjusted_track_ptr);
+        dma_ch0.trans_count().write_value(adjusted_track_length);
+        
+        // If the motor is on, we must apply the new track/noise configuration immediately
+        if self.is_motor_on {
+            // :: Re-enable the DMA channels to start the new transfer
+            Self::start_floppy_dma();
+
+            // Since the DMA is now triggered, we can immediately reset the length.
+            // When the track end is reached, the new length will be loaded and used.
+            // If the DMA is at the very end of the track when this happens, there is
+            // a miniscule chance of a wrap of a few bytes. But this is expected to be
+            // garbage anyway, so it is likely completely safe-
+            dma_ch0.trans_count().write_value(track_length);
+        }
+    }
 }
 
 impl MagneticSurface for PioMagneticSurface {
@@ -250,7 +303,7 @@ impl MagneticSurface for PioMagneticSurface {
         self.is_motor_on = is_running;
         
         // :? Is the motor running,
-        if is_running && self.stream_length > 0 {
+        if is_running && self.stream_length > 1 {
             // Motor turned on, start DMA!
             Self::start_floppy_dma();
         } else {
@@ -275,49 +328,27 @@ impl MagneticSurface for PioMagneticSurface {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn set_stream_source(&mut self, stream: TrackStream) {
-        // :: Ensure the floppy DMA channels are stopped and the PIO FIFOs are cleared.
-        Self::stop_floppy_dma();
-        Self::clear_pio_fifos();
-
-        // :: Set the new track pointer and length for the DMA transfer    
-        let track_ptr = stream.as_dma_ptr();
-        let track_length = stream.length;
-        self.stream_length = track_length;
-
-        unsafe {
-            // Store the unmodified track pointer to our reset DMA channel.
-            CURRENT_TRACK_PTR = track_ptr;
+        // :? Is this a data holding stream?
+        // FIXME! BAD HACK: Checking the length to determine if this is a noise track.
+        let track_offset = if stream.length <= 16 {
+            // -> No, then record where the read head is at.
+            self.last_head_pos = self.get_absolute_head_position(0);
+            // No offset needed
+            0
         }
-
-        // :: Configure the new track stream to the DMA channel A (TX Worker)
-        let dma = pac::DMA;
-
-        // :: Realign the track for fun and benefit
-        let start_byte_index = track_length >> 1;
-
-        let mut adjusted_track_ptr = track_ptr;
-        let mut adjusted_track_length = track_length;
-
-        // Adjust the track_ptr and length to adjust to the start byte index
-        adjusted_track_ptr += start_byte_index;
-        adjusted_track_length -= start_byte_index;
-
-        // :: Reconfigure the track pointer and length for the new track
-        let dma_ch0 = dma.ch(0);
-        dma_ch0.read_addr().write_value(adjusted_track_ptr);
-        dma_ch0.trans_count().write_value(adjusted_track_length);
-        
-        // If the motor is on, we must apply the new track/noise configuration immediately
-        if self.is_motor_on {
-            // :: Re-enable the DMA channels to start the new transfer
-            Self::start_floppy_dma();
-
-            // Since the DMA is now triggered, we can immediately reset the length.
-            // When the track end is reached, the new length will be loaded and used.
-            // If the DMA is at the very end of the track when this happens, there is
-            // a miniscule chance of a wrap of a few bytes. But this is expected to be
-            // garbage anyway, so it is likely completely safe-
-            dma_ch0.trans_count().write_value(track_length);
+        else if stream.length != self.stream_length {
+            // -> Yes, then we realign the head by scaling the last head position
+            (self.last_head_pos * stream.length) / self.stream_length
         }
+        else {
+            self.last_head_pos
+        };
+
+        // Set the stream source with an offset
+        self.set_stream_source_offset(stream, track_offset);
+
+        // Set the new stream length
+        self.stream_length = stream.length;
     }
+
 }
