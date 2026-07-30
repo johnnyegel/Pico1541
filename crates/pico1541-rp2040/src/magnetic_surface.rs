@@ -9,6 +9,8 @@ const PIO_CYCLES_PER_BIT: u64 = 8;
 // We use exactly 100M for perfect real-time emulation.
 const PIO_TIMING_DENOMINATOR: u64 = 100_000_000 * PIO_CYCLES_PER_BIT;
 
+const GPIO_SYNC_PIN: u8 = 10; // GPIO 10 is the SYNC pin for the PIO program
+
 // This const function executes entirely at compile time.
 const fn calc_speed_zone_register(multiplier: u64) -> u32 {
     // 1. Calculate the scaled fraction: (Clock * Time * 256) / Denominator
@@ -40,6 +42,10 @@ pub struct PioMagneticSurface {
 }
 
 impl PioMagneticSurface {
+    const DMA_FLOPPY_ABORT_MASK: u16 = (1 << 0) | (1 << 1);
+    const DMA_CHANNEL_ENABLE_MASK: u32 = (1 << 0);
+
+
     pub fn new(
         mut pio: embassy_rp::pio::Pio<'static, embassy_rp::peripherals::PIO0>,
     ) -> Self {
@@ -88,7 +94,6 @@ impl PioMagneticSurface {
 
         // --- Channel A: TX Worker (Streams data to PIO) ---
         // Paced by PIO TX DREQ, 32-bit words, read inc, write no inc. Chains to B.
-        ch_a.read_addr().write_value(0); // Set later
         ch_a.write_addr().write_value(pio.txf(0).as_ptr() as u32);
         
         let mut ctrl_a = ch_a.ctrl_trig().read();
@@ -120,7 +125,7 @@ impl PioMagneticSurface {
         ctrl_b.set_incr_write(false);
         ctrl_b.set_treq_sel(pac::dma::vals::TreqSel::PERMANENT);
         ctrl_b.set_chain_to(1); // Doesn't chain to others (chains to itself)
-        ctrl_b.set_en(true);
+        ctrl_b.set_en(false);
         ch_b.ctrl_trig().write_value(ctrl_b);
 
         // --- Channel C: RX Sentinel Ring (Extracts data to RAM) ---
@@ -145,8 +150,8 @@ impl PioMagneticSurface {
     #[inline(always)]
     pub fn is_sync_active() -> bool {
         let sio = pac::SIO;
-        // Read physical state of GPIO 10 via SIO
-        (sio.gpio_in(0).read() & (1 << 10)) != 0
+        // Read physical state of SYNC GPIO via SIO
+        (sio.gpio_in(0).read() & (1 << GPIO_SYNC_PIN)) != 0
     }
 
     #[link_section = ".data.ram_func"]
@@ -165,15 +170,41 @@ impl PioMagneticSurface {
         }
     }
 
+    /// Asserts both floppy spinning DMA channels to abort any in-flight transfers.
+    /// WARNING! This function does NOT wait for the channels to finish aborting. 
     #[link_section = ".data.ram_func"]
-    fn abort_dma_ch0() {
+    #[inline(always)]
+    pub fn stop_floppy_dma() {
         let dma = pac::DMA;
-        dma.ch(0).ctrl_trig().modify(|w| w.set_en(false));
-        dma.chan_abort().modify(|w| w.set_chan_abort(1 << 0));
-        while dma.chan_abort().read().chan_abort() & (1 << 0) != 0 {}
+
+        // 1. SAFE DISABLE: Clear Bit 0 (EN) using bitwise AND NOT  
+        dma.ch(1).al1_ctrl().modify(|w| *w &= !Self::DMA_CHANNEL_ENABLE_MASK);
+        dma.ch(0).al1_ctrl().modify(|w| *w &= !Self::DMA_CHANNEL_ENABLE_MASK);
+        
+        // 2. Abort both channels SIMULTANEOUSLY using the bitmask
+        dma.chan_abort().write(|w| w.set_chan_abort(Self::DMA_FLOPPY_ABORT_MASK));
+    }
+
+    /// Starts the floppy spinning DMA channels.
+    /// If the DMA has previously been stopped, the function will wait for the channels to
+    /// finish aborting before re-enabling them.
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    pub fn start_floppy_dma() {
+        let dma = pac::DMA;
+
+        // :: Ensure no DMA channels are not aborted
+        while dma.chan_abort().read().chan_abort() & Self::DMA_FLOPPY_ABORT_MASK != 0 {}
+
+        // :: Re-enable both channels
+        // Simply set CH 1 enable flag, but DO NOT trigger it.
+        dma.ch(1).al1_ctrl().modify(|w| *w |= Self::DMA_CHANNEL_ENABLE_MASK);
+        // Trigger CH 0 enable flag, which will start the DMA trigger chaining
+        dma.ch(0).ctrl_trig().modify(|w| w.set_en(true));
     }
 
     #[link_section = ".data.ram_func"]
+    #[inline(always)]
     fn clear_pio_fifos() {
         let pio = pac::PIO0;
         let shiftctrl = pio.sm(0).shiftctrl();
@@ -217,15 +248,13 @@ impl MagneticSurface for PioMagneticSurface {
         }
         self.is_motor_on = is_running;
         
-        if is_running {
+        // :? Is the motor running,
+        if is_running && self.stream_length > 0 {
             // Motor turned on, start DMA!
-            let dma = pac::DMA;
-            let mut ctrl_a = dma.ch(0).ctrl_trig().read();
-            ctrl_a.set_en(true);
-            dma.ch(0).ctrl_trig().write_value(ctrl_a);
+            Self::start_floppy_dma();
         } else {
-            // Motor turned off, stop DMA!
-            Self::abort_dma_ch0();
+            // Motor turned off / no stream, stop DMA!
+            Self::stop_floppy_dma();
         }
     }
 
@@ -245,33 +274,30 @@ impl MagneticSurface for PioMagneticSurface {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn set_stream_source(&mut self, stream: TrackStream) {
+        // :: Ensure the floppy DMA channels are stopped and the PIO FIFOs are cleared.
+        Self::stop_floppy_dma();
+        Self::clear_pio_fifos();
+
+        // :: Set the new track pointer and length for the DMA transfer    
         let track_ptr = stream.as_dma_ptr();
         let track_length = stream.length;
         self.stream_length = track_length;
-        
-        let trans_count = if track_length == 16 { 0xFFFFFFFF } else { track_length };
-        let incr_read = track_length != 16;
         
         unsafe {
             CURRENT_TRACK_PTR = track_ptr;
         }
 
+        // :: Configure the new track stream to the DMA channel A (TX Worker)
         let dma = pac::DMA;
+
+        // :: Reconfigure the track pointer and length for the new track
+        dma.ch(0).read_addr().write_value(track_ptr);
+        dma.ch(0).trans_count().write_value(track_length);
         
         // If the motor is on, we must apply the new track/noise configuration immediately
         if self.is_motor_on {
-            Self::abort_dma_ch0();
-            Self::clear_pio_fifos();
-            
-            dma.ch(0).read_addr().write_value(track_ptr);
-            dma.ch(0).trans_count().write_value(trans_count);
-            
-            let mut ctrl_a = dma.ch(0).ctrl_trig().read();
-            ctrl_a.set_incr_read(incr_read);
-            ctrl_a.set_ring_size(0);
-            ctrl_a.set_chain_to(1); // Always chain to B to support ping-pong loop for actual tracks
-            ctrl_a.set_en(true);
-            dma.ch(0).ctrl_trig().write_value(ctrl_a);
+            // :: Re-enable the DMA channels to start the new transfer
+            Self::start_floppy_dma();
         }
     }
 }
