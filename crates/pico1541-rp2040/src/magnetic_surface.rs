@@ -199,6 +199,7 @@ impl PioMagneticSurface {
         // :: Re-enable both channels
         // Simply set CH 1 enable flag, but DO NOT trigger it.
         dma.ch(1).al1_ctrl().modify(|w| *w |= Self::DMA_CHANNEL_ENABLE_MASK);
+
         // Trigger CH 0 enable flag, which will start the DMA trigger chaining
         dma.ch(0).ctrl_trig().modify(|w| w.set_en(true));
     }
@@ -282,22 +283,41 @@ impl MagneticSurface for PioMagneticSurface {
         let track_ptr = stream.as_dma_ptr();
         let track_length = stream.length;
         self.stream_length = track_length;
-        
+
         unsafe {
+            // Store the unmodified track pointer to our reset DMA channel.
             CURRENT_TRACK_PTR = track_ptr;
         }
 
         // :: Configure the new track stream to the DMA channel A (TX Worker)
         let dma = pac::DMA;
 
+        // :: Realign the track for fun and benefit
+        let start_byte_index = track_length >> 1;
+
+        let mut adjusted_track_ptr = track_ptr;
+        let mut adjusted_track_length = track_length;
+
+        // Adjust the track_ptr and length to adjust to the start byte index
+        adjusted_track_ptr += start_byte_index;
+        adjusted_track_length -= start_byte_index;
+
         // :: Reconfigure the track pointer and length for the new track
-        dma.ch(0).read_addr().write_value(track_ptr);
-        dma.ch(0).trans_count().write_value(track_length);
+        let dma_ch0 = dma.ch(0);
+        dma_ch0.read_addr().write_value(adjusted_track_ptr);
+        dma_ch0.trans_count().write_value(adjusted_track_length);
         
         // If the motor is on, we must apply the new track/noise configuration immediately
         if self.is_motor_on {
             // :: Re-enable the DMA channels to start the new transfer
             Self::start_floppy_dma();
+
+            // Since the DMA is now triggered, we can immediately reset the length.
+            // When the track end is reached, the new length will be loaded and used.
+            // If the DMA is at the very end of the track when this happens, there is
+            // a miniscule chance of a wrap of a few bytes. But this is expected to be
+            // garbage anyway, so it is likely completely safe-
+            dma_ch0.trans_count().write_value(track_length);
         }
     }
 }
