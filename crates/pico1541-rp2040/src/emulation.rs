@@ -131,15 +131,34 @@ pub fn run(
     }
 }
 pub(crate) struct TimeKeeper {
-    pub base_time_us: u32,
+    pub base_time_24: u32,
     pub idle_counter: u32,
     pub lag_pin_active: bool,
 }
 
 impl TimeKeeper {
+    #[inline(always)]
+    fn now_24() -> u32 {
+        // SYST_CVR (Current Value Register) is at 0xE000E018.
+        // It is a 24-bit down counter. We invert it to a 24-bit up counter.
+        0x00FFFFFF - unsafe { core::ptr::read_volatile(0xE000E018 as *const u32) }
+    }
+
     pub fn new() -> Self {
+        unsafe {
+            // Initialize SysTick to use External clock (1MHz on RP2040)
+            let csr = 0xE000E010 as *mut u32;
+            let rvr = 0xE000E014 as *mut u32;
+            let cvr = 0xE000E018 as *mut u32;
+            core::ptr::write_volatile(csr, 0); // Disable before config
+            core::ptr::write_volatile(rvr, 0x00FFFFFF); // Max 24-bit value
+            core::ptr::write_volatile(cvr, 0); // Clear current
+            // Enable counter, no interrupt, External clock (bit 2 = 0)
+            core::ptr::write_volatile(csr, 1);
+        }
+
         Self {
-            base_time_us: embassy_rp::pac::TIMER.timelr().read(),
+            base_time_24: Self::now_24(),
             idle_counter: 0,
             lag_pin_active: false,
         }
@@ -147,24 +166,22 @@ impl TimeKeeper {
 
     #[inline(always)]
     pub fn update_base(&mut self, current_cycles: u32) {
-        self.base_time_us = embassy_rp::pac::TIMER.timelr().read().wrapping_sub(current_cycles);
+        self.base_time_24 = Self::now_24().wrapping_sub(current_cycles) & 0x00FFFFFF;
     }
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn spin_until(&mut self, target_cycle: u32) {
-        let target_time = self.base_time_us.wrapping_add(target_cycle);
-        let mut now = embassy_rp::pac::TIMER.timelr().read();
+        let target_time = self.base_time_24.wrapping_add(target_cycle) & 0x00FFFFFF;
         
         if self.lag_pin_active {
             embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(1 << 0);
             self.lag_pin_active = false;
         }
 
-        while target_time.wrapping_sub(now) < 0x8000_0000 {
+        while target_time.wrapping_sub(Self::now_24()) & 0x00FFFFFF < 0x800000 {
             self.idle_counter = self.idle_counter.wrapping_add(1);
             cortex_m::asm::nop();
-            now = embassy_rp::pac::TIMER.timelr().read();
         }
     }
 }
