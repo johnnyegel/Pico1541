@@ -3,6 +3,12 @@
 
 use defmt_rtt as _;
 use panic_probe as _;
+
+extern crate alloc;
+
+#[global_allocator]
+static HEAP: embedded_alloc::LlffHeap = embedded_alloc::LlffHeap::empty();
+
 use pico1541_emulator::Emulator;
 
 #[cortex_m_rt::entry]
