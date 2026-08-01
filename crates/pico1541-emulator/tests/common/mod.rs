@@ -115,7 +115,7 @@ pub struct TestBridge {
     pub snoop_handler: IecSnoopByteHandler,
     pub device_id: u8,
     pub discard_request: bool,
-    pub total_cycles: u64,
+    pub total_cycles: u32,
     pub host_iec: IecBusState,
     pub drive_iec: IecBusState,
     pub sync_hook: Option<Box<dyn FnMut(&'static pico1541_common::track_buffer::DualCoreTrackBuffer)>>,
@@ -150,7 +150,7 @@ impl TestBridge {
         self.sync_hook = None;
     }
 
-    pub fn cycles(&self) -> u64 {
+    pub fn cycles(&self) -> u32 {
         self.total_cycles
     }
 

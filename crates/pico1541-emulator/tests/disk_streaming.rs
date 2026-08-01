@@ -28,8 +28,8 @@ fn get_system_bus(surface: SoftwareMagneticSurface, handle: pico1541_common::tra
 struct MockCtx;
 
 impl CatchUpContext for MockCtx {
-    fn catch_up(&mut self, _target_cycle: u64) {}
-    fn advance_to(&mut self, _target_cycle: u64) {}
+    fn catch_up(&mut self, _target_cycle: u32) {}
+    fn advance_to(&mut self, _target_cycle: u32) {}
 }
 
 use common::TestBridge;

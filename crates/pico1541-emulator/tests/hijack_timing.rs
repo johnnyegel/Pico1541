@@ -5,7 +5,7 @@ use pico1541_common::magnetic_surface::SoftwareMagneticSurface;
 
 struct TestHardware {
     
-    cycles: u64,
+    cycles: u32,
     hijacked: bool,
 }
 

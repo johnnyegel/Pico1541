@@ -1,6 +1,6 @@
 pub trait CatchUpContext {
-    fn catch_up(&mut self, target_cycle: u64);
-    fn advance_to(&mut self, target_cycle: u64);
+    fn catch_up(&mut self, target_cycle: u32);
+    fn advance_to(&mut self, target_cycle: u32);
 }
 
 pub trait ViaHardware {

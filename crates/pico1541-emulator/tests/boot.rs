@@ -8,8 +8,8 @@ use pico1541_common::iec_com::{IecCommander, IecError};
 mod common;
 struct MockCtx;
 impl CatchUpContext for MockCtx {
-    fn catch_up(&mut self, _target_cycle: u64) {}
-    fn advance_to(&mut self, _target_cycle: u64) {}
+    fn catch_up(&mut self, _target_cycle: u32) {}
+    fn advance_to(&mut self, _target_cycle: u32) {}
 }
 
 

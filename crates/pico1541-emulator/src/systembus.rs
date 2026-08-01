@@ -240,7 +240,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     #[cold]
     fn read_io(&mut self, addr: u16, cycle: u32, ctx: &mut H) -> u8 {
         // Spinlock to exact cycle before reading live IEC state
-        ctx.spin_until(cycle + 1);
+        ctx.spin_until(cycle);
         
         self.catch_up(cycle);
 
@@ -263,7 +263,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     #[cold]
     fn write_io(&mut self, addr: u16, val: u8, cycle: u32, ctx: &mut H) {
         // Spinlock to exact cycle before writing to physical pins
-        ctx.spin_until(cycle + 1);
+        ctx.spin_until(cycle);
         
         self.catch_up(cycle);
 
@@ -290,11 +290,11 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 }
 
 impl<H: HostInterface, S: MagneticSurface> CatchUpContext for SystemBus<H, S> {
-    fn catch_up(&mut self, target_cycle: u64) {
-        self.catch_up(target_cycle as u32);
+    fn catch_up(&mut self, target_cycle: u32) {
+        self.catch_up(target_cycle);
     }
-    fn advance_to(&mut self, target_cycle: u64) {
-        self.last_cycle = target_cycle as u32;
+    fn advance_to(&mut self, target_cycle: u32) {
+        self.last_cycle = target_cycle;
     }
 }
 
