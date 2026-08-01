@@ -239,8 +239,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     #[link_section = ".data.ram_func"]
     #[cold]
     fn read_io(&mut self, addr: u16, cycle: u32, ctx: &mut H) -> u8 {
-        // Spinlock to exact cycle before reading live IEC state
-        ctx.spin_until(cycle);
+        // Spinlock to exact cycle + 0.5 before reading live IEC state
+        ctx.spin_until_half(cycle);
         
         self.catch_up(cycle);
 
@@ -262,8 +262,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     #[link_section = ".data.ram_func"]
     #[cold]
     fn write_io(&mut self, addr: u16, val: u8, cycle: u32, ctx: &mut H) {
-        // Spinlock to exact cycle before writing to physical pins
-        ctx.spin_until(cycle);
+        // Spinlock to exact cycle + 0.5 before writing to physical pins
+        ctx.spin_until_half(cycle);
         
         self.catch_up(cycle);
 

@@ -110,6 +110,8 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
             crate::flight_recorder::FLIGHT_RECORDER.assume_init_mut().index = 0;
         }
 
+        hw.clear_debug_pins();
+
         unsafe {
             crate::RAM_POINTER = self.memory.memory.as_ptr();
         }
@@ -130,7 +132,6 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
             hw.spin_until(self.cpu.cycles);
         }
 
-        hw.clear_debug_pins();
         self.memory.catch_up(self.cpu.cycles);
         
         if self.memory.so_pulsed {

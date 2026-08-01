@@ -193,6 +193,24 @@ impl TimeKeeper {
             cortex_m::asm::nop();
         }
     }
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    pub fn spin_until_half(&mut self, target_cycle: u32) {
+        let target_ticks = target_cycle.wrapping_mul(SYSTEM_CLOCK_FREQ / 1_000_000)
+            .wrapping_add(SYSTEM_CLOCK_FREQ / 2_000_000);
+        let target_time = self.base_time_24.wrapping_add(target_ticks) & 0x00FFFFFF;
+        
+        if self.lag_pin_active {
+            embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(1 << 0);
+            self.lag_pin_active = false;
+        }
+
+        while target_time.wrapping_sub(Self::now_24()) & 0x00FFFFFF < 0x800000 {
+            self.idle_counter = self.idle_counter.wrapping_add(1);
+            cortex_m::asm::nop();
+        }
+    }
 }
 
 pub(crate) struct IecPins {
@@ -328,6 +346,10 @@ impl HostInterface for HardwareBridge {
     #[inline(always)]
     fn spin_until(&mut self, target_cycle: u32) {
         self.timekeeper.spin_until(target_cycle);
+    }
+    
+    fn spin_until_half(&mut self, target_cycle: u32) {
+        self.timekeeper.spin_until_half(target_cycle);
     }
 
     #[link_section = ".data.ram_func"]
