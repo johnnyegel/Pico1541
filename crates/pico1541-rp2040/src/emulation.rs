@@ -75,17 +75,19 @@ pub fn spawn_core1(
         defmt::info!("Emulator initialized. Starting run loop...");
 
         cortex_m::interrupt::disable(); // Guarantee no IRQs preempt the emulator core
-        run(drive, &mut bridge, rom_buffer);
+        run_emulator(drive, &mut bridge, rom_buffer);
     });
 }
 
 #[link_section = ".data.ram_func"]
 #[inline(never)]
-pub fn run(
+pub fn run_emulator(
     emulator: &mut Emulator<HardwareBridge, PioMagneticSurface>,
     hw: &mut HardwareBridge,
     rom_buffer: &'static [u8; 16384],
 ) -> ! {
+    hw.timekeeper.init_on_core();
+    
     let mut was_reset = false;
     hw.timekeeper.update_base(emulator.cycles);
 
@@ -130,6 +132,9 @@ pub fn run(
         hw.report_performance_counters(emulator.cycles, hw.timekeeper.idle_counter);
     }
 }
+use cortex_m::peripheral::SYST;
+use pico1541_common::SYSTEM_CLOCK_FREQ;
+
 pub(crate) struct TimeKeeper {
     pub base_time_24: u32,
     pub idle_counter: u32,
@@ -139,40 +144,44 @@ pub(crate) struct TimeKeeper {
 impl TimeKeeper {
     #[inline(always)]
     fn now_24() -> u32 {
-        // SYST_CVR (Current Value Register) is at 0xE000E018.
-        // It is a 24-bit down counter. We invert it to a 24-bit up counter.
-        0x00FFFFFF - unsafe { core::ptr::read_volatile(0xE000E018 as *const u32) }
+        // SYST_CVR (Current Value Register) is a 24-bit down counter.
+        // We invert it to a 24-bit up counter.
+        0x00FFFFFF - SYST::get_current()
     }
 
     pub fn new() -> Self {
-        unsafe {
-            // Initialize SysTick to use External clock (1MHz on RP2040)
-            let csr = 0xE000E010 as *mut u32;
-            let rvr = 0xE000E014 as *mut u32;
-            let cvr = 0xE000E018 as *mut u32;
-            core::ptr::write_volatile(csr, 0); // Disable before config
-            core::ptr::write_volatile(rvr, 0x00FFFFFF); // Max 24-bit value
-            core::ptr::write_volatile(cvr, 0); // Clear current
-            // Enable counter, no interrupt, External clock (bit 2 = 0)
-            core::ptr::write_volatile(csr, 1);
-        }
-
         Self {
-            base_time_24: Self::now_24(),
+            base_time_24: 0,
             idle_counter: 0,
             lag_pin_active: false,
         }
     }
 
+    pub fn init_on_core(&mut self) {
+        // Use the cortex_m HAL to safely configure SysTick ON THIS CORE.
+        // SysTick is per-core! If `TimeKeeper::new` is called on Core 0 but used
+        // on Core 1, Core 1's SysTick will remain disabled and freeze the emulator.
+        // We use SystClkSource::Core (250MHz) to ensure it is always ticking.
+        let mut syst = unsafe { cortex_m::Peripherals::steal().SYST };
+        syst.set_clock_source(cortex_m::peripheral::syst::SystClkSource::Core);
+        syst.set_reload(0x00FFFFFF);
+        syst.clear_current();
+        syst.enable_counter();
+        self.base_time_24 = Self::now_24();
+    }
+
     #[inline(always)]
     pub fn update_base(&mut self, current_cycles: u32) {
-        self.base_time_24 = Self::now_24().wrapping_sub(current_cycles) & 0x00FFFFFF;
+        // 1 cycle = 1 us. At Core frequency, 1us = (SYSTEM_CLOCK_FREQ / 1_000_000) ticks.
+        let current_ticks = current_cycles.wrapping_mul(SYSTEM_CLOCK_FREQ / 1_000_000);
+        self.base_time_24 = Self::now_24().wrapping_sub(current_ticks) & 0x00FFFFFF;
     }
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn spin_until(&mut self, target_cycle: u32) {
-        let target_time = self.base_time_24.wrapping_add(target_cycle) & 0x00FFFFFF;
+        let target_ticks = target_cycle.wrapping_mul(SYSTEM_CLOCK_FREQ / 1_000_000);
+        let target_time = self.base_time_24.wrapping_add(target_ticks) & 0x00FFFFFF;
         
         if self.lag_pin_active {
             embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(1 << 0);
