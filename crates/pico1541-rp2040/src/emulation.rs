@@ -235,6 +235,8 @@ pub(crate) struct HardwareBridge {
 
 impl HardwareBridge {
     // Constants for GPIO IEC pin bit position
+    const GPIO_DEBUG_BIT_0: usize = 0;
+    const GPIO_DEBUG_BIT_1: usize = 1;
     const GPIO_IEC_BIT_DATA_RX: usize = 16; // GPIO 16 (PB0)
     const GPIO_IEC_BIT_CLK_RX: usize = 17;  // GPIO 17 (PB2)
     const GPIO_IEC_BIT_ATN_RX: usize = 18;  // GPIO 18 (PB7)
@@ -243,6 +245,8 @@ impl HardwareBridge {
     //const GPIO_IEC_BIT_RESET: usize = 21;   // GPIO 21 (PB6)
 
     // Constants for GPIO pin masking
+    const GPIO_DEBUG_MASK_0: u32 = 1 << Self::GPIO_DEBUG_BIT_0;
+    const GPIO_DEBUG_MASK_1: u32 = 1 << Self::GPIO_DEBUG_BIT_1;
     const GPIO_IEC_MASK_DATA_RX: u32 = 1 << Self::GPIO_IEC_BIT_DATA_RX;
     const GPIO_IEC_MASK_CLK_RX: u32 = 1 << Self::GPIO_IEC_BIT_CLK_RX;
     const GPIO_IEC_MASK_ATN_RX: u32 = 1 << Self::GPIO_IEC_BIT_ATN_RX;
@@ -287,22 +291,20 @@ impl HostInterface for HardwareBridge {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn set_debug_0(&mut self) {
-        embassy_rp::pac::SIO.gpio_out(0).value_set().write_value(1 << 0);
+        embassy_rp::pac::SIO.gpio_out(0).value_set().write_value(Self::GPIO_DEBUG_MASK_0);
     }
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn set_debug_1(&mut self) {
-        embassy_rp::pac::SIO.gpio_out(0).value_set().write_value(1 << 1);
+        embassy_rp::pac::SIO.gpio_out(0).value_set().write_value(Self::GPIO_DEBUG_MASK_1);
     }
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn clear_debug_pins(&mut self) {
-        embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(1 << 1);
+        embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(Self::GPIO_DEBUG_MASK_0 | Self::GPIO_DEBUG_MASK_1);
     }
-
-
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
@@ -372,6 +374,8 @@ impl ViaHardware for HardwareBridge {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn read_iec_port(&mut self) -> u8 {
+        self.set_debug_1();
+
         // Sample GPIO inputs
         let pins = embassy_rp::pac::SIO.gpio_in(0).read();
 
@@ -404,6 +408,7 @@ impl ViaHardware for HardwareBridge {
         let current_state = embassy_rp::pac::SIO.gpio_out(0).value().read();
         let xor_mask = (current_state ^ target_state) & mask;
         
+        self.set_debug_0();
         embassy_rp::pac::SIO.gpio_out(0).value_xor().write_value(xor_mask);
     }
 

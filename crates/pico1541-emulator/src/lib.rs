@@ -98,6 +98,9 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         self.memory.reset(hw);
         self.cpu.reset(&mut self.memory, hw);
         self.cycles = self.cpu.cycles;
+        unsafe {
+            crate::RAM_POINTER = self.memory.memory.as_ptr();
+        }
         self.memory.mechanics.update_state(self.memory.via2.get_pb_out(), hw);
     }
 
@@ -110,11 +113,6 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
             crate::flight_recorder::FLIGHT_RECORDER.assume_init_mut().index = 0;
         }
 
-        hw.clear_debug_pins();
-
-        unsafe {
-            crate::RAM_POINTER = self.memory.memory.as_ptr();
-        }
 
         if self.memory.via1.irq || self.memory.via2.irq {
             self.cpu.pending_interrupt = Some(racc6502v4::cpu::Interrupt::Irq);
@@ -131,6 +129,7 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         if self.cpu.cycles.wrapping_sub(self.memory.next_sync_cycle) < 0x80000000 {
             hw.spin_until(self.cpu.cycles);
         }
+        hw.clear_debug_pins();
 
         self.memory.catch_up(self.cpu.cycles);
         

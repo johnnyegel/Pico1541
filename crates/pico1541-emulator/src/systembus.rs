@@ -149,6 +149,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             self.device_id = hardware.get_device_id();
             self.device_id_pb_bits = (self.device_id & 0x03) << 5;
 
+            /* FIXME! This seems pointless
             if hardware.pop_discard_request() {
                 crate::hle::HleManager::intercept_command(self);
                 // Also write iec port here?
@@ -156,7 +157,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             // FIXME! What the actual fuck is this?
             if self.mechanics.pop_force_disk_change() {
                 self.memory[0x001C] = 1;
-            }
+            } */
 
             let wp = self.mechanics.is_write_protected();
             if wp {
@@ -239,15 +240,12 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     #[link_section = ".data.ram_func"]
     #[cold]
     fn read_io(&mut self, addr: u16, cycle: u32, ctx: &mut H) -> u8 {
-        // Spinlock to exact cycle + 0.5 before reading live IEC state
-        ctx.spin_until_half(cycle);
-        
         self.catch_up(cycle);
 
         let result = if (addr & 0x0400) == 0 {
-            ctx.set_debug_1();
             let reg = (addr & 0x0F) as usize;
             if reg == 0x00 || reg == 0x0F {
+                ctx.spin_until_half(cycle);
                 self.sync_iec_bus(ctx);
             }
             
@@ -262,16 +260,13 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     #[link_section = ".data.ram_func"]
     #[cold]
     fn write_io(&mut self, addr: u16, val: u8, cycle: u32, ctx: &mut H) {
-        // Spinlock to exact cycle + 0.5 before writing to physical pins
-        ctx.spin_until_half(cycle);
-        
         self.catch_up(cycle);
 
         if (addr & 0x0400) == 0 {
-            ctx.set_debug_1();
             let reg = (addr & 0x0F) as usize;
             self.via1.write(addr, val);
             if reg == 0x00 || reg == 0x02 || reg == 0x0F {
+                ctx.spin_until_half(cycle);
                 self.sync_iec_bus(ctx);
             }
         } else {
