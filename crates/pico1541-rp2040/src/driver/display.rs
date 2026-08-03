@@ -28,6 +28,7 @@ pub struct OledDisplay {
     scroll_offset: i32,
     scroll_dir: i32,
     dirty: bool,
+    pub needs_init: bool,
 }
 
 impl OledDisplay {
@@ -53,13 +54,19 @@ impl OledDisplay {
             scroll_offset: 0,
             scroll_dir: 1,
             dirty: true,
+            needs_init: true,
         }
     }
 
     pub async fn init(&mut self) {
-        self.display.init().unwrap();
-        let _ = self.display.clear(BinaryColor::Off);
-        let _ = self.display.flush();
+        if self.display.init().is_err() {
+            defmt::error!("OLED display init failed");
+            self.needs_init = true;
+        } else {
+            self.needs_init = false;
+            let _ = self.display.clear(embedded_graphics::pixelcolor::BinaryColor::Off);
+            let _ = self.display.flush();
+        }
     }
 
     pub fn update_scroll(&mut self) {
@@ -119,11 +126,22 @@ impl OledDisplay {
     }
 
     pub fn redraw(&mut self) {
+        if self.needs_init {
+            if self.display.init().is_err() {
+                return;
+            }
+            self.needs_init = false;
+            self.dirty = true;
+        }
+
         if !self.dirty {
             return;
         }
 
-        let _ = self.display.clear(BinaryColor::Off);
+        if self.display.clear(BinaryColor::Off).is_err() {
+            self.needs_init = true;
+            return;
+        }
 
         for i in 0..6 {
             let is_large = (self.large_lines >> i) & 1 != 0;
@@ -181,8 +199,11 @@ impl OledDisplay {
             }
         }
 
-        let _ = self.display.flush();
-        self.dirty = false;
+        if self.display.flush().is_err() {
+            self.needs_init = true;
+        } else {
+            self.dirty = false;
+        }
     }
 }
 
@@ -224,7 +245,7 @@ impl<M: RawMutex + 'static> DisplayDriver for DisplayWrapper<M> {
     }
     fn is_dirty(&self) -> bool {
         if let Ok(d) = self.0.try_lock() {
-            if d.dirty {
+            if d.dirty || d.needs_init {
                 return true;
             }
             let line = &d.lines[d.selected_line as usize];
