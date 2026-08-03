@@ -16,4 +16,4 @@ fi
 
 echo "Attaching to SWD using: $ELF_FILE"
 # DEFMT_LOG="debug" is needed for probe-rs to show defmt logs correctly, just like in .cargo/config.toml
-DEFMT_LOG="debug" probe-rs attach --chip RP2040 --speed 1000 "$ELF_FILE"
+DEFMT_LOG="debug" probe-rs attach --chip RP2040 --speed 5000 "$ELF_FILE"

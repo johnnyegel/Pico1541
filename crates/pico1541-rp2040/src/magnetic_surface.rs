@@ -1,5 +1,5 @@
 use pico1541_common::magnetic_surface::MagneticSurface;
-use pico1541_common::track_buffer::TrackStream;
+use pico1541_common::track_buffer::{TrackBuffer, TrackLayout};
 use embassy_rp::pac;
 
 
@@ -226,14 +226,14 @@ impl PioMagneticSurface {
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    fn set_stream_source_offset(&self, stream: TrackStream, offset: u32) {
+    fn set_stream_source_offset(&self, stream: &'static TrackBuffer, offset: u32) {
         // :: Ensure the floppy DMA channels are stopped and the PIO FIFOs are cleared.
         Self::stop_floppy_dma();
         Self::clear_pio_fifos();
 
         // :: Set the new track pointer and length for the DMA transfer    
-        let track_ptr = stream.as_dma_ptr();
-        let track_length = stream.length;
+        let track_ptr = stream.data.as_ptr() as u32;
+        let track_length = stream.length as u32;
 
         unsafe {
             // Store the unmodified track pointer to our reset DMA channel.
@@ -331,28 +331,25 @@ impl MagneticSurface for PioMagneticSurface {
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    fn set_stream_source(&mut self, stream: TrackStream) {
+    fn set_stream_source(&mut self, stream: &'static TrackBuffer) {
         // :? Is this a data holding stream?
-        // FIXME! BAD HACK: Checking the length to determine if this is a noise track.
-        let track_offset = if stream.length <= 16 {
-            // -> No, then record where the read head is at.
-            self.last_head_pos = self.get_absolute_head_position(0);
-            // No offset needed
-            0
-        }
-        else if stream.length != self.stream_length {
-            // -> Yes, then we realign the head by scaling the last head position
-            (self.last_head_pos * stream.length) / self.stream_length
-        }
-        else {
-            self.last_head_pos
+        let stream_length = stream.length as u32;
+        let track_offset = match stream.layout {
+            TrackLayout::Warped(_) => 0,
+            TrackLayout::Void => {
+                self.last_head_pos = self.get_absolute_head_position(0);
+                0   
+            },
+            TrackLayout::Accurate => {
+                (self.last_head_pos * stream_length) / self.stream_length
+            }
         };
 
         // Set the stream source with an offset
         self.set_stream_source_offset(stream, track_offset);
 
         // Set the new stream length
-        self.stream_length = stream.length;
+        self.stream_length = stream_length;
     }
 
 }

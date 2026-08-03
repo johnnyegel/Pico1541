@@ -106,41 +106,6 @@ impl TrackIdentifier {
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct TrackStream {
-    ptr: *const u8,
-    pub length: u32,
-}
-
-impl TrackStream {
-    pub const fn noise() -> Self {
-        #[repr(align(16))]
-        struct NoiseBuffer([u8; 16]);
-        
-        static NOISE_BUFFER: NoiseBuffer = NoiseBuffer([
-            0x55, 0xAA, 0x33, 0xCC, 0x0F, 0xF0, 0x55, 0xAA,
-            0x33, 0xCC, 0x0F, 0xF0, 0x55, 0xAA, 0x33, 0xCC
-        ]);
-        
-        Self {
-            ptr: NOISE_BUFFER.0.as_ptr(),
-            length: 16,
-        }
-    }
-    
-    pub const fn from_active_buffer(ptr: *const u8, length: u32) -> Self {
-        Self { ptr, length }
-    }
-
-    pub fn as_slice(&self) -> &[u8] {
-        unsafe { core::slice::from_raw_parts(self.ptr, self.length as usize) }
-    }
-    
-    pub fn as_dma_ptr(&self) -> u32 {
-        self.ptr as u32
-    }
-}
-
 /// Represents a single track buffer which holds the GCR-encoded data for a track,
 /// along with metadata about the track such as its ID and layout.
 #[repr(C, align(8192))]
@@ -152,7 +117,7 @@ pub struct TrackBuffer {
 }
 
 impl TrackBuffer {
-    const fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             data: [0; 8192],
             identifier: TrackIdentifier(0xFF), // 0xFF represents invalid/unloaded
@@ -160,7 +125,34 @@ impl TrackBuffer {
             layout: TrackLayout::Void,
         }
     }
+
+    pub const fn noise() -> &'static Self {
+        #[repr(C, align(8192))]
+        struct StaticNoise {
+            buffer: TrackBuffer,
+        }
+
+        static NOISE_BUFFER: StaticNoise = StaticNoise {
+            buffer: TrackBuffer {
+                data: {
+                    let mut arr = [0; 8192];
+                    arr[0] = 0x55; arr[1] = 0xAA; arr[2] = 0x33; arr[3] = 0xCC;
+                    arr[4] = 0x0F; arr[5] = 0xF0; arr[6] = 0x55; arr[7] = 0xAA;
+                    arr[8] = 0x33; arr[9] = 0xCC; arr[10] = 0x0F; arr[11] = 0xF0;
+                    arr[12] = 0x55; arr[13] = 0xAA; arr[14] = 0x33; arr[15] = 0xCC;
+                    arr
+                },
+                identifier: TrackIdentifier(0xFF),
+                length: 16,
+                layout: TrackLayout::Void,
+            }
+        };
+
+        &NOISE_BUFFER.buffer
+    }
 }
+
+
 
 /// Dual core track buffer that can be split into two handles for the Emulator and Manager
 pub struct DualCoreTrackBuffer {
@@ -431,10 +423,9 @@ impl EmulatorHandle {
         &buffer.data[..buffer.length]
     }
 
-    pub fn get_full_buffer_ptr(&self) -> *const u8 {
+    pub fn get_active_track_buffer(&self) -> &'static TrackBuffer {
         let active_idx = (self.core_buffer.generation.load(Ordering::Acquire) % 2) as usize;
-        let buffer = unsafe { &(*self.core_buffer.buffers.get())[active_idx] };
-        buffer.data.as_ptr()
+        unsafe { &(*self.core_buffer.buffers.get())[active_idx] }
     }
 
     pub fn seek_to_byte(&mut self, byte_index: u32) {

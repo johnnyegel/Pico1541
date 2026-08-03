@@ -1,4 +1,4 @@
-use crate::track_buffer::TrackStream;
+use crate::track_buffer::TrackBuffer;
 
 pub trait MagneticSurface {
     /// Returns whether a SYNC mark is currently active.
@@ -9,11 +9,11 @@ pub trait MagneticSurface {
     fn get_absolute_head_position(&self, master_clock: u32) -> u32;
     fn set_motor_running(&mut self, is_running: bool);
     fn set_speed_zone(&mut self, zone: u8);
-    fn set_stream_source(&mut self, stream: TrackStream);
+    fn set_stream_source(&mut self, stream: &'static TrackBuffer);
 }
 
 pub struct SoftwareMagneticSurface {
-    stream: TrackStream,
+    stream: Option<&'static TrackBuffer>,
     stream_idx: usize,
     is_sync: bool,
     bit_shift_reg: u8,
@@ -28,7 +28,7 @@ pub struct SoftwareMagneticSurface {
 impl SoftwareMagneticSurface {
     pub fn new() -> Self {
         Self { 
-            stream: TrackStream::noise(),
+            stream: Some(TrackBuffer::noise()),
             stream_idx: 0,
             is_sync: false,
             bit_shift_reg: 0,
@@ -58,11 +58,14 @@ impl MagneticSurface for SoftwareMagneticSurface {
         
         for _ in 0..8 {
             if self.pending_bit_count == 0 {
-                let slice = self.stream.as_slice();
-                let byte = if slice.len() > 0 {
-                    let b = slice[self.stream_idx];
-                    self.stream_idx = (self.stream_idx + 1) % slice.len();
-                    b
+                let byte = if let Some(stream) = self.stream {
+                    if stream.length > 0 {
+                        let b = stream.data[self.stream_idx];
+                        self.stream_idx = (self.stream_idx + 1) % stream.length;
+                        b
+                    } else {
+                        0x55
+                    }
                 } else {
                     0x55
                 };
@@ -120,8 +123,8 @@ impl MagneticSurface for SoftwareMagneticSurface {
         };
     }
     
-    fn set_stream_source(&mut self, stream: TrackStream) {
-        self.stream = stream;
+    fn set_stream_source(&mut self, stream: &'static TrackBuffer) {
+        self.stream = Some(stream);
         self.stream_idx = 0;
     }
 }
@@ -146,9 +149,7 @@ mod tests {
         manager.commit_loaded_track(crate::track_buffer::TrackIdentifier(0), crate::track_buffer::TrackLayout::Accurate, 5);
 
         let mut surface = SoftwareMagneticSurface::new();
-        let track_ptr = emulator.get_full_buffer_ptr();
-        let track_len = emulator.get_active_track_length();
-        let stream = TrackStream::from_active_buffer(track_ptr, track_len as u32);
+        let stream = emulator.get_active_track_buffer();
         surface.set_stream_source(stream);
         surface.set_motor_running(true);
         

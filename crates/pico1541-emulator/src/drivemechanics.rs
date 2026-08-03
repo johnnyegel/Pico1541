@@ -1,4 +1,4 @@
-use pico1541_common::track_buffer::{EmulatorHandle, TrackIdentifier, TrackStream};
+use pico1541_common::track_buffer::{EmulatorHandle, TrackIdentifier, TrackBuffer};
 use pico1541_common::{magnetic_surface::MagneticSurface, interface::HostInterface};
 
 #[cfg(feature = "debug")]
@@ -211,13 +211,13 @@ impl<S: MagneticSurface> DriveMechanics<S> {
         if self.current_identifier == loaded_identifier {
             let length = self.track_handle.get_active_track_length() as u32;
             if length > 0 {
-                let stream = TrackStream::from_active_buffer(self.track_handle.get_full_buffer_ptr(), length);
+                let stream = self.track_handle.get_active_track_buffer();
                 self.surface.set_stream_source(stream);
             } else {
-                self.surface.set_stream_source(TrackStream::noise());
+                self.surface.set_stream_source(TrackBuffer::noise());
             }
         } else {
-            self.surface.set_stream_source(TrackStream::noise());
+            self.surface.set_stream_source(TrackBuffer::noise());
         }
     }
 

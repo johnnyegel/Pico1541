@@ -149,12 +149,10 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             self.device_id = hardware.get_device_id();
             self.device_id_pb_bits = (self.device_id & 0x03) << 5;
 
-            /* FIXME! This seems pointless
+            /* FIXME! This seems useless
             if hardware.pop_discard_request() {
                 crate::hle::HleManager::intercept_command(self);
-                // Also write iec port here?
             }
-            // FIXME! What the actual fuck is this?
             if self.mechanics.pop_force_disk_change() {
                 self.memory[0x001C] = 1;
             } */
