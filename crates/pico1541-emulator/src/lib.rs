@@ -101,7 +101,7 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         unsafe {
             crate::RAM_POINTER = self.memory.memory.as_ptr();
         }
-        self.memory.mechanics.update_state(self.memory.via2.get_pb_out(), hw);
+        self.memory.mechanics.update_state(self.memory.via2.get_pb_out(), hw, 0);
     }
 
     #[link_section = ".data.ram_func"]

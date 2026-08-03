@@ -97,7 +97,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         self.last_iec_out = 0xFF; // Force first write
         self.last_via2_out = 0xFF;
         self.mechanics
-            .update_state(self.via2.get_pb_out(), hardware);
+            .update_state(self.via2.get_pb_out(), hardware, 0);
         // Force the track manager to load the reset track
         hardware.track_changed(self.mechanics.half_track());
     }
@@ -170,12 +170,12 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn poll_mechanics(&mut self, delta: u32) {
+    pub fn poll_mechanics(&mut self, delta: u32, current_cycle: u32) {
         if delta == 0 {
             return;
         }
         
-        self.mechanics.tick();
+        self.mechanics.tick(current_cycle);
 
         // Hardware Wiring: Pull bytes from the DMA buffer and wire SYNC/SO directly to VIA2/CPU.
         let is_motor_on = (self.via2.orb | !self.via2.ddrb) & 0x04 != 0;
@@ -224,8 +224,9 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         if delta == 0 {
             return;
         }
+        let current_cycle = self.last_cycle.wrapping_add(delta);
         
-        self.poll_mechanics(delta);
+        self.poll_mechanics(delta, current_cycle);
 
         if self.via1.any_active() {
             self.via1.tick_cycles(delta);
@@ -276,7 +277,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
                     ctx.write_mechanics_port(effective_orb);
                     self.last_via2_out = effective_orb;
                 }
-                self.mechanics.update_state(effective_orb, ctx);
+                self.mechanics.update_state(effective_orb, ctx, cycle);
             }
         }
     }

@@ -35,7 +35,8 @@ static mut CURRENT_TRACK_PTR: u32 = 0;
 pub struct PioMagneticSurface {
     is_motor_on: bool,
     stream_length: u32,
-    last_head_pos: u32,
+    motor_start_time_us: u32,
+    saved_angle_us: u32,
 
     _sync_pin: embassy_rp::pio::Pin<'static, embassy_rp::peripherals::PIO0>,
     _loaded_prg: embassy_rp::pio::LoadedProgram<'static, embassy_rp::peripherals::PIO0>,
@@ -82,7 +83,8 @@ impl PioMagneticSurface {
         Self {
             is_motor_on: false,
             stream_length: 1, // Initialize to 1 to avoid divide by zero!
-            last_head_pos: 0,
+            motor_start_time_us: 0,
+            saved_angle_us: 0,
             _sync_pin: sync_pin,
             _loaded_prg: loaded_prg,
             _sm: sm,
@@ -273,6 +275,16 @@ impl PioMagneticSurface {
             dma_ch0.trans_count().write_value(track_length);
         }
     }
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    fn update_and_get_angle(&mut self, master_clock: u32) -> u32 {
+        if self.is_motor_on {
+            let delta = master_clock.wrapping_sub(self.motor_start_time_us);
+            self.saved_angle_us = (self.saved_angle_us + delta) % 200_000;
+            self.motor_start_time_us = master_clock;
+        }
+        self.saved_angle_us
+    }
 }
 
 impl MagneticSurface for PioMagneticSurface {
@@ -297,12 +309,20 @@ impl MagneticSurface for PioMagneticSurface {
         self.stream_length.saturating_sub(remaining)
     }
 
+
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    fn set_motor_running(&mut self, is_running: bool) {
+    fn set_motor_running(&mut self, is_running: bool, master_clock: u32) {
         if self.is_motor_on == is_running {
             return;
         }
+        
+        if is_running {
+            self.motor_start_time_us = master_clock;
+        } else {
+            self.update_and_get_angle(master_clock);
+        }
+        
         self.is_motor_on = is_running;
         
         // :? Is the motor running,
@@ -331,17 +351,15 @@ impl MagneticSurface for PioMagneticSurface {
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    fn set_stream_source(&mut self, stream: &'static TrackBuffer) {
+    fn set_stream_source(&mut self, stream: &'static TrackBuffer, master_clock: u32) {
         // :? Is this a data holding stream?
         let stream_length = stream.length as u32;
         let track_offset = match stream.layout {
             TrackLayout::Warped(_) => 0,
-            TrackLayout::Void => {
-                self.last_head_pos = self.get_absolute_head_position(0);
-                0   
-            },
+            TrackLayout::Void => 0,
             TrackLayout::Accurate => {
-                (self.last_head_pos * stream_length) / self.stream_length
+                let current_angle_us = self.update_and_get_angle(master_clock);
+                (current_angle_us * stream_length) / 200_000
             }
         };
 

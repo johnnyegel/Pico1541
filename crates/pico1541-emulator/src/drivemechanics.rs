@@ -81,10 +81,10 @@ impl<S: MagneticSurface> DriveMechanics<S> {
     /// Updates the drive mechanics state based on VIA2 Port B outputs.
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn update_state<H: HostInterface>(&mut self, effective_orb: u8, hardware: &mut H) {
+    pub fn update_state<H: HostInterface>(&mut self, effective_orb: u8, hardware: &mut H, master_clock: u32) {
         let full_state = effective_orb & (MASK_HARDWARE_STATE | MASK_SPEED_ZONE);
         if full_state != self.last_state {
-            self.update_state_slow(full_state, hardware);
+            self.update_state_slow(full_state, hardware, master_clock);
         }
     }
 
@@ -117,31 +117,31 @@ impl<S: MagneticSurface> DriveMechanics<S> {
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn tick(&mut self) {
+    pub fn tick(&mut self, master_clock: u32) {
         let current_active_index = self.track_handle.get_generation();
         if current_active_index != self.last_active_index {
             log::info!("TICK SEES CHANGE! current={} last={}", current_active_index, self.last_active_index);
             self.last_active_index = current_active_index;
-            self.evaluate_track_source();
+            self.evaluate_track_source(master_clock);
         }
     }
 
     // ========== Internal helper functions ==================================================
 
     
-    pub fn force_state_for_testing(&mut self, halftrack: u8, speed_zone: u8) {
+    pub fn force_state_for_testing(&mut self, halftrack: u8, speed_zone: u8, master_clock: u32) {
         let new_track_identifier = TrackIdentifier::new(halftrack, speed_zone);
         self.halftrack_head_pos = halftrack as i8;
         self.last_state = (self.last_state & !MASK_SPEED_ZONE) | (speed_zone << SHIFT_SPEED_ZONE);
         self.track_handle.update_head_half_track(halftrack);
         self.surface.set_speed_zone(speed_zone);
-        self.evaluate_track_identifier(new_track_identifier);
+        self.evaluate_track_identifier(new_track_identifier, master_clock);
     }
 
     /// Updates the drive mechanics state, and issues events accordingly.
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    fn update_state_slow<H: HostInterface>(&mut self, full_state: u8, hardware: &mut H) {
+    fn update_state_slow<H: HostInterface>(&mut self, full_state: u8, hardware: &mut H, master_clock: u32) {
         let last_state = self.last_state;
         let state_changes = full_state ^ last_state;
         self.last_state = full_state;
@@ -149,7 +149,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
         if (state_changes & MASK_MOTOR) != 0 {
             let motor_on = (full_state & MASK_MOTOR) != 0;
             log::info!("Motor state changed: motor_on = {}, head_pos = {}", motor_on, self.halftrack_head_pos);
-            self.surface.set_motor_running(motor_on);
+            self.surface.set_motor_running(motor_on, master_clock);
         }
 
         // :: Update stepper motor and tracking
@@ -158,7 +158,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
             let speed_zone = (full_state & MASK_SPEED_ZONE) >> SHIFT_SPEED_ZONE;
             let new_track_identifier = self.current_identifier.with_speed_zone(speed_zone);
             self.surface.set_speed_zone(speed_zone);
-            self.evaluate_track_identifier(new_track_identifier);
+            self.evaluate_track_identifier(new_track_identifier, master_clock);
         }
         
         let is_track_step = state_changes & MASK_STEP != 0;
@@ -182,7 +182,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
                     let current_half_track = self.halftrack_head_pos as u8;
                     let new_track_identifier = self.current_identifier.with_half_track(current_half_track);
                     self.track_handle.update_head_half_track(current_half_track);
-                    self.evaluate_track_identifier(new_track_identifier);
+                    self.evaluate_track_identifier(new_track_identifier, master_clock);
                     
                     hardware.track_changed(current_half_track);
                 }
@@ -192,18 +192,18 @@ impl<S: MagneticSurface> DriveMechanics<S> {
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    fn evaluate_track_identifier(&mut self, new_track_identifier: TrackIdentifier) {
+    fn evaluate_track_identifier(&mut self, new_track_identifier: TrackIdentifier, master_clock: u32) {
         // :? Has identifier changed?
         if self.current_identifier != new_track_identifier {
             // -> Yes, then we need to update the track source.
             self.current_identifier = new_track_identifier;
-            self.evaluate_track_source();
+            self.evaluate_track_source(master_clock);
         }
     }
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    fn evaluate_track_source(&mut self) {
+    fn evaluate_track_source(&mut self, master_clock: u32) {
         let loaded_identifier = self.track_handle.get_active_track_identifier();
         
         log::info!("EVAL current={:?} loaded={:?}", self.current_identifier, loaded_identifier);
@@ -212,12 +212,12 @@ impl<S: MagneticSurface> DriveMechanics<S> {
             let length = self.track_handle.get_active_track_length() as u32;
             if length > 0 {
                 let stream = self.track_handle.get_active_track_buffer();
-                self.surface.set_stream_source(stream);
+                self.surface.set_stream_source(stream, master_clock);
             } else {
-                self.surface.set_stream_source(TrackBuffer::noise());
+                self.surface.set_stream_source(TrackBuffer::noise(), master_clock);
             }
         } else {
-            self.surface.set_stream_source(TrackBuffer::noise());
+            self.surface.set_stream_source(TrackBuffer::noise(), master_clock);
         }
     }
 

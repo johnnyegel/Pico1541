@@ -7,9 +7,9 @@ pub trait MagneticSurface {
     fn is_sync_active(&self) -> bool { false }
     fn try_read_byte(&mut self, delta_cycles: u32) -> Option<u8>;
     fn get_absolute_head_position(&self, master_clock: u32) -> u32;
-    fn set_motor_running(&mut self, is_running: bool);
+    fn set_motor_running(&mut self, is_running: bool, master_clock: u32);
     fn set_speed_zone(&mut self, zone: u8);
-    fn set_stream_source(&mut self, stream: &'static TrackBuffer);
+    fn set_stream_source(&mut self, stream: &'static TrackBuffer, master_clock: u32);
 }
 
 pub struct SoftwareMagneticSurface {
@@ -110,7 +110,7 @@ impl MagneticSurface for SoftwareMagneticSurface {
         self.stream_idx as u32
     }
 
-    fn set_motor_running(&mut self, _is_running: bool) {
+    fn set_motor_running(&mut self, _is_running: bool, _master_clock: u32) {
         // Software surface is implicitly always running or stopped by the emulator logic
     }
 
@@ -123,7 +123,7 @@ impl MagneticSurface for SoftwareMagneticSurface {
         };
     }
     
-    fn set_stream_source(&mut self, stream: &'static TrackBuffer) {
+    fn set_stream_source(&mut self, stream: &'static TrackBuffer, _master_clock: u32) {
         self.stream = Some(stream);
         self.stream_idx = 0;
     }
@@ -150,8 +150,8 @@ mod tests {
 
         let mut surface = SoftwareMagneticSurface::new();
         let stream = emulator.get_active_track_buffer();
-        surface.set_stream_source(stream);
-        surface.set_motor_running(true);
+        surface.set_stream_source(stream, 0);
+        surface.set_motor_running(true, 0);
         
         let out0 = surface.try_read_byte(32); 
         assert_eq!(out0, Some(0x7F)); // The first byte is pushed normally
