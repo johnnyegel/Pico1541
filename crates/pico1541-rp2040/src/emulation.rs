@@ -231,6 +231,7 @@ pub(crate) struct HardwareBridge {
     _dbg_pin_0: Output<'static>,
     _dbg_pin_1: Output<'static>,
     pub timekeeper: TimeKeeper,
+    track_just_changed: bool,
 }
 
 impl HardwareBridge {
@@ -273,6 +274,7 @@ impl HardwareBridge {
             _dbg_pin_0: dbg_pin_0,
             _dbg_pin_1: dbg_pin_1,
             timekeeper: TimeKeeper::new(),
+            track_just_changed: false,
         };
         bridge.activity_led.set_state(true, true);
         bridge
@@ -329,6 +331,8 @@ impl HostInterface for HardwareBridge {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn track_changed(&mut self, half_track: u8) {
+        self.track_just_changed = true;
+
         // We notify the TRACK_CHANNEL directly instead of using DriveEvent
         // First we drain the channel to avoid blocking if the manager is behind
         while TRACK_CHANNEL.try_receive().is_ok() {}
@@ -336,6 +340,14 @@ impl HostInterface for HardwareBridge {
         
         // Pend TIMER_IRQ_3 on Core 0 to wake up the DiskTask!
         embassy_rp::pac::TIMER.intf().write(|w| w.set_alarm(3, true));
+    }
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    fn take_track_changed_flag(&mut self) -> bool {
+        let val = self.track_just_changed;
+        self.track_just_changed = false;
+        val
     }
 
     #[link_section = ".data.ram_func"]
@@ -408,7 +420,6 @@ impl ViaHardware for HardwareBridge {
         let current_state = embassy_rp::pac::SIO.gpio_out(0).value().read();
         let xor_mask = (current_state ^ target_state) & mask;
         
-        self.set_debug_0();
         embassy_rp::pac::SIO.gpio_out(0).value_xor().write_value(xor_mask);
     }
 

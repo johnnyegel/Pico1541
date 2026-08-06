@@ -65,6 +65,9 @@ pub trait HostInterface: crate::context::ViaHardware {
     /// Called when the read/write head moves to a new half-track.
     fn track_changed(&mut self, _half_track: u8) {}
 
+    /// Returns true if the track has changed since the last time this was called.
+    fn take_track_changed_flag(&mut self) -> bool { false }
+
     // Execution control
     fn check_halt_requested(&self) -> bool { false }
     fn report_performance_counters(&mut self, _ticks: u32, _idles: u32) {}
