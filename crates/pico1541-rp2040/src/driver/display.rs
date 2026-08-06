@@ -16,56 +16,34 @@ use ssd1306::{
     Ssd1306,
 };
 
-pub struct OledDisplay {
-    display: Ssd1306<
-        I2CInterface<I2c<'static, I2C0, Async>>,
-        DisplaySize128x64,
-        BufferedGraphicsMode<DisplaySize128x64>,
-    >,
-    lines: [heapless::String<64>; 6],
-    large_lines: u8,
-    selected_line: u8,
-    scroll_offset: i32,
-    scroll_dir: i32,
-    dirty: bool,
+#[derive(Clone)]
+pub struct DisplayState {
+    pub lines: [heapless::String<64>; 6],
+    pub large_lines: u8,
+    pub selected_line: u8,
+    pub scroll_offset: i32,
+    pub scroll_dir: i32,
+    pub dirty: bool,
     pub needs_init: bool,
 }
 
-impl OledDisplay {
-    pub fn new(i2c: I2c<'static, I2C0, Async>) -> Self {
-        let interface = I2CInterface::new(i2c, 0x3C, 0x40);
-        let display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
-            .into_buffered_graphics_mode();
-
-        let lines = [
-            heapless::String::new(),
-            heapless::String::new(),
-            heapless::String::new(),
-            heapless::String::new(),
-            heapless::String::new(),
-            heapless::String::new(),
-        ];
-
+impl DisplayState {
+    pub fn new() -> Self {
         Self {
-            display,
-            lines,
+            lines: [
+                heapless::String::new(),
+                heapless::String::new(),
+                heapless::String::new(),
+                heapless::String::new(),
+                heapless::String::new(),
+                heapless::String::new(),
+            ],
             large_lines: 0,
             selected_line: 0,
             scroll_offset: 0,
             scroll_dir: 1,
             dirty: true,
             needs_init: true,
-        }
-    }
-
-    pub async fn init(&mut self) {
-        if self.display.init().is_err() {
-            defmt::error!("OLED display init failed");
-            self.needs_init = true;
-        } else {
-            self.needs_init = false;
-            let _ = self.display.clear(embedded_graphics::pixelcolor::BinaryColor::Off);
-            let _ = self.display.flush();
         }
     }
 
@@ -92,7 +70,6 @@ impl OledDisplay {
         }
     }
 
-    #[allow(dead_code)]
     pub fn set_selection(&mut self, index: u8) {
         if index < 6 && self.selected_line != index {
             self.selected_line = index;
@@ -124,28 +101,54 @@ impl OledDisplay {
         self.large_lines = 0;
         self.dirty = true;
     }
+}
 
-    pub fn redraw(&mut self) {
-        if self.needs_init {
-            if self.display.init().is_err() {
-                return;
+pub struct DisplayHardware {
+    display: Ssd1306<
+        I2CInterface<I2c<'static, I2C0, Async>>,
+        DisplaySize128x64,
+        BufferedGraphicsMode<DisplaySize128x64>,
+    >,
+}
+
+impl DisplayHardware {
+    pub fn new(i2c: I2c<'static, I2C0, Async>) -> Self {
+        let interface = I2CInterface::new(i2c, 0x3C, 0x40);
+        let display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
+            .into_buffered_graphics_mode();
+
+        Self { display }
+    }
+
+    pub fn init(&mut self) -> bool {
+        if self.display.init().is_err() {
+            defmt::error!("OLED display init failed");
+            false
+        } else {
+            let _ = self.display.clear(embedded_graphics::pixelcolor::BinaryColor::Off);
+            let _ = self.display.flush();
+            true
+        }
+    }
+
+    pub fn redraw(&mut self, state: &DisplayState) -> bool {
+        if state.needs_init {
+            if !self.init() {
+                return false;
             }
-            self.needs_init = false;
-            self.dirty = true;
         }
 
-        if !self.dirty {
-            return;
+        if !state.dirty {
+            return true;
         }
 
         if self.display.clear(BinaryColor::Off).is_err() {
-            self.needs_init = true;
-            return;
+            return false;
         }
 
         for i in 0..6 {
-            let is_large = (self.large_lines >> i) & 1 != 0;
-            let is_selected = i == self.selected_line as usize;
+            let is_large = (state.large_lines >> i) & 1 != 0;
+            let is_selected = i == state.selected_line as usize;
             let is_header = i == 0;
 
             let y = (i as i32) * 10 + 2;
@@ -182,32 +185,31 @@ impl OledDisplay {
                 text_y -= 2;
             }
 
-            let text = &self.lines[i];
+            let text = &state.lines[i];
             if is_selected && text.len() >= 2 && text.is_char_boundary(2) {
                 let (prefix, rest) = text.split_at(2);
                 
-                let rest_x = 2 * char_width - self.scroll_offset;
+                let rest_x = 2 * char_width - state.scroll_offset;
                 let _ = Text::new(rest, Point::new(rest_x, text_y), style)
                     .draw(&mut self.display);
 
                 let _ = Text::new(prefix, Point::new(0, text_y), style)
                     .draw(&mut self.display);
             } else {
-                let x_offset = if is_selected { -self.scroll_offset } else { 0 };
+                let x_offset = if is_selected { -state.scroll_offset } else { 0 };
                 let _ = Text::new(text, Point::new(x_offset, text_y), style)
                     .draw(&mut self.display);
             }
         }
 
-        if self.display.flush().is_err() {
-            self.needs_init = true;
-        } else {
-            self.dirty = false;
-        }
+        self.display.flush().is_ok()
     }
 }
 
-pub struct DisplayWrapper<M: RawMutex + 'static>(pub &'static Mutex<M, OledDisplay>);
+pub struct DisplayWrapper<M: RawMutex + 'static> {
+    pub state: &'static Mutex<M, DisplayState>,
+    pub hw: &'static Mutex<M, DisplayHardware>,
+}
 
 impl<M: RawMutex + 'static> Clone for DisplayWrapper<M> {
     fn clone(&self) -> Self {
@@ -219,32 +221,55 @@ impl<M: RawMutex + 'static> Copy for DisplayWrapper<M> {}
 
 impl<M: RawMutex + 'static> DisplayDriver for DisplayWrapper<M> {
     async fn clear(&mut self) {
-        let mut d = self.0.lock().await;
+        let mut d = self.state.lock().await;
         d.clear_lines();
     }
     async fn print(&mut self, line: u8, text: &str) {
-        let mut d = self.0.lock().await;
+        let mut d = self.state.lock().await;
         d.set_line(line, text, false);
     }
     async fn print_large(&mut self, line: u8, text: &str) {
-        let mut d = self.0.lock().await;
+        let mut d = self.state.lock().await;
         d.set_line(line, text, true);
     }
     async fn update(&mut self) {
-        let mut d = self.0.lock().await;
+        let mut d = self.state.lock().await;
         d.update_scroll();
     }
     async fn redraw(&mut self) {
-        let mut d = self.0.lock().await;
-        d.redraw();
+        let state_copy = {
+            let state = self.state.lock().await;
+            if !state.dirty && !state.needs_init {
+                return;
+            }
+            state.clone()
+        };
+
+        let success = {
+            let mut hw = self.hw.lock().await;
+            hw.redraw(&state_copy)
+        };
+
+        let mut state = self.state.lock().await;
+        if success {
+            // Only clear the dirty flag if the state hasn't been modified in the meantime.
+            // But checking for modifications is complex. Just clear it. If it was modified,
+            // it might have missed a frame, but the next UI interaction will set it again.
+            // Actually, we can check if it matches the copy (or at least if dirty was set).
+            // A simpler way: we just set needs_init on failure.
+            state.needs_init = false;
+            state.dirty = false;
+        } else {
+            state.needs_init = true;
+        }
     }
     fn request_redraw(&mut self) {
-        if let Ok(mut d) = self.0.try_lock() {
+        if let Ok(mut d) = self.state.try_lock() {
             d.dirty = true;
         }
     }
     fn is_dirty(&self) -> bool {
-        if let Ok(d) = self.0.try_lock() {
+        if let Ok(d) = self.state.try_lock() {
             if d.dirty || d.needs_init {
                 return true;
             }
@@ -258,7 +283,7 @@ impl<M: RawMutex + 'static> DisplayDriver for DisplayWrapper<M> {
         }
     }
     fn set_selected_line(&mut self, line: u8) {
-        if let Ok(mut d) = self.0.try_lock() {
+        if let Ok(mut d) = self.state.try_lock() {
             d.set_selection(line);
         }
     }

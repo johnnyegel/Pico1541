@@ -42,7 +42,7 @@ use pico1541_manager::tasks::{
 static FS_IMAGE: [u8; 512 * 1024] = *include_bytes!(concat!(env!("OUT_DIR"), "/fs.bin"));
 
 // Local drivers
-use crate::driver::display::{DisplayWrapper, OledDisplay};
+use crate::driver::display::{DisplayHardware, DisplayState, DisplayWrapper};
 use crate::driver::leds::{StatusLeds, StatusLedsWrapper};
 use crate::driver::input::KeyboardInput;
 use crate::driver::speaker::PiezoSpeaker;
@@ -555,12 +555,20 @@ async fn core0_init_task(
     info!("Initializing I2C0...");
     let i2c = embassy_rp::i2c::I2c::new_async(pins.i2c0, scl, sda, Irqs, Config::default());
 
-    static OLED: StaticCell<Mutex<CriticalSectionRawMutex, OledDisplay>> = StaticCell::new();
-    let mut oled_obj = OledDisplay::new(i2c);
+    static OLED_STATE: StaticCell<Mutex<CriticalSectionRawMutex, DisplayState>> = StaticCell::new();
+    let state_obj = DisplayState::new();
+    let state_mutex = OLED_STATE.init(Mutex::new(state_obj));
+
+    static OLED_HW: StaticCell<Mutex<CriticalSectionRawMutex, DisplayHardware>> = StaticCell::new();
+    let mut hw_obj = DisplayHardware::new(i2c);
     info!("Initializing OLED...");
-    oled_obj.init().await;
+    hw_obj.init();
     info!("OLED Initialized!");
-    let oled_mutex = OLED.init(Mutex::new(oled_obj));
+    let hw_mutex = OLED_HW.init(Mutex::new(hw_obj));
+    let display_wrapper = DisplayWrapper {
+        state: state_mutex,
+        hw: hw_mutex,
+    };
 
     // 2. Indicators (Piezo + LEDs)
     let piezo = PiezoSpeaker::new(pins.piezo);
@@ -601,8 +609,7 @@ async fn core0_init_task(
     let keyboard = KeyboardInput::new(pins.kbd_row1, pins.kbd_row2, pins.kbd_col1, pins.kbd_col2);
     let keyboard_task = KeyboardTask::new(keyboard);
 
-    // 6. Display Task
-    let display_task = DisplayTask::new(DisplayWrapper(oled_mutex));
+    let display_task = DisplayTask::new(display_wrapper.clone());
 
     // 7. Snooper Task
     let snooper_task = SnooperTask::new(8);
@@ -619,7 +626,7 @@ async fn core0_init_task(
     );
 
     let main_menu_task = MainMenuTask::new(
-        DisplayWrapper(oled_mutex),
+        display_wrapper,
         StatusLedsWrapper(status_leds_mutex),
         IndicatorWrapper(indicator_mutex),
         StorageWrapper(sd_mutex),
