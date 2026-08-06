@@ -1,10 +1,10 @@
-use embassy_rp::gpio::{Input, Level, Output, Pin, Pull};
+use embassy_rp::gpio::{Input, Level, OutputOpenDrain, Pin, Pull};
 use embassy_rp::Peri;
 use pico1541_manager::InputDriver;
 
 /// Driver for the 2x2 Keyboard Matrix (Rows: 6, 7; Cols: 8, 9).
 pub struct KeyboardInput {
-    rows: [Output<'static>; 2],
+    rows: [OutputOpenDrain<'static>; 2],
     cols: [Input<'static>; 2],
 }
 
@@ -17,8 +17,8 @@ impl KeyboardInput {
     ) -> Self {
         Self {
             rows: [
-                Output::new(row0, Level::High),
-                Output::new(row1, Level::High),
+                OutputOpenDrain::new(row0, Level::High),
+                OutputOpenDrain::new(row1, Level::High),
             ],
             cols: [
                 Input::new(col0, Pull::Up),
@@ -35,8 +35,8 @@ impl InputDriver for KeyboardInput {
             row.set_low();
         }
 
-        // Delay briefly to let the signals settle
-        cortex_m::asm::delay(100);
+        // Delay to let the signals settle (RC time constant of pullups + capacitance)
+        cortex_m::asm::delay(12500);
 
         // Wait for a falling or rising edge on any column.
         let (col0_slice, col1_slice) = self.cols.split_at_mut(1);
@@ -49,16 +49,17 @@ impl InputDriver for KeyboardInput {
     fn scan(&mut self) -> u8 {
         let mut pressed = 0;
         
-        // Ensure all rows are HIGH before scanning to avoid ghosting
+        // Ensure all rows are HIGH (Open Drain = floating) before scanning to avoid ghosting
         for row in self.rows.iter_mut() {
             row.set_high();
         }
-        cortex_m::asm::delay(100);
+        // Let the column pull-ups pull the lines HIGH.
+        cortex_m::asm::delay(12500);
 
         for (r, row) in self.rows.iter_mut().enumerate() {
             row.set_low();
-            // Small delay for signal to settle
-            cortex_m::asm::delay(100);
+            // Delay for signal to settle (discharge capacitance through the switch)
+            cortex_m::asm::delay(12500);
             for (c, col) in self.cols.iter().enumerate() {
                 if col.is_low() {
                     pressed |= 1 << (r * 2 + c);
