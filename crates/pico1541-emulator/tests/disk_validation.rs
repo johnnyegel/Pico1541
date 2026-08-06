@@ -50,7 +50,7 @@ fn test_g64_track_reading_low_level() {
     let handle = hw_buffer.split().1;
     let surface = SoftwareMagneticSurface::new();
     let mut bus = get_system_bus(surface, handle);
-    bus.mechanics.force_state_for_testing(0, 3);
+    bus.mechanics.force_state_for_testing(0, 3, 0);
     
     
 
@@ -73,7 +73,7 @@ fn test_g64_track_reading_low_level() {
     
     bus.mechanics.halftrack_head_pos = 2;
     
-    bus.mechanics.force_state_for_testing(2, 3);
+    bus.mechanics.force_state_for_testing(2, 3, 0);
 
     match layout.0 {
         TrackLayout::Accurate => log::debug!("Track accurate layout"),
@@ -84,7 +84,7 @@ fn test_g64_track_reading_low_level() {
     // Motor ON (PB2), Bitrate Zone 3 (PB5=1, PB6=1) for Track 0
     bus.via2.ddrb = 0xFF;
     bus.via2.orb = 0b01100100; // Bit 6=1, Bit 5=1, Bit 2=1 (Motor ON, Zone 0)
-    bus.mechanics.update_state(bus.via2.get_pb_out(), &mut hw);
+    bus.mechanics.update_state(bus.via2.get_pb_out(), &mut hw, 0);
     
     bus.via2.pcr = 0b1110_1110; // Enable Read mode and SO
 

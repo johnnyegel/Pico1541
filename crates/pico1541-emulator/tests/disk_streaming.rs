@@ -55,13 +55,13 @@ fn test_disk_streaming_data() {
     let mut bus = get_system_bus(surface, emulator);
     bus.mechanics.halftrack_head_pos = 0; // Align head with Track 1 (half-track 0)
     
-    bus.mechanics.force_state_for_testing(0, 3);
+    bus.mechanics.force_state_for_testing(0, 3, 0);
 
     // Set bitrate Zone 3 (26 cycles) explicitly
     // In our implementation Zone 3 (26 cycles) is bits 5,6 = 11 (0x60)
     bus.via2.ddrb = 0xFF; // All bits are output
     bus.via2.orb = (bus.via2.orb & !0x60) | 0x60 | 0x04; // Zone 3 (26 cycles) + Motor ON
-    bus.mechanics.update_state(bus.via2.get_pb_out(), &mut hardware);
+    bus.mechanics.update_state(bus.via2.get_pb_out(), &mut hardware, 0);
 
     // Set READ mode (CB2 out = true) AND enable SO (CA2 out = true)
 
@@ -97,10 +97,10 @@ fn test_disk_streaming_sync() {
     let mut bus = get_system_bus(surface, emulator);
     bus.mechanics.halftrack_head_pos = 0; // Align head with Track 1 (half-track 0)
     
-    bus.mechanics.force_state_for_testing(0, 3);
+    bus.mechanics.force_state_for_testing(0, 3, 0);
     bus.via2.ddrb = 0xFF;
     bus.via2.orb = (bus.via2.orb & !0x60) | 0x60 | 0x04; // Zone 3 (26 cycles) + Motor ON
-    bus.mechanics.update_state(bus.via2.get_pb_out(), &mut hardware);
+    bus.mechanics.update_state(bus.via2.get_pb_out(), &mut hardware, 0);
     
     // Set READ mode (CB2 out = true) AND enable SO (CA2 out = true)
     bus.via2.pcr = 0b1110_1110;
@@ -162,31 +162,31 @@ fn test_disk_bitrate_zones() {
     let mut bus = get_system_bus(surface, emulator);
     bus.mechanics.halftrack_head_pos = 0; // Align head with Track 1 (half-track 0)
     
-    bus.mechanics.force_state_for_testing(0, 3);
+    bus.mechanics.force_state_for_testing(0, 3, 0);
     bus.via2.ddrb = 0xFF;
     bus.via2.pcr = 0b1110_1110; // Enable SO
 
     // Test Zone 3: 26 cycles (bits 5,6 = 11 -> 0x60)
     bus.via2.orb = 0x60 | 0x04; // Motor ON
-    bus.mechanics.update_state(bus.via2.get_pb_out(), &mut hardware);
+    bus.mechanics.update_state(bus.via2.get_pb_out(), &mut hardware, 0);
     let (ticks, lp3) = wait_for_pulse(&mut bus, false);
     assert_eq!(ticks, 26, "Zone 3 should take 26 cycles");
 
     // Test Zone 2: 28 cycles (bits 5,6 = 10 -> 0x40)
     bus.via2.orb = 0x40 | 0x04;
-    bus.mechanics.update_state(bus.via2.get_pb_out(), &mut hardware);
+    bus.mechanics.update_state(bus.via2.get_pb_out(), &mut hardware, 0);
     let (ticks, lp2) = wait_for_pulse(&mut bus, lp3);
     assert_eq!(ticks, 28, "Zone 2 should take 28 cycles");
 
     // Test Zone 1: 30 cycles (bits 5,6 = 01 -> 0x20)
     bus.via2.orb = 0x20 | 0x04;
-    bus.mechanics.update_state(bus.via2.get_pb_out(), &mut hardware);
+    bus.mechanics.update_state(bus.via2.get_pb_out(), &mut hardware, 0);
     let (ticks, lp1) = wait_for_pulse(&mut bus, lp2);
     assert_eq!(ticks, 30, "Zone 1 should take 30 cycles");
 
     // Test Zone 0: 32 cycles (bits 5,6 = 00 -> 0x00)
     bus.via2.orb = 0x00 | 0x04;
-    bus.mechanics.update_state(bus.via2.get_pb_out(), &mut hardware);
+    bus.mechanics.update_state(bus.via2.get_pb_out(), &mut hardware, 0);
     let (ticks, _) = wait_for_pulse(&mut bus, lp1);
     assert_eq!(ticks, 32, "Zone 0 should take 32 cycles");
 }

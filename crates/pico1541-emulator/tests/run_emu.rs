@@ -34,7 +34,7 @@ fn main() {
     
     let mut surface = SoftwareMagneticSurface::new();
     
-    emu.memory.mechanics.force_state_for_testing(34, 3);
+    emu.memory.mechanics.force_state_for_testing(34, 3, 0);
     
     let mut rom = Vec::new();
     File::open("/home/johnny/git/dev/Pico1541/docs/dos1541-master/dos.bin").unwrap().read_to_end(&mut rom).unwrap();

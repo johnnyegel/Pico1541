@@ -319,6 +319,7 @@ impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H,
     }
 
     #[inline(always)]
+    #[link_section = ".data.ram_func"]
     fn write(&mut self, addr: u16, val: u8, cycle: u32, ctx: &mut Self::Ctx) {
         if (addr & 0x9800) == 0x1800 {
             self.write_io(addr, val, cycle, ctx);

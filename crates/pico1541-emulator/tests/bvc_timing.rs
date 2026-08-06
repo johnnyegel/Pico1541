@@ -57,9 +57,9 @@ fn test_bvc_so_timing() {
     
     // update state
     let effective_orb = emu.memory.via2.get_pb_out();
-    emu.memory.mechanics.update_state(effective_orb, &mut hw);
+    emu.memory.mechanics.update_state(effective_orb, &mut hw, 0);
     
-    emu.memory.mechanics.force_state_for_testing(0, 3);
+    emu.memory.mechanics.force_state_for_testing(0, 3, 0);
 
     // Run until BRK (PC >= 0x0009)
     let mut finished = false;

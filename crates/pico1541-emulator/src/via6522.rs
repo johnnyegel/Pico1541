@@ -60,8 +60,9 @@ impl Via6522 {
     }
 
     /// Read a byte from a VIA register.
-    #[link_section = ".data.ram_func"]
+    
     #[inline(always)]
+    #[link_section = ".data.ram_func"]
     pub fn read(&mut self, addr: u16) -> u8 {
         let register = (addr & 0x0F) as usize;
         match register {
@@ -129,8 +130,9 @@ impl Via6522 {
     }
 
     /// Write a byte to a VIA register.
-    #[link_section = ".data.ram_func"]
+    
     #[inline(always)]
+    #[link_section = ".data.ram_func"]
     pub fn write(&mut self, addr: u16, value: u8) {
         let register = (addr & 0x0F) as usize;
         match register {
@@ -210,8 +212,9 @@ impl Via6522 {
     }
 
     /// Update the IRQ status based on IFR and IER.
-    #[link_section = ".data.ram_func"]
+    
     #[inline(always)]
+    #[link_section = ".data.ram_func"]
     fn update_irq(&mut self) {
         let pending = self.ifr & self.ier & 0x7F;
         if pending != 0 {
@@ -227,15 +230,17 @@ impl Via6522 {
     }
 
     /// This method is called on each CPU cycle.
-    #[link_section = ".data.ram_func"]
+    
     #[inline(always)]
+    #[link_section = ".data.ram_func"]
     pub fn any_active(&self) -> bool {
         self.active_mask != 0
     }
 
     /// This method is called on each CPU cycle.
-    #[link_section = ".data.ram_func"]
+    
     #[inline(always)]
+    #[link_section = ".data.ram_func"]
     pub fn tick_cycles(&mut self, delta: u32) {
         if delta == 0 || self.active_mask == 0 { return; }
         let delta16 = delta as u16;
