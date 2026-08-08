@@ -136,6 +136,7 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         if self.memory.so_pulsed {
             self.memory.so_pulsed = false;
             self.cpu.pending_so = true;
+            hw.set_debug_0(); // Output SO pulse to logic analyzer
         }
 
         // Flight recorder re-enabled, optimized to waste minimal cycles

@@ -34,8 +34,6 @@ pub struct SystemBus<H: HostInterface, S: MagneticSurface> {
     pub iec_synced_this_instruction: bool,
     last_iec_out: u8,
     last_via2_out: u8,
-    last_requested_track: u8,
-    last_requested_sector: u8,
     _phantom: PhantomData<H>,
 }
 
@@ -66,8 +64,6 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             iec_synced_this_instruction: false,
             last_iec_out: 0xFF, // Force first write
             last_via2_out: 0xFF,
-            last_requested_track: 0,
-            last_requested_sector: 0,
             _phantom: PhantomData,
         };
 
@@ -333,28 +329,7 @@ impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H,
                 *self.memory.get_unchecked_mut(index as usize) = val;
             }
 
-            // Wiretap the AR6 Sector target variable
-            if index == 0x0009 {
-                // Track was just written a few cycles ago to 0x0008
-                let current_track = self.memory[0x0008];
-                let new_sector = val;
-
-                // If the Track and Sector are identical to the last request,
-                // the C64 checksum failed and it is retrying!
-                if current_track == self.last_requested_track 
-                    && new_sector == self.last_requested_sector 
-                    && current_track != 0 {
-                    
-                    if ctx.take_track_changed_flag() {
-                        // FIRE THE LOGIC ANALYZER TRIGGER
-                        ctx.set_debug_0();
-                    }
-                } else {
-                    // Not a retry, so save the new track/sector request
-                    self.last_requested_track = current_track;
-                    self.last_requested_sector = new_sector;
-                }
-            }
+            // Wiretap removed per user request
 
             let mapped = index;
             if mapped == 0x0077 || mapped == 0x0078 {
