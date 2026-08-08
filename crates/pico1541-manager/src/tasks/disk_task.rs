@@ -184,7 +184,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
             }
             
             // Not cached, we will use the back buffer for the new read.
-            self.pre_cached_ht = None;
+            let saved_pre_cache = self.pre_cached_ht.take();
 
             // Prevent DOS from reading the old track data by stalling it safely.
             let old_layout = self.track_handle.get_active_layout();
@@ -198,7 +198,18 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                 // Read track but CANCEL if the head steps again!
                 match select(disk.read_track(target_ht, data), TRACK_CHANNEL.receive()).await {
                     Either::First(Ok(layout)) => {
-                        self.track_handle.commit_loaded_track(pico1541_common::track_buffer::TrackIdentifier::new(target_ht, layout.2.unwrap_or_else(|| pico1541_common::track_buffer::default_speed_zone(target_ht))), layout.0, layout.1);
+                        let speed_zone = layout.2.unwrap_or_else(|| pico1541_common::track_buffer::default_speed_zone(target_ht));
+                        let identifier = pico1541_common::track_buffer::TrackIdentifier::new(target_ht, speed_zone);
+                        
+                        if layout.0 == TrackLayout::Void {
+                            // If the track is completely empty, there's no need to commit the back-buffer
+                            // (which swaps buffers and pads it with 0x55). We just update the active identifier!
+                            self.track_handle.set_active_track_identifier(identifier);
+                            self.pre_cached_ht = saved_pre_cache; // Restore it, the back buffer wasn't clobbered!
+                        } else {
+                            self.track_handle.commit_loaded_track(identifier, layout.0, layout.1);
+                        }
+                        
                         let elapsed = start_time.elapsed().as_millis();
                         info!("Half-Track {} load took {} ms", target_ht, elapsed);
                         break; // Success, done loading the track!
