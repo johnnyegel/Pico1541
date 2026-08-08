@@ -36,7 +36,7 @@ impl InputDriver for KeyboardInput {
         }
 
         // Delay to let the signals settle (RC time constant of pullups + capacitance)
-        cortex_m::asm::delay(12500);
+        embassy_time::Timer::after_micros(1000).await;
 
         // Wait for a falling or rising edge on any column.
         let (col0_slice, col1_slice) = self.cols.split_at_mut(1);
@@ -46,7 +46,7 @@ impl InputDriver for KeyboardInput {
         ).await;
     }
 
-    fn scan(&mut self) -> u8 {
+    async fn scan(&mut self) -> u8 {
         let mut pressed = 0;
         
         // Ensure all rows are HIGH (Open Drain = floating) before scanning to avoid ghosting
@@ -54,12 +54,12 @@ impl InputDriver for KeyboardInput {
             row.set_high();
         }
         // Let the column pull-ups pull the lines HIGH.
-        cortex_m::asm::delay(12500);
+        embassy_time::Timer::after_micros(1000).await;
 
         for (r, row) in self.rows.iter_mut().enumerate() {
             row.set_low();
             // Delay for signal to settle (discharge capacitance through the switch)
-            cortex_m::asm::delay(12500);
+            embassy_time::Timer::after_micros(1000).await;
             for (c, col) in self.cols.iter().enumerate() {
                 if col.is_low() {
                     pressed |= 1 << (r * 2 + c);

@@ -91,7 +91,7 @@ impl<T: RgbLedDriver + ?Sized> RgbLedDriver for &mut T {
 /// Driver for keyboard/button input.
 pub trait InputDriver {
     async fn wait_for_change(&mut self);
-    fn scan(&mut self) -> u8;
+    async fn scan(&mut self) -> u8;
 }
 
 /// Driver for status and activity indicators.

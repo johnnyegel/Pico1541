@@ -40,18 +40,31 @@ impl<I: InputDriver> KeyboardTask<I> {
                             3 => Button::Up,
                             _ => unreachable!(),
                         };
+                        defmt::info!("KEYBOARD: Button {:?} HELD", button);
                         let _ = KEYBOARD_CHANNEL.try_send(ButtonEvent::Hold(button));
                     }
                 }
                 hold_time = Duration::from_millis(30); // Repeat hold timer
             } else {
-                // IRQ fired! A hardware state change occurred.
-                Timer::after(Duration::from_millis(15)).await; // debounce
-                let new_state = self.input.scan();
+                // IRQ fired! A hardware state change or noise spike occurred.
+                Timer::after(Duration::from_millis(15)).await; // wait for bounce to settle
                 
-                if new_state == current_state {
+                // Read the state 3 times, 5ms apart. All must agree to filter out EMI noise spikes.
+                let candidate_state = self.input.scan().await;
+                let mut agrees = true;
+                for _ in 0..2 {
+                    Timer::after(Duration::from_millis(5)).await;
+                    if self.input.scan().await != candidate_state {
+                        agrees = false;
+                        break;
+                    }
+                }
+                
+                if !agrees || candidate_state == current_state {
                     continue; // just bounce noise, ignore
                 }
+                
+                let new_state = candidate_state;
                 
                 let changes = current_state ^ new_state;
                 for i in 0..4 {
@@ -64,8 +77,10 @@ impl<I: InputDriver> KeyboardTask<I> {
                             _ => unreachable!(),
                         };
                         if (new_state >> i) & 1 == 1 {
+                            defmt::info!("KEYBOARD: Button {:?} PRESSED", button);
                             let _ = KEYBOARD_CHANNEL.try_send(ButtonEvent::Pressed(button));
                         } else {
+                            defmt::info!("KEYBOARD: Button {:?} RELEASED", button);
                             let _ = KEYBOARD_CHANNEL.try_send(ButtonEvent::Released(button));
                         }
                     }

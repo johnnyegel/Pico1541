@@ -43,7 +43,7 @@ impl DisplayState {
             scroll_offset: 0,
             scroll_dir: 1,
             dirty: true,
-            needs_init: true,
+            needs_init: false,
         }
     }
 
@@ -109,6 +109,7 @@ pub struct DisplayHardware {
         DisplaySize128x64,
         BufferedGraphicsMode<DisplaySize128x64>,
     >,
+    retry_counter: u8,
 }
 
 impl DisplayHardware {
@@ -116,8 +117,7 @@ impl DisplayHardware {
         let interface = I2CInterface::new(i2c, 0x3C, 0x40);
         let display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
             .into_buffered_graphics_mode();
-
-        Self { display }
+        Self { display, retry_counter: 0 }
     }
 
     pub fn init(&mut self) -> bool {
@@ -133,9 +133,19 @@ impl DisplayHardware {
 
     pub fn redraw(&mut self, state: &DisplayState) -> bool {
         if state.needs_init {
-            if !self.init() {
+            if self.retry_counter > 0 {
+                self.retry_counter -= 1;
                 return false;
             }
+            
+            defmt::warn!("OLED: Re-initializing display due to needs_init flag...");
+            if !self.init() {
+                defmt::error!("OLED: Re-initialization failed! Retrying in 2 seconds...");
+                self.retry_counter = 40; // 40 loops at ~50ms per loop = ~2 seconds
+                return false;
+            }
+            defmt::info!("OLED: Re-initialization successful.");
+            self.retry_counter = 0;
         }
 
         if !state.dirty {
@@ -143,6 +153,7 @@ impl DisplayHardware {
         }
 
         if self.display.clear(BinaryColor::Off).is_err() {
+            defmt::error!("OLED: display.clear() failed during redraw!");
             return false;
         }
 
@@ -202,7 +213,12 @@ impl DisplayHardware {
             }
         }
 
-        self.display.flush().is_ok()
+        if self.display.flush().is_ok() {
+            true
+        } else {
+            defmt::error!("OLED: display.flush() failed during redraw!");
+            false
+        }
     }
 }
 
