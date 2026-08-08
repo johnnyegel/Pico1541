@@ -152,17 +152,18 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
         let mut target_ht = half_track;
 
         loop {
-            let start_ht = self.track_handle.get_head_half_track();
-            
             // Drain queue
             while let Ok(ht) = TRACK_CHANNEL.try_receive() {
                 target_ht = ht;
             }
             
-            // Update direction
-            let diff = target_ht as i16 - start_ht as i16;
-            if diff != 0 {
-                self.last_step_direction = if diff > 0 { 2 } else { -2 };
+            // Update direction based on the previously active track
+            let active_ht = self.track_handle.get_active_track_identifier().half_track();
+            if active_ht != 0xFF {
+                let diff = target_ht as i16 - active_ht as i16;
+                if diff != 0 {
+                    self.last_step_direction = if diff > 0 { 2 } else { -2 };
+                }
             }
             
             debug!("Manager loading half-track: {}", target_ht);
