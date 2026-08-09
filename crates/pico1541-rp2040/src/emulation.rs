@@ -9,13 +9,15 @@ use pico1541_common::interface::HostInterface;
 use crate::PioMagneticSurface;
 
 use pico1541_common::DriveEvent;
-
 use pico1541_emulator::{DriveMechanics, Emulator};
 
 use embassy_rp::multicore::Stack;
 use embassy_rp::pio::Pio;
 use embassy_rp::peripherals::PIO0;
 use embassy_rp::peripherals::CORE1;
+
+use cortex_m::peripheral::SYST;
+use pico1541_common::SYSTEM_CLOCK_FREQ;
 use pico1541_common::track_buffer::EmulatorHandle;
 
 pub struct EmulatorHardware {
@@ -92,6 +94,7 @@ pub fn run_emulator(
     hw.timekeeper.update_base(emulator.cycles);
 
     loop {
+        /* FIXME! Disable HALT request for now!
         if hw.check_halt_requested() {
             let start = embassy_rp::pac::TIMER.timelr().read();
             while embassy_rp::pac::TIMER.timelr().read().wrapping_sub(start) < 100 {
@@ -100,7 +103,7 @@ pub fn run_emulator(
             // Update base time so we don't instantly try to catch up the halted time
             hw.timekeeper.update_base(emulator.cycles);
             continue;
-        }
+        } */
 
         if hw.consume_trigger_reset() {
             emulator.update_rom(rom_buffer);
@@ -132,13 +135,10 @@ pub fn run_emulator(
         hw.report_performance_counters(emulator.cycles, hw.timekeeper.idle_counter);
     }
 }
-use cortex_m::peripheral::SYST;
-use pico1541_common::SYSTEM_CLOCK_FREQ;
 
 pub(crate) struct TimeKeeper {
     pub base_time_24: u32,
     pub idle_counter: u32,
-    pub lag_pin_active: bool,
 }
 
 impl TimeKeeper {
@@ -153,7 +153,6 @@ impl TimeKeeper {
         Self {
             base_time_24: 0,
             idle_counter: 0,
-            lag_pin_active: false,
         }
     }
 
@@ -182,11 +181,6 @@ impl TimeKeeper {
     pub fn spin_until(&mut self, target_cycle: u32) {
         let target_ticks = target_cycle.wrapping_mul(SYSTEM_CLOCK_FREQ / 1_000_000);
         let target_time = self.base_time_24.wrapping_add(target_ticks) & 0x00FFFFFF;
-        
-        if self.lag_pin_active {
-            embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(1 << 0);
-            self.lag_pin_active = false;
-        }
 
         while target_time.wrapping_sub(Self::now_24()) & 0x00FFFFFF < 0x800000 {
             self.idle_counter = self.idle_counter.wrapping_add(1);
@@ -200,11 +194,6 @@ impl TimeKeeper {
         let target_ticks = target_cycle.wrapping_mul(SYSTEM_CLOCK_FREQ / 1_000_000)
             .wrapping_add(SYSTEM_CLOCK_FREQ / 2_000_000);
         let target_time = self.base_time_24.wrapping_add(target_ticks) & 0x00FFFFFF;
-        
-        if self.lag_pin_active {
-            embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(1 << 0);
-            self.lag_pin_active = false;
-        }
 
         while target_time.wrapping_sub(Self::now_24()) & 0x00FFFFFF < 0x800000 {
             self.idle_counter = self.idle_counter.wrapping_add(1);

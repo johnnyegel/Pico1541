@@ -92,9 +92,6 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
 
     /// Resets the 6502 CPU and VIAs.
     pub fn reset(&mut self, hw: &mut H) {
-        #[cfg(feature = "defmt")]
-        defmt::info!("EMULATOR CORE: Reset called! Defmt is working!");
-        emu_debug!("Emulator Reset");
         self.memory.reset(hw);
         self.cpu.reset(&mut self.memory, hw);
         self.cycles = self.cpu.cycles;
