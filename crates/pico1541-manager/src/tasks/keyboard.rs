@@ -40,7 +40,7 @@ impl<I: InputDriver> KeyboardTask<I> {
                             3 => Button::Up,
                             _ => unreachable!(),
                         };
-                        defmt::info!("KEYBOARD: Button {:?} HELD", button);
+                        log::info!("KEYBOARD: Button {:?} HELD", button);
                         let _ = KEYBOARD_CHANNEL.try_send(ButtonEvent::Hold(button));
                     }
                 }
@@ -77,10 +77,10 @@ impl<I: InputDriver> KeyboardTask<I> {
                             _ => unreachable!(),
                         };
                         if (new_state >> i) & 1 == 1 {
-                            defmt::info!("KEYBOARD: Button {:?} PRESSED", button);
+                            log::info!("KEYBOARD: Button {:?} PRESSED", button);
                             let _ = KEYBOARD_CHANNEL.try_send(ButtonEvent::Pressed(button));
                         } else {
-                            defmt::info!("KEYBOARD: Button {:?} RELEASED", button);
+                            log::info!("KEYBOARD: Button {:?} RELEASED", button);
                             let _ = KEYBOARD_CHANNEL.try_send(ButtonEvent::Released(button));
                         }
                     }

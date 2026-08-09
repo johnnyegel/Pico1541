@@ -238,6 +238,11 @@ impl ManagerHandle {
         unsafe { (*self.core_buffer.buffers.get())[active_idx].layout = layout };
     }
 
+    pub fn set_active_track_identifier(&self, identifier: TrackIdentifier) {
+        let active_idx = (self.core_buffer.generation.load(Ordering::Acquire) % 2) as usize;
+        unsafe { (*self.core_buffer.buffers.get())[active_idx].identifier = identifier };
+    }
+
     pub fn get_active_track_identifier(&self) -> TrackIdentifier {
         let active_idx = (self.core_buffer.generation.load(Ordering::Acquire) % 2) as usize;
         unsafe { (*self.core_buffer.buffers.get())[active_idx].identifier }

@@ -230,8 +230,7 @@ pub(crate) struct HardwareBridge {
     motor_on: bool,
     _dbg_pin_0: Output<'static>,
     _dbg_pin_1: Output<'static>,
-    pub timekeeper: TimeKeeper,
-    track_just_changed: bool,
+    pub timekeeper: TimeKeeper
 }
 
 impl HardwareBridge {
@@ -273,8 +272,7 @@ impl HardwareBridge {
             motor_on: true,
             _dbg_pin_0: dbg_pin_0,
             _dbg_pin_1: dbg_pin_1,
-            timekeeper: TimeKeeper::new(),
-            track_just_changed: false,
+            timekeeper: TimeKeeper::new()
         };
         bridge.activity_led.set_state(true, true);
         bridge
@@ -305,7 +303,7 @@ impl HostInterface for HardwareBridge {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn clear_debug_pins(&mut self) {
-        embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(Self::GPIO_DEBUG_MASK_0 | Self::GPIO_DEBUG_MASK_1);
+        embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(Self::GPIO_DEBUG_MASK_0 /*| Self::GPIO_DEBUG_MASK_1*/);
     }
 
     #[link_section = ".data.ram_func"]
@@ -331,8 +329,6 @@ impl HostInterface for HardwareBridge {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn track_changed(&mut self, half_track: u8) {
-        self.track_just_changed = true;
-
         // We notify the TRACK_CHANNEL directly instead of using DriveEvent
         // First we drain the channel to avoid blocking if the manager is behind
         while TRACK_CHANNEL.try_receive().is_ok() {}
@@ -340,14 +336,6 @@ impl HostInterface for HardwareBridge {
         
         // Pend TIMER_IRQ_3 on Core 0 to wake up the DiskTask!
         embassy_rp::pac::TIMER.intf().write(|w| w.set_alarm(3, true));
-    }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn take_track_changed_flag(&mut self) -> bool {
-        let val = self.track_just_changed;
-        self.track_just_changed = false;
-        val
     }
 
     #[link_section = ".data.ram_func"]
@@ -362,6 +350,8 @@ impl HostInterface for HardwareBridge {
         self.timekeeper.spin_until(target_cycle);
     }
     
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
     fn spin_until_half(&mut self, target_cycle: u32) {
         self.timekeeper.spin_until_half(target_cycle);
     }
@@ -371,7 +361,6 @@ impl HostInterface for HardwareBridge {
     fn check_halt_requested(&self) -> bool {
         self.config.halt_emulator.load(Ordering::Relaxed)
     }
-
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
@@ -386,8 +375,6 @@ impl ViaHardware for HardwareBridge {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn read_iec_port(&mut self) -> u8 {
-        self.set_debug_1();
-
         // Sample GPIO inputs
         let pins = embassy_rp::pac::SIO.gpio_in(0).read();
 
@@ -414,13 +401,13 @@ impl ViaHardware for HardwareBridge {
         let pb_clk_mask = bit_align_u32((via_port_b & Self::VIA1_IEC_MASK_CLK_TX) as u32,
             Self::VIA1_IEC_BIT_CLK_TX, Self::GPIO_IEC_BIT_CLK_TX);
 
-        // FIXME! Disable hijacking for now, as we do not need it yet!
+        // FIXME! Debug pin 1 should not be set when all is functioning normally. DEBUGGING ONLY!
         let target_state = pb_data_mask | pb_clk_mask;
         let mask = Self::GPIO_IEC_MASK_DATA_TX | Self::GPIO_IEC_MASK_CLK_TX;
         let current_state = embassy_rp::pac::SIO.gpio_out(0).value().read();
-        let xor_mask = (current_state ^ target_state) & mask;
+        let xor_mask = (current_state ^ target_state) & mask;   
         
-        embassy_rp::pac::SIO.gpio_out(0).value_xor().write_value(xor_mask);
+        embassy_rp::pac::SIO.gpio_out(0).value_xor().write_value(xor_mask | Self::GPIO_DEBUG_MASK_1);
     }
 
     #[link_section = ".data.ram_func"]
