@@ -50,8 +50,6 @@ pub mod via6522;
 
 #[allow(unused_imports)]
 use pico1541_common::context::ViaHardware;
-#[allow(unused_imports)]
-use pico1541_common::context::CatchUpContext;
 use pico1541_common::interface::HostInterface;
 use pico1541_common::magnetic_surface::MagneticSurface;
 use racc6502v4::cpu::CPU;
@@ -61,8 +59,8 @@ pub use crate::drivemechanics::DriveMechanics;
 /// Trait for peeking and poking at memory/registers without side effects.
 #[cfg(feature = "debug")]
 pub trait MemoryMonitor {
-    fn peek<H: ViaHardware, C: CatchUpContext>(&mut self, addr: u16, hw: &mut H, ctx: &mut C) -> u8;
-    fn poke<H: ViaHardware, C: CatchUpContext>(&mut self, addr: u16, value: u8, hw: &mut H, ctx: &mut C);
+    fn peek<H: ViaHardware>(&mut self, addr: u16, hw: &mut H) -> u8;
+    fn poke<H: ViaHardware>(&mut self, addr: u16, value: u8, hw: &mut H);
 }
 
 /// The MOS 1541 Drive Emulator.
@@ -99,6 +97,9 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
             crate::RAM_POINTER = self.memory.memory.as_ptr();
         }
         self.memory.mechanics.update_state(self.memory.via2.get_pb_out(), hw, 0);
+        
+        // Set the mechanics port to 0xFF, to emulate the VIA2 Port B pull-ups when the drive is powered on.
+        hw.write_mechanics_port(0xFF);
     }
 
     #[link_section = ".data.ram_func"]

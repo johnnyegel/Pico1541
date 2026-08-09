@@ -1,6 +1,4 @@
 #![allow(dead_code)]
-#[allow(unused_imports)]
-use pico1541_common::context::CatchUpContext;
 use pico1541_common::magnetic_surface::{SoftwareMagneticSurface};
 
 fn wait_for_pulse(bus: &mut pico1541_emulator::systembus::SystemBus<TestBridge, SoftwareMagneticSurface>, mut last_pulse: bool) -> (u32, bool) {
@@ -23,13 +21,6 @@ static DUMMY_ROM: [u8; 16384] = [0; 16384];
 fn get_system_bus(surface: SoftwareMagneticSurface, handle: pico1541_common::track_buffer::EmulatorHandle) -> pico1541_emulator::systembus::SystemBus<TestBridge, SoftwareMagneticSurface> {
     let mechanics = pico1541_emulator::drivemechanics::DriveMechanics::new(surface, handle);
     pico1541_emulator::systembus::SystemBus::new(&DUMMY_ROM, 8, mechanics)
-}
-
-struct MockCtx;
-
-impl CatchUpContext for MockCtx {
-    fn catch_up(&mut self, _target_cycle: u32) {}
-    fn advance_to(&mut self, _target_cycle: u32) {}
 }
 
 use common::TestBridge;

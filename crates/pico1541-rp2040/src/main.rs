@@ -11,8 +11,6 @@ mod flash_storage;
 
 #[allow(unused_imports)]
 use pico1541_common::context::ViaHardware;
-#[allow(unused_imports)]
-use pico1541_common::context::CatchUpContext;
 use embassy_rp::interrupt;
 
 use core::sync::atomic::Ordering;

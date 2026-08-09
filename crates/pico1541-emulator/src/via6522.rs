@@ -8,8 +8,6 @@
 
 #[allow(unused_imports)]
 use pico1541_common::context::ViaHardware;
-#[allow(unused_imports)]
-use pico1541_common::context::CatchUpContext;
 #[cfg(feature = "debug")]
 use crate::MemoryMonitor;
 
@@ -435,7 +433,7 @@ impl Via6522 {
 #[cfg(feature = "debug")]
 impl MemoryMonitor for Via6522 {
     /// Peek at a VIA register without side effects.ge
-    fn peek<H: ViaHardware, C: CatchUpContext>(&mut self, addr: u16, _hw: &mut H, _ctx: &mut C) -> u8 {
+    fn peek<H: ViaHardware>(&mut self, addr: u16, _hw: &mut H) -> u8 {
         let register = (addr & 0x0F) as usize;
         match register {
             0x00 => {
@@ -479,7 +477,7 @@ impl MemoryMonitor for Via6522 {
         }
     }
 
-    fn poke<H: ViaHardware, C: CatchUpContext>(&mut self, _addr: u16, _value: u8, _hw: &mut H, _ctx: &mut C) {
+    fn poke<H: ViaHardware>(&mut self, _addr: u16, _value: u8, _hw: &mut H) {
         // NOT implemented yet!
     }
 }

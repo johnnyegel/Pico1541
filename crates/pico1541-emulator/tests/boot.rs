@@ -1,17 +1,9 @@
-#[allow(unused_imports)]
-use pico1541_common::context::CatchUpContext;
 use pico1541_emulator::MemoryMonitor;
 use pico1541_common::track_buffer::TrackLayout;
 use pollster::block_on;
 use pico1541_common::iec_com::{IecCommander, IecError};
 
 mod common;
-struct MockCtx;
-impl CatchUpContext for MockCtx {
-    fn catch_up(&mut self, _target_cycle: u32) {}
-    fn advance_to(&mut self, _target_cycle: u32) {}
-}
-
 
 #[test]
 fn test_drive_boot() {
@@ -448,7 +440,7 @@ fn test_dir_listing_stable() {
             let row = (i * 16) as u16;
             let mut s = format!("{:04X}: ", row);
             for j in 0..16 {
-                s.push_str(&format!("{:02X} ", drive.bus_mut().peek(row + j, &mut bridge, &mut MockCtx)));
+                s.push_str(&format!("{:02X} ", drive.bus_mut().peek(row + j, &mut bridge)));
             }
             log::error!("{}", s);
         }

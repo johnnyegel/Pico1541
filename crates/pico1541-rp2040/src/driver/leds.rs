@@ -69,30 +69,3 @@ impl<M: embassy_sync::blocking_mutex::raw::RawMutex + 'static> RgbLedDriver for 
     }
 }
 
-/// Driver for the Activity LED (Bi-color, GPIO 22, 3).
-pub struct ActivityLed {
-    pub pos: Output<'static>,
-    pub neg: Output<'static>,
-}
-
-impl ActivityLed {
-    pub fn new(pos: Output<'static>, neg: Output<'static>) -> Self {
-        Self { pos, neg }
-    }
-
-    pub fn set_state(&mut self, led_on: bool, motor_on: bool) {
-        if led_on {
-            // Red
-            self.pos.set_low();
-            self.neg.set_high();
-        } else if motor_on {
-            // Green
-            self.pos.set_high();
-            self.neg.set_low();
-        } else {
-            // Off
-            self.pos.set_low();
-            self.neg.set_low();
-        }
-    }
-}

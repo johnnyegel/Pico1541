@@ -4,8 +4,6 @@ use crate::via6522::Via6522;
 use crate::MemoryMonitor;
 use core::marker::PhantomData;
 #[allow(unused_imports)]
-use pico1541_common::context::CatchUpContext;
-#[allow(unused_imports)]
 use pico1541_common::context::ViaHardware;
 use pico1541_common::interface::HostInterface;
 use pico1541_common::magnetic_surface::MagneticSurface;
@@ -283,15 +281,6 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     }
 }
 
-impl<H: HostInterface, S: MagneticSurface> CatchUpContext for SystemBus<H, S> {
-    fn catch_up(&mut self, target_cycle: u32) {
-        self.catch_up(target_cycle);
-    }
-    fn advance_to(&mut self, target_cycle: u32) {
-        self.last_cycle = target_cycle;
-    }
-}
-
 impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H, S> {
     type Ctx = H;
 
@@ -394,17 +383,16 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 /// Implement MemoryMonitor for SystemBus to allow peeking at memory without affecting timing.
 #[cfg(feature = "debug")]
 impl<H: HostInterface, S: MagneticSurface> MemoryMonitor for SystemBus<H, S> {
-    fn peek<H2: ViaHardware, C2: CatchUpContext>(
+    fn peek<H2: ViaHardware>(
         &mut self,
         addr: u16,
         hw: &mut H2,
-        ctx: &mut C2,
     ) -> u8 {
         if (addr & 0x9800) == 0x1800 {
             if addr < 0x1C00 {
-                self.via1.peek(addr, hw, ctx)
+                self.via1.peek(addr, hw)
             } else {
-                self.via2.peek(addr, hw, ctx)
+                self.via2.peek(addr, hw)
             }
         } else {
             let index = (addr & 0x3FFF) | ((addr >> 1) & 0x4000);
@@ -412,12 +400,11 @@ impl<H: HostInterface, S: MagneticSurface> MemoryMonitor for SystemBus<H, S> {
         }
     }
 
-    fn poke<H2: ViaHardware, C2: CatchUpContext>(
+    fn poke<H2: ViaHardware>(
         &mut self,
         _addr: u16,
         _value: u8,
         _hw: &mut H2,
-        _ctx: &mut C2,
     ) {
         // NOT implemented yet!
     }

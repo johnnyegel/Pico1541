@@ -3,7 +3,6 @@ use embassy_rp::gpio::{Input, Output};
 use pico1541_common::context::ViaHardware;
 use pico1541_common::snooper::{IecSnooper, SnooperConfig};
 use pico1541_common::util::bit_align_u32;
-use crate::driver::leds::ActivityLed;
 use pico1541_manager::{EVENT_CHANNEL, TRACK_CHANNEL, CMD_CHANNEL, InternalCommand};
 use pico1541_common::interface::HostInterface;
 use crate::PioMagneticSurface;
@@ -37,27 +36,32 @@ pub fn spawn_core1(
     core1: embassy_rp::Peri<'static, CORE1>,
     stack: &'static mut Stack<8192>,
     hardware: EmulatorHardware,
-    config: &'static SnooperConfig,
+    snooper_config: &'static SnooperConfig,
     drive_id: u8,
     pio0: Pio<'static, PIO0>,
     emulator_handle: EmulatorHandle,
     rom_buffer: &'static [u8; 16384],
 ) {
-    let pins = IecPins {
+    let pins_iec = IecPins {
         _data_rx: embassy_rp::gpio::Input::new(hardware.pin_16, embassy_rp::gpio::Pull::None),
         _clk_rx: embassy_rp::gpio::Input::new(hardware.pin_17, embassy_rp::gpio::Pull::None),
         _atn_rx: embassy_rp::gpio::Input::new(hardware.pin_18, embassy_rp::gpio::Pull::None),
         _data_tx: embassy_rp::gpio::Output::new(hardware.pin_19, embassy_rp::gpio::Level::Low),
         _clk_tx: embassy_rp::gpio::Output::new(hardware.pin_20, embassy_rp::gpio::Level::Low),
-        reset_rx: embassy_rp::gpio::Input::new(hardware.pin_21, embassy_rp::gpio::Pull::Up),
+        _reset_rx: embassy_rp::gpio::Input::new(hardware.pin_21, embassy_rp::gpio::Pull::Up),
     };
 
-    let activity_led = ActivityLed::new(
-        embassy_rp::gpio::Output::new(hardware.pin_22, embassy_rp::gpio::Level::Low),
-        embassy_rp::gpio::Output::new(hardware.pin_3, embassy_rp::gpio::Level::Low)
-    );
-    let mut bridge = HardwareBridge::new(pins, config, activity_led,
-        embassy_rp::gpio::Output::new(hardware.pin_0, embassy_rp::gpio::Level::Low), embassy_rp::gpio::Output::new(hardware.pin_1, embassy_rp::gpio::Level::Low));
+    let pins_led = LedPins {
+        _led_pos: embassy_rp::gpio::Output::new(hardware.pin_22, embassy_rp::gpio::Level::Low),
+        _led_neg: embassy_rp::gpio::Output::new(hardware.pin_3, embassy_rp::gpio::Level::Low),
+    };
+
+    let pins_debug = DebugPins {
+        _dbg_0: embassy_rp::gpio::Output::new(hardware.pin_0, embassy_rp::gpio::Level::Low),
+        _dbg_1: embassy_rp::gpio::Output::new(hardware.pin_1, embassy_rp::gpio::Level::Low),    
+    };
+
+    let mut bridge = HardwareBridge::new(snooper_config, pins_iec, pins_led, pins_debug);
 
     embassy_rp::multicore::spawn_core1(core1, stack, move || {
         #[link_section = ".sram3"]
@@ -90,7 +94,7 @@ pub fn run_emulator(
 ) -> ! {
     hw.timekeeper.init_on_core();
     
-    let mut was_reset = false;
+    let mut was_reset = true;
     hw.timekeeper.update_base(emulator.cycles);
 
     loop {
@@ -105,27 +109,29 @@ pub fn run_emulator(
             continue;
         } */
 
-        if hw.consume_trigger_reset() {
+        let is_reset = if hw.consume_trigger_reset() {
             emulator.update_rom(rom_buffer);
-            emulator.reset(hw);
-            hw.timekeeper.update_base(emulator.cycles);
-        }
+            true
+        } else {
+            hw.is_reset_line_asserted()
+        };
 
-        let is_reset = hw.is_reset_line_asserted();
+        // :? Are we in reset?
         if is_reset {
-            if !was_reset {
-                emulator.reset(hw);
-                was_reset = true;
-            }
+            // -> Yes, then clear the was reset flag, and ensure the timekeeper is updated.
+            was_reset = true;
             hw.timekeeper.update_base(emulator.cycles);
             cortex_m::asm::nop();
         } else {
+            // -> No :? Was the reset line previously asserted?
             if was_reset {
+                // -> Yes, then clear the was reset flag, and reset the emulator.
+                was_reset = false;
                 emulator.reset(hw);
                 hw.timekeeper.update_base(emulator.cycles);
-                was_reset = false;
             }
             
+            // :: Advance the emulator by 500 ticks
             for _ in 0..500 {
                 emulator.tick(hw);
             }
@@ -191,8 +197,9 @@ impl TimeKeeper {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn spin_until_half(&mut self, target_cycle: u32) {
-        let target_ticks = target_cycle.wrapping_mul(SYSTEM_CLOCK_FREQ / 1_000_000)
-            .wrapping_add(SYSTEM_CLOCK_FREQ / 2_000_000);
+        //let target_ticks = target_cycle.wrapping_mul(SYSTEM_CLOCK_FREQ / 1_000_000)
+        //    .wrapping_add(SYSTEM_CLOCK_FREQ / 2_000_000);
+        let target_ticks = target_cycle.wrapping_mul(SYSTEM_CLOCK_FREQ / 1_000_000);
         let target_time = self.base_time_24.wrapping_add(target_ticks) & 0x00FFFFFF;
 
         while target_time.wrapping_sub(Self::now_24()) & 0x00FFFFFF < 0x800000 {
@@ -202,24 +209,33 @@ impl TimeKeeper {
     }
 }
 
-pub(crate) struct IecPins {
-    pub(crate) _data_rx: Input<'static>,
-    pub(crate) _clk_rx: Input<'static>,
-    pub(crate) _atn_rx: Input<'static>,
-    pub(crate) _data_tx: Output<'static>,
-    pub(crate) _clk_tx: Output<'static>,
-    pub(crate) reset_rx: Input<'static>,
+struct IecPins {
+    _data_rx: Input<'static>,
+    _clk_rx: Input<'static>,
+    _atn_rx: Input<'static>,
+    _data_tx: Output<'static>,
+    _clk_tx: Output<'static>,
+    _reset_rx: Input<'static>,
+}
+
+struct LedPins {
+    _led_pos: Output<'static>,
+    _led_neg: Output<'static>,
+}
+
+struct DebugPins {
+    _dbg_0: Output<'static>,
+    _dbg_1: Output<'static>,
 }
 
 pub(crate) struct HardwareBridge {
-    _pins: IecPins,
+    pub timekeeper: TimeKeeper,
     _snooper: IecSnooper,
     config: &'static SnooperConfig,
-    activity_led: ActivityLed,
     motor_on: bool,
-    _dbg_pin_0: Output<'static>,
-    _dbg_pin_1: Output<'static>,
-    pub timekeeper: TimeKeeper
+    _pins_iec: IecPins,
+    _pins_led: LedPins,
+    _pins_debug: DebugPins,
 }
 
 impl HardwareBridge {
@@ -231,7 +247,7 @@ impl HardwareBridge {
     const GPIO_IEC_BIT_ATN_RX: usize = 18;  // GPIO 18 (PB7)
     const GPIO_IEC_BIT_DATA_TX: usize = 19; // GPIO 19 (PB0)
     const GPIO_IEC_BIT_CLK_TX: usize = 20;  // GPIO 20 (PB1)
-    //const GPIO_IEC_BIT_RESET: usize = 21;   // GPIO 21 (PB6)
+    const GPIO_IEC_BIT_RESET: usize = 21;   // GPIO 21 (PB6)
 
     // Constants for GPIO pin masking
     const GPIO_DEBUG_MASK_0: u32 = 1 << Self::GPIO_DEBUG_BIT_0;
@@ -241,7 +257,7 @@ impl HardwareBridge {
     const GPIO_IEC_MASK_ATN_RX: u32 = 1 << Self::GPIO_IEC_BIT_ATN_RX;
     const GPIO_IEC_MASK_DATA_TX: u32 = 1 << Self::GPIO_IEC_BIT_DATA_TX;
     const GPIO_IEC_MASK_CLK_TX: u32 = 1 << Self::GPIO_IEC_BIT_CLK_TX;
-    //const GPIO_IEC_MASK_RESET: u32 = 1 << Self::GPIO_IEC_BIT_RESET;
+    const GPIO_IEC_MASK_RESET: u32 = 1 << Self::GPIO_IEC_BIT_RESET;
 
     // Constants for GPIO LED pins
     const GPIO_LED_BIT_GREEN: usize = 22;  // GPIO 22 (LED)
@@ -251,19 +267,19 @@ impl HardwareBridge {
     const GPIO_LED_MASK_RED: u32 = 1 << Self::GPIO_LED_BIT_RED;
 
 
-    pub(crate) fn new(pins: IecPins, config: &'static SnooperConfig, activity_led: ActivityLed, dbg_pin_0: Output<'static>, dbg_pin_1: Output<'static>) -> Self {
-        let device_id = config.device_id.load(Ordering::Relaxed);
-        let mut bridge = Self {
-            _pins: pins,
+    fn new(snooper_config: &'static SnooperConfig,
+            pins_iec: IecPins, pins_led: LedPins, pins_debug: DebugPins) -> Self {
+
+        let device_id = snooper_config.device_id.load(Ordering::Relaxed);
+        let bridge = Self {
+            timekeeper: TimeKeeper::new(),
             _snooper: IecSnooper::new(device_id),
-            config,
-            activity_led,
-            motor_on: true,
-            _dbg_pin_0: dbg_pin_0,
-            _dbg_pin_1: dbg_pin_1,
-            timekeeper: TimeKeeper::new()
+            config: snooper_config,
+            motor_on: false,
+            _pins_iec: pins_iec,
+            _pins_led: pins_led,
+            _pins_debug: pins_debug
         };
-        bridge.activity_led.set_state(true, true);
         bridge
     }
 }
@@ -439,6 +455,6 @@ impl ViaHardware for HardwareBridge {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn is_reset_line_asserted(&self) -> bool {
-        self._pins.reset_rx.is_high()
+        embassy_rp::pac::SIO.gpio_in(0).read() & Self::GPIO_IEC_MASK_RESET != 0
     }
 }

@@ -1,8 +1,3 @@
-pub trait CatchUpContext {
-    fn catch_up(&mut self, target_cycle: u32);
-    fn advance_to(&mut self, target_cycle: u32);
-}
-
 pub trait ViaHardware {
     // VIA1 constants for IEC bus
     const VIA1_IEC_BIT_DATA_RX: usize = 0; // PB0
