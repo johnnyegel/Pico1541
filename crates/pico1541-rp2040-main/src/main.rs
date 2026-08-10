@@ -54,22 +54,15 @@ use pico1541_manager::{SETTINGS_CHANNEL, SettingsCommand};
 use pico1541_common::SYSTEM_CLOCK_FREQ;
 use pico1541_common::track_buffer::{DualCoreTrackBuffer, ManagerHandle};
 
-mod emulation;
-
 mod storage_manager;
 use storage_manager::*;
 use static_cell::StaticCell;
-pub mod pio {
-    pub fn magnetic_surface_program() -> ::pio::Program<32> {
-        ::pio::pio_file!("src/pio/magnetic_surface.pio").program
-    }
-}
 
 pub mod littlefs_storage;
-pub mod magnetic_surface;
 use littlefs_storage::LittleFsStorage;
 use flash_storage::FlashStorage;
-use magnetic_surface::PioMagneticSurface;
+
+use pico1541_rp2040_emulation::emulation;
 
 
 bind_interrupts!(struct Irqs {

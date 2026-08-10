@@ -1,12 +1,13 @@
 [package]
-name = "pico1541-rp2040"
+name = "pico1541-rp2040-main"
 version = "0.1.0"
 edition = "2021"
 build = "build.rs"
-default-run = "pico1541-rp2040"
+default-run = "pico1541-rp2040-main"
 
 [dependencies]
 # Internal crates
+pico1541-rp2040-emulation = { path = "../pico1541-rp2040-emulation" }
 pico1541-emulator = { path = "../pico1541-emulator", features = ["defmt"] }
 pico1541-manager = { path = "../pico1541-manager", features = ["defmt"] }
 pico1541-common = { path = "../pico1541-common", features = ["defmt"] }
@@ -71,6 +72,6 @@ default = []
 flight-recorder = ["pico1541-emulator/flight-recorder"]
 
 [[bin]]
-name = "pico1541-rp2040"
+name = "pico1541-rp2040-main"
 path = "src/main.rs"
 test = false

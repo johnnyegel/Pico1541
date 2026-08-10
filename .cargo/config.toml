@@ -19,7 +19,7 @@ EMBASSY_EXECUTOR_TASK_ARENA_SIZE = "1024"
 # Usage: cargo flash-rtt
 flash-swd = [
     "run",
-    "--package", "pico1541-rp2040",
+    "--package", "pico1541-rp2040-main",
     "--target", "thumbv6m-none-eabi",
     "--config", "target.'cfg(all(target_arch = \"arm\", target_os = \"none\"))'.runner = \"probe-rs run --chip RP2040 --speed 1000\"",
 ]
@@ -28,20 +28,20 @@ flash-swd = [
 # Usage: cargo flash-usb
 flash-usb = [
     "run",
-    "--package", "pico1541-rp2040",
+    "--package", "pico1541-rp2040-main",
     "--target", "thumbv6m-none-eabi",
     "--config", "target.'cfg(all(target_arch = \"arm\", target_os = \"none\"))'.runner = \"elf2uf2-rs -d\"",
 ]
 
 attach-swd = [
     "run",
-    "--package", "pico1541-rp2040",
+    "--package", "pico1541-rp2040-main",
     "--target", "thumbv6m-none-eabi",
     "--config", "target.'cfg(all(target_arch = \"arm\", target_os = \"none\"))'.runner = \"probe-rs attach --chip RP2040 --speed 1000\"",
 ]
 test-swd = [
     "test",
-    "--package", "pico1541-rp2040",
+    "--package", "pico1541-rp2040-main",
     "--bin", "test_pio",
     "--target", "thumbv6m-none-eabi",
     "--config", "target.'cfg(all(target_arch = \"arm\", target_os = \"none\"))'.runner = \"probe-rs run --chip RP2040 --speed 1000\""

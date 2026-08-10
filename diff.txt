@@ -1,0 +1,99 @@
+diff --git a/crates/pico1541-emulator/src/systembus.rs b/crates/pico1541-emulator/src/systembus.rs
+index 7224b22..e398898 100644
+--- a/crates/pico1541-emulator/src/systembus.rs
++++ b/crates/pico1541-emulator/src/systembus.rs
+@@ -240,13 +240,16 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
+     #[cold]
+     fn read_io(&mut self, addr: u16, cycle: u32, ctx: &mut H) -> u8 {
+         // Spinlock to exact cycle before reading live IEC state
+-        ctx.spin_until(cycle + 1);
++        ctx.spin_until(cycle + 2);
+         
+         self.catch_up(cycle);
+ 
+-        let result = if (addr & 0x0400) == 0 {
++        let reg = (addr & 0x0F) as usize;
++        if reg == 0x00 || reg == 0x01 || reg == 0x0F {
+             ctx.set_debug_1();
+-            let reg = (addr & 0x0F) as usize;
++        }
++
++        let result = if (addr & 0x0400) == 0 {
+             if reg == 0x00 || reg == 0x0F {
+                 self.sync_iec_bus(ctx);
+             }
+@@ -267,15 +270,17 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
+         
+         self.catch_up(cycle);
+ 
+-        if (addr & 0x0400) == 0 {
++        let reg = (addr & 0x0F) as usize;
++        if reg == 0x00 || reg == 0x01 || reg == 0x0F {
+             ctx.set_debug_1();
+-            let reg = (addr & 0x0F) as usize;
++        }
++
++        if (addr & 0x0400) == 0 {
+             self.via1.write(addr, val);
+             if reg == 0x00 || reg == 0x02 || reg == 0x0F {
+                 self.sync_iec_bus(ctx);
+             }
+         } else {
+-            let reg = (addr & 0x0F) as usize;
+             self.via2.write(addr, val);
+             if reg == 0x00 || reg == 0x02 || reg == 0x0F {
+                 let effective_orb = self.via2.get_pb_out();
+diff --git a/crates/pico1541-rp2040/src/bin/test_speed.rs b/crates/pico1541-rp2040/src/bin/test_speed.rs
+index ec40181..df62bf9 100644
+--- a/crates/pico1541-rp2040/src/bin/test_speed.rs
++++ b/crates/pico1541-rp2040/src/bin/test_speed.rs
+@@ -3,7 +3,7 @@
+ 
+ use defmt_rtt as _;
+ use panic_probe as _;
+-use pico1541_emulator::Emulator;
++
+ 
+ #[cortex_m_rt::entry]
+ fn main() -> ! {
+diff --git a/crates/pico1541-rp2040/src/emulation.rs b/crates/pico1541-rp2040/src/emulation.rs
+index 18a8997..862e51c 100644
+--- a/crates/pico1541-rp2040/src/emulation.rs
++++ b/crates/pico1541-rp2040/src/emulation.rs
+@@ -133,7 +133,6 @@ pub fn run(
+ pub(crate) struct TimeKeeper {
+     pub base_time_us: u32,
+     pub idle_counter: u32,
+-    pub lag_pin_active: bool,
+ }
+ 
+ impl TimeKeeper {
+@@ -141,7 +140,6 @@ impl TimeKeeper {
+         Self {
+             base_time_us: embassy_rp::pac::TIMER.timelr().read(),
+             idle_counter: 0,
+-            lag_pin_active: false,
+         }
+     }
+ 
+@@ -156,11 +154,6 @@ impl TimeKeeper {
+         let target_time = self.base_time_us.wrapping_add(target_cycle);
+         let mut now = embassy_rp::pac::TIMER.timelr().read();
+         
+-        if self.lag_pin_active {
+-            embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(1 << 0);
+-            self.lag_pin_active = false;
+-        }
+-
+         while target_time.wrapping_sub(now) < 0x8000_0000 {
+             self.idle_counter = self.idle_counter.wrapping_add(1);
+             cortex_m::asm::nop();
+@@ -258,8 +251,6 @@ impl HostInterface for HardwareBridge {
+         embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(1 << 1);
+     }
+ 
+-
+-
+     #[link_section = ".data.ram_func"]
+     #[inline(always)]
+     fn is_hijacked(&self) -> bool {

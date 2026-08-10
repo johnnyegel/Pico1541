@@ -5,7 +5,7 @@ use pico1541_common::snooper::{IecSnooper, SnooperConfig};
 use pico1541_common::util::bit_align_u32;
 use pico1541_manager::{EVENT_CHANNEL, TRACK_CHANNEL, CMD_CHANNEL, InternalCommand};
 use pico1541_common::interface::HostInterface;
-use crate::PioMagneticSurface;
+use crate::magnetic_surface::PioMagneticSurface;
 
 use pico1541_common::DriveEvent;
 use pico1541_emulator::{DriveMechanics, Emulator};
@@ -142,7 +142,7 @@ pub fn run_emulator(
     }
 }
 
-pub(crate) struct TimeKeeper {
+pub struct TimeKeeper {
     pub base_time_24: u32,
     pub idle_counter: u32,
 }
@@ -228,7 +228,7 @@ struct DebugPins {
     _dbg_1: Output<'static>,
 }
 
-pub(crate) struct HardwareBridge {
+pub struct HardwareBridge {
     pub timekeeper: TimeKeeper,
     _snooper: IecSnooper,
     config: &'static SnooperConfig,

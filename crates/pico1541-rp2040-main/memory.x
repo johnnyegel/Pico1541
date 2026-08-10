@@ -8,7 +8,8 @@ MEMORY {
     SCRATCH_B : ORIGIN = 0x20041000, LENGTH = 4K
 }
 
-_stack_start = ORIGIN(SRAM3) + LENGTH(SRAM3);
+_stack_start = ORIGIN(SCRATCH_A) + LENGTH(SCRATCH_A);
+_core1_stack_start = ORIGIN(SCRATCH_B) + LENGTH(SCRATCH_B);
 
 SECTIONS {
     .boot2 : {

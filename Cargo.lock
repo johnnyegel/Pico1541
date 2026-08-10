@@ -1480,7 +1480,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "pico1541-rp2040"
+name = "pico1541-rp2040-emulation"
+version = "0.1.0"
+dependencies = [
+ "cortex-m",
+ "defmt 1.1.0",
+ "embassy-rp",
+ "pico1541-common",
+ "pico1541-emulator",
+ "pico1541-manager",
+ "pio",
+ "pio-proc",
+]
+
+[[package]]
+name = "pico1541-rp2040-main"
 version = "0.1.0"
 dependencies = [
  "cortex-m",
@@ -1513,6 +1527,7 @@ dependencies = [
  "pico1541-common",
  "pico1541-emulator",
  "pico1541-manager",
+ "pico1541-rp2040-emulation",
  "pio",
  "pio-proc",
  "portable-atomic",

@@ -1,0 +1,12 @@
+--- crates/pico1541-emulator/src/systembus.rs
++++ crates/pico1541-emulator/src/systembus.rs
+@@ -337,7 +337,8 @@
+                 if current_track == self.last_requested_track 
+                     && new_sector == self.last_requested_sector 
+                     && current_track != 0 {
+                     
+-                    // FIRE THE LOGIC ANALYZER TRIGGER
+-                    ctx.set_debug_pin(true);
+                 }
+                 
+                 self.last_requested_track = current_track;
