@@ -242,7 +242,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         let result = if (addr & 0x0400) == 0 {
             let reg = (addr & 0x0F) as usize;
             if reg == 0x00 || reg == 0x0F {
-                ctx.spin_until_half(cycle);
+                ctx.spin_until(cycle);
                 self.sync_iec_bus(ctx);
             }
             
@@ -263,7 +263,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             let reg = (addr & 0x0F) as usize;
             self.via1.write(addr, val);
             if reg == 0x00 || reg == 0x02 || reg == 0x0F {
-                ctx.spin_until_half(cycle);
+                ctx.spin_until(cycle);
                 self.sync_iec_bus(ctx);
             }
         } else {

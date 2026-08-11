@@ -66,6 +66,7 @@ impl HostInterface for HardwareBridge {
         let _ = EVENT_CHANNEL.try_send(event);
     }
 
+    /* FIXME! Disable GPIO debug pins for now.
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn set_debug_0(&mut self) {
@@ -76,12 +77,13 @@ impl HostInterface for HardwareBridge {
     #[inline(always)]
     fn set_debug_1(&mut self) {
         embassy_rp::pac::SIO.gpio_out(0).value_set().write_value(GPIO_DEBUG_MASK_1);
-    }
+    }*/
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn clear_debug_pins(&mut self) {
-        embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(GPIO_DEBUG_MASK_0 /*| GPIO_DEBUG_MASK_1*/);
+        // FIXME! We toggle the debug pins for now, since we may otherwise miss a pulse.
+        //embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(GPIO_DEBUG_MASK_0 /*| GPIO_DEBUG_MASK_1*/);
     }
 
     #[link_section = ".data.ram_func"]
@@ -125,14 +127,18 @@ impl HostInterface for HardwareBridge {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn spin_until(&mut self, target_cycle: u32) {
-        self.timekeeper.spin_until(target_cycle);
+        if !self.timekeeper.spin_until(target_cycle) {
+            // Handle the case where the spin_until function returns false
+            embassy_rp::pac::SIO.gpio_out(0).value_xor().write_value(GPIO_DEBUG_MASK_0);
+        }
     }
     
+    /* FIXME! Unsure if this is needed. Disabled for now
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn spin_until_half(&mut self, target_cycle: u32) {
         self.timekeeper.spin_until_half(target_cycle);
-    }
+    }*/
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
