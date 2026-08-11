@@ -57,15 +57,7 @@ embedded-storage = "0.3.1"
 pio = "0.3"
 pio-proc = "0.3"
 panic-halt = "1.0.0"
-[[bin]]
-name = "test_pio"
-path = "src/bin/test_pio.rs"
-harness = false
 
-[[bin]]
-name = "test_dma_streaming"
-path = "src/bin/test_dma_streaming.rs"
-harness = false
 
 [features]
 default = []
