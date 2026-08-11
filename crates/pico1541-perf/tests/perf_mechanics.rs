@@ -53,8 +53,8 @@ mod tests {
         fn try_read_byte(&mut self, _delta: u32) -> Option<u8> { self.next_byte.take() }
         fn get_absolute_head_position(&self, _master_clock: u32) -> u32 { 0 }
         fn set_speed_zone(&mut self, _zone: u8) {}
-        fn set_motor_running(&mut self, _running: bool) {}
-        fn set_stream_source(&mut self, _source: pico1541_common::track_buffer::TrackStream) {}
+        fn set_motor_running(&mut self, _running: bool, _master_clock: u32) {}
+        fn set_stream_source(&mut self, _source: &'static pico1541_common::track_buffer::TrackBuffer, _master_clock: u32) {}
     }
 
     struct DummyHost;
@@ -80,11 +80,11 @@ impl HostInterface for DummyHost {
         let mut host = DummyHost;
 
         // Setup Motor ON (Bit 2 = 0x04)
-        mechanics.update_state(0x04, &mut host);
+        mechanics.update_state(0x04, &mut host, 0);
         
         let cycles = measure_cycles!({
             for _ in 0..1000 {
-                mechanics.tick();
+                mechanics.tick(0);
             }
             core::hint::black_box(&mechanics);
         });
@@ -99,11 +99,11 @@ impl HostInterface for DummyHost {
         let mut mechanics = DriveMechanics::new(surface, BUFFER.split().1);
         let mut host = DummyHost;
 
-        mechanics.update_state(0x04, &mut host);
+        mechanics.update_state(0x04, &mut host, 0);
         
         let cycles = measure_cycles!({
             for _ in 0..1000 {
-                mechanics.tick();
+                mechanics.tick(0);
             }
             core::hint::black_box(&mechanics);
         });
@@ -117,16 +117,16 @@ impl HostInterface for DummyHost {
         static BUFFER: pico1541_common::track_buffer::DualCoreTrackBuffer = pico1541_common::track_buffer::DualCoreTrackBuffer::new();
         let mut mechanics = DriveMechanics::new(surface, BUFFER.split().1);
         let mut host = DummyHost;
-        let mut via1 = Via6522::new();
-        let mut via2 = Via6522::new();
+        let _via1 = Via6522::new();
+        let _via2 = Via6522::new();
 
-        mechanics.update_state(0x04, &mut host);
+        mechanics.update_state(0x04, &mut host, 0);
         
         let cycles = measure_cycles!({
             for _ in 0..1000 {
                 // Ensure there is always a byte available to force slow path
                 unsafe { core::ptr::write_volatile(&mut mechanics.surface.next_byte, Some(0x55)) };
-                mechanics.tick();
+                mechanics.tick(0);
             }
             core::hint::black_box(&mechanics);
         });

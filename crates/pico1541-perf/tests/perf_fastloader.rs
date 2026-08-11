@@ -57,8 +57,8 @@ impl HostInterface for DummyHost {
         fn is_sync_active(&self) -> bool { false }
         fn get_absolute_head_position(&self, _master_clock: u32) -> u32 { 0 }
         fn set_speed_zone(&mut self, _zone: u8) {}
-        fn set_motor_running(&mut self, _running: bool) {}
-        fn set_stream_source(&mut self, _source: pico1541_common::track_buffer::TrackStream) {}
+        fn set_motor_running(&mut self, _running: bool, _master_clock: u32) {}
+        fn set_stream_source(&mut self, _source: &'static pico1541_common::track_buffer::TrackBuffer, _master_clock: u32) {}
     }
 
     static ROM: [u8; 16384] = {
@@ -125,7 +125,7 @@ impl HostInterface for DummyHost {
         // Turn on motor to ensure DriveMechanics operates properly and generates SO pulses
         emulator.memory.via2.orb |= 0x04;
         emulator.memory.via2.pcr = 0x0E; // Enable SO (CA2 output)
-        emulator.memory.mechanics.update_state(emulator.memory.via2.orb, &mut host);
+        emulator.memory.mechanics.update_state(emulator.memory.via2.orb, &mut host, emulator.cycles);
 
         // Pre-run a few cycles to get the CPU past the reset vector logic and into our loop
         emulator.run_for(&mut host, 100);
@@ -194,7 +194,7 @@ impl HostInterface for DummyHost {
         emulator.reset(&mut host);
         emulator.memory.via2.orb |= 0x04;
         emulator.memory.via2.pcr = 0x0E; // Enable SO (CA2 output)
-        emulator.memory.mechanics.update_state(emulator.memory.via2.orb, &mut host);
+        emulator.memory.mechanics.update_state(emulator.memory.via2.orb, &mut host, emulator.cycles);
         emulator.run_for(&mut host, 100);
         
         let test_start_cycles = emulator.cycles;
