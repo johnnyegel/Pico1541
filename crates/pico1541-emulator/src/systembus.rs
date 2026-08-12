@@ -285,6 +285,7 @@ impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H,
     type Ctx = H;
 
     #[inline(always)]
+    #[link_section = ".data.ram_func"]
     fn get_instruction_ptr(&self, addr: u16) -> *const u8 {
         if addr < 0x8000 {
             unsafe { self.memory.as_ptr().add((addr & 0x07FF) as usize) }
@@ -295,6 +296,7 @@ impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H,
     }
 
     #[inline(always)]
+    #[link_section = ".data.ram_func"]
     fn read(&mut self, addr: u16, cycle: u32, hw: &mut H) -> u8 {
         if (addr & 0x9800) == 0x1800 {
             self.read_io(addr, cycle, hw)
