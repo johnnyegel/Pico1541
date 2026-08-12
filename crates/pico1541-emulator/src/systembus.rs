@@ -94,8 +94,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         self.device_id_pb_bits = (self.device_id & 0x03) << 5;
         self.last_iec_out = 0xFF; // Force first write
         self.last_via2_out = 0xFF;
-        self.mechanics
-            .update_state(self.via2.get_pb_out(), hardware, 0);
+        self.mechanics.update_state(self.via2.get_pb_out(), hardware, 0);
+
         // Force the track manager to load the reset track
         hardware.track_changed(self.mechanics.half_track());
     }
@@ -146,14 +146,6 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         if (old_cc ^ self.cycle_counter) & !0x3FF != 0 {
             self.device_id = hardware.get_device_id();
             self.device_id_pb_bits = (self.device_id & 0x03) << 5;
-
-            /* FIXME! This seems useless
-            if hardware.pop_discard_request() {
-                crate::hle::HleManager::intercept_command(self);
-            }
-            if self.mechanics.pop_force_disk_change() {
-                self.memory[0x001C] = 1;
-            } */
 
             let wp = self.mechanics.is_write_protected();
             if wp {
@@ -271,6 +263,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             self.via2.write(addr, val);
             if reg == 0x00 || reg == 0x02 || reg == 0x0F {
                 let effective_orb = self.via2.get_pb_out();
+
                 if effective_orb != self.last_via2_out {
                     ctx.write_mechanics_port(effective_orb);
                     self.last_via2_out = effective_orb;

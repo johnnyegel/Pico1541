@@ -65,19 +65,22 @@ pub fn spawn_core1(
 
         defmt::info!("Core 1 spawned! Initializing emulator...");
 
-        let drive = unsafe {
+        let emulator = unsafe {
             let ptr: *mut Emulator<HardwareBridge, PioMagneticSurface> = core::ptr::addr_of_mut!(EMULATOR).cast();
             let surface = PioMagneticSurface::new(pio0);
             let mechanics = DriveMechanics::new(surface, emulator_handle);
             core::ptr::write(ptr, Emulator::new(rom_buffer, drive_id, mechanics));
             &mut *ptr
         };
-        drive.reset(&mut bridge);
+
+        // Initialize the emulator
+        // WARNING! Initialization is needed to keep LTO optimizer from screwing this up!
+        emulator.initialize(&mut bridge);
         
         defmt::info!("Emulator initialized. Starting run loop...");
 
         cortex_m::interrupt::disable(); // Guarantee no IRQs preempt the emulator core
-        run_emulator(drive, &mut bridge, rom_buffer);
+        run_emulator(emulator, &mut bridge, rom_buffer);
     });
 }
 

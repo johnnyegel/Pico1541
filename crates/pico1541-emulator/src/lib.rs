@@ -41,9 +41,6 @@ pub mod drivemechanics;
 #[cfg(feature = "flight-recorder")]
 pub mod flight_recorder;
 
-#[export_name = "RAM_POINTER"]
-#[used]
-pub static mut RAM_POINTER: *const u8 = core::ptr::null();
 pub mod hle;
 pub mod systembus;
 pub mod via6522;
@@ -88,17 +85,18 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         self.memory.update_rom(rom);
     }
 
+    pub fn initialize(&mut self, hw: &mut H) {
+        self.cpu.reset(&mut self.memory, hw);
+        self.memory.reset(hw);
+        self.cycles = self.cpu.cycles;
+    }
+
     /// Resets the 6502 CPU and VIAs.
     pub fn reset(&mut self, hw: &mut H) {
-        self.memory.reset(hw);
-        self.cpu.reset(&mut self.memory, hw);
-        self.cycles = self.cpu.cycles;
-        unsafe {
-            crate::RAM_POINTER = self.memory.memory.as_ptr();
-        }
-        self.memory.mechanics.update_state(self.memory.via2.get_pb_out(), hw, 0);
-        
-        // Set the mechanics port to 0xFF, to emulate the VIA2 Port B pull-ups when the drive is powered on.
+        // Reset the CPU and VIAs, and re-initialize the drive mechanics.
+        self.initialize(hw);
+
+        // Set the VIA2 Port B outputs to 0xFF, which is the default state after a reset.
         hw.write_mechanics_port(0xFF);
     }
 
@@ -110,7 +108,6 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         unsafe {
             crate::flight_recorder::FLIGHT_RECORDER.assume_init_mut().index = 0;
         }
-
 
         if self.memory.via1.irq || self.memory.via2.irq {
             self.cpu.pending_interrupt = Some(racc6502v4::cpu::Interrupt::Irq);

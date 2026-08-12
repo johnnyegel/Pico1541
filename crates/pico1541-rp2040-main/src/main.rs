@@ -117,10 +117,6 @@ async fn main(spawner: Spawner) {
         }
     }
 
-    // Prevent LTO from stripping RAM_POINTER by visibly using it
-    let ptr_addr = core::hint::black_box(core::ptr::addr_of!(pico1541_emulator::RAM_POINTER));
-    info!("RAM_POINTER is at {}", ptr_addr as u32);
-
     {
         use core::mem::MaybeUninit;
         const HEAP_SIZE: usize = 40960;
