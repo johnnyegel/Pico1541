@@ -65,6 +65,9 @@ pub fn spawn_core1(
 
         defmt::info!("Core 1 spawned! Initializing emulator...");
 
+        // :: Set Core1 to have bus priority
+        embassy_rp::pac::BUSCTRL.bus_priority().write(|w| w.set_proc1(true));
+
         let emulator = unsafe {
             let ptr: *mut Emulator<HardwareBridge, PioMagneticSurface> = core::ptr::addr_of_mut!(EMULATOR).cast();
             let surface = PioMagneticSurface::new(pio0);
