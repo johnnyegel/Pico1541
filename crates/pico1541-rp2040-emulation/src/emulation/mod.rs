@@ -30,7 +30,7 @@ pub struct EmulatorHardware {
 
 pub fn spawn_core1(
     core1: embassy_rp::Peri<'static, CORE1>,
-    stack: &'static mut Stack<8192>,
+    stack: &'static mut Stack<1024>,
     hardware: EmulatorHardware,
     snooper_config: &'static SnooperConfig,
     drive_id: u8,
@@ -60,7 +60,6 @@ pub fn spawn_core1(
     let mut bridge = HardwareBridge::new(snooper_config, pins_iec, pins_led, pins_debug);
 
     embassy_rp::multicore::spawn_core1(core1, stack, move || {
-        #[link_section = ".sram3"]
         static mut EMULATOR: core::mem::MaybeUninit<Emulator<HardwareBridge, PioMagneticSurface>> = core::mem::MaybeUninit::uninit();
 
         defmt::info!("Core 1 spawned! Initializing emulator...");

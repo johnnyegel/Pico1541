@@ -114,8 +114,6 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         if self.systembus.via1.irq || self.systembus.via2.irq {
             self.cpu.pending_interrupt = Some(racc6502v4::cpu::Interrupt::Irq);
         }
-        let start_cycle = self.cpu.cycles;
-        self.systembus.current_cycle = start_cycle;
         
         self.systembus.iec_synced_this_instruction = false;
         let elapsed = self.cpu.step(&mut self.systembus, hw);

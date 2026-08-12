@@ -89,11 +89,10 @@ unsafe fn TIMER_IRQ_3() {
 
 
 // Core 1 Stack
-#[link_section = ".sram3"]
-static mut CORE1_STACK: core::mem::MaybeUninit<Stack<8192>> = core::mem::MaybeUninit::uninit();
+#[link_section = ".core1_stack"]
+static mut CORE1_STACK: core::mem::MaybeUninit<Stack<1024>> = core::mem::MaybeUninit::uninit();
 
 // ROM Buffer for dynamic loading
-#[link_section = ".sram3"]
 static mut ROM_BUFFER: [u8; 16384] = [0; 16384];
 
 
@@ -263,7 +262,7 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
     let (manager_handle, emulator_handle) = DUAL_CORE_BUFFER.split();
 
     let stack = unsafe {
-        let ptr: *mut Stack<8192> = core::ptr::addr_of_mut!(CORE1_STACK).cast();
+        let ptr: *mut Stack<1024> = core::ptr::addr_of_mut!(CORE1_STACK).cast();
         core::ptr::write(ptr, Stack::new());
         &mut *ptr
     };
