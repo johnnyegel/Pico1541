@@ -18,11 +18,11 @@ impl FunctionalBus {
 
 impl Bus for FunctionalBus {
     type Ctx = ();
-    fn read(&mut self, addr: u16, _cycle: u32, _ctx: &mut ()) -> u8 {
+    fn read(&mut self, _ctx: &mut (), addr: u16, _cycle: u32) -> u8 {
         self.memory[addr as usize]
     }
 
-    fn write(&mut self, addr: u16, value: u8, _cycle: u32, _ctx: &mut ()) {
+    fn write(&mut self, _ctx: &mut (), addr: u16, value: u8, _cycle: u32) {
         self.memory[addr as usize] = value;
     }
 

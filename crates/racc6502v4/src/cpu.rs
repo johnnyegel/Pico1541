@@ -39,8 +39,7 @@ impl CPU {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn read<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, offset: u32, addr: u16) -> u8 {
-        let val = bus.read(addr, self.cycles.wrapping_add(offset), ctx);
-        val
+        bus.read(ctx, addr, self.cycles.wrapping_add(offset))
     }
 
     #[link_section = ".data.ram_func"]
@@ -53,7 +52,7 @@ impl CPU {
         addr: u16,
         val: u8,
     ) {
-        bus.write(addr, val, self.cycles.wrapping_add(offset), ctx);
+        bus.write(ctx, addr, val, self.cycles.wrapping_add(offset));
     }
 
     #[link_section = ".data.ram_func"]

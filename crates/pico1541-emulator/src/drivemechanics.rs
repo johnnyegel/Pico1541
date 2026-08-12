@@ -105,7 +105,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn led_on(&self, via2: &Via6522) -> bool {
-        ((via2.orb | !via2.ddrb) & MASK_LED) != 0
+        (via2.get_pb_out() & MASK_LED) != 0
     }
 
     #[cfg(feature = "debug")]

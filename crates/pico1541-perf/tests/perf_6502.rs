@@ -45,34 +45,6 @@ mod tests {
         ()
     }
 
-
-    // Bus for mos6502 is provided by mos6502::memory::Memory
-    #[test]
-    fn test_mos6502() {
-        use mos6502::memory::{Bus, Memory};
-        use mos6502::cpu::CPU;
-        use mos6502::instruction::Nmos6502;
-        
-        let mut mem = Memory::new();
-        mem.set_bytes(0x0800, &ROM);
-        mem.set_bytes(0xFFFC, &[0x00, 0x08]); // Reset vector
-        
-        let mut cpu = CPU::new(mem, Nmos6502);
-        cpu.reset();
-        
-        let cycles = measure_cycles!({
-            for _ in 0..1000 {
-                if let Some(instr) = cpu.fetch_next_and_decode() {
-                    cpu.execute_instruction(instr);
-                }
-            }
-            core::hint::black_box(&cpu);
-            core::hint::black_box(&mem);
-        });
-        
-        defmt::info!("mos6502 1000 instructions took {} CPU cycles", cycles);
-    }
-
     // racc6502
     struct RaccBus { memory: [u8; 65536] }
     impl racc6502::bus::Bus for RaccBus {
@@ -174,9 +146,9 @@ mod tests {
     pub struct Racc4Bus { memory: [u8; 65536] }
     impl racc6502v4::bus::Bus for Racc4Bus {
         type Ctx = ();
-        fn read(&mut self, addr: u16, _cycle: u32, _ctx: &mut ()) -> u8 { self.memory[addr as usize] }
+        fn read(&mut self, _ctx: &mut (), addr: u16, _cycle: u32) -> u8 { self.memory[addr as usize] }
         fn get_instruction_ptr(&self, addr: u16) -> *const u8 { unsafe { self.memory.as_ptr().add(addr as usize) } }
-        fn write(&mut self, addr: u16, val: u8, _cycle: u32, _ctx: &mut ()) { self.memory[addr as usize] = val; }
+        fn write(&mut self, _ctx: &mut (), addr: u16, val: u8, _cycle: u32) { self.memory[addr as usize] = val; }
     }
 
     #[test]

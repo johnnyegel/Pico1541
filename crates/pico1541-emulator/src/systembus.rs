@@ -176,7 +176,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         self.mechanics.tick(current_cycle);
 
         // Hardware Wiring: Pull bytes from the DMA buffer and wire SYNC/SO directly to VIA2/CPU.
-        let is_motor_on = (self.via2.orb | !self.via2.ddrb) & 0x04 != 0;
+        let is_motor_on = (self.via2.get_pb_out() & 0x04) != 0;
         if is_motor_on {
             let pcr_cb2 = self.via2.pcr & 0b1110_0000;
             let is_read_mode = pcr_cb2 != 0b1100_0000;
@@ -297,7 +297,7 @@ impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H,
 
     #[inline(always)]
     #[link_section = ".data.ram_func"]
-    fn read(&mut self, addr: u16, cycle: u32, hw: &mut H) -> u8 {
+    fn read(&mut self, hw: &mut H, addr: u16, cycle: u32) -> u8 {
         if (addr & 0x9800) == 0x1800 {
             self.read_io(addr, cycle, hw)
         } else if addr < 0x8000 {
@@ -311,7 +311,7 @@ impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H,
 
     #[inline(always)]
     #[link_section = ".data.ram_func"]
-    fn write(&mut self, addr: u16, val: u8, cycle: u32, ctx: &mut Self::Ctx) {
+    fn write(&mut self, ctx: &mut Self::Ctx, addr: u16, val: u8, cycle: u32) {
         if (addr & 0x9800) == 0x1800 {
             self.write_io(addr, val, cycle, ctx);
         } else if addr < 0x8000 {
@@ -436,7 +436,7 @@ mod tests {
         let mut bus = SystemBus::<MockHardware, _>::new(&ROM, 8, mechanics);
         let mut hw = MockHardware {};
         use racc6502v4::bus::Bus;
-        bus.write(0x0100, 0xAB, 0, &mut hw);
-        assert_eq!(bus.read(0x0100, 0, &mut hw), 0xAB);
+        bus.write(&mut hw, 0x0100, 0xAB, 0);
+        assert_eq!(bus.read(&mut hw, 0x0100, 0), 0xAB);
     }
 }
