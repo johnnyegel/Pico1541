@@ -154,8 +154,6 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
                 self.via2.in_b |= 0x10;
             }
         }
-
-        // Mechanics are now polled in catch_up
     }
 
     #[link_section = ".data.ram_func"]

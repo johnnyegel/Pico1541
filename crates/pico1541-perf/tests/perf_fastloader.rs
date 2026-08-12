@@ -123,9 +123,9 @@ impl HostInterface for DummyHost {
         emulator.reset(&mut host);
 
         // Turn on motor to ensure DriveMechanics operates properly and generates SO pulses
-        emulator.memory.via2.orb |= 0x04;
-        emulator.memory.via2.pcr = 0x0E; // Enable SO (CA2 output)
-        emulator.memory.mechanics.update_state(emulator.memory.via2.orb, &mut host, emulator.cycles);
+        emulator.systembus.via2.orb |= 0x04;
+        emulator.systembus.via2.pcr = 0x0E; // Enable SO (CA2 output)
+        emulator.systembus.mechanics.update_state(emulator.systembus.via2.orb, &mut host, emulator.cycles);
 
         // Pre-run a few cycles to get the CPU past the reset vector logic and into our loop
         emulator.run_for(&mut host, 100);
@@ -192,9 +192,9 @@ impl HostInterface for DummyHost {
         let mut host = DummyHost;
 
         emulator.reset(&mut host);
-        emulator.memory.via2.orb |= 0x04;
-        emulator.memory.via2.pcr = 0x0E; // Enable SO (CA2 output)
-        emulator.memory.mechanics.update_state(emulator.memory.via2.orb, &mut host, emulator.cycles);
+        emulator.systembus.via2.orb |= 0x04;
+        emulator.systembus.via2.pcr = 0x0E; // Enable SO (CA2 output)
+        emulator.systembus.mechanics.update_state(emulator.systembus.via2.orb, &mut host, emulator.cycles);
         emulator.run_for(&mut host, 100);
         
         let test_start_cycles = emulator.cycles;

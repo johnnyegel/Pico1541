@@ -42,24 +42,24 @@ fn test_bvc_so_timing() {
     // $0009: BRK       (00)
     emu.reset(&mut hw);
 
-    emu.memory.memory[0x0000] = 0x50; emu.memory.memory[0x0001] = 0xFE;
-    emu.memory.memory[0x0002] = 0xB8;
-    emu.memory.memory[0x0003] = 0xAD; emu.memory.memory[0x0004] = 0x01; emu.memory.memory[0x0005] = 0x1C;
-    emu.memory.memory[0x0006] = 0x8D; emu.memory.memory[0x0007] = 0x00; emu.memory.memory[0x0008] = 0x07;
-    emu.memory.memory[0x0009] = 0x00;
+    emu.systembus.memory[0x0000] = 0x50; emu.systembus.memory[0x0001] = 0xFE;
+    emu.systembus.memory[0x0002] = 0xB8;
+    emu.systembus.memory[0x0003] = 0xAD; emu.systembus.memory[0x0004] = 0x01; emu.systembus.memory[0x0005] = 0x1C;
+    emu.systembus.memory[0x0006] = 0x8D; emu.systembus.memory[0x0007] = 0x00; emu.systembus.memory[0x0008] = 0x07;
+    emu.systembus.memory[0x0009] = 0x00;
 
     emu.cpu.pc = 0x0000;
 
     // Enable motor and SO (PCR = 0xEE)
-    emu.memory.via2.write(0x1C02, 0xFF); // DDRB = output
-    emu.memory.via2.write(0x1C0C, 0xEE); // PCR = 0xEE (SO enable)
-    emu.memory.via2.write(0x1C00, 0x04); // Motor ON
+    emu.systembus.via2.write(0x1C02, 0xFF); // DDRB = output
+    emu.systembus.via2.write(0x1C0C, 0xEE); // PCR = 0xEE (SO enable)
+    emu.systembus.via2.write(0x1C00, 0x04); // Motor ON
     
     // update state
-    let effective_orb = emu.memory.via2.get_pb_out();
-    emu.memory.mechanics.update_state(effective_orb, &mut hw, 0);
+    let effective_orb = emu.systembus.via2.get_pb_out();
+    emu.systembus.mechanics.update_state(effective_orb, &mut hw, 0);
     
-    emu.memory.mechanics.force_state_for_testing(0, 3, 0);
+    emu.systembus.mechanics.force_state_for_testing(0, 3, 0);
 
     // Run until BRK (PC >= 0x0009)
     let mut finished = false;

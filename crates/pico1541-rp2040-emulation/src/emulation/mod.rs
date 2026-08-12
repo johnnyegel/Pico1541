@@ -66,8 +66,12 @@ pub fn spawn_core1(
         defmt::info!("Core 1 spawned! Initializing emulator...");
 
         // :: Set Core1 to have bus priority
+        // Disable interrupts on Core1 to prevent preemption of the emulator core
         embassy_rp::pac::BUSCTRL.bus_priority().write(|w| w.set_proc1(true));
+        cortex_m::interrupt::disable(); // Guarantee no IRQs preempt the emulator core
 
+        // :: Initialize the emulator in place in SRAM3
+        // We do not want this on the stack, because it is too large and will cause stack overflow.
         let emulator = unsafe {
             let ptr: *mut Emulator<HardwareBridge, PioMagneticSurface> = core::ptr::addr_of_mut!(EMULATOR).cast();
             let surface = PioMagneticSurface::new(pio0);
@@ -82,7 +86,6 @@ pub fn spawn_core1(
         
         defmt::info!("Emulator initialized. Starting run loop...");
 
-        cortex_m::interrupt::disable(); // Guarantee no IRQs preempt the emulator core
         run_emulator(emulator, &mut bridge, rom_buffer);
     });
 }
@@ -124,8 +127,8 @@ pub fn run_emulator(
                 hw.timekeeper.update_base(emulator.cycles);
             }
             
-            // :: Advance the emulator by 500 ticks
-            for _ in 0..500 {
+            // :: Advance the emulator by 512 ticks
+            for _ in 0..512 {
                 emulator.tick(hw);
             }
         }

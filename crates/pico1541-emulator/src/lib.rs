@@ -67,7 +67,7 @@ pub trait MemoryMonitor {
 /// and pass it as `&mut H` to every [`tick`](Self::tick) / [`step`](Self::step) call.
 pub struct Emulator<H: HostInterface, S: MagneticSurface> {
     pub cpu: CPU,
-    pub memory: SystemBus<H, S>,
+    pub systembus: SystemBus<H, S>,
     pub cycles: u32,
 }
 
@@ -76,18 +76,20 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         let bus = SystemBus::new(rom, device_id, mechanics);
         Self {
             cpu: CPU::new(),
-            memory: bus,
+            systembus: bus,
             cycles: 0,
         }
     }
 
+    /// Updates the ROM image used by the emulator.
     pub fn update_rom(&mut self, rom: &'static [u8; 16384]) {
-        self.memory.update_rom(rom);
+        self.systembus.update_rom(rom);
     }
 
+    /// Initializes the emulator, resetting the CPU and VIAs.
     pub fn initialize(&mut self, hw: &mut H) {
-        self.cpu.reset(&mut self.memory, hw);
-        self.memory.reset(hw);
+        self.cpu.reset(&mut self.systembus, hw);
+        self.systembus.reset(hw);
         self.cycles = self.cpu.cycles;
     }
 
@@ -109,27 +111,27 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
             crate::flight_recorder::FLIGHT_RECORDER.assume_init_mut().index = 0;
         }
 
-        if self.memory.via1.irq || self.memory.via2.irq {
+        if self.systembus.via1.irq || self.systembus.via2.irq {
             self.cpu.pending_interrupt = Some(racc6502v4::cpu::Interrupt::Irq);
         }
         let start_cycle = self.cpu.cycles;
-        self.memory.current_cycle = start_cycle;
+        self.systembus.current_cycle = start_cycle;
         
-        self.memory.iec_synced_this_instruction = false;
-        let elapsed = self.cpu.step(&mut self.memory, hw);
+        self.systembus.iec_synced_this_instruction = false;
+        let elapsed = self.cpu.step(&mut self.systembus, hw);
         
         // Poll IEC and DriveMechanics on every instruction for real-time accuracy without jitter
-        self.memory.poll_realtime(hw, elapsed);
+        self.systembus.poll_realtime(hw, elapsed);
         
-        if self.cpu.cycles.wrapping_sub(self.memory.next_sync_cycle) < 0x80000000 {
+        if self.cpu.cycles.wrapping_sub(self.systembus.next_sync_cycle) < 0x80000000 {
             hw.spin_until(self.cpu.cycles);
         }
         hw.clear_debug_pins();
 
-        self.memory.catch_up(self.cpu.cycles);
+        self.systembus.catch_up(self.cpu.cycles);
         
-        if self.memory.so_pulsed {
-            self.memory.so_pulsed = false;
+        if self.systembus.so_pulsed {
+            self.systembus.so_pulsed = false;
             self.cpu.pending_so = true;
             hw.set_debug_0(); // Output SO pulse to logic analyzer
         }
@@ -182,17 +184,17 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
     }
 
     pub fn half_track(&self) -> u8 {
-        self.memory.mechanics.half_track()
+        self.systembus.mechanics.half_track()
     }
 
     /// Direct access to the internal memory bus (e.g. for inspection or peek/poke).
     pub fn bus(&self) -> &SystemBus<H, S> {
-        &self.memory
+        &self.systembus
     }
 
     /// Mutable access to the internal memory bus.
     pub fn bus_mut(&mut self) -> &mut SystemBus<H, S> {
-        &mut self.memory
+        &mut self.systembus
     }
 
 }
