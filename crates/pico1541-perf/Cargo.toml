@@ -12,7 +12,6 @@ racc6502 = { path = "../racc6502" }
 racc6502v2 = { path = "../racc6502v2" }
 racc6502v3 = { path = "../racc6502v3" }
 racc6502v4 = { path = "../racc6502v4" }
-mos6502 = { path = "../mos6502" }
 
 pico1541-emulator = { path = "../pico1541-emulator" }
 pico1541-common = { path = "../pico1541-common" }

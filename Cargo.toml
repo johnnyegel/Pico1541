@@ -1,25 +1,23 @@
 [workspace]
 members = [
-    "crates/pico1541-common",
     "crates/racc6502",
     "crates/racc6502v2",
+    "crates/racc6502v3",
+    "crates/racc6502v4",
+    "crates/pico1541-common",
     "crates/pico1541-manager",
     "crates/pico1541-emulator",
     "crates/pico1541-rp2040-main",
     "crates/pico1541-rp2040-emulation",
-    "crates/mos6502",
-    "crates/racc6502v3",
-    "crates/racc6502v4",
     "crates/pico1541-perf"]
 
 resolver = "2"
 
 default-members = [
-    "crates/racc6502",
+    "crates/racc6502v4",
     "crates/pico1541-manager",
     "crates/pico1541-common",
-    "crates/pico1541-emulator",
-    "crates/mos6502"
+    "crates/pico1541-emulator"
 ]
 
 [profile.release]

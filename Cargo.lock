@@ -1231,14 +1231,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3c8dda44ff03a2f238717214da50f65d5a53b45cd213a7370424ffdb6fae815"
 
 [[package]]
-name = "mos6502"
-version = "0.9.0"
-dependencies = [
- "bitflags 2.11.1",
- "log",
-]
-
-[[package]]
 name = "nb"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1469,7 +1461,6 @@ dependencies = [
  "embassy-rp",
  "embassy-time",
  "embedded-alloc 0.5.1",
- "mos6502",
  "panic-probe",
  "pico1541-common",
  "pico1541-emulator",
