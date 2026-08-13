@@ -25,7 +25,7 @@ fn main() {
 
     let surface = SoftwareMagneticSurface::new();
     let mechanics = pico1541_emulator::drivemechanics::DriveMechanics::new(surface, emulator_handle);
-    let mut drive = Emulator::new(&ROM, 8, mechanics);
+    let mut drive = Emulator::new(&ROM, Box::leak(Box::new([0u8; 32768])), 8, mechanics);
     let mut bridge = DummyHost {};
     for _ in 0..4000000 {
         drive.tick(&mut bridge);

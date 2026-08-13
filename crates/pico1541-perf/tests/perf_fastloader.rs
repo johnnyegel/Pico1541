@@ -117,7 +117,7 @@ impl HostInterface for DummyHost {
         let surface = DummySurface { cycles_since_byte: 0 };
         static BUFFER: pico1541_common::track_buffer::DualCoreTrackBuffer = pico1541_common::track_buffer::DualCoreTrackBuffer::new();
         let mechanics = DriveMechanics::new(surface, BUFFER.split().1);
-        let mut emulator = Emulator::new(&ROM, 8, mechanics);
+        let mut emulator = Emulator::new(&ROM, Box::leak(Box::new([0u8; 32768])), 8, mechanics);
         let mut host = DummyHost;
 
         emulator.reset(&mut host);
@@ -188,7 +188,7 @@ impl HostInterface for DummyHost {
         let surface = DummySurface { cycles_since_byte: 0 };
         static BUFFER: pico1541_common::track_buffer::DualCoreTrackBuffer = pico1541_common::track_buffer::DualCoreTrackBuffer::new();
         let mechanics = DriveMechanics::new(surface, BUFFER.split().1);
-        let mut emulator = Emulator::new(&ROM_2BIT, 8, mechanics);
+        let mut emulator = Emulator::new(&ROM_2BIT, Box::leak(Box::new([0u8; 32768])), 8, mechanics);
         let mut host = DummyHost;
 
         emulator.reset(&mut host);

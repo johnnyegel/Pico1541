@@ -34,7 +34,7 @@ pub fn setup_drive(
 
     let surface = SoftwareMagneticSurface::new();
     let mechanics = pico1541_emulator::drivemechanics::DriveMechanics::new(surface, emulator);
-    let mut drive = Emulator::new(&ROM_BYTES, device_id, mechanics);
+    let mut drive = Emulator::new(&ROM_BYTES, Box::leak(Box::new([0u8; 32768])), device_id, mechanics);
     let mut bridge = TestBridge::new(device_id, buffer);
 
     log::info!(

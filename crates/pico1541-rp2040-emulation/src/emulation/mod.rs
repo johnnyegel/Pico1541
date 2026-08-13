@@ -61,6 +61,7 @@ pub fn spawn_core1(
 
     embassy_rp::multicore::spawn_core1(core1, stack, move || {
         static mut EMULATOR: core::mem::MaybeUninit<Emulator<HardwareBridge, PioMagneticSurface>> = core::mem::MaybeUninit::uninit();
+        static mut SYS_MEMORY: [u8; 32768] = [0; 32768];
 
         defmt::info!("Core 1 spawned! Initializing emulator...");
 
@@ -73,9 +74,10 @@ pub fn spawn_core1(
         // We do not want this on the stack, because it is too large and will cause stack overflow.
         let emulator = unsafe {
             let ptr: *mut Emulator<HardwareBridge, PioMagneticSurface> = core::ptr::addr_of_mut!(EMULATOR).cast();
+            let memory = &mut *core::ptr::addr_of_mut!(SYS_MEMORY);
             let surface = PioMagneticSurface::new(pio0);
             let mechanics = DriveMechanics::new(surface, emulator_handle);
-            core::ptr::write(ptr, Emulator::new(rom_buffer, drive_id, mechanics));
+            core::ptr::write(ptr, Emulator::new(rom_buffer, memory, drive_id, mechanics));
             &mut *ptr
         };
 

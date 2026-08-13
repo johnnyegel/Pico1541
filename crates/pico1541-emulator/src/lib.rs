@@ -72,8 +72,13 @@ pub struct Emulator<H: HostInterface, S: MagneticSurface> {
 }
 
 impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
-    pub fn new(rom: &'static [u8; 16384], device_id: u8, mechanics: DriveMechanics<S>) -> Self {
-        let bus = SystemBus::new(rom, device_id, mechanics);
+    pub fn new(
+        rom: &'static [u8; 16384],
+        memory: &'static mut [u8; 32768],
+        device_id: u8,
+        mechanics: DriveMechanics<S>,
+    ) -> Self {
+        let bus = SystemBus::new(rom, memory, device_id, mechanics);
         Self {
             cpu: CPU::new(),
             systembus: bus,

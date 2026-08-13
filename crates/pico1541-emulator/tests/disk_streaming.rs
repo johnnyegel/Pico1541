@@ -20,7 +20,7 @@ static DUMMY_ROM: [u8; 16384] = [0; 16384];
 
 fn get_system_bus(surface: SoftwareMagneticSurface, handle: pico1541_common::track_buffer::EmulatorHandle) -> pico1541_emulator::systembus::SystemBus<TestBridge, SoftwareMagneticSurface> {
     let mechanics = pico1541_emulator::drivemechanics::DriveMechanics::new(surface, handle);
-    pico1541_emulator::systembus::SystemBus::new(&DUMMY_ROM, 8, mechanics)
+    pico1541_emulator::systembus::SystemBus::new(&DUMMY_ROM, Box::leak(Box::new([0u8; 32768])), 8, mechanics)
 }
 
 use common::TestBridge;

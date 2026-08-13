@@ -40,7 +40,7 @@ fn main() {
     File::open("/home/johnny/git/dev/Pico1541/docs/dos1541-master/dos.bin").unwrap().read_to_end(&mut rom).unwrap();
     
     let mechanics = pico1541_emulator::drivemechanics::DriveMechanics::new(surface, handle);
-    let mut emu = Emulator::new(&rom, 8, mechanics);
+    let mut emu = Emulator::new(&rom, Box::leak(Box::new([0u8; 32768])), 8, mechanics);
     let mut host = DummyHost;
     
     emu.reset(&mut host);

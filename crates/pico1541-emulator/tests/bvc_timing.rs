@@ -21,7 +21,7 @@ fn test_bvc_so_timing() {
     let surface = SoftwareMagneticSurface::new();
     
     let mechanics = pico1541_emulator::drivemechanics::DriveMechanics::new(surface, emulator);
-    let mut emu = Emulator::new(&DUMMY_ROM, 8, mechanics);
+    let mut emu = Emulator::new(&DUMMY_ROM, Box::leak(Box::new([0u8; 32768])), 8, mechanics);
 
     // Setup a GCR track with a single byte for testing
     {
@@ -67,7 +67,7 @@ fn test_bvc_so_timing() {
         emu.step(&mut hw);
         let pc = emu.cpu.pc;
         let a = emu.cpu.a;
-        println!("PC: {:04X}, A: {:02X}, in_a: {:02X}", pc, a, emu.memory.via2.in_a);
+        println!("PC: {:04X}, A: {:02X}, in_a: {:02X}", pc, a, emu.systembus.via2.in_a);
 
         if emu.cpu.pc >= 0x0009 {
             finished = true;
@@ -76,5 +76,5 @@ fn test_bvc_so_timing() {
     }
 
     assert!(finished, "CPU hung in BVC loop! Timeout.");
-    assert_eq!(emu.memory.memory[0x0700], 0x55, "Should have read 0x55 from disk");
+    assert_eq!(emu.systembus.memory[0x0700], 0x55, "Should have read 0x55 from disk");
 }

@@ -18,7 +18,7 @@ const MEMORY_SIZE: usize = 32768;
 /// `read` / `write` call via the `Bus::Ctx` mechanism and forwarded to
 /// `tick_cycle`.
 pub struct SystemBus<H: HostInterface, S: MagneticSurface> {
-    pub memory: alloc::boxed::Box<[u8; MEMORY_SIZE]>,
+    pub memory: &'static mut [u8; MEMORY_SIZE],
     pub via1: Via6522,
     pub via2: Via6522,
     pub mechanics: DriveMechanics<S>,
@@ -35,16 +35,16 @@ pub struct SystemBus<H: HostInterface, S: MagneticSurface> {
 }
 
 impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
-    pub fn new(rom: &'static [u8; 16384], device_id: u8, mechanics: DriveMechanics<S>) -> Self {
+    pub fn new(
+        rom: &'static [u8; 16384],
+        memory: &'static mut [u8; MEMORY_SIZE],
+        device_id: u8,
+        mechanics: DriveMechanics<S>,
+    ) -> Self {
         // :: Intialize VIA1
         let via1 = Via6522::new();
 
-        let mem_ptr = unsafe {
-            alloc::alloc::alloc_zeroed(core::alloc::Layout::new::<[u8; MEMORY_SIZE]>())
-                as *mut [u8; MEMORY_SIZE]
-        };
-        let mut memory = unsafe { alloc::boxed::Box::from_raw(mem_ptr) };
-        memory[0x4000..0x8000].copy_from_slice(rom);
+        memory.fill(0);
 
         let mut systembus = Self {
             memory,
@@ -62,6 +62,9 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             last_via2_out: 0xFF,
             _phantom: PhantomData,
         };
+        
+        // :: Load the ROM image into memory
+        systembus.update_rom(rom);
 
         // Set up the VIA1 initial state
         systembus.via1.in_a = 0x0;
@@ -422,7 +425,7 @@ mod tests {
         .1;
         let surface = pico1541_common::magnetic_surface::SoftwareMagneticSurface::new();
         let mechanics = crate::drivemechanics::DriveMechanics::new(surface, handle);
-        let mut bus = SystemBus::<MockHardware, _>::new(&ROM, 8, mechanics);
+        let mut bus = SystemBus::<MockHardware, _>::new(&ROM, alloc::boxed::Box::leak(alloc::boxed::Box::new([0u8; 32768])), 8, mechanics);
         let mut hw = MockHardware {};
         use racc6502v4::bus::Bus;
         bus.write(&mut hw, 0x0100, 0xAB, 0);
