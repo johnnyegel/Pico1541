@@ -161,8 +161,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         self.mechanics.tick(current_cycle);
 
         // Hardware Wiring: Pull bytes from the DMA buffer and wire SYNC/SO directly to VIA2/CPU.
-        let is_motor_on = (self.via2.get_pb_out() & 0x04) != 0;
-        if is_motor_on {
+        if self.is_motor_on() {
             let pcr_cb2 = self.via2.pcr & 0b1110_0000;
             let is_read_mode = pcr_cb2 != 0b1100_0000;
 
@@ -319,6 +318,11 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn update_next_sync_cycle(&mut self) {
+        /* Commented out, as the min 8 on motor ON breaks emulation completely.
+        // Since this "optimization" is exclusively active when motor is OFF, it does not
+        // really make any sense to do it. We need performance when the motor is ON, and do
+        // not care if not. So this function can simply add 1 to the next event cycle, and skip
+        // the complicated min_delta calculation!
         let mut min_delta = 1024 - (self.cycle_counter & 0x3FF);
         for via in [&self.via1, &self.via2] {
             if via.active_mask & crate::via6522::Via6522::T1_ACTIVE != 0 {
@@ -332,11 +336,16 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             }
         }
         
-        let is_motor_on = (self.via2.orb | !self.via2.ddrb) & 0x04 != 0;
-        if is_motor_on {
-            min_delta = 1;
-        }
-
+        if self.is_motor_on() {
+            // OPTIMIZATION: When the motor is running, we must sync with real time to poll 
+            // the DMA for arriving bytes. A delta of 1 ensures cycle-exact SO pulses, but 
+            // causes massive overhead. 
+            // Since bytes arrive every ~25-32 cycles, a jitter of 8 cycles is completely safe 
+            // and reduces the real-time timer polling overhead by 8x!
+            min_delta = min_delta.min(8);
+        } */
+        let min_delta = 1;
+ 
         self.time.next_event_cycle = self.time.last_sync_cycle.wrapping_add(min_delta);
     }
 
@@ -347,6 +356,12 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         let result = self.so_pulsed;
         self.so_pulsed = false;
         result
+    }
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    pub fn is_motor_on(&self) -> bool {
+        (self.via2.get_pb_out() & 0x04) != 0
     }
 }
 
