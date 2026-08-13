@@ -68,26 +68,6 @@ impl HostInterface for HardwareBridge {
         let _ = EVENT_CHANNEL.try_send(event);
     }
 
-    /* FIXME! Disable GPIO debug pins for now.
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn set_debug_0(&mut self) {
-        embassy_rp::pac::SIO.gpio_out(0).value_set().write_value(GPIO_DEBUG_MASK_0);
-    }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn set_debug_1(&mut self) {
-        embassy_rp::pac::SIO.gpio_out(0).value_set().write_value(GPIO_DEBUG_MASK_1);
-    }*/
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn clear_debug_pins(&mut self) {
-        // FIXME! We toggle the debug pins for now, since we may otherwise miss a pulse.
-        //embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(GPIO_DEBUG_MASK_0 /*| GPIO_DEBUG_MASK_1*/);
-    }
-
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn is_hijacked(&self) -> bool {
@@ -129,12 +109,7 @@ impl HostInterface for HardwareBridge {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn spin_until(&mut self, target_cycle: u32) -> bool {
-        if !self.timekeeper.spin_until(target_cycle) {
-            embassy_rp::pac::SIO.gpio_out(0).value_xor().write_value(GPIO_DEBUG_MASK_0);
-            false
-        } else {
-            true
-        }
+        self.timekeeper.spin_until(target_cycle)
     }
 
     #[link_section = ".data.ram_func"]
@@ -202,7 +177,7 @@ impl ViaHardware for HardwareBridge {
         let current_state = embassy_rp::pac::SIO.gpio_out(0).value().read();
         let xor_mask = (current_state ^ target_state) & mask;   
         
-        embassy_rp::pac::SIO.gpio_out(0).value_xor().write_value(xor_mask | GPIO_DEBUG_MASK_1);
+        embassy_rp::pac::SIO.gpio_out(0).value_xor().write_value(xor_mask);
     }
 
     #[link_section = ".data.ram_func"]
