@@ -317,17 +317,23 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     #[inline(always)]
     pub fn update_next_sync_cycle(&mut self) {
         let mut min_delta = 1024 - (self.time.last_sync_cycle & 0x3FF);
-        for via in [&self.via1, &self.via2] {
-            if via.active_mask() & crate::via6522::Via6522::T1_ACTIVE != 0 {
-                min_delta = min_delta.min(via.t1c() as u32 + 1);
+        #[inline(always)]
+        fn check_via(via: &crate::via6522::Via6522, mut min: u32) -> u32 {
+            let mask = via.active_mask();
+            if mask & crate::via6522::Via6522::T1_ACTIVE != 0 {
+                min = min.min(via.t1c() as u32 + 1);
             }
-            if via.active_mask() & crate::via6522::Via6522::T2_ACTIVE != 0 {
-                min_delta = min_delta.min(via.t2c() as u32 + 1);
+            if mask & crate::via6522::Via6522::T2_ACTIVE != 0 {
+                min = min.min(via.t2c() as u32 + 1);
             }
-            if via.active_mask() & crate::via6522::Via6522::SR_ACTIVE != 0 {
-                min_delta = min_delta.min(via.sr_count() as u32 + 1);
+            if mask & crate::via6522::Via6522::SR_ACTIVE != 0 {
+                min = min.min(via.sr_count() as u32 + 1);
             }
+            min
         }
+
+        min_delta = check_via(&self.via1, min_delta);
+        min_delta = check_via(&self.via2, min_delta);
         
         if self.is_motor_on() {
             // OPTIMIZATION (Option A): We predict the arrival of the next byte from the DMA.

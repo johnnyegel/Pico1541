@@ -15,11 +15,9 @@ impl Memory {
     #[inline(always)]
     pub fn read(&self, addr: u16) -> u8 {
         if addr < 0x8000 {
-            let index = (addr & 0x07FF) as usize;
-            self.data[index]
+            self.data[(addr & 0x07FF) as usize]
         } else {
-            let index = ((addr & 0x3FFF) | ((addr >> 1) & 0x4000)) as usize;
-            self.data[index]
+            self.data[((addr & 0x3FFF) | 0x4000) as usize]
         }
     }
 
@@ -27,11 +25,9 @@ impl Memory {
     #[inline(always)]
     pub fn get_ptr(&self, addr: u16) -> *const u8 {
         if addr < 0x8000 {
-            let index = (addr & 0x07FF) as usize;
-            &self.data[index] as *const u8
+            &self.data[(addr & 0x07FF) as usize] as *const u8
         } else {
-            let index = ((addr & 0x3FFF) | ((addr >> 1) & 0x4000)) as usize;
-            &self.data[index] as *const u8
+            &self.data[((addr & 0x3FFF) | 0x4000) as usize] as *const u8
         }
     }
 
@@ -43,7 +39,7 @@ impl Memory {
             self.data[index] = val;
             
             // Return true if IEC listen/talk addresses were updated
-            return index == 0x0077 || index == 0x0078;
+            return index.wrapping_sub(0x0077) <= 1;
         }
         false
     }
