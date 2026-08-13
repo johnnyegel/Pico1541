@@ -150,14 +150,13 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             return;
         }
 
-        // Hardware Wiring: Pull bytes from the DMA buffer and wire SYNC/SO directly to VIA2/CPU.
+                // Hardware Wiring: Pull bytes from the DMA buffer and wire SYNC/SO directly to VIA2/CPU.
         if self.is_motor_on() {
             let pcr_cb2 = self.via2.pcr & 0b1110_0000;
             let is_read_mode = pcr_cb2 != 0b1100_0000;
 
             if is_read_mode {
                 let signals = self.mechanics.advance_read_head(delta, current_cycle);
-                let was_sync = (self.via2.in_b & 0x80) == 0;
                 
                 let mut new_byte_arrived = false;
                 if let Some(byte) = signals.byte_opt {
@@ -166,13 +165,9 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
                     self.time.last_byte_cycle = current_cycle;
                 }
                 
-                if signals.is_sync != was_sync {
-                    if signals.is_sync {
-                        self.via2.in_b &= !0x80; // Assert SYNC (Pull PB7 Low)
-                    } else {
-                        self.via2.in_b |= 0x80;  // Release SYNC
-                    }
-                }
+                // Assert SYNC (Pull PB7 Low). Branchless logic for optimal speed.
+                let sync_mask = if signals.is_sync { 0x00 } else { 0x80 };
+                self.via2.in_b = (self.via2.in_b & 0x7F) | sync_mask;
                 
                 if !signals.is_sync && new_byte_arrived {
                     let pcr_ca2 = self.via2.pcr & 0b0000_1110;
