@@ -149,8 +149,6 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         if delta == 0 {
             return;
         }
-        
-        self.mechanics.tick(current_cycle);
 
         // Hardware Wiring: Pull bytes from the DMA buffer and wire SYNC/SO directly to VIA2/CPU.
         if self.is_motor_on() {
@@ -158,26 +156,25 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             let is_read_mode = pcr_cb2 != 0b1100_0000;
 
             if is_read_mode {
-                let byte_opt = self.mechanics.surface.try_read_byte(delta);
-                let is_sync = self.mechanics.surface.is_sync_active();
+                let signals = self.mechanics.advance_read_head(delta, current_cycle);
                 let was_sync = (self.via2.in_b & 0x80) == 0;
                 
                 let mut new_byte_arrived = false;
-                if let Some(byte) = byte_opt {
+                if let Some(byte) = signals.byte_opt {
                     self.via2.in_a = byte;
                     new_byte_arrived = true;
                     self.time.last_byte_cycle = current_cycle;
                 }
                 
-                if is_sync != was_sync {
-                    if is_sync {
+                if signals.is_sync != was_sync {
+                    if signals.is_sync {
                         self.via2.in_b &= !0x80; // Assert SYNC (Pull PB7 Low)
                     } else {
                         self.via2.in_b |= 0x80;  // Release SYNC
                     }
                 }
                 
-                if !is_sync && new_byte_arrived {
+                if !signals.is_sync && new_byte_arrived {
                     let pcr_ca2 = self.via2.pcr & 0b0000_1110;
                     let is_so_enabled = (pcr_ca2 & 0b0000_1010) == 0b0000_1010;
                     if is_so_enabled {
@@ -187,8 +184,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
                 }
             } else {
                 // WRITE mode
-                let index = self.mechanics.surface.get_absolute_head_position(0);
-                self.mechanics.write_byte_at(index, self.via2.ora);
+                self.mechanics.advance_write_head(delta, current_cycle, self.via2.ora);
             }
         }
     }

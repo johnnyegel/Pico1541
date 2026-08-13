@@ -1,6 +1,11 @@
 use pico1541_common::track_buffer::{EmulatorHandle, TrackIdentifier, TrackBuffer};
 use pico1541_common::{magnetic_surface::MagneticSurface, interface::HostInterface};
 
+pub struct ReadHeadSignals {
+    pub byte_opt: Option<u8>,
+    pub is_sync: bool,
+}
+
 #[cfg(feature = "debug")]
 use crate::via6522::Via6522;
 
@@ -117,7 +122,31 @@ impl<S: MagneticSurface> DriveMechanics<S> {
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn tick(&mut self, master_clock: u32) {
+    pub fn advance_read_head(&mut self, delta: u32, master_clock: u32) -> ReadHeadSignals {
+        self.check_active_index(master_clock);
+        ReadHeadSignals {
+            byte_opt: self.surface.try_read_byte(delta),
+            is_sync: self.surface.is_sync_active(),
+        }
+    }
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    pub fn advance_write_head(&mut self, delta: u32, master_clock: u32, byte: u8) {
+        self.check_active_index(master_clock);
+        // Writing ignores delta for time advancement because the surface time is driven by it.
+        // Wait, the surface needs to advance by delta!
+        // try_read_byte advances time. The write mode just advances time by `delta` cycles but doesn't output bytes.
+        // Actually, try_read_byte is the only way to advance the surface time right now.
+        // Let's use try_read_byte to advance time and just ignore the output byte.
+        let _ = self.surface.try_read_byte(delta);
+        let index = self.surface.get_absolute_head_position(0);
+        self.write_byte_at(index, byte);
+    }
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    fn check_active_index(&mut self, master_clock: u32) {
         let current_active_index = self.track_handle.get_generation();
         if current_active_index != self.last_active_index {
             log::info!("TICK SEES CHANGE! current={} last={}", current_active_index, self.last_active_index);
