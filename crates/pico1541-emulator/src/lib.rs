@@ -44,6 +44,7 @@ pub mod flight_recorder;
 pub mod hle;
 pub mod memory;
 pub mod systembus;
+pub mod time;
 pub mod via6522;
 
 #[allow(unused_imports)]
@@ -127,9 +128,8 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         // Poll IEC and DriveMechanics on every instruction for real-time accuracy without jitter
         self.systembus.poll_realtime(hw, elapsed);
         
-        if self.cpu.cycles.wrapping_sub(self.systembus.next_sync_cycle) < 0x80000000 {
-            hw.spin_until(self.cpu.cycles);
-        }
+        // Let the central Timekeeper advance and handle any potential spin-waiting
+        self.systembus.time.sync_realtime(self.cpu.cycles, hw);
         hw.clear_debug_pins();
 
         self.systembus.catch_up(self.cpu.cycles);

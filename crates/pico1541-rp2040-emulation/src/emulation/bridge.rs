@@ -6,9 +6,10 @@ use pico1541_common::util::bit_align_u32;
 use pico1541_manager::{EVENT_CHANNEL, TRACK_CHANNEL, CMD_CHANNEL, InternalCommand};
 use pico1541_common::interface::HostInterface;
 use pico1541_common::DriveEvent;
+use super::timekeeper::TimeKeeper;
 
 use super::config::*;
-use super::timekeeper::TimeKeeper;
+
 
 pub struct IecPins {
     pub(crate) _data_rx: Input<'static>,
@@ -31,6 +32,7 @@ pub struct DebugPins {
 
 pub struct HardwareBridge {
     pub timekeeper: TimeKeeper,
+
     _snooper: IecSnooper,
     config: &'static SnooperConfig,
     motor_on: bool,
@@ -126,19 +128,14 @@ impl HostInterface for HardwareBridge {
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    fn spin_until(&mut self, target_cycle: u32) {
+    fn spin_until(&mut self, target_cycle: u32) -> bool {
         if !self.timekeeper.spin_until(target_cycle) {
-            // Handle the case where the spin_until function returns false
             embassy_rp::pac::SIO.gpio_out(0).value_xor().write_value(GPIO_DEBUG_MASK_0);
+            false
+        } else {
+            true
         }
     }
-    
-    /* FIXME! Unsure if this is needed. Disabled for now
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    fn spin_until_half(&mut self, target_cycle: u32) {
-        self.timekeeper.spin_until_half(target_cycle);
-    }*/
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
@@ -153,6 +150,8 @@ impl HostInterface for HardwareBridge {
         self.config.emu_total_idles.store(idles, Ordering::Relaxed);
     }
 }
+
+
 
 impl ViaHardware for HardwareBridge {
 

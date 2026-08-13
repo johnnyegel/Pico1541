@@ -23,8 +23,7 @@ pub struct SystemBus<H: HostInterface, S: MagneticSurface> {
     pub device_id: u8,
     cycle_counter: u32,
     device_id_pb_bits: u8,
-    pub last_cycle: u32,
-    pub next_sync_cycle: u32,
+    pub time: crate::time::EmulatorTime,
     pub so_pulsed: bool,
     pub iec_synced_this_instruction: bool,
     last_iec_out: u8,
@@ -50,8 +49,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             device_id,
             cycle_counter: 0,
             device_id_pb_bits: (device_id & 0x03) << 5,
-            last_cycle: 0,
-            next_sync_cycle: 1024,
+            time: crate::time::EmulatorTime::new(),
             so_pulsed: false,
             iec_synced_this_instruction: false,
             last_iec_out: 0xFF, // Force first write
@@ -209,7 +207,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         if delta == 0 {
             return;
         }
-        let current_cycle = self.last_cycle.wrapping_add(delta);
+        // time.last_sync_cycle has already been updated to target_cycle in consume_catchup_delta
+        let current_cycle = self.time.last_sync_cycle;
         
         self.poll_mechanics(delta, current_cycle);
 
@@ -310,10 +309,9 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     #[link_section = ".data.ram_func"]
     #[inline]
     pub fn catch_up(&mut self, target_cycle: u32) {
-        let delta = target_cycle.wrapping_sub(self.last_cycle);
-        if delta > 0 && delta < 0x80000000 {
+        let delta = self.time.consume_catchup_delta(target_cycle);
+        if delta > 0 {
             self.tick_cycles(delta);
-            self.last_cycle = target_cycle;
         }
         self.update_next_sync_cycle();
     }
@@ -339,7 +337,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             min_delta = 1;
         }
 
-        self.next_sync_cycle = self.last_cycle.wrapping_add(min_delta);
+        self.time.next_event_cycle = self.time.last_sync_cycle.wrapping_add(min_delta);
     }
 
     

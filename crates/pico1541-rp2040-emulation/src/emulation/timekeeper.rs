@@ -56,17 +56,4 @@ impl TimeKeeper {
         }
         did_wait
     }
-
-    /* FIXME! Unsure if this is needed. Disabled for now
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    pub fn spin_until_half(&mut self, target_cycle: u32) {
-        let target_ticks = target_cycle.wrapping_mul(SYSTEM_CLOCK_FREQ / 1_000_000);
-        let target_time = self.base_time_24.wrapping_add(target_ticks) & 0x00FFFFFF;
-
-        while target_time.wrapping_sub(Self::now_24()) & 0x00FFFFFF < 0x800000 {
-            self.idle_counter = self.idle_counter.wrapping_add(1);
-            cortex_m::asm::nop();
-        }
-    } */
 }
