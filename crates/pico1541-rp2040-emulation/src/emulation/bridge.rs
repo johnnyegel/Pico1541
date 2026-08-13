@@ -171,38 +171,35 @@ impl ViaHardware for HardwareBridge {
         let pb_clk_mask = bit_align_u32((via_port_b & Self::VIA1_IEC_MASK_CLK_TX) as u32,
             Self::VIA1_IEC_BIT_CLK_TX, GPIO_IEC_BIT_CLK_TX);
 
-        // FIXME! Debug pin 1 should not be set when all is functioning normally. DEBUGGING ONLY!
         let target_state = pb_data_mask | pb_clk_mask;
         let mask = GPIO_IEC_MASK_DATA_TX | GPIO_IEC_MASK_CLK_TX;
-        let current_state = embassy_rp::pac::SIO.gpio_out(0).value().read();
-        let xor_mask = (current_state ^ target_state) & mask;   
         
-        embassy_rp::pac::SIO.gpio_out(0).value_xor().write_value(xor_mask);
+        // It is crucial that bits are cleared before set.
+        embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(mask & !target_state);
+        embassy_rp::pac::SIO.gpio_out(0).value_set().write_value(target_state);
     }
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn write_mechanics_port(&mut self, via_port_b: u8) {
-        // Map the VIA2 activity LED pin to the RED GPIO LED pin
-        let led_bit = bit_align_u32((via_port_b & Self::VIA2_MASK_LED) as u32,
-                Self::VIA2_BIT_LED, GPIO_LED_BIT_RED);
+        let motor_on = (via_port_b & Self::VIA2_MASK_MOTOR) != 0;
+        
+        let mut set_mask = 0;
+        if (via_port_b & Self::VIA2_MASK_LED) != 0 {
+            set_mask = GPIO_LED_MASK_RED;
+        } else if motor_on {
+            set_mask = GPIO_LED_MASK_GREEN;
+        }
+        
+        let clr_mask = (GPIO_LED_MASK_RED | GPIO_LED_MASK_GREEN) & !set_mask;
 
-        let motor_bit = bit_align_u32((via_port_b & Self::VIA2_MASK_MOTOR) as u32,
-                Self::VIA2_BIT_MOTOR, GPIO_LED_BIT_GREEN);
-
-        let led_override = bit_align_u32(led_bit, 
-                GPIO_LED_BIT_RED, GPIO_LED_BIT_GREEN);
-
-        let set_mask = led_bit | (motor_bit & !led_override);
-        let clr_mask = !set_mask & (GPIO_LED_MASK_RED | GPIO_LED_MASK_GREEN);
-
-        embassy_rp::pac::SIO.gpio_out(0).value_set().write_value(set_mask);
+        // Clear before set
         embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(clr_mask);
+        embassy_rp::pac::SIO.gpio_out(0).value_set().write_value(set_mask);
 
-        let motor_on_bool = motor_bit != 0;
-        if motor_on_bool != self.motor_on {
-            self.motor_on = motor_on_bool;
-            let _ = CMD_CHANNEL.try_send(InternalCommand::MotorState(motor_on_bool));
+        if motor_on != self.motor_on {
+            self.motor_on = motor_on;
+            let _ = CMD_CHANNEL.try_send(InternalCommand::MotorState(motor_on));
         }
     }
 

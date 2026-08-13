@@ -128,7 +128,6 @@ impl Via6522 {
     }
 
     /// Write a byte to a VIA register.
-    
     #[inline(always)]
     #[link_section = ".data.ram_func"]
     pub fn write(&mut self, addr: u16, value: u8) {

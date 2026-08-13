@@ -162,7 +162,10 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
                 if let Some(byte) = signals.byte_opt {
                     self.via2.in_a = byte;
                     new_byte_arrived = true;
-                    self.time.last_byte_cycle = current_cycle;
+                    // We must assume the byte arrived at the BEGINNING of this delta block, 
+                    // otherwise the up to 7-cycle instruction jitter will shift the prediction window forward,
+                    // allowing the emulator to poll the DMA prematurely on the next byte.
+                    self.time.last_byte_cycle = current_cycle.wrapping_sub(delta);
                 }
                 
                 // Assert SYNC (Pull PB7 Low). Branchless logic for optimal speed.
