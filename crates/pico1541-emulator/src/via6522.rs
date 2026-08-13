@@ -348,7 +348,6 @@ impl Via6522 {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn ca1_irq(&mut self) {
-        log::info!("ca1_irq triggered!");
         self.ifr |= 0x02;
         self.update_irq();
         if (self.acr & 0x01) != 0 {
@@ -372,7 +371,6 @@ impl Via6522 {
     pub fn ca1_edge(&mut self, edge: bool) {
         self.last_ca1 = edge;
         let positive_edge = (self.pcr & 0x01) != 0;
-        log::info!("ca1_edge: edge={}, positive_edge={}, IER={:02X}", edge, positive_edge, self.ier);
         
         if edge == positive_edge {
             self.ca1_irq();

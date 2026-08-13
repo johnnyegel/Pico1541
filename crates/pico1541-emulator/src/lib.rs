@@ -121,13 +121,11 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         
         // Let the central Timekeeper advance and handle any potential spin-waiting
         self.systembus.time.sync_realtime(self.cpu.cycles, hw);
-        hw.clear_debug_pins();
 
         self.systembus.catch_up(self.cpu.cycles);
         
         if self.systembus.so_pending() {
             self.cpu.pending_so = true;
-            hw.set_debug_0(); // Output SO pulse to logic analyzer
         }
 
         // Flight recorder re-enabled, optimized to waste minimal cycles
