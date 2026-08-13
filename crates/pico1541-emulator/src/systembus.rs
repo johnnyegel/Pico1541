@@ -21,7 +21,6 @@ pub struct SystemBus<H: HostInterface, S: MagneticSurface> {
     pub via2: Via6522,
     pub mechanics: DriveMechanics<S>,
     pub device_id: u8,
-    cycle_counter: u32,
     device_id_pb_bits: u8,
     pub time: crate::time::EmulatorTime,
     pub so_pulsed: bool,
@@ -46,7 +45,6 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             via2: Via6522::new(),
             mechanics,
             device_id,
-            cycle_counter: 0,
             device_id_pb_bits: (device_id & 0x03) << 5,
             time: crate::time::EmulatorTime::new(),
             so_pulsed: false,
@@ -134,9 +132,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 
         hardware.step();
 
-        let old_cc = self.cycle_counter;
-        self.cycle_counter = self.cycle_counter.wrapping_add(elapsed);
-        if (old_cc ^ self.cycle_counter) & !0x3FF != 0 {
+        if (current_cycle ^ current_cycle.wrapping_sub(elapsed)) & !0x3FF != 0 {
             self.device_id = hardware.get_device_id();
             self.device_id_pb_bits = (self.device_id & 0x03) << 5;
 
@@ -322,7 +318,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn update_next_sync_cycle(&mut self) {
-        let mut min_delta = 1024 - (self.cycle_counter & 0x3FF);
+        let mut min_delta = 1024 - (self.time.last_sync_cycle & 0x3FF);
         for via in [&self.via1, &self.via2] {
             if via.active_mask & crate::via6522::Via6522::T1_ACTIVE != 0 {
                 min_delta = min_delta.min(via.t1c as u32 + 1);
