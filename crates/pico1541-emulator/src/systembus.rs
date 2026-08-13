@@ -174,6 +174,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
                 if let Some(byte) = byte_opt {
                     self.via2.in_a = byte;
                     new_byte_arrived = true;
+                    self.time.last_byte_cycle = current_cycle;
                 }
                 
                 if is_sync != was_sync {
@@ -318,11 +319,6 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn update_next_sync_cycle(&mut self) {
-        /* Commented out, as the min 8 on motor ON breaks emulation completely.
-        // Since this "optimization" is exclusively active when motor is OFF, it does not
-        // really make any sense to do it. We need performance when the motor is ON, and do
-        // not care if not. So this function can simply add 1 to the next event cycle, and skip
-        // the complicated min_delta calculation!
         let mut min_delta = 1024 - (self.cycle_counter & 0x3FF);
         for via in [&self.via1, &self.via2] {
             if via.active_mask & crate::via6522::Via6522::T1_ACTIVE != 0 {
@@ -337,15 +333,25 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         }
         
         if self.is_motor_on() {
-            // OPTIMIZATION: When the motor is running, we must sync with real time to poll 
-            // the DMA for arriving bytes. A delta of 1 ensures cycle-exact SO pulses, but 
-            // causes massive overhead. 
-            // Since bytes arrive every ~25-32 cycles, a jitter of 8 cycles is completely safe 
-            // and reduces the real-time timer polling overhead by 8x!
-            min_delta = min_delta.min(8);
-        } */
-        let min_delta = 1;
- 
+            // OPTIMIZATION (Option A): We predict the arrival of the next byte from the DMA.
+            // A byte at the fastest zone arrives every ~25-26 cycles.
+            // By running freely for up to 24 cycles since the last byte, we skip 
+            // expensive real-time timer polling until we are in the exact window 
+            // where the byte is expected to drop.
+            let cycles_since_last_byte = self.time.last_sync_cycle.wrapping_sub(self.time.last_byte_cycle);
+            
+            // If we are within 24 cycles of the last byte, run freely until we hit the 24 cycle mark.
+            // If we exceed 24 cycles, we drop min_delta to 1 to strictly poll real-time every cycle
+            // and catch the byte exactly when it arrives (0-jitter).
+            let safe_window = 24;
+            if cycles_since_last_byte < safe_window {
+                let cycles_until_window = safe_window - cycles_since_last_byte;
+                min_delta = min_delta.min(cycles_until_window);
+            } else {
+                min_delta = 1;
+            }
+        }
+        
         self.time.next_event_cycle = self.time.last_sync_cycle.wrapping_add(min_delta);
     }
 

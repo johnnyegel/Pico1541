@@ -1,6 +1,7 @@
 pub struct EmulatorTime {
     pub last_sync_cycle: u32,
     pub next_event_cycle: u32,
+    pub last_byte_cycle: u32,
 }
 
 impl EmulatorTime {
@@ -8,6 +9,7 @@ impl EmulatorTime {
         Self {
             last_sync_cycle: 0,
             next_event_cycle: 1024,
+            last_byte_cycle: 0,
         }
     }
 
