@@ -23,7 +23,7 @@ pub struct SystemBus<H: HostInterface, S: MagneticSurface> {
     pub device_id: u8,
     device_id_pb_bits: u8,
     pub time: crate::time::EmulatorTime,
-    pub so_pulsed: bool,
+    so_pulsed: bool,
     last_iec_out: u8,
     last_via2_out: u8,
     _phantom: PhantomData<H>,
@@ -129,8 +129,6 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         if self.time.should_sync_iec(current_cycle) {
             self.sync_iec_bus(hardware, current_cycle);
         }
-
-        hardware.step();
 
         if (current_cycle ^ current_cycle.wrapping_sub(elapsed)) & !0x3FF != 0 {
             self.device_id = hardware.get_device_id();

@@ -137,6 +137,42 @@ impl TestBridge {
         }
     }
 
+    pub fn update_snooper(&mut self) {
+        let mut events = Vec::new();
+        // Update the snooper using ONLY host physical state (Mandate that it doesn't see drive state)
+        self.snooper.update(self.host_iec, |event| {
+             events.push(event);
+        });
+
+        for event in events {
+            self.events.push(event);
+            let mut extra_events = Vec::new();
+            self.snoop_handler.handle(event, &mut |e| extra_events.push(e));
+            
+            for e in extra_events {
+                self.events.push(e);
+                // Also check if any extra event triggers hijack/discard
+                if let DriveEvent::IecCommand { data, len } = e {
+                     let cmd = String::from_utf8_lossy(&data[..len as usize]);
+                     log::info!("[SnooperCommand] {:?}", cmd);
+                }
+            }
+            
+            // Once "CD:" is detected, we "yank the cable" by hijacking the bus
+            // and requesting a discard of the command buffer.
+            if self.snoop_handler.is_hijacked() && !self.discard_request {
+                log::info!("[SnoopHandler] Hijack requested!");
+                self.discard_request = true;
+            }
+        }
+        
+        self.total_cycles += 1;
+        if let Some(mut hook) = self.sync_hook.take() {
+            hook(self.buffer);
+            self.sync_hook = Some(hook);
+        }
+    }
+
     pub fn reset(&mut self) {
         let manager = self.buffer.split().0;
         manager.commit_loaded_track(pico1541_common::track_buffer::TrackIdentifier::new(36, pico1541_common::track_buffer::default_speed_zone(36)), pico1541_common::track_buffer::TrackLayout::Void, 0);
@@ -172,6 +208,7 @@ impl TestBridge {
         let start = drive.cycles;
         while drive.cycles.wrapping_sub(start) < (n as u32) {
             drive.tick(self);
+            self.update_snooper();
         }
     }
 
@@ -242,41 +279,7 @@ impl HostInterface for TestBridge {
         self.snooper.set_listen_addr(listen);
     }
 
-    fn step(&mut self) {
-        let mut events = Vec::new();
-        // Update the snooper using ONLY host physical state (Mandate that it doesn't see drive state)
-        self.snooper.update(self.host_iec, |event| {
-             events.push(event);
-        });
 
-        for event in events {
-            self.events.push(event);
-            let mut extra_events = Vec::new();
-            self.snoop_handler.handle(event, &mut |e| extra_events.push(e));
-            
-            for e in extra_events {
-                self.events.push(e);
-                // Also check if any extra event triggers hijack/discard
-                if let DriveEvent::IecCommand { data, len } = e {
-                     let cmd = String::from_utf8_lossy(&data[..len as usize]);
-                     log::info!("[SnooperCommand] {:?}", cmd);
-                }
-            }
-            
-            // Once "CD:" is detected, we "yank the cable" by hijacking the bus
-            // and requesting a discard of the command buffer.
-            if self.snoop_handler.is_hijacked() && !self.discard_request {
-                log::info!("[SnoopHandler] Hijack requested!");
-                self.discard_request = true;
-            }
-        }
-        
-        self.total_cycles += 1;
-        if let Some(mut hook) = self.sync_hook.take() {
-            hook(self.buffer);
-            self.sync_hook = Some(hook);
-        }
-    }
 }
 
 pub struct IecTestBridge<'a> {

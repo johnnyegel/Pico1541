@@ -36,9 +36,6 @@ pub trait HostInterface: crate::context::ViaHardware {
     /// Wait until the hardware physical timer aligns with the absolute emulated cycle.
     fn spin_until(&mut self, _target_cycle: u32) -> bool { true }
 
-    /// Called every emulator tick cycle, independent of bus changes.
-    fn step(&mut self) {}
-
     #[inline(always)]
     fn set_debug_0(&mut self) {}
     #[inline(always)]

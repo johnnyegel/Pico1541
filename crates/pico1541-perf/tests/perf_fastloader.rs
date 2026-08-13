@@ -30,7 +30,6 @@ mod tests {
         fn is_reset_line_asserted(&self) -> bool { false }
     }
 impl HostInterface for DummyHost {
-        fn step(&mut self) {}
         fn get_device_id(&self) -> u8 { 8 }
         fn pop_discard_request(&mut self) -> bool { false }
         fn check_halt_requested(&self) -> bool { false }

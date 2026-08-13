@@ -125,8 +125,7 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
 
         self.systembus.catch_up(self.cpu.cycles);
         
-        if self.systembus.so_pulsed {
-            self.systembus.so_pulsed = false;
+        if self.systembus.so_pending() {
             self.cpu.pending_so = true;
             hw.set_debug_0(); // Output SO pulse to logic analyzer
         }
