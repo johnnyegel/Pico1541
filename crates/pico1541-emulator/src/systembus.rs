@@ -25,7 +25,6 @@ pub struct SystemBus<H: HostInterface, S: MagneticSurface> {
     device_id_pb_bits: u8,
     pub time: crate::time::EmulatorTime,
     pub so_pulsed: bool,
-    pub iec_synced_this_instruction: bool,
     last_iec_out: u8,
     last_via2_out: u8,
     _phantom: PhantomData<H>,
@@ -51,7 +50,6 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             device_id_pb_bits: (device_id & 0x03) << 5,
             time: crate::time::EmulatorTime::new(),
             so_pulsed: false,
-            iec_synced_this_instruction: false,
             last_iec_out: 0xFF, // Force first write
             last_via2_out: 0xFF,
             _phantom: PhantomData,
@@ -97,7 +95,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn sync_iec_bus(&mut self, hardware: &mut H) {
+    pub fn sync_iec_bus(&mut self, hardware: &mut H, current_cycle: u32) {
         // :: Capture the IEC bus state, and update the VIA1 input register
         let iec_in = hardware.read_iec_port() | self.device_id_pb_bits;
         let prev_atn = self.via1.in_b & H::VIA1_IEC_MASK_ATN_RX;
@@ -124,14 +122,14 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             self.last_iec_out = effective_orb;
         }
         
-        self.iec_synced_this_instruction = true;
+        self.time.mark_iec_synced(current_cycle);
     }
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn poll_realtime(&mut self, hardware: &mut H, elapsed: u32) {
-        if !self.iec_synced_this_instruction {
-            self.sync_iec_bus(hardware);
+    pub fn poll_realtime(&mut self, hardware: &mut H, elapsed: u32, current_cycle: u32) {
+        if self.time.should_sync_iec(current_cycle) {
+            self.sync_iec_bus(hardware, current_cycle);
         }
 
         hardware.step();
@@ -229,7 +227,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             let reg = (addr & 0x0F) as usize;
             if reg == 0x00 || reg == 0x0F {
                 ctx.spin_until(cycle);
-                self.sync_iec_bus(ctx);
+                self.sync_iec_bus(ctx, cycle);
             }
             
             self.via1.read(addr)
@@ -250,7 +248,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             self.via1.write(addr, val);
             if reg == 0x00 || reg == 0x02 || reg == 0x0F {
                 ctx.spin_until(cycle);
-                self.sync_iec_bus(ctx);
+                self.sync_iec_bus(ctx, cycle);
             }
         } else {
             let reg = (addr & 0x0F) as usize;

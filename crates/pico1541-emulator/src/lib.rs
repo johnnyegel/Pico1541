@@ -122,11 +122,10 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
             self.cpu.pending_interrupt = Some(racc6502v4::cpu::Interrupt::Irq);
         }
         
-        self.systembus.iec_synced_this_instruction = false;
         let elapsed = self.cpu.step(&mut self.systembus, hw);
         
         // Poll IEC and DriveMechanics on every instruction for real-time accuracy without jitter
-        self.systembus.poll_realtime(hw, elapsed);
+        self.systembus.poll_realtime(hw, elapsed, self.cpu.cycles);
         
         // Let the central Timekeeper advance and handle any potential spin-waiting
         self.systembus.time.sync_realtime(self.cpu.cycles, hw);
