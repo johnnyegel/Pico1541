@@ -22,9 +22,22 @@ pub trait ViaHardware {
     const VIA2_MASK_LED_MOTOR: u8 = Self::VIA2_MASK_MOTOR | Self::VIA2_MASK_LED;
 
     // Hardware interface methods (HAL)
+
+    /// Sets the reset state of the drive, so the hardware can configure LEDs or other indicators accordingly.
+    fn set_reset_state(&mut self, _asserted: bool) {}
+
+    /// Reads the current state of the IEC bus lines (DATA, CLK, ATN) as seen by the drive.
     fn read_iec_port(&mut self) -> u8 { 0xFF }
+
+    /// Writes the state of the IEC bus lines (DATA, CLK) as driven by the drive.
     fn write_iec_port(&mut self, _via_port_b: u8) {}
+
+    /// Writes the state of the drive mechanics control lines (MOTOR, LED) as driven by the drive.
     fn write_mechanics_port(&mut self, _via_port_b: u8) {}
+
+    /// Checks if a reset trigger has been consumed by the drive.
     fn consume_trigger_reset(&mut self) -> bool { false }
+
+    /// Checks if the reset line is currently asserted.
     fn is_reset_line_asserted(&self) -> bool { false }
 }

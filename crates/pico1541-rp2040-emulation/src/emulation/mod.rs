@@ -80,10 +80,6 @@ pub fn spawn_core1(
             core::ptr::write(ptr, Emulator::new(rom_buffer, memory, drive_id, mechanics));
             &mut *ptr
         };
-
-        // Initialize the emulator
-        // WARNING! Initialization is needed to keep LTO optimizer from screwing this up!
-        emulator.initialize(&mut bridge);
         
         defmt::info!("Emulator initialized. Starting run loop...");
 
@@ -116,16 +112,20 @@ pub fn run_emulator(
         // :? Are we in reset?
         if is_reset {
             // -> Yes, then clear the was reset flag, and ensure the timekeeper is updated.
-            was_reset = true;
+            if !was_reset {
+                hw.set_reset_state(true);
+                was_reset = true;
+            }
+            // Keep track of time even in reset state.
             hw.timekeeper.update_base(emulator.cycles);
-            cortex_m::asm::nop();
         } else {
             // -> No :? Was the reset line previously asserted?
             if was_reset {
                 // -> Yes, then clear the was reset flag, and reset the emulator.
-                was_reset = false;
+                hw.set_reset_state(false);
                 emulator.reset(hw);
                 hw.timekeeper.update_base(emulator.cycles);
+                was_reset = false;
             }
             
             // :: Advance the emulator by 512 ticks

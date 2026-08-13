@@ -157,6 +157,18 @@ impl ViaHardware for HardwareBridge {
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
+    fn set_reset_state(&mut self, asserted: bool) {
+        if asserted {
+            // Turn off LEDs when reset is asserted, to indicate the drive is in reset state.
+            embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(GPIO_LED_MASK_GREEN | GPIO_LED_MASK_RED);
+        } else {
+            // Turn on the RED LED when reset is de-asserted, to indicate the drive is ready.
+            embassy_rp::pac::SIO.gpio_out(0).value_set().write_value(GPIO_LED_MASK_RED);
+        }
+    }
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
     fn read_iec_port(&mut self) -> u8 {
         // Sample GPIO inputs
         let pins = embassy_rp::pac::SIO.gpio_in(0).read();

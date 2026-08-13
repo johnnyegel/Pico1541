@@ -93,21 +93,13 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         self.systembus.update_rom(rom);
     }
 
-    /// Initializes the emulator, resetting the CPU and VIAs.
-    pub fn initialize(&mut self, hw: &mut H) {
+    /// Resets the 6502 CPU and VIAs.
+    pub fn reset(&mut self, hw: &mut H) {
         self.cpu.reset(&mut self.systembus, hw);
         self.systembus.reset(hw);
         self.cycles = self.cpu.cycles;
     }
 
-    /// Resets the 6502 CPU and VIAs.
-    pub fn reset(&mut self, hw: &mut H) {
-        // Reset the CPU and VIAs, and re-initialize the drive mechanics.
-        self.initialize(hw);
-
-        // Set the VIA2 Port B outputs to 0xFF, which is the default state after a reset.
-        hw.write_mechanics_port(0xFF);
-    }
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
