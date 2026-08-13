@@ -280,10 +280,11 @@ impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H,
     #[link_section = ".data.ram_func"]
     fn get_instruction_ptr(&self, addr: u16) -> *const u8 {
         if addr < 0x8000 {
-            unsafe { self.memory.as_ptr().add((addr & 0x07FF) as usize) }
+            let index = (addr & 0x07FF) as usize;
+            &self.memory[index] as *const u8
         } else {
-            let index = (addr & 0x3FFF) | ((addr >> 1) & 0x4000);
-            unsafe { self.memory.as_ptr().add(index as usize) }
+            let index = ((addr & 0x3FFF) | ((addr >> 1) & 0x4000)) as usize;
+            &self.memory[index] as *const u8
         }
     }
 
@@ -293,11 +294,11 @@ impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H,
         if (addr & 0x9800) == 0x1800 {
             self.read_io(addr, cycle, hw)
         } else if addr < 0x8000 {
-            let index = addr & 0x07FF;
-            unsafe { *self.memory.get_unchecked(index as usize) }
+            let index = (addr & 0x07FF) as usize;
+            self.memory[index]
         } else {
-            let index = (addr & 0x3FFF) | ((addr >> 1) & 0x4000);
-            unsafe { *self.memory.get_unchecked(index as usize) }
+            let index = ((addr & 0x3FFF) | ((addr >> 1) & 0x4000)) as usize;
+            self.memory[index]
         }
     }
 
@@ -307,10 +308,8 @@ impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H,
         if (addr & 0x9800) == 0x1800 {
             self.write_io(addr, val, cycle, ctx);
         } else if addr < 0x8000 {
-            let index = addr & 0x07FF;
-            unsafe {
-                *self.memory.get_unchecked_mut(index as usize) = val;
-            }
+            let index = (addr & 0x07FF) as usize;
+            self.memory[index] = val;
 
             // Wiretap removed per user request
 
