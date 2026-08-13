@@ -82,11 +82,11 @@ fn test_g64_track_reading_low_level() {
 
     // 2. Setup Drive State
     // Motor ON (PB2), Bitrate Zone 3 (PB5=1, PB6=1) for Track 0
-    bus.via2.ddrb = 0xFF;
-    bus.via2.orb = 0b01100100; // Bit 6=1, Bit 5=1, Bit 2=1 (Motor ON, Zone 0)
-    bus.mechanics.update_state(bus.via2.get_pb_out(), &mut hw, 0);
+    bus.via2.write(0x02, 0xFF);
+    bus.via2.write(0x00, (bus.via2.ora() & !0x60) | 0x60 | 0x04); // Zone 3, Motor ON
     
-    bus.via2.pcr = 0b1110_1110; // Enable Read mode and SO
+    // PCR: CB2=111 (Manual High), CA2=111 (Manual High) -> 0b1110_1110
+    bus.via2.write(0x0C, 0b1110_1110); // Enable Read mode and SO
 
     // 4. Capture one revolution
     let mut captured_bytes = Vec::new();
@@ -100,7 +100,7 @@ fn test_g64_track_reading_low_level() {
     for i in 0..300_000 {
         bus.tick_cycles(1); let byte_ready = bus.so_pending();
 
-        let sync_active = (bus.via2.in_b & 0x80) == 0;
+        let sync_active = (bus.via2.pb_in() & 0x80) == 0;
 
         if sync_active && !in_sync {
             sync_assertions += 1;
@@ -111,7 +111,7 @@ fn test_g64_track_reading_low_level() {
 
         if byte_ready {
             byte_ready_pulses += 1;
-            captured_bytes.push(bus.via2.in_a);
+            captured_bytes.push(bus.via2.pa_in());
             
             // Success Criteria: Byte Ready MUST NOT pulse during SYNC
             assert!(!sync_active, "Byte Ready pulsed during SYNC at cycle {}", i);

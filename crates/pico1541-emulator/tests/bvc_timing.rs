@@ -63,11 +63,11 @@ fn test_bvc_so_timing() {
 
     // Run until BRK (PC >= 0x0009)
     let mut finished = false;
-    for _ in 0..1000 {
+    for c in 0..1000 {
         emu.step(&mut hw);
         let pc = emu.cpu.pc;
         let a = emu.cpu.a;
-        println!("PC: {:04X}, A: {:02X}, in_a: {:02X}", pc, a, emu.systembus.via2.in_a);
+        println!("Cycle {}: BVC completed. PC=${:04X}, A=${:02X}, in_a=${:02X}", c, emu.cpu.pc, a, emu.systembus.via2.pa_in());
 
         if emu.cpu.pc >= 0x0009 {
             finished = true;

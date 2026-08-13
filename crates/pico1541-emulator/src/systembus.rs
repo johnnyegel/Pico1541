@@ -57,8 +57,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         systembus.update_rom(rom);
 
         // Set up the VIA1 initial state
-        systembus.via1.in_a = 0x0;
-        systembus.via1.in_b = 0x0;
+        systembus.via1.set_pa_in(0x0);
+        systembus.via1.set_pb_in(0x0);
 
         systembus
     }
@@ -96,9 +96,9 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     pub fn sync_iec_bus(&mut self, hardware: &mut H, current_cycle: u32) {
         // :: Capture the IEC bus state, and update the VIA1 input register
         let iec_in = hardware.read_iec_port() | self.device_id_pb_bits;
-        let prev_atn = self.via1.in_b & H::VIA1_IEC_MASK_ATN_RX;
+        let prev_atn = self.via1.pb_in() & H::VIA1_IEC_MASK_ATN_RX;
         let curr_atn = iec_in & H::VIA1_IEC_MASK_ATN_RX;
-        self.via1.in_b = iec_in;
+        self.via1.set_pb_in(iec_in);
 
         // :? Did the ATN state change?
         if prev_atn != curr_atn {
@@ -136,9 +136,9 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 
             let wp = self.mechanics.is_write_protected();
             if wp {
-                self.via2.in_b &= !0x10;
+                self.via2.set_pb_in(self.via2.pb_in() & !0x10);
             } else {
-                self.via2.in_b |= 0x10;
+                self.via2.set_pb_in(self.via2.pb_in() | 0x10);
             }
         }
     }
@@ -152,7 +152,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 
                 // Hardware Wiring: Pull bytes from the DMA buffer and wire SYNC/SO directly to VIA2/CPU.
         if self.is_motor_on() {
-            let pcr_cb2 = self.via2.pcr & 0b1110_0000;
+            let pcr_cb2 = self.via2.pcr() & 0b1110_0000;
             let is_read_mode = pcr_cb2 != 0b1100_0000;
 
             if is_read_mode {
@@ -160,7 +160,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
                 
                 let mut new_byte_arrived = false;
                 if let Some(byte) = signals.byte_opt {
-                    self.via2.in_a = byte;
+                    self.via2.set_pa_in(byte);
                     new_byte_arrived = true;
                     // We must assume the byte arrived at the BEGINNING of this delta block, 
                     // otherwise the up to 7-cycle instruction jitter will shift the prediction window forward,
@@ -170,10 +170,10 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
                 
                 // Assert SYNC (Pull PB7 Low). Branchless logic for optimal speed.
                 let sync_mask = if signals.is_sync { 0x00 } else { 0x80 };
-                self.via2.in_b = (self.via2.in_b & 0x7F) | sync_mask;
+                self.via2.set_pb_in((self.via2.pb_in() & 0x7F) | sync_mask);
                 
                 if !signals.is_sync && new_byte_arrived {
-                    let pcr_ca2 = self.via2.pcr & 0b0000_1110;
+                    let pcr_ca2 = self.via2.pcr() & 0b0000_1110;
                     let is_so_enabled = (pcr_ca2 & 0b0000_1010) == 0b0000_1010;
                     if is_so_enabled {
                         self.via2.ca1_irq();
@@ -182,7 +182,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
                 }
             } else {
                 // WRITE mode
-                self.mechanics.advance_write_head(delta, current_cycle, self.via2.ora);
+                self.mechanics.advance_write_head(delta, current_cycle, self.via2.ora());
             }
         }
     }
@@ -257,6 +257,12 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             }
         }
     }
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    pub fn has_irq(&self) -> bool {
+        self.via1.has_irq() || self.via2.has_irq()
+    }
 }
 
 impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H, S> {
@@ -292,7 +298,7 @@ impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H,
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn irq_pending(&self) -> bool {
-        self.via1.irq || self.via2.irq
+        self.has_irq()
     }
 }
 
@@ -312,14 +318,14 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     pub fn update_next_sync_cycle(&mut self) {
         let mut min_delta = 1024 - (self.time.last_sync_cycle & 0x3FF);
         for via in [&self.via1, &self.via2] {
-            if via.active_mask & crate::via6522::Via6522::T1_ACTIVE != 0 {
-                min_delta = min_delta.min(via.t1c as u32 + 1);
+            if via.active_mask() & crate::via6522::Via6522::T1_ACTIVE != 0 {
+                min_delta = min_delta.min(via.t1c() as u32 + 1);
             }
-            if via.active_mask & crate::via6522::Via6522::T2_ACTIVE != 0 {
-                min_delta = min_delta.min(via.t2c as u32 + 1);
+            if via.active_mask() & crate::via6522::Via6522::T2_ACTIVE != 0 {
+                min_delta = min_delta.min(via.t2c() as u32 + 1);
             }
-            if via.active_mask & crate::via6522::Via6522::SR_ACTIVE != 0 {
-                min_delta = min_delta.min(via.sr_count as u32 + 1);
+            if via.active_mask() & crate::via6522::Via6522::SR_ACTIVE != 0 {
+                min_delta = min_delta.min(via.sr_count() as u32 + 1);
             }
         }
         

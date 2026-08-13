@@ -13,31 +13,31 @@ use crate::MemoryMonitor;
 
 #[derive(Clone, Copy, Default)]
 pub struct Via6522 {
-    pub orb: u8,
-    pub ora: u8,
-    pub ddrb: u8,
-    pub ddra: u8,
-    pub t1c: u16,
-    pub t1l: u16,
-    pub t1_pb7: bool,
-    pub t2c: u16,
-    pub t2l: u8,
-    pub sr: u8,
-    pub acr: u8,
-    pub pcr: u8,
-    pub ifr: u8,
-    pub ier: u8,
-    pub in_a: u8,
-    pub in_b: u8,
-    pub irq: bool,
+    orb: u8,
+    ora: u8,
+    ddrb: u8,
+    ddra: u8,
+    t1c: u16,
+    t1l: u16,
+    t1_pb7: bool,
+    t2c: u16,
+    t2l: u8,
+    sr: u8,
+    acr: u8,
+    pcr: u8,
+    ifr: u8,
+    ier: u8,
+    in_a: u8,
+    in_b: u8,
+    irq: bool,
     latch_a: u8,
     latch_b: u8,
     last_ca1: bool,
     last_cb1: bool,
     last_ca2: bool,
     last_cb2: bool,
-    pub sr_count: u8,
-    pub active_mask: u8,
+    sr_count: u8,
+    active_mask: u8,
 }
 
 impl Via6522 {
@@ -56,6 +56,39 @@ impl Via6522 {
     pub fn reset(&mut self) {
         *self = Self::new();
     }
+
+    #[inline(always)]
+    pub fn has_irq(&self) -> bool { self.irq }
+
+    #[inline(always)]
+    pub fn set_pa_in(&mut self, val: u8) { self.in_a = val; }
+
+    #[inline(always)]
+    pub fn set_pb_in(&mut self, val: u8) { self.in_b = val; }
+
+    #[inline(always)]
+    pub fn pb_in(&self) -> u8 { self.in_b }
+
+    #[inline(always)]
+    pub fn pa_in(&self) -> u8 { self.in_a }
+
+    #[inline(always)]
+    pub fn pcr(&self) -> u8 { self.pcr }
+
+    #[inline(always)]
+    pub fn ora(&self) -> u8 { self.ora }
+
+    #[inline(always)]
+    pub fn active_mask(&self) -> u8 { self.active_mask }
+
+    #[inline(always)]
+    pub fn t1c(&self) -> u16 { self.t1c }
+
+    #[inline(always)]
+    pub fn t2c(&self) -> u16 { self.t2c }
+
+    #[inline(always)]
+    pub fn sr_count(&self) -> u8 { self.sr_count }
 
     /// Read a byte from a VIA register.
     
@@ -214,16 +247,9 @@ impl Via6522 {
     #[link_section = ".data.ram_func"]
     fn update_irq(&mut self) {
         let pending = self.ifr & self.ier & 0x7F;
-        if pending != 0 {
-            // #[cfg(feature = "defmt")]
-            // defmt::info!("VIA IRQ Triggered! pending={:02X} ifr={:02X} ier={:02X}", pending, self.ifr, self.ier);
-            
-            self.ifr |= 0x80;
-            self.irq = true;
-        } else {
-            self.ifr &= 0x7F;
-            self.irq = false;
-        }
+        self.irq = pending != 0;
+        let irq_bit = (self.irq as u8) << 7;
+        self.ifr = (self.ifr & 0x7F) | irq_bit;
     }
 
     /// This method is called on each CPU cycle.

@@ -119,7 +119,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn motor_on(&self, via2: &Via6522) -> bool {
-        ((via2.orb | !via2.ddrb) & MASK_MOTOR) != 0
+        (via2.get_pb_out() & MASK_MOTOR) != 0
     }
 
     #[link_section = ".data.ram_func"]

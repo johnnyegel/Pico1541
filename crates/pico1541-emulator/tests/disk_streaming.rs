@@ -11,7 +11,7 @@ fn wait_for_pulse(bus: &mut pico1541_emulator::systembus::SystemBus<TestBridge, 
             return (ticks, pulse);
         }
         last_pulse = pulse;
-        if ticks > 100 { panic!("Timeout. via2.orb={:02X}, ddrb={:02X}, pcr={:02X}, is_motor_on={}", bus.via2.orb, bus.via2.ddrb, bus.via2.pcr, (bus.via2.orb | !bus.via2.ddrb) & 0x04 != 0); }
+        if ticks > 100 { panic!("Timeout. via2.orb={:02X}, ddrb={:02X}, pcr={:02X}, is_motor_on={}", bus.via2.ora(), bus.via2.ora(), bus.via2.pcr(), (bus.via2.ora() & 0x04) != 0); }
     }
 }
 mod common;
@@ -50,26 +50,26 @@ fn test_disk_streaming_data() {
 
     // Set bitrate Zone 3 (26 cycles) explicitly
     // In our implementation Zone 3 (26 cycles) is bits 5,6 = 11 (0x60)
-    bus.via2.ddrb = 0xFF; // All bits are output
-    bus.via2.orb = (bus.via2.orb & !0x60) | 0x60 | 0x04; // Zone 3 (26 cycles) + Motor ON
+    bus.via2.write(0x02, 0xFF); // All bits are output
+    bus.via2.write(0x00, (bus.via2.ora() & !0x60) | 0x60 | 0x04); // Zone 3 (26 cycles), Motor ON
     bus.mechanics.update_state(bus.via2.get_pb_out(), &mut hardware, 0);
 
     // Set READ mode (CB2 out = true) AND enable SO (CA2 out = true)
 
     // PCR: CB2=111 (Manual High), CA2=111 (Manual High) -> 0b1110_1110
-    bus.via2.pcr = 0b1110_1110;
+    bus.via2.write(0x0C, 0b1110_1110);
 
     // First byte delivered should be idx 0: 0xAA. Should take exactly 26 ticks.
     let (ticks, last_pulse) = wait_for_pulse(&mut bus, false);
     assert_eq!(ticks, 26);
-    assert_eq!(bus.via2.in_a, 0xAA, "Should have delivered idx 0");
-    assert!(bus.via2.ifr & 0x02 != 0, "VIA2 CA1 should have been pulsed");
-    bus.via2.ifr &= !0x02; // Clear it
+    assert_eq!(bus.via2.pa_in(), 0xAA, "Should have delivered idx 0");
+    assert!(bus.via2.has_irq(), "VIA2 CA1 should have been pulsed");
+    bus.via2.write(0x0D, 0x02); // Clear it
 
     // Second byte idx 1: 0x55. Exactly 26 ticks.
     let (ticks, _) = wait_for_pulse(&mut bus, last_pulse);
     assert_eq!(ticks, 26);
-    assert_eq!(bus.via2.in_a, 0x55);
+    assert_eq!(bus.via2.pa_in(), 0x55);
 }
 
 #[test]
@@ -89,12 +89,12 @@ fn test_disk_streaming_sync() {
     bus.mechanics.halftrack_head_pos = 0; // Align head with Track 1 (half-track 0)
     
     bus.mechanics.force_state_for_testing(0, 3, 0);
-    bus.via2.ddrb = 0xFF;
-    bus.via2.orb = (bus.via2.orb & !0x60) | 0x60 | 0x04; // Zone 3 (26 cycles) + Motor ON
+    bus.via2.write(0x02, 0xFF);
+    bus.via2.write(0x00, (bus.via2.ora() & !0x60) | 0x60 | 0x04); // Zone 3 (26 cycles), Motor ON
     bus.mechanics.update_state(bus.via2.get_pb_out(), &mut hardware, 0);
     
     // Set READ mode (CB2 out = true) AND enable SO (CA2 out = true)
-    bus.via2.pcr = 0b1110_1110;
+    bus.via2.write(0x0C, 0b1110_1110);
 
     // First byte idx 0: 0xFF
     // Due to the new SYNC logic, the FIRST 0xFF is treated as data and pulses SO!
@@ -105,7 +105,7 @@ fn test_disk_streaming_sync() {
              panic!("Timeout waiting for first byte");
         }
     }
-    assert!(bus.via2.in_b & 0x80 != 0, "SYNC should NOT be indicated yet");
+    assert!(bus.via2.pb_in() & 0x80 != 0, "SYNC should NOT be indicated yet (active low)");
     
     // Wait for the SO pulse to clear
     while { bus.tick_cycles(1); bus.so_pending() } {}
@@ -118,7 +118,7 @@ fn test_disk_streaming_sync() {
             "SYNC should NOT pulse SO (cycle {})", i
         );
     }
-    assert!(bus.via2.in_b & 0x80 == 0, "SYNC should be indicated on Port B bit 7");
+    assert!(bus.via2.pb_in() & 0x80 == 0, "SYNC should be indicated on Port B bit 7");
 
     // Third byte idx 2: 0x55 (Data)
     // This one IS data, so it should return true on the 26th cycle.
@@ -131,7 +131,7 @@ fn test_disk_streaming_sync() {
     }
 
     assert!(
-        bus.via2.in_b & 0x80 != 0,
+        bus.via2.pb_in() & 0x80 != 0,
         "SYNC should be RELEASED when data byte arrives"
     );
 }
@@ -154,29 +154,29 @@ fn test_disk_bitrate_zones() {
     bus.mechanics.halftrack_head_pos = 0; // Align head with Track 1 (half-track 0)
     
     bus.mechanics.force_state_for_testing(0, 3, 0);
-    bus.via2.ddrb = 0xFF;
-    bus.via2.pcr = 0b1110_1110; // Enable SO
+    bus.via2.write(0x02, 0xFF);
+    bus.via2.write(0x0C, 0b1110_1110); // Enable SO
 
     // Test Zone 3: 26 cycles (bits 5,6 = 11 -> 0x60)
-    bus.via2.orb = 0x60 | 0x04; // Motor ON
+    bus.via2.write(0x00, 0x60 | 0x04); // Motor ON
     bus.mechanics.update_state(bus.via2.get_pb_out(), &mut hardware, 0);
     let (ticks, lp3) = wait_for_pulse(&mut bus, false);
     assert_eq!(ticks, 26, "Zone 3 should take 26 cycles");
 
     // Test Zone 2: 28 cycles (bits 5,6 = 10 -> 0x40)
-    bus.via2.orb = 0x40 | 0x04;
+    bus.via2.write(0x00, 0x40 | 0x04);
     bus.mechanics.update_state(bus.via2.get_pb_out(), &mut hardware, 0);
     let (ticks, lp2) = wait_for_pulse(&mut bus, lp3);
     assert_eq!(ticks, 28, "Zone 2 should take 28 cycles");
 
     // Test Zone 1: 30 cycles (bits 5,6 = 01 -> 0x20)
-    bus.via2.orb = 0x20 | 0x04;
+    bus.via2.write(0x00, 0x20 | 0x04);
     bus.mechanics.update_state(bus.via2.get_pb_out(), &mut hardware, 0);
     let (ticks, lp1) = wait_for_pulse(&mut bus, lp2);
     assert_eq!(ticks, 30, "Zone 1 should take 30 cycles");
 
     // Test Zone 0: 32 cycles (bits 5,6 = 00 -> 0x00)
-    bus.via2.orb = 0x00 | 0x04;
+    bus.via2.write(0x00, 0x00 | 0x04);
     bus.mechanics.update_state(bus.via2.get_pb_out(), &mut hardware, 0);
     let (ticks, _) = wait_for_pulse(&mut bus, lp1);
     assert_eq!(ticks, 32, "Zone 0 should take 32 cycles");

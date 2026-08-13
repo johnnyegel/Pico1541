@@ -110,7 +110,7 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
             crate::flight_recorder::FLIGHT_RECORDER.assume_init_mut().index = 0;
         }
 
-        if self.systembus.via1.irq || self.systembus.via2.irq {
+        if self.systembus.has_irq() {
             self.cpu.pending_interrupt = Some(racc6502v4::cpu::Interrupt::Irq);
         }
         

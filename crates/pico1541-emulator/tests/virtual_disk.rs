@@ -102,9 +102,11 @@ fn test_virtual_disk_stridden_warp() {
     bridge.sync_hook.as_mut().unwrap()(bridge.buffer);
     
     // Turn motor ON (VIA2 PB2)
-    drive.bus_mut().via2.orb |= 0x04;
+    let via2_orb = drive.bus().via2.ora();
+    drive.bus_mut().via2.write(0x00, via2_orb | 0x04);
     // Set CA2 HIGH (Enable SO / Reading)
-    drive.bus_mut().via2.pcr |= 0x0E;
+    let via2_pcr = drive.bus().via2.pcr();
+    drive.bus_mut().via2.write(0x0C, via2_pcr | 0x0E);
     
     // Initial tick to load track
     drive.tick(&mut bridge);
