@@ -7,7 +7,7 @@ MEMORY {
     SCRATCH_Y : ORIGIN = 0x20041000, LENGTH = 4K
 }
 
-_stack_start = ORIGIN(SCRATCH_X) + LENGTH(SCRATCH_X);
+_stack_start = ORIGIN(RAM) + LENGTH(RAM);
 _core1_stack_start = ORIGIN(SCRATCH_Y) + LENGTH(SCRATCH_Y);
 
 SECTIONS {
