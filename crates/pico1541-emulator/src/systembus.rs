@@ -9,8 +9,6 @@ use pico1541_common::interface::HostInterface;
 use pico1541_common::magnetic_surface::MagneticSurface;
 use pico1541_common::util::bit_align_u8;
 
-const MEMORY_SIZE: usize = 32768;
-
 /// Represents the 1541's memory bus, mapping access to RAM, ROM, and I/O.
 ///
 /// `H` identifies the concrete `HostInterface` implementation used at the call
@@ -18,7 +16,7 @@ const MEMORY_SIZE: usize = 32768;
 /// `read` / `write` call via the `Bus::Ctx` mechanism and forwarded to
 /// `tick_cycle`.
 pub struct SystemBus<H: HostInterface, S: MagneticSurface> {
-    pub memory: &'static mut [u8; MEMORY_SIZE],
+    pub memory: crate::memory::Memory,
     pub via1: Via6522,
     pub via2: Via6522,
     pub mechanics: DriveMechanics<S>,
@@ -37,17 +35,15 @@ pub struct SystemBus<H: HostInterface, S: MagneticSurface> {
 impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     pub fn new(
         rom: &'static [u8; 16384],
-        memory: &'static mut [u8; MEMORY_SIZE],
+        memory: &'static mut [u8; 32768],
         device_id: u8,
         mechanics: DriveMechanics<S>,
     ) -> Self {
         // :: Intialize VIA1
         let via1 = Via6522::new();
 
-        memory.fill(0);
-
         let mut systembus = Self {
-            memory,
+            memory: crate::memory::Memory::new(memory),
             via1,
             via2: Via6522::new(),
             mechanics,
@@ -74,7 +70,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     }
 
     pub fn update_rom(&mut self, rom: &'static [u8; 16384]) {
-        self.memory[0x4000..0x8000].copy_from_slice(rom);
+        self.memory.load_rom(rom);
     }
 
     #[cfg(feature = "debug")]
@@ -88,7 +84,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     }
 
     pub fn reset(&mut self, hardware: &mut H) {
-        self.memory[0..0x0800].fill(0);
+        self.memory.reset();
         self.via1.reset();
         self.via2.reset();
         self.mechanics.reset();
@@ -279,13 +275,7 @@ impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H,
     #[inline(always)]
     #[link_section = ".data.ram_func"]
     fn get_instruction_ptr(&self, addr: u16) -> *const u8 {
-        if addr < 0x8000 {
-            let index = (addr & 0x07FF) as usize;
-            &self.memory[index] as *const u8
-        } else {
-            let index = ((addr & 0x3FFF) | ((addr >> 1) & 0x4000)) as usize;
-            &self.memory[index] as *const u8
-        }
+        self.memory.get_ptr(addr)
     }
 
     #[inline(always)]
@@ -293,12 +283,8 @@ impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H,
     fn read(&mut self, hw: &mut H, addr: u16, cycle: u32) -> u8 {
         if (addr & 0x9800) == 0x1800 {
             self.read_io(addr, cycle, hw)
-        } else if addr < 0x8000 {
-            let index = (addr & 0x07FF) as usize;
-            self.memory[index]
         } else {
-            let index = ((addr & 0x3FFF) | ((addr >> 1) & 0x4000)) as usize;
-            self.memory[index]
+            self.memory.read(addr)
         }
     }
 
@@ -307,16 +293,9 @@ impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H,
     fn write(&mut self, ctx: &mut Self::Ctx, addr: u16, val: u8, cycle: u32) {
         if (addr & 0x9800) == 0x1800 {
             self.write_io(addr, val, cycle, ctx);
-        } else if addr < 0x8000 {
-            let index = (addr & 0x07FF) as usize;
-            self.memory[index] = val;
-
-            // Wiretap removed per user request
-
-            let mapped = index;
-            if mapped == 0x0077 || mapped == 0x0078 {
-                ctx.update_iec_addresses(self.memory[0x0077], self.memory[0x0078]);
-            }
+        } else if self.memory.write(addr, val) {
+            let (addr77, addr78) = self.memory.get_iec_addresses();
+            ctx.update_iec_addresses(addr77, addr78);
         }
     }
 
@@ -388,8 +367,7 @@ impl<H: HostInterface, S: MagneticSurface> MemoryMonitor for SystemBus<H, S> {
                 self.via2.peek(addr, hw)
             }
         } else {
-            let index = (addr & 0x3FFF) | ((addr >> 1) & 0x4000);
-            self.memory[index as usize]
+            self.memory.read(addr)
         }
     }
 

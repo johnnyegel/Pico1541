@@ -17,20 +17,18 @@ impl HleManager {
         log::info!("intercept_command executed!");
         // 1. Clear the command waiting flag (found at $0255 in 1541-II ROM)
         // This stops the ROM from trying to parse the buffer.
-        bus.memory[0x0255] = 0;
+        bus.memory.write(0x0255, 0);
 
         // 2. Clear the start of the command buffer
-        bus.memory[0x0200] = 0;
+        bus.memory.write(0x0200, 0);
 
         // 3. Reset the internal error state to "00, OK" (erword at $026C)
-        bus.memory[0x026C] = 0;
+        bus.memory.write(0x026C, 0);
 
         // 4. Force the error message buffer to "00, OK"
         let ok_msg = b"00, OK, 00, 00";
         for (i, &b) in ok_msg.iter().enumerate() {
-            if 0x02D5 + i < bus.memory.len() {
-                bus.memory[0x02D5 + i] = b;
-            }
+            bus.memory.write(0x02D5 + (i as u16), b);
         }
     }
 }

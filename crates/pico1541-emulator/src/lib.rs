@@ -42,6 +42,7 @@ pub mod drivemechanics;
 pub mod flight_recorder;
 
 pub mod hle;
+pub mod memory;
 pub mod systembus;
 pub mod via6522;
 
