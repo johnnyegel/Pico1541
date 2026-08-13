@@ -226,7 +226,10 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         let result = if (addr & 0x0400) == 0 {
             let reg = (addr & 0x0F) as usize;
             if reg == 0x00 || reg == 0x0F {
-                ctx.spin_until(cycle);
+                // For reads, adding 1 cycle (1us) delay compensates for the physical RC 
+                // rise-time of the open-collector IEC bus. If we sample the instant the C64 
+                // releases a line, the voltage might not have risen to logic HIGH yet.
+                ctx.spin_until(cycle + 1);
                 self.sync_iec_bus(ctx, cycle);
             }
             
@@ -247,7 +250,9 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             let reg = (addr & 0x0F) as usize;
             self.via1.write(addr, val);
             if reg == 0x00 || reg == 0x02 || reg == 0x0F {
-                ctx.spin_until(cycle);
+                // Emulate the 6522 VIA's Phase 2 falling-edge latch.
+                // The physical output pins do not transition until the end of the cycle.
+                ctx.spin_until(cycle + 1);
                 self.sync_iec_bus(ctx, cycle);
             }
         } else {
