@@ -1,5 +1,6 @@
 pub mod config;
 pub mod timekeeper;
+pub mod profiler;
 pub mod bridge;
 
 use pico1541_common::snooper::SnooperConfig;
@@ -82,6 +83,7 @@ pub fn spawn_core1(
         };
         
         defmt::info!("Emulator initialized. Starting run loop...");
+        crate::emulation::profiler::configure_sram_contention_counters();
 
         run_emulator(emulator, &mut bridge, rom_buffer);
     });

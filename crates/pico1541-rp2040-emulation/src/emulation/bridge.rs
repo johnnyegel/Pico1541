@@ -200,6 +200,12 @@ impl ViaHardware for HardwareBridge {
         if motor_on != self.motor_on {
             self.motor_on = motor_on;
             let _ = CMD_CHANNEL.try_send(InternalCommand::MotorState(motor_on));
+            
+            if motor_on {
+                crate::emulation::profiler::start_profiling();
+            } else {
+                crate::emulation::profiler::snapshot_profiling();
+            }
         }
     }
 
