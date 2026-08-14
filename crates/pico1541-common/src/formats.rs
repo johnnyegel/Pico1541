@@ -701,15 +701,13 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
             }
         }
         
-        let track_len = sectors as usize * 256;
-        let mut track_data = [0u8; 21 * 256];
-        self.read_sector_data(offset as u64, &mut track_data[..track_len]).await?;
 
         for logical_sector in 0..sectors {
             let mut sector_data = [0u8; 256];
             let sector = logical_sector;
             let sector_offset = sector as usize * 256;
-            sector_data.copy_from_slice(&track_data[sector_offset..sector_offset + 256]);
+            self.read_sector_data(offset as u64 + sector_offset as u64, &mut sector_data).await?;
+
                 
             if track == 18 && sector == 0 {
                 self.id[0] = sector_data[162];
@@ -852,12 +850,7 @@ impl<S: Read + Seek> DiskImage for G64Image<S> {
             *b = 0;
         }
 
-        let mut track_data = [0u8; 8192];
-        if track_len > track_data.len() {
-            return Err(Error::TrackTooLarge);
-        }
-        self.storage.read_exact(&mut track_data[..track_len]).await.map_err(|_| Error::Io)?;
-        dest[..track_len].copy_from_slice(&track_data[..track_len]);
+        self.storage.read_exact(&mut dest[..track_len]).await.map_err(|_| Error::Io)?;
 
         Ok((TrackLayout::Accurate, track_len, speed_zone))
     }

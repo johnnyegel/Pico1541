@@ -93,6 +93,7 @@ unsafe fn TIMER_IRQ_3() {
 static mut CORE1_STACK: core::mem::MaybeUninit<Stack<1024>> = core::mem::MaybeUninit::uninit();
 
 // ROM Buffer for dynamic loading
+#[link_section = ".sram3"]
 static mut ROM_BUFFER: [u8; 16384] = [0; 16384];
 
 

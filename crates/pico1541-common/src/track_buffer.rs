@@ -155,6 +155,7 @@ impl TrackBuffer {
 
 
 /// Dual core track buffer that can be split into two handles for the Emulator and Manager
+#[repr(C, align(16384))]
 pub struct DualCoreTrackBuffer {
     // Now holding our unified struct
     buffers: UnsafeCell<[TrackBuffer; 2]>,
