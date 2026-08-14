@@ -11,6 +11,18 @@ use pico1541_common::snooper::SnooperConfig;
 use crate::storage::PagedDirectorySourceTrait;
 use portable_atomic::Ordering;
 
+pub mod monitor;
+
+pub enum PageState {
+    MainMenu,
+    SdCardMenu,
+    InternalMenu,
+    Settings,
+    Monitor,
+    DeviceIdSelect,
+    BootRomSelect,
+}
+
 fn parent_dir(path: &str) -> &str {
     if path == "/" {
         return "/";
@@ -153,12 +165,7 @@ where
             }
             let _ = main_items.push(sd_str);
 
-            // 2. USB Drive (Not yet supported)
-            let mut usb_str = String::<16>::from_str("USB Drive").unwrap();
-            let _ = usb_str.push_str(" (X)");
-            let _ = main_items.push(usb_str);
-
-            // 3. Settings
+            // 2. Settings
             let _ = main_items.push(String::from_str("Settings").unwrap());
             
             let mut main_menu = Menu::new("--- Main Menu ---", main_items);
@@ -178,7 +185,7 @@ where
                                 let _ = self.sd_card_menu().await;
                             }
                         }
-                        3 => {
+                        2 => {
                             let _ = self.settings_menu().await;
                         }
                         _ => {
@@ -193,7 +200,7 @@ where
                     // Home in main menu does nothing
                 }
                 MenuEvent::Monitor => {
-                    let _ = self.monitor_page().await;
+                    let _ = monitor::run_monitor_page(&mut self.display, &mut self.internal, self.config).await;
                     continue;
                 }
                 MenuEvent::LoadBlock(_) => {}
@@ -399,7 +406,7 @@ where
                         return true;
                     }
                     MenuEvent::Monitor => {
-                        if self.monitor_page().await {
+                        if monitor::run_monitor_page(&mut self.display, &mut self.internal, self.config).await {
                             let mut disk = self._disk_image.lock().await;
                             *disk = None;
                             let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::ImageUnmounted);
@@ -788,7 +795,7 @@ where
                                     }
                                     MenuEvent::Back | MenuEvent::Home => break,
                                     MenuEvent::Monitor => {
-                                        let _ = self.monitor_page().await;
+                                        let _ = monitor::run_monitor_page(&mut self.display, &mut self.internal, self.config).await;
                                         self.display.request_redraw();
                                         continue;
                                     }
@@ -823,7 +830,7 @@ where
                                     }
                                     MenuEvent::Back | MenuEvent::Home => break,
                                     MenuEvent::Monitor => {
-                                        let _ = self.monitor_page().await;
+                                        let _ = monitor::run_monitor_page(&mut self.display, &mut self.internal, self.config).await;
                                         self.display.request_redraw();
                                         continue;
                                     }
@@ -875,7 +882,7 @@ where
                     return true;
                 }
                 MenuEvent::Monitor => {
-                    if self.monitor_page().await {
+                    if monitor::run_monitor_page(&mut self.display, &mut self.internal, self.config).await {
                         let mut disk = self._disk_image.lock().await;
                         *disk = None;
                         let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::ImageUnmounted);
@@ -918,7 +925,7 @@ where
                             if self.select_boot_rom_menu().await { return true; }
                         }
                         2 => {
-                            if self.monitor_page().await { return true; }
+                            if monitor::run_monitor_page(&mut self.display, &mut self.internal, self.config).await { return true; }
                         }
                         3 => {
                             let current_id = self.config.device_id.load(portable_atomic::Ordering::Relaxed);
@@ -935,7 +942,7 @@ where
                 MenuEvent::Back => return false,
                 MenuEvent::Home => return true,
                 MenuEvent::Monitor => {
-                    if self.monitor_page().await { return true; }
+                    if monitor::run_monitor_page(&mut self.display, &mut self.internal, self.config).await { return true; }
                     self.display.request_redraw();
                     continue;
                 }
@@ -946,64 +953,7 @@ where
         }
     }
 
-    async fn monitor_page(&mut self) -> bool {
-        let free_flash = self.internal.free_space().await;
-        loop {
-            self.display.clear().await;
-            self.display.print(0, "-- System Monitor --").await;
 
-            let speed_hz = self.config.emu_speed_hz.load(Ordering::Relaxed);
-            let c0_avg = self.config.core0_avg_raw.load(Ordering::Relaxed);
-            
-            let c1_avg = self.config.core1_avg_raw.load(Ordering::Relaxed);
-            let c1_max = self.config.core1_max_raw.load(Ordering::Relaxed);
-
-            let mut s_speed = String::<32>::new();
-            if speed_hz >= 1_000_000 {
-                let mhz_int = speed_hz / 1_000_000;
-                let mhz_frac = (speed_hz % 1_000_000) / 10_000;
-                let _ = core::fmt::write(&mut s_speed, format_args!("Emu clk : {}.{:02} MHz", mhz_int, mhz_frac));
-            } else {
-                let _ = core::fmt::write(&mut s_speed, format_args!("Emu clk : {} Hz", speed_hz));
-            }
-            self.display.print(1, &s_speed).await;
-
-            // core0_avg_raw now stores the MAX busy SYST cycles over any 20ms window (within a 500ms update window).
-            // 20ms window at SYSTEM_CLOCK_FREQ = SYSTEM_CLOCK_FREQ / 50 cycles for 100% load
-            let max_syst_cycles = pico1541_common::SYSTEM_CLOCK_FREQ / 50;
-            let c0_load = ((c0_avg as u64 * 100) / max_syst_cycles as u64) as u32;
-            let mut s_c0 = String::<32>::new();
-            let _ = core::fmt::write(&mut s_c0, format_args!("Emu max : {}%", c0_load));
-            self.display.print(2, &s_c0).await;
-
-            let c1_load = if c1_max > 0 {
-                100u32.saturating_sub(((c1_avg as u64 * 100) / c1_max as u64) as u32)
-            } else {
-                0
-            };
-            let mut s_c1 = String::<32>::new();
-            let _ = core::fmt::write(&mut s_c1, format_args!("Mgr load: {}%", c1_load));
-            self.display.print(3, &s_c1).await;
-
-            if let Some(free_bytes) = free_flash {
-                let mut s_flash = String::<32>::new();
-                let _ = core::fmt::write(&mut s_flash, format_args!("Flash free: {} KB", free_bytes / 1024));
-                self.display.print(4, &s_flash).await;
-            }
-
-            self.display.print(6, " [Back] ").await;
-            self.display.request_redraw();
-
-            match embassy_time::with_timeout(
-                embassy_time::Duration::from_millis(200),
-                crate::ACTION_CHANNEL.receive()
-            ).await {
-                Ok(UiAction::Back) => return false,
-                Ok(UiAction::Home) => return true,
-                _ => {}
-            }
-        }
-    }
 
     async fn device_id_menu(&mut self) -> bool {
         let mut cursor = (self.config.device_id.load(portable_atomic::Ordering::Relaxed) - 8) as usize;
@@ -1032,7 +982,7 @@ where
                 MenuEvent::Back => return false,
                 MenuEvent::Home => return true,
                 MenuEvent::Monitor => {
-                    if self.monitor_page().await { return true; }
+                    if monitor::run_monitor_page(&mut self.display, &mut self.internal, self.config).await { return true; }
                     self.display.request_redraw();
                     continue;
                 }
@@ -1162,7 +1112,7 @@ where
                 MenuEvent::Back => return false,
                 MenuEvent::Home => return true,
                 MenuEvent::Monitor => {
-                    if self.monitor_page().await { return true; }
+                    if monitor::run_monitor_page(&mut self.display, &mut self.internal, self.config).await { return true; }
                     self.display.request_redraw();
                     continue;
                 }
