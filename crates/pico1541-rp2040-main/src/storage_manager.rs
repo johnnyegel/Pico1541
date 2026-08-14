@@ -28,7 +28,7 @@ pub type MyDet = Input<'static>;
 pub type MyRawBlockIo = SdBlockIo<MySpi, MyCs, MyDelay>;
 pub type MyFile = FatFsFileWrapper<MyRawBlockIo, MyDet>;
 pub type MyStorage = RuntimeStorage<'static, MyFile, crate::littlefs_storage::LittleFsFileHandle>;
-pub type MyDir = PagedDirectorySource<48>;
+pub type MyDir = PagedDirectorySource<144>;
 pub type MyDisk = AnyDiskImage<MyStorage, MyDir>;
 
 pub struct PlatformStorageManager {

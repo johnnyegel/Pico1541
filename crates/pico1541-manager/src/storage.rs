@@ -233,7 +233,7 @@ impl<const N: usize> DirectorySource for VectorDirectorySource<N> {
     }
 }
 
-pub struct PagedDirectorySource<const N: usize = 48> {
+pub struct PagedDirectorySource<const N: usize = 144> {
     name: [u8; 16],
     entries: [DirectoryEntry; N],
     start_block: usize,
@@ -283,7 +283,7 @@ impl<const N: usize> PagedDirectorySourceTrait for PagedDirectorySource<N> {
     }
 
     fn set_block(&mut self, block_index: usize, block_entries: &[DirectoryEntry]) {
-        let slot = block_index % 3;
+        let slot = block_index % (N / 16);
         let start_slot_idx = slot * 16;
         for i in 0..16 {
             if i < block_entries.len() {
@@ -307,13 +307,13 @@ impl<const N: usize> PagedDirectorySourceTrait for PagedDirectorySource<N> {
             self.end_block = block_index + 1;
         } else if block_index == self.end_block {
             self.end_block += 1;
-            if self.end_block - self.start_block > 3 {
-                self.start_block = self.end_block - 3;
+            if self.end_block - self.start_block > (N / 16) {
+                self.start_block = self.end_block - (N / 16);
             }
         } else if block_index + 1 == self.start_block {
             self.start_block = block_index;
-            if self.end_block - self.start_block > 3 {
-                self.end_block = self.start_block + 3;
+            if self.end_block - self.start_block > (N / 16) {
+                self.end_block = self.start_block + (N / 16);
             }
         } else if block_index >= self.start_block && block_index < self.end_block {
             // Already in range, do nothing
@@ -341,7 +341,7 @@ impl<const N: usize> DirectorySource for PagedDirectorySource<N> {
         }
         let b = idx / 16;
         if b >= self.start_block && b < self.end_block {
-            let entry = self.entries[(b % 3) * 16 + (idx % 16)];
+            let entry = self.entries[(b % (N / 16)) * 16 + (idx % 16)];
             self.current_read_index += 1;
             Some(entry)
         } else {

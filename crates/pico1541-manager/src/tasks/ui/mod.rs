@@ -11,6 +11,7 @@ pub mod boot;
 pub mod home;
 pub mod settings;
 pub mod browser;
+pub mod virtual_directory;
 
 pub struct UiContext<'a, D, L, Ind, S, Internal, File>
 where
@@ -22,7 +23,7 @@ where
     pub _indicator: &'a mut Ind,
     pub storage: &'a mut S,
     pub internal: &'a mut Internal,
-    pub _disk_image: &'a Mutex<CriticalSectionRawMutex, Option<crate::AnyDiskImage<crate::storage::RuntimeStorage<'static, File, Internal::File>, crate::storage::PagedDirectorySource<48>>>>,
+    pub _disk_image: &'a Mutex<CriticalSectionRawMutex, Option<crate::AnyDiskImage<crate::storage::RuntimeStorage<'static, File, Internal::File>, crate::storage::PagedDirectorySource<144>>>>,
     pub viewed_dir: &'a Mutex<CriticalSectionRawMutex, (String<128>, bool)>,
     pub mounted_dir: &'a Mutex<CriticalSectionRawMutex, (String<128>, bool)>,
     pub config: &'a SnooperConfig,
@@ -88,7 +89,7 @@ where
     _indicator: Ind,
     storage: S,
     internal: Internal,
-    _disk_image: &'static Mutex<CriticalSectionRawMutex, Option<crate::AnyDiskImage<crate::storage::RuntimeStorage<'static, File, Internal::File>, crate::storage::PagedDirectorySource<48>>>>,
+    _disk_image: &'static Mutex<CriticalSectionRawMutex, Option<crate::AnyDiskImage<crate::storage::RuntimeStorage<'static, File, Internal::File>, crate::storage::PagedDirectorySource<144>>>>,
     viewed_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
     mounted_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
     config: &'static SnooperConfig,
@@ -116,7 +117,7 @@ where
         indicator: Ind,
         storage: S,
         internal: Internal,
-        disk_image: &'static Mutex<CriticalSectionRawMutex, Option<crate::AnyDiskImage<crate::storage::RuntimeStorage<'static, File, Internal::File>, crate::storage::PagedDirectorySource<48>>>>,
+        disk_image: &'static Mutex<CriticalSectionRawMutex, Option<crate::AnyDiskImage<crate::storage::RuntimeStorage<'static, File, Internal::File>, crate::storage::PagedDirectorySource<144>>>>,
         viewed_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
         mounted_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
         config: &'static SnooperConfig,
