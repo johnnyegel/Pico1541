@@ -13,19 +13,16 @@ pub mod settings;
 pub mod browser;
 pub mod virtual_directory;
 
-pub struct UiContext<'a, D, L, Ind, S, Internal, File>
+pub struct UiContext<'a, D, L, Ind, S, Internal>
 where
     Internal: crate::driver::FileStorageDriver,
-    File: embedded_io_async::Read + embedded_io_async::Seek + 'static,
 {
     pub display: &'a mut D,
     pub leds: &'a mut L,
     pub _indicator: &'a mut Ind,
     pub storage: &'a mut S,
     pub internal: &'a mut Internal,
-    pub _disk_image: &'a Mutex<CriticalSectionRawMutex, Option<crate::AnyDiskImage<crate::storage::RuntimeStorage<'static, File, Internal::File>, crate::storage::PagedDirectorySource<144>>>>,
     pub viewed_dir: &'a Mutex<CriticalSectionRawMutex, (String<128>, bool)>,
-    pub mounted_dir: &'a Mutex<CriticalSectionRawMutex, (String<128>, bool)>,
     pub config: &'a SnooperConfig,
     pub sd_path: &'a mut String<128>,
     pub internal_path: &'a mut String<128>,
@@ -80,18 +77,14 @@ fn join_path(current: &str, sub: &str) -> String<128> {
 }
 
 #[allow(clippy::type_complexity)]
-pub struct MainMenuTask<D, L, Ind, S, Internal: crate::driver::FileStorageDriver, File>
-where
-    File: embedded_io_async::Read + embedded_io_async::Seek + 'static,
+pub struct MainMenuTask<D, L, Ind, S, Internal: crate::driver::FileStorageDriver>
 {
     display: D,
     leds: L,
     _indicator: Ind,
     storage: S,
     internal: Internal,
-    _disk_image: &'static Mutex<CriticalSectionRawMutex, Option<crate::AnyDiskImage<crate::storage::RuntimeStorage<'static, File, Internal::File>, crate::storage::PagedDirectorySource<144>>>>,
     viewed_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
-    mounted_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
     config: &'static SnooperConfig,
     sd_path: String<128>,
     internal_path: String<128>,
@@ -101,14 +94,13 @@ where
 }
 
 #[allow(clippy::type_complexity)]
-impl<D, L, Ind, S, Internal, File> MainMenuTask<D, L, Ind, S, Internal, File>
+impl<D, L, Ind, S, Internal> MainMenuTask<D, L, Ind, S, Internal>
 where
     D: DisplayDriver + Clone,
     L: RgbLedDriver + Clone,
     Ind: IndicatorDriver + Clone,
-    S: FileStorageDriver<File = File> + Clone,
+    S: FileStorageDriver + Clone,
     Internal: FileStorageDriver,
-    File: embedded_io_async::Read + embedded_io_async::Seek + 'static,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -117,9 +109,7 @@ where
         indicator: Ind,
         storage: S,
         internal: Internal,
-        disk_image: &'static Mutex<CriticalSectionRawMutex, Option<crate::AnyDiskImage<crate::storage::RuntimeStorage<'static, File, Internal::File>, crate::storage::PagedDirectorySource<144>>>>,
         viewed_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
-        mounted_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
         config: &'static SnooperConfig,
         rom_name: String<32>,
     ) -> Self {
@@ -129,9 +119,7 @@ where
             _indicator: indicator,
             storage,
             internal,
-            _disk_image: disk_image,
             viewed_dir,
-            mounted_dir,
             config,
             sd_path: String::from_str("/").unwrap(),
             internal_path: String::from_str("/files").unwrap(),
@@ -149,11 +137,7 @@ where
         loop {
             state = match state {
                 PageState::BootScreen => {
-                    {
-                        let mut disk = self._disk_image.lock().await;
-                        *disk = None;
-                        let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::ImageUnmounted);
-                    }
+                    let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount);
                     boot::run_boot_screen(&mut self.display, &mut self.leds, self.config, &self.rom_name).await
                 }
                 PageState::MainMenu => {
@@ -170,9 +154,7 @@ where
                         _indicator: &mut self._indicator,
                         storage: &mut self.storage,
                         internal: &mut self.internal,
-                        _disk_image: self._disk_image,
                         viewed_dir: self.viewed_dir,
-                        mounted_dir: self.mounted_dir,
                         config: self.config,
                         sd_path: &mut self.sd_path,
                         internal_path: &mut self.internal_path,
@@ -189,9 +171,7 @@ where
                         _indicator: &mut self._indicator,
                         storage: &mut self.storage,
                         internal: &mut self.internal,
-                        _disk_image: self._disk_image,
                         viewed_dir: self.viewed_dir,
-                        mounted_dir: self.mounted_dir,
                         config: self.config,
                         sd_path: &mut self.sd_path,
                         internal_path: &mut self.internal_path,

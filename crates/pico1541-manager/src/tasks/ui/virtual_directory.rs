@@ -1,38 +1,27 @@
 use heapless::{String, Vec};
 use crate::driver::{FileStorageDriver, FileInfo};
-use crate::storage::{DirectoryEntry, DirectorySource};
-use embassy_sync::mutex::Mutex;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use crate::storage::DirectoryEntry;
 
-pub struct VirtualDirectoryManager<'a, S, Internal, File>
+pub struct VirtualDirectoryManager<'a, S, Internal>
 where
-    S: FileStorageDriver<File = File>,
+    S: FileStorageDriver,
     Internal: FileStorageDriver,
-    File: embedded_io_async::Read + embedded_io_async::Seek + 'static,
 {
     pub use_internal: bool,
     pub storage: &'a mut S,
     pub internal: &'a mut Internal,
     pub current_path: &'a mut String<128>,
-    pub disk_image_mutex: &'a Mutex<CriticalSectionRawMutex, Option<crate::AnyDiskImage<crate::storage::RuntimeStorage<'static, File, Internal::File>, crate::storage::PagedDirectorySource<144>>>>,
 }
 
-impl<'a, S, Internal, File> VirtualDirectoryManager<'a, S, Internal, File>
+impl<'a, S, Internal> VirtualDirectoryManager<'a, S, Internal>
 where
-    S: FileStorageDriver<File = File>,
+    S: FileStorageDriver,
     Internal: FileStorageDriver,
-    File: embedded_io_async::Read + embedded_io_async::Seek + 'static,
 {
     pub async fn mount_virtual_directory(&mut self, dir_name: &str) {
-        let dir_source = crate::storage::PagedDirectorySource::<144>::new(dir_name.as_bytes());
-        let vdisk = crate::formats::VirtualDiskImage::new(dir_source, dir_name.as_bytes());
-        
-        let mut disk_lock = self.disk_image_mutex.lock().await;
-        *disk_lock = Some(crate::formats::AnyDiskImage::VirtualDisk(vdisk));
-        
-        let mut default_name: heapless::String<128> = heapless::String::new();
-        let _ = default_name.push_str("Internal Virtual Disk");
-        let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::ImageMounted(default_name));
+        let mut path: heapless::String<128> = heapless::String::new();
+        let _ = path.push_str(dir_name);
+        let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::Mount(crate::MountPayload::VirtualDirectory(path, self.use_internal)));
     }
 
     pub async fn ensure_block_loaded(&mut self, block_idx: usize) -> Result<Vec<FileInfo, 16>, ()> {
@@ -61,13 +50,6 @@ where
             }
             let entry = DirectoryEntry::from_file_info(&info.name[..name_len], info.is_dir, info.size);
             let _ = entries.push(entry);
-        }
-
-        // Update the virtual disk cache so the host (C64) can see the new block on Track 18
-        if let Some(crate::formats::AnyDiskImage::VirtualDisk(vdisk)) = self.disk_image_mutex.lock().await.as_mut() {
-            if let Some(paged) = vdisk.source.as_paged_mut() {
-                paged.set_block(block_idx, &entries);
-            }
         }
 
         Ok(block_infos)

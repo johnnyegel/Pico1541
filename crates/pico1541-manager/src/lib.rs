@@ -39,12 +39,19 @@ pub static EVENT_CHANNEL: Channel<CriticalSectionRawMutex, DriveEvent, 64> = Cha
 pub static ACTIVITY_CHANNEL: Channel<CriticalSectionRawMutex, DriveEvent, 16> = Channel::new();
 
 #[derive(Clone, Debug)]
+pub enum MountPayload {
+    VirtualDirectory(heapless::String<128>, bool),
+    D64(heapless::String<128>, bool),
+    G64(heapless::String<128>, bool),
+}
+
+#[derive(Clone, Debug)]
 pub enum InternalCommand {
     MotorState(bool),
     LoadFile([u8; 16]),
     CloseChannel(u8),
-    ImageMounted(heapless::String<128>),
-    ImageUnmounted,
+    Mount(MountPayload),
+    Unmount,
 }
 
 pub static CMD_CHANNEL: Channel<CriticalSectionRawMutex, InternalCommand, 128> = Channel::new();

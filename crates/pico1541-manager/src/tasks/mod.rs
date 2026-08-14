@@ -5,7 +5,7 @@ pub mod button;
 pub mod action;
 pub mod menu;
 pub mod ui;
-pub mod disk_task;
+pub mod mount_manager;
 pub mod snooper;
 
 pub use display::DisplayTask;
@@ -14,5 +14,5 @@ pub use drive_activity::DriveActivityTask;
 pub use keyboard::KeyboardTask;
 pub use action::ActionTask;
 pub use snooper::SnooperTask;
-pub use disk_task::DiskTask;
+pub use mount_manager::MountManagerTask;
 pub use ui::MainMenuTask;

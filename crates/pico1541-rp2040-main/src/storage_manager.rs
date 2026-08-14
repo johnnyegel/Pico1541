@@ -3,14 +3,13 @@ use embassy_rp::spi::{Spi, Blocking};
 use embassy_rp::peripherals::SPI1;
 use embassy_time::Delay;
 use embassy_rp::gpio::Output;
-use pico1541_manager::storage::{PagedDirectorySource, RuntimeStorage};
-use pico1541_manager::formats::AnyDiskImage;
+use pico1541_manager::storage::RuntimeStorage;
 use pico1541_manager::driver::file_storage::{FatFsFileWrapper, StorageWrapper};
 use crate::driver::blockdevsdcard::SdBlockIo;
 use pico1541_manager::formats::Error as FormatError;
 use pico1541_manager::storage::{DirectoryEntry, mangle_filename};
 use pico1541_manager::driver::{FileInfo, FileStorageDriver};
-use pico1541_manager::tasks::disk_task::{FileOpener, match_c64_filename};
+use pico1541_manager::tasks::mount_manager::{FileOpener, match_c64_filename};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 
@@ -28,8 +27,6 @@ pub type MyDet = Input<'static>;
 pub type MyRawBlockIo = SdBlockIo<MySpi, MyCs, MyDelay>;
 pub type MyFile = FatFsFileWrapper<MyRawBlockIo, MyDet>;
 pub type MyStorage = RuntimeStorage<'static, MyFile, crate::littlefs_storage::LittleFsFileHandle>;
-pub type MyDir = PagedDirectorySource<144>;
-pub type MyDisk = AnyDiskImage<MyStorage, MyDir>;
 
 pub struct PlatformStorageManager {
     pub storage: StorageWrapper<MyRawBlockIo, MyDet>,
@@ -93,6 +90,17 @@ impl FileOpener for PlatformStorageManager {
             Ok(RuntimeStorage::File(file_handle))
         }
     }
+
+    fn open_sd_file(&self, path: &str) -> Self::FileStorage {
+        let sd = self.storage;
+        RuntimeStorage::File(sd.open_file_handle(path))
+    }
+
+    fn open_internal_file(&self, path: &str) -> Self::FileStorage {
+        let internal = crate::littlefs_storage::LittleFsStorage;
+        RuntimeStorage::File2(internal.open_file_handle(path))
+    }
+
 
     async fn list_dir_range(
         &self,

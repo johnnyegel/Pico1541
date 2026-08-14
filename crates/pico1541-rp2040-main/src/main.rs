@@ -31,7 +31,7 @@ use embassy_sync::mutex::Mutex;
 
 use pico1541_common::snooper::{SnooperConfig};
 use pico1541_manager::tasks::{
-    ActionTask, DiskTask, DisplayTask, DriveActivityTask, KeyboardTask, MainMenuTask, SnooperTask
+    ActionTask, MountManagerTask, DisplayTask, DriveActivityTask, KeyboardTask, MainMenuTask, SnooperTask
 };
 
 #[cfg(has_mklittlefs)]
@@ -399,7 +399,7 @@ async fn snooper_run(mut task: SnooperTask) {
 
 
 #[embassy_executor::task]
-async fn vdisk_run(mut task: DiskTask<'static, MyStorage, MyDir, PlatformStorageManager>) {
+async fn vdisk_run(mut task: MountManagerTask<MyStorage, PlatformStorageManager, StatusLedsWrapper<CriticalSectionRawMutex>>) {
     task.run().await;
 }
 
@@ -427,8 +427,7 @@ async fn menu_run(
         StatusLedsWrapper<CriticalSectionRawMutex>,
         IndicatorWrapper<CriticalSectionRawMutex>,
         StorageWrapper<MyRawBlockIo, MyDet>,
-        LittleFsStorage,
-        MyFile,
+        LittleFsStorage
     >,
 ) {
     task.run().await;
@@ -601,14 +600,10 @@ async fn core0_init_task(
     // 7. Snooper Task
     let snooper_task = SnooperTask::new(8);
 
-    // 8. Storage (Starts unmounted)
-    static DISK_IMAGE: StaticCell<Mutex<CriticalSectionRawMutex, Option<MyDisk>>> = StaticCell::new();
-    let disk_image_mutex = DISK_IMAGE.init(Mutex::new(None));
-
-    let vdisk_task = DiskTask::new(
-        &*disk_image_mutex,
+    let vdisk_task = MountManagerTask::new(
         manager_handle,
         PlatformStorageManager { storage: StorageWrapper(sd_mutex), mounted_dir: &MOUNTED_DIR },
+        StatusLedsWrapper(status_leds_mutex),
         &MOUNTED_DIR,
     );
 
@@ -617,10 +612,8 @@ async fn core0_init_task(
         StatusLedsWrapper(status_leds_mutex),
         IndicatorWrapper(indicator_mutex),
         StorageWrapper(sd_mutex),
-        LittleFsStorage,
-        &*disk_image_mutex,
+        crate::littlefs_storage::LittleFsStorage,
         &CURRENT_DIR,
-        &MOUNTED_DIR,
         config,
         rom_name,
     );

@@ -1,4 +1,4 @@
-use crate::driver::{DisplayDriver, FileStorageDriver, FileInfo, RgbLedDriver, StatusLedMode};
+use crate::driver::{DisplayDriver, FileStorageDriver, FileInfo, RgbLedDriver, StatusLedMode, IndicatorDriver};
 use crate::tasks::menu::{Menu, MenuEvent};
 use heapless::{String, Vec};
 use core::str::FromStr;
@@ -6,35 +6,39 @@ use super::{PageState, parent_dir, join_path, UiContext};
 use super::monitor;
 use crate::tasks::ui::virtual_directory::VirtualDirectoryManager;
 
-pub async fn run_sd_card_menu<D, L, Ind, S, Internal, File>(ctx: &mut UiContext<'_, D, L, Ind, S, Internal, File>) -> PageState 
+pub async fn run_sd_card_menu<D, L, Ind, S, Internal>(
+    ctx: &mut UiContext<'_, D, L, Ind, S, Internal>,
+) -> PageState
 where
     D: DisplayDriver + Clone,
     L: RgbLedDriver,
-    S: FileStorageDriver<File = File> + Clone,
+    Ind: IndicatorDriver,
+    S: FileStorageDriver + Clone,
     Internal: FileStorageDriver,
-    File: embedded_io_async::Read + embedded_io_async::Seek + 'static,
 {
     run_file_browser_menu(ctx, "SD Card", false).await
 }
 
-pub async fn run_internal_menu<D, L, Ind, S, Internal, File>(ctx: &mut UiContext<'_, D, L, Ind, S, Internal, File>) -> PageState
+pub async fn run_internal_menu<D, L, Ind, S, Internal>(
+    ctx: &mut UiContext<'_, D, L, Ind, S, Internal>,
+) -> PageState
 where
     D: DisplayDriver + Clone,
     L: RgbLedDriver,
-    S: FileStorageDriver<File = File> + Clone,
+    Ind: IndicatorDriver,
+    S: FileStorageDriver + Clone,
     Internal: FileStorageDriver,
-    File: embedded_io_async::Read + embedded_io_async::Seek + 'static,
 {
     run_file_browser_menu(ctx, "Internal", true).await
 }
 
-async fn run_file_browser_menu<D, L, Ind, S, Internal, File>(ctx: &mut UiContext<'_, D, L, Ind, S, Internal, File>, title: &str, use_internal: bool) -> PageState
+async fn run_file_browser_menu<D, L, Ind, S, Internal>(ctx: &mut UiContext<'_, D, L, Ind, S, Internal>, title: &str, use_internal: bool) -> PageState
 where
     D: DisplayDriver + Clone,
     L: RgbLedDriver,
-    S: FileStorageDriver<File = File> + Clone,
+    Ind: IndicatorDriver,
+    S: FileStorageDriver + Clone,
     Internal: FileStorageDriver,
-    File: embedded_io_async::Read + embedded_io_async::Seek + 'static,
 {
     let mut cursor: usize = 0;
     let mut scroll_offset: usize = 0;
@@ -85,18 +89,12 @@ where
             storage: ctx.storage,
             internal: ctx.internal,
             current_path: current_path_ptr,
-            disk_image_mutex: ctx._disk_image,
         };
 
         // If not mounted, mount it
         if ctx.mounted_file_path.is_none() {
             manager.mount_virtual_directory(dir_name.as_str()).await;
-            {
-                let mut mounted_dir_guard = ctx.mounted_dir.lock().await;
-                mounted_dir_guard.0 = manager.current_path.clone();
-                mounted_dir_guard.1 = use_internal;
-            }
-            ctx.leds.set_status(StatusLedMode::VirtualDisk);
+            ctx.leds.set_status(StatusLedMode::Unmounted);
         }
 
         {
@@ -143,9 +141,7 @@ where
             match empty_menu.run(ctx.display).await {
                 MenuEvent::Back => {
                     if manager.current_path.as_str() == "/" {
-                        let mut disk = ctx._disk_image.lock().await;
-                        *disk = None;
-                        let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::ImageUnmounted);
+                        let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount);
                         ctx.leds.set_status(StatusLedMode::Unmounted);
                         return PageState::MainMenu;
                     } else {
@@ -159,17 +155,13 @@ where
                     }
                 }
                 MenuEvent::Home => {
-                    let mut disk = ctx._disk_image.lock().await;
-                    *disk = None;
-                    let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::ImageUnmounted);
+                    let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount);
                     ctx.leds.set_status(StatusLedMode::Unmounted);
                     return PageState::MainMenu;
                 }
                 MenuEvent::Monitor => {
                     if monitor::run_monitor_page(ctx.display, manager.internal, ctx.config).await {
-                        let mut disk = ctx._disk_image.lock().await;
-                        *disk = None;
-                        let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::ImageUnmounted);
+                        let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount);
                         ctx.leds.set_status(StatusLedMode::Unmounted);
                         return PageState::MainMenu;
                     }
@@ -179,9 +171,7 @@ where
                 _ => {}
             }
             if !use_internal {
-                let mut disk = ctx._disk_image.lock().await;
-                *disk = None;
-                let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::ImageUnmounted);
+                let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount);
                 ctx.leds.set_status(StatusLedMode::Unmounted);
             }
             return PageState::MainMenu;
@@ -269,9 +259,7 @@ where
         match event {
             MenuEvent::LoadBlock(_) => {}
             MenuEvent::Timeout => {
-                let mut disk = ctx._disk_image.lock().await;
-                *disk = None;
-                let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::ImageUnmounted);
+                let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount);
                 ctx.leds.set_status(StatusLedMode::Unmounted);
                 if !use_internal && title == "SD Card" {
                     *manager.current_path = String::from_str("/").unwrap();
@@ -320,9 +308,7 @@ where
                     }
 
                     if Some(full_path.clone()) == *ctx.mounted_file_path {
-                        let mut disk = ctx._disk_image.lock().await;
-                        *disk = None;
-                        let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::ImageUnmounted);
+                        let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount);
                         ctx.leds.set_status(StatusLedMode::Unmounted);
                         *ctx.mounted_file_path = None;
                         continue;
@@ -337,38 +323,11 @@ where
                     let is_g64 = filename.ends_with(".g64") || filename.ends_with(".G64");
 
                     if is_d64 {
-                        let runtime_storage = if manager.use_internal {
-                            let file = manager.internal.open_file_handle(full_path.as_str());
-                            crate::storage::RuntimeStorage::File2(file)
-                        } else {
-                            let file = manager.storage.open_file_handle(full_path.as_str());
-                            crate::storage::RuntimeStorage::File(file)
-                        };
-                        let d64 = crate::formats::D64Image::new(runtime_storage);
-                        {
-                            let mut disk = ctx._disk_image.lock().await;
-                            *disk = Some(crate::formats::AnyDiskImage::D64(d64));
-                            let _ = crate::CMD_CHANNEL.send(crate::InternalCommand::ImageMounted(full_path.clone())).await;
-                        }
-                        ctx.leds.set_status(StatusLedMode::NonAccurateDisk);
+                        let _ = crate::CMD_CHANNEL.send(crate::InternalCommand::Mount(crate::MountPayload::D64(full_path.clone(), manager.use_internal))).await;
                         *ctx.mounted_file_path = Some(full_path);
                     } else if is_g64 {
-                        let runtime_storage = if manager.use_internal {
-                            let file = manager.internal.open_file_handle(full_path.as_str());
-                            crate::storage::RuntimeStorage::File2(file)
-                        } else {
-                            let file = manager.storage.open_file_handle(full_path.as_str());
-                            crate::storage::RuntimeStorage::File(file)
-                        };
-                        if let Ok(g64) = crate::formats::G64Image::from_storage(runtime_storage).await {
-                            {
-                                let mut disk = ctx._disk_image.lock().await;
-                                *disk = Some(crate::formats::AnyDiskImage::G64(g64));
-                                let _ = crate::CMD_CHANNEL.send(crate::InternalCommand::ImageMounted(full_path.clone())).await;
-                            }
-                            ctx.leds.set_status(StatusLedMode::AccurateDisk);
-                            *ctx.mounted_file_path = Some(full_path);
-                        }
+                        let _ = crate::CMD_CHANNEL.send(crate::InternalCommand::Mount(crate::MountPayload::G64(full_path.clone(), manager.use_internal))).await;
+                        *ctx.mounted_file_path = Some(full_path);
                     } else {
                         // PRG or unsupported, do nothing for now
                     }
@@ -389,9 +348,7 @@ where
             }
             MenuEvent::Monitor => {
                 if monitor::run_monitor_page(ctx.display, manager.internal, ctx.config).await {
-                    let mut disk = ctx._disk_image.lock().await;
-                    *disk = None;
-                    let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::ImageUnmounted);
+                    let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount);
                     ctx.leds.set_status(StatusLedMode::Unmounted);
                     return PageState::MainMenu;
                 }

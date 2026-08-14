@@ -2,7 +2,7 @@ use embedded_io_async::{Read, Seek};
 use crate::formats::{AnyDiskImage, DiskImage};
 use pico1541_common::track_buffer::{ManagerHandle, TrackLayout};
 use crate::storage::DirectorySource;
-use crate::{CMD_CHANNEL, TRACK_CHANNEL, InternalCommand};
+use crate::{CMD_CHANNEL, TRACK_CHANNEL, InternalCommand, MountPayload};
 use embassy_futures::select::{select, select3, Either, Either3};
 #[cfg(feature = "defmt")]
 use defmt::{info, warn, error, debug};
@@ -15,6 +15,8 @@ use embassy_sync::mutex::Mutex;
 pub trait FileOpener {
     type FileStorage: embedded_io_async::Read + embedded_io_async::Seek + 'static;
     async fn open_file(&self, requested_petscii: &[u8]) -> Result<Self::FileStorage, crate::formats::Error>;
+    fn open_sd_file(&self, path: &str) -> Self::FileStorage;
+    fn open_internal_file(&self, path: &str) -> Self::FileStorage;
     async fn list_dir_range(
         &self,
         path: &str,
@@ -87,26 +89,28 @@ pub fn match_c64_filename(entry_name: &[u8; 16], req_name: &[u8]) -> bool {
 }
 
 
-pub struct DiskTask<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<FileStorage = S>> {
-    disk_image: &'a Mutex<CriticalSectionRawMutex, Option<AnyDiskImage<S, D>>>,
+pub struct MountManagerTask<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver::RgbLedDriver> {
+    disk_image: Option<AnyDiskImage<S, crate::storage::PagedDirectorySource<144>>>,
     track_handle: ManagerHandle,
     opener: O,
+    leds: L,
     mounted_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
     pre_cached_ht: Option<(u8, pico1541_common::track_buffer::TrackLayout, usize, Option<u8>)>,
     last_step_direction: i8,
 }
 
-impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<FileStorage = S>> DiskTask<'a, S, D, O> {
+impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver::RgbLedDriver> MountManagerTask<S, O, L> {
     pub fn new(
-        disk_image: &'a Mutex<CriticalSectionRawMutex, Option<AnyDiskImage<S, D>>>,
         track_handle: ManagerHandle,
         opener: O,
+        leds: L,
         mounted_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
     ) -> Self {
         Self {
-            disk_image,
+            disk_image: None,
             track_handle,
             opener,
+            leds,
             mounted_dir,
             pre_cached_ht: None,
             last_step_direction: 2,
@@ -128,7 +132,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
             }
         }
 
-        let mut disk_opt = self.disk_image.lock().await;
+        let mut disk_opt = self.disk_image.as_mut();
         if let Some(disk) = disk_opt.as_mut() {
             let data = self.track_handle.start_track_load();
             match embassy_futures::select::select(disk.read_track(desired_track, data), TRACK_CHANNEL.receive()).await {
@@ -190,7 +194,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
             let old_layout = self.track_handle.get_active_layout();
             self.track_handle.set_active_layout(TrackLayout::Void);
 
-            let mut disk_opt = self.disk_image.lock().await;
+            let mut disk_opt = self.disk_image.as_mut();
             if let Some(disk) = disk_opt.as_mut() {
                 let data = self.track_handle.start_track_load();
                 
@@ -256,7 +260,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                     // (first_missing_block, batch_count)
                     let mut block_batch: Option<(usize, usize)> = None;
                     {
-                        let mut disk_opt = self.disk_image.lock().await;
+                        let mut disk_opt = self.disk_image.as_mut();
                         if let Some(disk) = disk_opt.as_mut() {
                             if let Some(vdir) = disk.as_virtual_disk_mut() {
                                 // Periodic update of directory buffer only when motor is on
@@ -358,7 +362,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                         ).await;
 
                         if fetch_res.is_ok() {
-                            let mut disk_opt = self.disk_image.lock().await;
+                            let mut disk_opt = self.disk_image.as_mut();
                             if let Some(disk) = disk_opt.as_mut() {
                                 if let Some(vdir) = disk.as_virtual_disk_mut() {
                                     if let Some(paged) = vdir.source.as_paged_mut() {
@@ -404,7 +408,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                     match cmd {
                         InternalCommand::MotorState(active) => {
                             if active && !motor_on {
-                                let mut disk_opt = self.disk_image.lock().await;
+                                let mut disk_opt = self.disk_image.as_mut();
                                 if let Some(disk) = disk_opt.as_mut() {
                                     if let Some(vdir) = disk.as_virtual_disk_mut() {
                                         vdir.source.rewind();
@@ -419,7 +423,47 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                             motor_on = active;
                         }
                         
-                        InternalCommand::ImageMounted(path) => {
+                        InternalCommand::Mount(payload) => {
+                            let (path, use_internal, led_mode) = match payload {
+                                MountPayload::VirtualDirectory(p, i) => {
+                                    let dir_source = crate::storage::PagedDirectorySource::<144>::new(p.as_bytes());
+                                    let vdisk = crate::formats::VirtualDiskImage::new(dir_source, p.as_bytes());
+                                    self.disk_image = Some(crate::formats::AnyDiskImage::VirtualDisk(vdisk));
+                                    (p, i, crate::driver::StatusLedMode::VirtualDisk)
+                                }
+                                MountPayload::D64(p, i) => {
+                                    let file = if i {
+                                        self.opener.open_internal_file(p.as_str())
+                                    } else {
+                                        self.opener.open_sd_file(p.as_str())
+                                    };
+                                    let d64 = crate::formats::D64Image::new(file);
+                                    self.disk_image = Some(crate::formats::AnyDiskImage::D64(d64));
+                                    (p, i, crate::driver::StatusLedMode::NonAccurateDisk)
+                                }
+                                MountPayload::G64(p, i) => {
+                                    let file = if i {
+                                        self.opener.open_internal_file(p.as_str())
+                                    } else {
+                                        self.opener.open_sd_file(p.as_str())
+                                    };
+                                    if let Ok(g64) = crate::formats::G64Image::from_storage(file).await {
+                                        self.disk_image = Some(crate::formats::AnyDiskImage::G64(g64));
+                                        (p, i, crate::driver::StatusLedMode::AccurateDisk)
+                                    } else {
+                                        self.disk_image = None;
+                                        (p, i, crate::driver::StatusLedMode::Unmounted)
+                                    }
+                                }
+                            };
+                            
+                            {
+                                let mut guard = self.mounted_dir.lock().await;
+                                guard.0 = path.clone();
+                                guard.1 = use_internal;
+                            }
+                            self.leds.set_status(led_mode);
+                            
                             info!("Disk Image mounted: {}. Simulating physical disk swap.", path.as_str());
                             
                             // 1. Unmount sequence (in case a disk was already there)
@@ -428,7 +472,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                             embassy_time::Timer::after_millis(50).await;
                             self.track_handle.set_write_protected(false); // HIGH (no disk)
                             
-                            let mut disk_opt = self.disk_image.lock().await;
+                            let mut disk_opt = self.disk_image.as_mut();
                             if !disk_opt.is_none() {
                                 embassy_time::Timer::after_millis(400).await;
                                 self.track_handle.set_write_protected(true); // LOW (sliding in)
@@ -474,7 +518,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                     
                                     info!("ImageMounted: Fetched {} entries from {}", all_entries.len(), dir_path.as_str());
 
-                                    let mut disk_opt = self.disk_image.lock().await;
+                                    let mut disk_opt = self.disk_image.as_mut();
                                     if let Some(disk) = disk_opt.as_mut() {
                                         if let Some(vdir) = disk.as_virtual_disk_mut() {
                                             if let Some(paged) = vdir.source.as_paged_mut() {
@@ -487,7 +531,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                     }
                                 }
 
-                                let mut disk_opt = self.disk_image.lock().await;
+                                let mut disk_opt = self.disk_image.as_mut();
                                 if let Some(disk) = disk_opt.as_mut() {
                                     let data = self.track_handle.start_track_load();
                                     match disk.read_track(half_track, data).await {
@@ -502,8 +546,15 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                 }
                             }
                         }
-                        InternalCommand::ImageUnmounted => {
+                        InternalCommand::Unmount => {
                             info!("Image unmounted. Simulating disk removal.");
+                            self.disk_image = None;
+                            {
+                                let mut guard = self.mounted_dir.lock().await;
+                                guard.0 = heapless::String::new();
+                                guard.1 = false;
+                            }
+                            self.leds.set_status(crate::driver::StatusLedMode::Unmounted);
                             self.track_handle.set_active_layout(TrackLayout::Void);
                             self.track_handle.set_write_protected(true); // LOW (sliding out)
                             embassy_time::Timer::after_millis(50).await;
@@ -515,7 +566,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                         InternalCommand::CloseChannel(sa) => {
                             if sa == 0 {
                                 info!("Channel 0 closed. Rewinding virtual directory.");
-                                let mut disk_opt = self.disk_image.lock().await;
+                                let mut disk_opt = self.disk_image.as_mut();
                                 if let Some(disk) = disk_opt.as_mut() {
                                     if let Some(vdir) = disk.as_virtual_disk_mut() {
                                         vdir.source.rewind();
@@ -536,7 +587,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                 
                                 // Reset shortcut logic
                                 let mut is_virtual_disk = false;
-                                let mut disk_opt = self.disk_image.lock().await;
+                                let mut disk_opt = self.disk_image.as_mut();
                                 if let Some(disk) = disk_opt.as_mut() {
                                     if let Some(vdir) = disk.as_virtual_disk_mut() {
                                         is_virtual_disk = true;
@@ -573,7 +624,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                         }
                                     ).await;
                                     
-                                    let mut disk_opt = self.disk_image.lock().await;
+                                    let mut disk_opt = self.disk_image.as_mut();
                                     if let Some(disk) = disk_opt.as_mut() {
                                         if let Some(vdir) = disk.as_virtual_disk_mut() {
                                             if let Some(paged) = vdir.source.as_paged_mut() {
@@ -605,7 +656,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                         entry_name[..copy_len].copy_from_slice(&filename[..copy_len]);
                                         
                                         let shortcut = crate::storage::DirectoryEntry::new(&entry_name, 0x82, 1, 1);
-                                        let mut disk_opt = self.disk_image.lock().await;
+                                        let mut disk_opt = self.disk_image.as_mut();
                                         if let Some(disk) = disk_opt.as_mut() {
                                             if let Some(vdir) = disk.as_virtual_disk_mut() {
                                                 vdir.set_shortcut_entry(Some(shortcut));
@@ -618,7 +669,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                     }
                                     Err(_) => {
                                         warn!("File not found in Virtual Disk.");
-                                        let mut disk_opt = self.disk_image.lock().await;
+                                        let mut disk_opt = self.disk_image.as_mut();
                                         if let Some(disk) = disk_opt.as_mut() {
                                             if let Some(vdir) = disk.as_virtual_disk_mut() {
                                                 vdir.set_shortcut_entry(None);
@@ -636,7 +687,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                             let needs_regeneration = self.track_handle.get_active_layout() == TrackLayout::Void;
                             if needs_regeneration {
                                 let half_track = self.track_handle.get_head_half_track();
-                                let mut disk_opt = self.disk_image.lock().await;
+                                let mut disk_opt = self.disk_image.as_mut();
                                 if let Some(disk) = disk_opt.as_mut() {
                                     let data = self.track_handle.start_track_load();
                                     
