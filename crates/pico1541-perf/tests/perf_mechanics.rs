@@ -50,7 +50,7 @@ mod tests {
 
     impl MagneticSurface for DummySurface {
         fn is_sync_active(&self) -> bool { self.sync_active }
-        fn try_read_byte(&mut self, _delta: u32) -> Option<u8> { self.next_byte.take() }
+        fn try_read_byte(&mut self, _delta: u32) -> Option<u8> { self.next_byte }
         fn get_absolute_head_position(&self, _master_clock: u32) -> u32 { 0 }
         fn set_speed_zone(&mut self, _zone: u8) {}
         fn set_motor_running(&mut self, _running: bool, _master_clock: u32) {}
@@ -84,7 +84,7 @@ impl HostInterface for DummyHost {
         
         let cycles = measure_cycles!({
             for _ in 0..1000 {
-                mechanics.tick(0);
+                mechanics.advance_read_head(1, 0);
             }
             core::hint::black_box(&mechanics);
         });
@@ -103,7 +103,7 @@ impl HostInterface for DummyHost {
         
         let cycles = measure_cycles!({
             for _ in 0..1000 {
-                mechanics.tick(0);
+                mechanics.advance_read_head(1, 0);
             }
             core::hint::black_box(&mechanics);
         });
@@ -124,9 +124,8 @@ impl HostInterface for DummyHost {
         
         let cycles = measure_cycles!({
             for _ in 0..1000 {
-                // Ensure there is always a byte available to force slow path
-                unsafe { core::ptr::write_volatile(&mut mechanics.surface.next_byte, Some(0x55)) };
-                mechanics.tick(0);
+                // next_byte is always Some(0x55) because we removed .take() from try_read_byte
+                mechanics.advance_read_head(1, 0);
             }
             core::hint::black_box(&mechanics);
         });
