@@ -74,6 +74,8 @@ pub static KEYBOARD_CHANNEL: Channel<CriticalSectionRawMutex, ButtonEvent, 16> =
 pub enum UiAction {
     ScrollUp,
     ScrollDown,
+    FastScrollUp,
+    FastScrollDown,
     Select,
     Back,
     SkipUp,

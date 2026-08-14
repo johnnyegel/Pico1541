@@ -1,5 +1,5 @@
 use crate::driver::DisplayDriver;
-use crate::{ACTION_CHANNEL, UiAction};
+use crate::UiAction;
 use heapless::Vec;
 use core::fmt::Display;
 
@@ -369,49 +369,56 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
                 }
             }
 
-            display.clear().await;
-            self.render(display).await;
+            if crate::ACTION_CHANNEL.is_empty() {
+                display.clear().await;
+                self.render(display).await;
+            }
 
-            match embassy_time::with_timeout(embassy_time::Duration::from_millis(500), ACTION_CHANNEL.receive()).await {
-                Ok(action) => match action {
+            let action = match crate::ACTION_CHANNEL.try_receive() {
+                Ok(a) => a,
+                Err(_) => match embassy_time::with_timeout(embassy_time::Duration::from_millis(500), crate::ACTION_CHANNEL.receive()).await {
+                    Ok(a) => a,
+                    Err(_) => return MenuEvent::Timeout,
+                }
+            };
+
+            let mut process_action = |a: UiAction| -> Option<MenuEvent> {
+                match a {
                     UiAction::ScrollUp => {
-                        if let Some(block_to_load) = self.move_up() {
-                            return MenuEvent::LoadBlock(block_to_load);
-                        }
+                        if let Some(block) = self.move_up() { return Some(MenuEvent::LoadBlock(block)); }
                     }
                     UiAction::ScrollDown => {
-                        if let Some(block_to_load) = self.move_down() {
-                            return MenuEvent::LoadBlock(block_to_load);
-                        }
+                        if let Some(block) = self.move_down() { return Some(MenuEvent::LoadBlock(block)); }
+                    }
+                    UiAction::FastScrollUp => {
+                        if let Some(block) = self.skip_up(5) { return Some(MenuEvent::LoadBlock(block)); }
+                    }
+                    UiAction::FastScrollDown => {
+                        if let Some(block) = self.skip_down(5) { return Some(MenuEvent::LoadBlock(block)); }
                     }
                     UiAction::SkipUp => {
-                        if let Some(block_to_load) = self.skip_up(48) {
-                            return MenuEvent::LoadBlock(block_to_load);
-                        }
+                        if let Some(block) = self.skip_up(48) { return Some(MenuEvent::LoadBlock(block)); }
                     }
                     UiAction::SkipDown => {
-                        if let Some(block_to_load) = self.skip_down(48) {
-                            return MenuEvent::LoadBlock(block_to_load);
-                        }
+                        if let Some(block) = self.skip_down(48) { return Some(MenuEvent::LoadBlock(block)); }
                     }
-                    UiAction::Select => {
-                        return MenuEvent::Selected(self.selected_index);
-                    }
-                    UiAction::Back => {
-                        return MenuEvent::Back;
-                    }
-                    UiAction::Home => {
-                        return MenuEvent::Home;
-                    }
-                    UiAction::Monitor => {
-                        return MenuEvent::Monitor;
-                    }
-                    UiAction::ContextAction => {
-                        return MenuEvent::ContextAction(self.selected_index);
-                    }
-                },
-                Err(_) => {
-                    return MenuEvent::Timeout;
+                    UiAction::Select => return Some(MenuEvent::Selected(self.selected_index)),
+                    UiAction::Back => return Some(MenuEvent::Back),
+                    UiAction::Home => return Some(MenuEvent::Home),
+                    UiAction::Monitor => return Some(MenuEvent::Monitor),
+                    UiAction::ContextAction => return Some(MenuEvent::ContextAction(self.selected_index)),
+                }
+                None
+            };
+
+            if let Some(event) = process_action(action) {
+                return event;
+            }
+
+            // Drain any pending actions in the queue to avoid redraw lag stacking
+            while let Ok(pending_action) = crate::ACTION_CHANNEL.try_receive() {
+                if let Some(event) = process_action(pending_action) {
+                    return event;
                 }
             }
         }

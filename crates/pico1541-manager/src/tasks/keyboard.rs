@@ -16,7 +16,7 @@ impl<I: InputDriver> KeyboardTask<I> {
         let mut hold_time = Duration::from_millis(300);
         
         loop {
-            let timeout_occurred = if current_state == 0 {
+            let mut timeout_occurred = if current_state == 0 {
                 // No buttons pressed, wait indefinitely (avoids Duration::MAX overflow!)
                 self.input.wait_for_change().await;
                 false
@@ -28,6 +28,15 @@ impl<I: InputDriver> KeyboardTask<I> {
                 ).await;
                 result.is_err()
             };
+            
+            if timeout_occurred {
+                // Before assuming it's a Hold, verify the button is still pressed
+                let candidate_state = self.input.scan().await;
+                if candidate_state != current_state {
+                    // We missed an edge! Let the IRQ logic handle the state change.
+                    timeout_occurred = false;
+                }
+            }
             
             if timeout_occurred {
                 // Timeout occurred! Button(s) are being held.

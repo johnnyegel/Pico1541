@@ -5,6 +5,7 @@ pub struct ActionTask {
     select_held: bool,
     back_used_for_chord: bool,
     action_fired_on_hold: bool,
+    scroll_hold_count: usize,
 }
 
 impl Default for ActionTask {
@@ -20,6 +21,7 @@ impl ActionTask {
             select_held: false,
             back_used_for_chord: false,
             action_fired_on_hold: false,
+            scroll_hold_count: 0,
         }
     }
 
@@ -41,6 +43,9 @@ impl ActionTask {
                             self.action_fired_on_hold = false;
                         }
                     }
+                    ButtonEvent::Released(Button::Up) | ButtonEvent::Released(Button::Down) => {
+                        self.scroll_hold_count = 0;
+                    }
                     _ => {}
                 }
                 continue;
@@ -54,7 +59,8 @@ impl ActionTask {
                 ButtonEvent::Pressed(Button::Select) => {
                     self.select_held = true;
                 }
-                ButtonEvent::Pressed(Button::Up) | ButtonEvent::Hold(Button::Up) => {
+                ButtonEvent::Pressed(Button::Up) => {
+                    self.scroll_hold_count = 0;
                     if self.back_held {
                         self.back_used_for_chord = true;
                         let _ = ACTION_CHANNEL.try_send(UiAction::SkipUp);
@@ -62,10 +68,33 @@ impl ActionTask {
                         let _ = ACTION_CHANNEL.try_send(UiAction::ScrollUp);
                     }
                 }
-                ButtonEvent::Pressed(Button::Down) | ButtonEvent::Hold(Button::Down) => {
+                ButtonEvent::Hold(Button::Up) => {
+                    self.scroll_hold_count = self.scroll_hold_count.saturating_add(1);
+                    if self.back_held {
+                        self.back_used_for_chord = true;
+                        let _ = ACTION_CHANNEL.try_send(UiAction::SkipUp);
+                    } else if self.scroll_hold_count > 15 {
+                        let _ = ACTION_CHANNEL.try_send(UiAction::FastScrollUp);
+                    } else {
+                        let _ = ACTION_CHANNEL.try_send(UiAction::ScrollUp);
+                    }
+                }
+                ButtonEvent::Pressed(Button::Down) => {
+                    self.scroll_hold_count = 0;
                     if self.back_held {
                         self.back_used_for_chord = true;
                         let _ = ACTION_CHANNEL.try_send(UiAction::SkipDown);
+                    } else {
+                        let _ = ACTION_CHANNEL.try_send(UiAction::ScrollDown);
+                    }
+                }
+                ButtonEvent::Hold(Button::Down) => {
+                    self.scroll_hold_count = self.scroll_hold_count.saturating_add(1);
+                    if self.back_held {
+                        self.back_used_for_chord = true;
+                        let _ = ACTION_CHANNEL.try_send(UiAction::SkipDown);
+                    } else if self.scroll_hold_count > 15 {
+                        let _ = ACTION_CHANNEL.try_send(UiAction::FastScrollDown);
                     } else {
                         let _ = ACTION_CHANNEL.try_send(UiAction::ScrollDown);
                     }
@@ -99,7 +128,9 @@ impl ActionTask {
                     }
                     self.select_held = false;
                 }
-                _ => {}
+                ButtonEvent::Released(Button::Up) | ButtonEvent::Released(Button::Down) => {
+                    self.scroll_hold_count = 0;
+                }
             }
         }
     }

@@ -325,11 +325,53 @@ where
                         let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::ImageUnmounted);
                         ctx.leds.set_status(StatusLedMode::Unmounted);
                         *ctx.mounted_file_path = None;
-                    } else {
-                        *ctx.mounted_file_path = Some(full_path);
+                        continue;
                     }
-                    
-                    // We must drop manager before we can continue to the next loop iteration
+
+                    log::info!("Selected file: {:?}", selected);
+                    ctx.display.clear().await;
+                    ctx.display.print(1, "   Mounting...  ").await;
+                    ctx.display.request_redraw();
+
+                    let is_d64 = filename.ends_with(".d64") || filename.ends_with(".D64");
+                    let is_g64 = filename.ends_with(".g64") || filename.ends_with(".G64");
+
+                    if is_d64 {
+                        let runtime_storage = if manager.use_internal {
+                            let file = manager.internal.open_file_handle(full_path.as_str());
+                            crate::storage::RuntimeStorage::File2(file)
+                        } else {
+                            let file = manager.storage.open_file_handle(full_path.as_str());
+                            crate::storage::RuntimeStorage::File(file)
+                        };
+                        let d64 = crate::formats::D64Image::new(runtime_storage);
+                        {
+                            let mut disk = ctx._disk_image.lock().await;
+                            *disk = Some(crate::formats::AnyDiskImage::D64(d64));
+                            let _ = crate::CMD_CHANNEL.send(crate::InternalCommand::ImageMounted(full_path.clone())).await;
+                        }
+                        ctx.leds.set_status(StatusLedMode::NonAccurateDisk);
+                        *ctx.mounted_file_path = Some(full_path);
+                    } else if is_g64 {
+                        let runtime_storage = if manager.use_internal {
+                            let file = manager.internal.open_file_handle(full_path.as_str());
+                            crate::storage::RuntimeStorage::File2(file)
+                        } else {
+                            let file = manager.storage.open_file_handle(full_path.as_str());
+                            crate::storage::RuntimeStorage::File(file)
+                        };
+                        if let Ok(g64) = crate::formats::G64Image::from_storage(runtime_storage).await {
+                            {
+                                let mut disk = ctx._disk_image.lock().await;
+                                *disk = Some(crate::formats::AnyDiskImage::G64(g64));
+                                let _ = crate::CMD_CHANNEL.send(crate::InternalCommand::ImageMounted(full_path.clone())).await;
+                            }
+                            ctx.leds.set_status(StatusLedMode::AccurateDisk);
+                            *ctx.mounted_file_path = Some(full_path);
+                        }
+                    } else {
+                        // PRG or unsupported, do nothing for now
+                    }
                 }
             }
             MenuEvent::Back => {
