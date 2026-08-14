@@ -1,11 +1,11 @@
 #[allow(unused_imports)]
 use pico1541_common::context::ViaHardware;
-use pico1541_common::formats::{D64Image, DiskImage, G64Image};
+use pico1541_manager::formats::{D64Image, DiskImage, G64Image};
 use pico1541_common::track_buffer::TrackLayout;
 use pico1541_common::magnetic_surface::{SoftwareMagneticSurface};
 use pico1541_common::track_buffer::DualCoreTrackBuffer;
 use pico1541_common::interface::{DriveEvent, HostInterface};
-use pico1541_common::storage::MemoryStorage;
+use pico1541_manager::storage::MemoryStorage;
 use pollster::block_on;
 use std::fs;
 

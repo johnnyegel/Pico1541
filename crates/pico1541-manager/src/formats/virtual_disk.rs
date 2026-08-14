@@ -1,58 +1,9 @@
 use crate::gcr;
 use crate::storage::DirectorySource;
-use embedded_io_async::{Read, Seek, SeekFrom};
+use embedded_io_async::{Read, Seek};
+use pico1541_common::track_buffer::TrackLayout;
 
-#[derive(Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Error {
-    Io,
-    InvalidFormat,
-    InvalidTrack,
-    TrackTooLarge,
-    FileNotFound,
-}
-
-use crate::track_buffer::TrackLayout;
-
-
-#[allow(async_fn_in_trait)]
-pub trait DiskImage {
-    /// Loads a specific half-track into the provided buffer.
-    /// Returns the layout of the loaded track.
-    async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<(TrackLayout, usize, Option<u8>), Error>;
-}
-
-#[derive(Clone, Debug)]
-pub struct TrackLookupTable {
-    pub offsets: [Option<u32>; 86],
-    pub speed_zones: [Option<u8>; 86],
-}
-
-impl TrackLookupTable {
-    pub fn new() -> Self {
-        Self {
-            offsets: [None; 86],
-            speed_zones: [None; 86],
-        }
-    }
-}
-
-impl Default for TrackLookupTable {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[inline(always)]
-pub const fn sectors_per_track(track: u8) -> u8 {
-    match track {
-        1..=17 => 21,
-        18..=24 => 19,
-        25..=30 => 18,
-        31..=40 => 17,
-        _ => 0,
-    }
-}
+use super::{DiskImage, Error, sectors_per_track};
 
 pub struct VirtualDiskImage<S, D: DirectorySource> {
     pub source: D,
@@ -318,8 +269,8 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
         if track == 1 {
             // Track 1: Infinite File Track
             let sectors = 21;
-            let speed_zone = crate::track_buffer::default_speed_zone(crate::track_buffer::track_to_half_track(1));
-            let speed_zone_len: usize = crate::track_buffer::speed_zone_capacity(speed_zone);
+            let speed_zone = pico1541_common::track_buffer::default_speed_zone(pico1541_common::track_buffer::track_to_half_track(1));
+            let speed_zone_len: usize = pico1541_common::track_buffer::speed_zone_capacity(speed_zone);
             let base_sector_len = 10 + 10 + 9 + 10 + 325; // 364
             let total_base_len = sectors as usize * base_sector_len;
             let remaining_gap = speed_zone_len.saturating_sub(total_base_len);
@@ -414,8 +365,8 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
         if half_track == 34 || half_track == 35 {
             // Track 18: Generate BAM and initial directory sectors
             let sectors = 19;
-            let speed_zone = crate::track_buffer::default_speed_zone(crate::track_buffer::track_to_half_track(18));
-            let speed_zone_len: usize = crate::track_buffer::speed_zone_capacity(speed_zone);
+            let speed_zone = pico1541_common::track_buffer::default_speed_zone(pico1541_common::track_buffer::track_to_half_track(18));
+            let speed_zone_len: usize = pico1541_common::track_buffer::speed_zone_capacity(speed_zone);
             let base_sector_len = 5 + 10 + 9 + 5 + 325;
             let total_base_len = sectors as usize * base_sector_len;
             let remaining_gap = speed_zone_len.saturating_sub(total_base_len);
@@ -553,8 +504,8 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
 
         // Generate Skeleton Track for other tracks
         let sectors = sectors_per_track(track);
-        let speed_zone = crate::track_buffer::default_speed_zone(crate::track_buffer::track_to_half_track(track));
-        let speed_zone_len: usize = crate::track_buffer::speed_zone_capacity(speed_zone);
+        let speed_zone = pico1541_common::track_buffer::default_speed_zone(pico1541_common::track_buffer::track_to_half_track(track));
+        let speed_zone_len: usize = pico1541_common::track_buffer::speed_zone_capacity(speed_zone);
         let base_sector_len = 5 + 10 + 9 + 5 + 325;
         let total_base_len = sectors as usize * base_sector_len;
         let remaining_gap = speed_zone_len.saturating_sub(total_base_len);
@@ -631,256 +582,4 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
         Ok((TrackLayout::Accurate, track_bytes, None))
     }
 }
-
-pub struct D64Image<S: Read + Seek> {
-    storage: S,
-    id: [u8; 2],
-    lookup_table: TrackLookupTable,
-}
-
-impl<S: Read + Seek> D64Image<S> {
-    pub fn new(storage: S) -> Self {
-        let mut lookup_table = TrackLookupTable::new();
-        for half_track in 0..=84 {
-            if half_track % 2 == 0 {
-                let track = half_track / 2 + 1;
-                lookup_table.offsets[half_track as usize] = Some(Self::get_track_offset(track));
-            }
-        }
-        
-        Self {
-            storage,
-            id: [0x31, 0x31],
-            lookup_table,
-        }
-    }
-    pub fn set_id(&mut self, id: [u8; 2]) {
-        self.id = id;
-    }
-    
-    async fn read_sector_data(&mut self, offset: u64, dest: &mut [u8]) -> Result<(), Error> {
-        self.storage.seek(SeekFrom::Start(offset)).await.map_err(|_| Error::Io)?;
-        self.storage.read_exact(dest).await.map_err(|_| Error::Io)?;
-        Ok(())
-    }
-    
-    fn get_track_offset(track: u8) -> u32 {
-        let mut offset = 0u32;
-        for t in 1..track {
-            offset += (sectors_per_track(t) as u32) * 256;
-        }
-        offset
-    }
-}
-
-impl<S: Read + Seek> DiskImage for D64Image<S> {
-    async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<(TrackLayout, usize, Option<u8>), Error> {
-        let track_offset = self.lookup_table.offsets.get(half_track as usize).copied().flatten();
-        if track_offset.is_none() {
-            return Ok((TrackLayout::Void, 0, None));
-        }
-        
-        let track = half_track / 2 + 1;
-        let offset = track_offset.unwrap();
-        if !(1..=40).contains(&track) {
-            return Err(Error::InvalidTrack);
-        }
-        let sectors = sectors_per_track(track);
-        let speed_zone = crate::track_buffer::default_speed_zone(crate::track_buffer::track_to_half_track(track));
-        let speed_zone_len: usize = crate::track_buffer::speed_zone_capacity(speed_zone);
-        let base_sector_len = 5 + 10 + 9 + 5 + 325; // 5 sync + 10 header + 9 gap + 5 sync + 325 data
-        let total_base_len = sectors as usize * base_sector_len;
-        let remaining_gap = speed_zone_len.saturating_sub(total_base_len);
-        let gap_per_sector = remaining_gap / sectors as usize;
-
-        let mut write_ptr = 0;
-        for _ in 0..40 {
-            if write_ptr < dest.len() {
-                dest[write_ptr] = 0x55;
-                write_ptr += 1;
-            }
-        }
-        
-
-        for logical_sector in 0..sectors {
-            let mut sector_data = [0u8; 256];
-            let sector = logical_sector;
-            let sector_offset = sector as usize * 256;
-            self.read_sector_data(offset as u64 + sector_offset as u64, &mut sector_data).await?;
-
-                
-            if track == 18 && sector == 0 {
-                self.id[0] = sector_data[162];
-                self.id[1] = sector_data[163];
-            }
-
-            for _ in 0..5 {
-                if write_ptr < dest.len() {
-                    dest[write_ptr] = 0xFF;
-                    write_ptr += 1;
-                }
-            }
-            let checksum = sector ^ track ^ self.id[0] ^ self.id[1];
-            let header_raw = [
-                0x08, checksum, sector, track, self.id[1], self.id[0], 0x0F, 0x0F,
-            ];
-            for chunk in header_raw.chunks_exact(4) {
-                let mut dst = [0u8; 5];
-                gcr::encode_gcr_block(chunk.try_into().unwrap(), &mut dst);
-                if write_ptr + 5 <= dest.len() {
-                    dest[write_ptr..write_ptr + 5].copy_from_slice(&dst);
-                    write_ptr += 5;
-                }
-            }
-            for _ in 0..9 {
-                if write_ptr < dest.len() {
-                    dest[write_ptr] = 0x55;
-                    write_ptr += 1;
-                }
-            }
-            for _ in 0..5 {
-                if write_ptr < dest.len() {
-                    dest[write_ptr] = 0xFF;
-                    write_ptr += 1;
-                }
-            }
-            let mut data_checksum = 0u8;
-            for b in sector_data.iter() {
-                data_checksum ^= b;
-            }
-            let mut data_raw = [0u8; 260];
-            data_raw[0] = 0x07;
-            data_raw[1..257].copy_from_slice(&sector_data);
-            data_raw[257] = data_checksum;
-            for chunk in data_raw.chunks_exact(4) {
-                let mut dst = [0u8; 5];
-                gcr::encode_gcr_block(chunk.try_into().unwrap(), &mut dst);
-                if write_ptr + 5 <= dest.len() {
-                    dest[write_ptr..write_ptr + 5].copy_from_slice(&dst);
-                    write_ptr += 5;
-                }
-            }
-            for _ in 0..gap_per_sector {
-                if write_ptr < dest.len() {
-                    dest[write_ptr] = 0x55;
-                    write_ptr += 1;
-                }
-            }
-        }
-        while write_ptr < speed_zone_len && write_ptr < dest.len() {
-            dest[write_ptr] = 0x55;
-            write_ptr += 1;
-        }
-        let track_bytes = write_ptr;
-        Ok((TrackLayout::Accurate, track_bytes, None))
-    }
-}
-
-pub struct G64Image<S: Read + Seek> {
-    storage: S,
-    lookup_table: TrackLookupTable,
-}
-impl<S: Read + Seek> G64Image<S> {
-    pub async fn from_storage(mut storage: S) -> Result<Self, Error> {
-        let mut lookup_table = TrackLookupTable::new();
-        
-        // Read the 84 track pointers
-        storage.seek(SeekFrom::Start(12)).await.map_err(|_| Error::Io)?;
-        let mut ptr_bytes = [0u8; 84 * 4];
-        storage.read_exact(&mut ptr_bytes).await.map_err(|_| Error::Io)?;
-        
-        for i in 0..84 {
-            let offset = u32::from_le_bytes([
-                ptr_bytes[i * 4],
-                ptr_bytes[i * 4 + 1],
-                ptr_bytes[i * 4 + 2],
-                ptr_bytes[i * 4 + 3],
-            ]);
-            if offset != 0 {
-                lookup_table.offsets[i] = Some(offset);
-            }
-        }
-        
-        storage.seek(SeekFrom::Start(0x015C)).await.map_err(|_| Error::Io)?;
-        let mut speed_bytes = [0u8; 84 * 4];
-        storage.read_exact(&mut speed_bytes).await.map_err(|_| Error::Io)?;
-        
-        for i in 0..84 {
-            let speed = u32::from_le_bytes([
-                speed_bytes[i * 4],
-                speed_bytes[i * 4 + 1],
-                speed_bytes[i * 4 + 2],
-                speed_bytes[i * 4 + 3],
-            ]);
-            if speed < 4 {
-                lookup_table.speed_zones[i] = Some(speed as u8);
-            }
-        }
-        
-        Ok(Self { storage, lookup_table })
-    }
-}
-impl<S: Read + Seek> DiskImage for G64Image<S> {
-    async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<(TrackLayout, usize, Option<u8>), Error> {
-        log::info!("Reading G64 track {}", half_track);
-        
-        let track_offset = self.lookup_table.offsets.get(half_track as usize).copied().flatten();
-        if track_offset.is_none() {
-            return Ok((TrackLayout::Void, 0, None));
-        }
-        let offset = track_offset.unwrap();
-        let speed_zone = self.lookup_table.speed_zones.get(half_track as usize).copied().flatten();
-        
-        self.storage
-            .seek(SeekFrom::Start(offset as u64))
-            .await
-            .map_err(|_| Error::Io)?;
-        let mut len_bytes = [0u8; 2];
-        self.storage
-            .read_exact(&mut len_bytes)
-            .await
-            .map_err(|_| Error::Io)?;
-        let track_len = u16::from_le_bytes(len_bytes) as usize;
-
-        if track_len > dest.len() {
-            return Err(Error::TrackTooLarge);
-        }
-        // Zero out dest buffer first
-        for b in dest.iter_mut() {
-            *b = 0;
-        }
-
-        self.storage.read_exact(&mut dest[..track_len]).await.map_err(|_| Error::Io)?;
-
-        Ok((TrackLayout::Accurate, track_len, speed_zone))
-    }
-}
-
-pub enum AnyDiskImage<S: Read + Seek, D: DirectorySource> {
-    D64(D64Image<S>),
-    G64(G64Image<S>),
-    VirtualDisk(VirtualDiskImage<S, D>),
-}
-
-impl<S: Read + Seek, D: DirectorySource> AnyDiskImage<S, D> {
-    pub fn as_virtual_disk_mut(&mut self) -> Option<&mut VirtualDiskImage<S, D>> {
-        if let Self::VirtualDisk(img) = self {
-            Some(img)
-        } else {
-            None
-        }
-    }
-}
-
-impl<S: Read + Seek, D: DirectorySource> DiskImage for AnyDiskImage<S, D> {
-    async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<(TrackLayout, usize, Option<u8>), Error> {
-        match self {
-            Self::D64(img) => img.read_track(half_track, dest).await,
-            Self::G64(img) => img.read_track(half_track, dest).await,
-            Self::VirtualDisk(img) => img.read_track(half_track, dest).await,
-        }
-    }
-}
-
-unsafe impl<S: embedded_io_async::Read + embedded_io_async::Seek, D: crate::storage::DirectorySource> Send for AnyDiskImage<S, D> {}
 

@@ -1,4 +1,4 @@
-use pico1541_common::gcr::{decode_gcr_block, encode_gcr_block};
+use pico1541_manager::gcr::{decode_gcr_block, encode_gcr_block};
 
 #[test]
 fn test_gcr_encode_decode() {

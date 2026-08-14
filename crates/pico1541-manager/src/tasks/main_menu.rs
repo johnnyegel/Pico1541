@@ -8,7 +8,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use core::str::FromStr;
 use pico1541_common::snooper::SnooperConfig;
-use pico1541_common::storage::PagedDirectorySourceTrait;
+use crate::storage::PagedDirectorySourceTrait;
 use portable_atomic::Ordering;
 
 fn parent_dir(path: &str) -> &str {
@@ -54,7 +54,7 @@ where
     _indicator: Ind,
     storage: S,
     internal: Internal,
-    _disk_image: &'static Mutex<CriticalSectionRawMutex, Option<pico1541_common::AnyDiskImage<pico1541_common::storage::RuntimeStorage<'static, File, Internal::File>, pico1541_common::storage::PagedDirectorySource<48>>>>,
+    _disk_image: &'static Mutex<CriticalSectionRawMutex, Option<crate::AnyDiskImage<crate::storage::RuntimeStorage<'static, File, Internal::File>, crate::storage::PagedDirectorySource<48>>>>,
     viewed_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
     mounted_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
     config: &'static SnooperConfig,
@@ -82,7 +82,7 @@ where
         indicator: Ind,
         storage: S,
         internal: Internal,
-        disk_image: &'static Mutex<CriticalSectionRawMutex, Option<pico1541_common::AnyDiskImage<pico1541_common::storage::RuntimeStorage<'static, File, Internal::File>, pico1541_common::storage::PagedDirectorySource<48>>>>,
+        disk_image: &'static Mutex<CriticalSectionRawMutex, Option<crate::AnyDiskImage<crate::storage::RuntimeStorage<'static, File, Internal::File>, crate::storage::PagedDirectorySource<48>>>>,
         viewed_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
         mounted_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
         config: &'static SnooperConfig,
@@ -291,21 +291,21 @@ where
 
             // Build directory entries for the virtual disk using PagedDirectorySource.
             // Distribute the fetched entries into blocks; set_block auto-detects end-of-dir.
-            let mut dir_source = pico1541_common::storage::PagedDirectorySource::new(dir_name.as_bytes());
+            let mut dir_source = crate::storage::PagedDirectorySource::new(dir_name.as_bytes());
             for (block_idx, chunk) in initial_infos.chunks(16).enumerate() {
-                let mut block_entries = Vec::<pico1541_common::storage::DirectoryEntry, 16>::new();
+                let mut block_entries = Vec::<crate::storage::DirectoryEntry, 16>::new();
                 for info in chunk {
                     let mut name_len = 0;
                     while name_len < info.name.len() && info.name[name_len] != 0 {
                         name_len += 1;
                     }
-                    let entry = pico1541_common::storage::DirectoryEntry::from_file_info(&info.name[..name_len], info.is_dir, info.size);
+                    let entry = crate::storage::DirectoryEntry::from_file_info(&info.name[..name_len], info.is_dir, info.size);
                     let _ = block_entries.push(entry);
                 }
                 dir_source.set_block(initial_start_block + block_idx, &block_entries);
             }
 
-            let vdisk = pico1541_common::formats::VirtualDiskImage::new(dir_source, dir_name.as_bytes());
+            let vdisk = crate::formats::VirtualDiskImage::new(dir_source, dir_name.as_bytes());
 
             if self.mounted_file_path.is_none() {
                 {
@@ -315,7 +315,7 @@ where
                 }
                 {
                     let mut disk_lock = self._disk_image.lock().await;
-                    *disk_lock = Some(pico1541_common::formats::AnyDiskImage::VirtualDisk(vdisk));
+                    *disk_lock = Some(crate::formats::AnyDiskImage::VirtualDisk(vdisk));
                     let mut default_name: heapless::String<128> = heapless::String::new();
                     let _ = default_name.push_str("Internal Virtual Disk");
                     crate::CMD_CHANNEL.send(crate::InternalCommand::ImageMounted(default_name)).await;
@@ -660,11 +660,11 @@ where
                         if is_d64 {
                             if use_internal {
                                 let file = self.internal.open_file_handle(full_path.as_str());
-                                let runtime_storage = pico1541_common::storage::RuntimeStorage::File2(file);
-                                let d64 = pico1541_common::formats::D64Image::new(runtime_storage);
+                                let runtime_storage = crate::storage::RuntimeStorage::File2(file);
+                                let d64 = crate::formats::D64Image::new(runtime_storage);
                                     {
                                         let mut disk = self._disk_image.lock().await;
-                                        *disk = Some(pico1541_common::formats::AnyDiskImage::D64(d64));
+                                        *disk = Some(crate::formats::AnyDiskImage::D64(d64));
                                         crate::CMD_CHANNEL.send(crate::InternalCommand::ImageMounted(full_path.clone())).await;
                                     }
                                     self.leds.set_status(StatusLedMode::NonAccurateDisk);
@@ -672,11 +672,11 @@ where
                                     continue;
                             } else {
                                 let file_handle = self.storage.open_file_handle(full_path.as_str());
-                                let runtime_storage = pico1541_common::storage::RuntimeStorage::File(file_handle);
-                                let d64 = pico1541_common::formats::D64Image::new(runtime_storage);
+                                let runtime_storage = crate::storage::RuntimeStorage::File(file_handle);
+                                let d64 = crate::formats::D64Image::new(runtime_storage);
                                 {
                                     let mut disk = self._disk_image.lock().await;
-                                    *disk = Some(pico1541_common::formats::AnyDiskImage::D64(d64));
+                                    *disk = Some(crate::formats::AnyDiskImage::D64(d64));
                                     crate::CMD_CHANNEL.send(crate::InternalCommand::ImageMounted(full_path.clone())).await;
                                 }
                                 self.leds.set_status(StatusLedMode::NonAccurateDisk);
@@ -686,11 +686,11 @@ where
                         } else if is_g64 {
                             if use_internal {
                                 let file = self.internal.open_file_handle(full_path.as_str());
-                                let runtime_storage = pico1541_common::storage::RuntimeStorage::File2(file);
-                                if let Ok(g64) = pico1541_common::formats::G64Image::from_storage(runtime_storage).await {
+                                let runtime_storage = crate::storage::RuntimeStorage::File2(file);
+                                if let Ok(g64) = crate::formats::G64Image::from_storage(runtime_storage).await {
                                     {
                                         let mut disk = self._disk_image.lock().await;
-                                        *disk = Some(pico1541_common::formats::AnyDiskImage::G64(g64));
+                                        *disk = Some(crate::formats::AnyDiskImage::G64(g64));
                                         crate::CMD_CHANNEL.send(crate::InternalCommand::ImageMounted(full_path.clone())).await;
                                     }
                                     self.leds.set_status(StatusLedMode::AccurateDisk);
@@ -699,11 +699,11 @@ where
                                 continue;
                             } else {
                                 let file_handle = self.storage.open_file_handle(full_path.as_str());
-                                let runtime_storage = pico1541_common::storage::RuntimeStorage::File(file_handle);
-                                if let Ok(g64) = pico1541_common::formats::G64Image::from_storage(runtime_storage).await {
+                                let runtime_storage = crate::storage::RuntimeStorage::File(file_handle);
+                                if let Ok(g64) = crate::formats::G64Image::from_storage(runtime_storage).await {
                                     {
                                         let mut disk = self._disk_image.lock().await;
-                                        *disk = Some(pico1541_common::formats::AnyDiskImage::G64(g64));
+                                        *disk = Some(crate::formats::AnyDiskImage::G64(g64));
                                         crate::CMD_CHANNEL.send(crate::InternalCommand::ImageMounted(full_path.clone())).await;
                                     }
                                     self.leds.set_status(StatusLedMode::AccurateDisk);
@@ -716,22 +716,22 @@ where
                             while name_len < selected.name.len() && selected.name[name_len] != 0 {
                                 name_len += 1;
                             }
-                            let entry = pico1541_common::storage::DirectoryEntry::from_file_info(&selected.name[..name_len], false, selected.size);
-                            let mut dir_source = pico1541_common::storage::PagedDirectorySource::new(filename.as_bytes());
-                            let mut block_entries = Vec::<pico1541_common::storage::DirectoryEntry, 16>::new();
+                            let entry = crate::storage::DirectoryEntry::from_file_info(&selected.name[..name_len], false, selected.size);
+                            let mut dir_source = crate::storage::PagedDirectorySource::new(filename.as_bytes());
+                            let mut block_entries = Vec::<crate::storage::DirectoryEntry, 16>::new();
                             let _ = block_entries.push(entry);
                             dir_source.set_block(0, &block_entries);
 
-                            let mut vdisk = pico1541_common::formats::VirtualDiskImage::new(dir_source, "INTERNAL".as_bytes());
+                            let mut vdisk = crate::formats::VirtualDiskImage::new(dir_source, "INTERNAL".as_bytes());
 
                             if use_internal {
                                 let file = self.internal.open_file_handle(full_path.as_str());
-                                let runtime_storage = pico1541_common::storage::RuntimeStorage::File2(file);
+                                let runtime_storage = crate::storage::RuntimeStorage::File2(file);
                                 vdisk.file_storage = Some(runtime_storage);
                                 vdisk.set_shortcut_entry(Some(entry));
                                 {
                                     let mut disk = self._disk_image.lock().await;
-                                    *disk = Some(pico1541_common::formats::AnyDiskImage::VirtualDisk(vdisk));
+                                    *disk = Some(crate::formats::AnyDiskImage::VirtualDisk(vdisk));
                                     crate::CMD_CHANNEL.send(crate::InternalCommand::ImageMounted(full_path.clone())).await;
                                 }
                                 self.leds.set_status(StatusLedMode::VirtualDisk);
@@ -739,12 +739,12 @@ where
                                 continue;
                             } else {
                                 let file_handle = self.storage.open_file_handle(full_path.as_str());
-                                let runtime_storage = pico1541_common::storage::RuntimeStorage::File(file_handle);
+                                let runtime_storage = crate::storage::RuntimeStorage::File(file_handle);
                                 vdisk.file_storage = Some(runtime_storage);
                                 vdisk.set_shortcut_entry(Some(entry));
                                 {
                                     let mut disk = self._disk_image.lock().await;
-                                    *disk = Some(pico1541_common::formats::AnyDiskImage::VirtualDisk(vdisk));
+                                    *disk = Some(crate::formats::AnyDiskImage::VirtualDisk(vdisk));
                                     crate::CMD_CHANNEL.send(crate::InternalCommand::ImageMounted(full_path.clone())).await;
                                 }
                                 self.leds.set_status(StatusLedMode::VirtualDisk);

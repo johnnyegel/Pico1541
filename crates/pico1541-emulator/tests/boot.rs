@@ -75,8 +75,8 @@ fn test_dir_no_disk() {
 #[test]
 #[ignore = "FIXME: Will fix later"]
 fn test_dir_listing_virtual() {
-    use pico1541_common::formats::{DiskImage, VirtualDiskImage};
-    use pico1541_common::storage::{DirectoryEntry, DirectorySource};
+    use pico1541_manager::formats::{DiskImage, VirtualDiskImage};
+    use pico1541_manager::storage::{DirectoryEntry, DirectorySource};
 
     struct TestSource {
         name: [u8; 16],
@@ -125,7 +125,7 @@ fn test_dir_listing_virtual() {
         entries,
         pos: 0,
     };
-    let mut vdir = VirtualDiskImage::<pico1541_common::storage::MemoryStorage<'static>, TestSource>::new(source, b"TEST");
+    let mut vdir = VirtualDiskImage::<pico1541_manager::storage::MemoryStorage<'static>, TestSource>::new(source, b"TEST");
     vdir.set_id([0x31, 0x31]);
 
     let (mut drive, mut bridge) = common::setup_drive(true, 8);
@@ -295,9 +295,9 @@ fn test_dir_listing_g64() {
 #[test]
 #[ignore = "FIXME: Will fix later"]
 fn test_dir_listing_stable() {
-    use pico1541_common::formats::{DiskImage, VirtualDiskImage};
+    use pico1541_manager::formats::{DiskImage, VirtualDiskImage};
     use pico1541_common::track_buffer::TrackLayout;
-    use pico1541_common::storage::{DirectoryEntry, DirectorySource};
+    use pico1541_manager::storage::{DirectoryEntry, DirectorySource};
     use pollster::block_on;
 
     struct TestSource {
@@ -346,7 +346,7 @@ fn test_dir_listing_stable() {
         entries,
         pos: 0,
     };
-    let mut vdir = VirtualDiskImage::<pico1541_common::storage::MemoryStorage<'static>, TestSource>::new(source, b"TEST");
+    let mut vdir = VirtualDiskImage::<pico1541_manager::storage::MemoryStorage<'static>, TestSource>::new(source, b"TEST");
     vdir.set_id([0x31, 0x31]);
 
     let (mut drive, mut bridge) = common::setup_drive(true, 8);

@@ -1,6 +1,6 @@
 use pico1541_manager::driver::{FileStorageDriver, FileInfo};
-use pico1541_common::formats::Error;
-use pico1541_common::storage::Error as CommonError;
+use pico1541_manager::formats::Error;
+use pico1541_manager::storage::Error as CommonError;
 use embedded_io_async::{Read, Seek, SeekFrom, ErrorType};
 use littlefs_rust::{Filesystem, OpenFlags};
 use crate::flash_storage::ReadOnlyFlash;

@@ -6,17 +6,19 @@ use embassy_sync::channel::Channel;
 
 pub mod driver;
 pub mod tasks;
+pub mod formats;
+pub mod gcr;
+pub mod storage;
 
 pub use driver::{DisplayDriver, IndicatorDriver, InputDriver, RgbLedDriver, StatusLedMode, StorageDriver};
 
-// Disk format code lives in pico1541-common; re-exported here for API compatibility.
-pub use pico1541_common::gcr;
 pub use pico1541_common::interface::DriveEvent;
-pub use pico1541_common::{AnyDiskImage, D64Image, DiskImage, Error, G64Image, MemoryStorage, VectorDirectorySource, PagedDirectorySource, PagedDirectorySourceTrait};
+pub use formats::{AnyDiskImage, D64Image, DiskImage, Error, G64Image};
+pub use storage::{MemoryStorage, VectorDirectorySource, PagedDirectorySource, PagedDirectorySourceTrait};
 
 
 use embedded_io_async::{Read, Seek};
-use pico1541_common::storage::DirectorySource;
+use storage::DirectorySource;
 
 /// Maps a mounted disk image to the corresponding status LED mode.
 pub fn get_status_mode<S: Read + Seek, D: DirectorySource>(

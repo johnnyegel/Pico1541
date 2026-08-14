@@ -1,6 +1,6 @@
 use crate::driver::{FileStorageDriver, FileInfo, StorageDriver};
-use pico1541_common::formats::Error as ManagerError;
-use pico1541_common::storage::Error as CommonError;
+use crate::formats::Error as ManagerError;
+use crate::storage::Error as CommonError;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 

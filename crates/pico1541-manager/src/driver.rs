@@ -1,4 +1,4 @@
-use pico1541_common::formats::Error;
+use crate::formats::Error;
 
 pub mod file_storage;
 

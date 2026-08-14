@@ -1,7 +1,7 @@
 use embedded_io_async::{Read, Seek};
-use pico1541_common::formats::{AnyDiskImage, DiskImage};
+use crate::formats::{AnyDiskImage, DiskImage};
 use pico1541_common::track_buffer::{ManagerHandle, TrackLayout};
-use pico1541_common::storage::DirectorySource;
+use crate::storage::DirectorySource;
 use crate::{CMD_CHANNEL, TRACK_CHANNEL, InternalCommand};
 use embassy_futures::select::{select, select3, Either, Either3};
 #[cfg(feature = "defmt")]
@@ -14,15 +14,15 @@ use embassy_sync::mutex::Mutex;
 
 pub trait FileOpener {
     type FileStorage: embedded_io_async::Read + embedded_io_async::Seek + 'static;
-    async fn open_file(&self, requested_petscii: &[u8]) -> Result<Self::FileStorage, pico1541_common::formats::Error>;
+    async fn open_file(&self, requested_petscii: &[u8]) -> Result<Self::FileStorage, crate::formats::Error>;
     async fn list_dir_range(
         &self,
         path: &str,
         use_internal: bool,
         start_index: usize,
         count: usize,
-        callback: impl FnMut(pico1541_common::storage::DirectoryEntry),
-    ) -> Result<(), pico1541_common::formats::Error>;
+        callback: impl FnMut(crate::storage::DirectoryEntry),
+    ) -> Result<(), crate::formats::Error>;
 }
 
 pub fn match_c64_filename(entry_name: &[u8; 16], req_name: &[u8]) -> bool {
@@ -70,7 +70,7 @@ pub fn match_c64_filename(entry_name: &[u8; 16], req_name: &[u8]) -> bool {
             if entry_len == r_idx + ext.len() {
                 let mut match_found = true;
                 for i in 0..ext.len() {
-                    let ext_char = pico1541_common::storage::ascii_to_petscii(ext[i]);
+                    let ext_char = crate::storage::ascii_to_petscii(ext[i]);
                     if entry_name[r_idx + i] != ext_char {
                         match_found = false;
                         break;
@@ -346,7 +346,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                         // Each block holds 16 entries; use a 3×16=48 entry buffer max.
                         let fetch_start = blocks_start * 16;
                         let fetch_count = blocks_count * 16;
-                        let mut all_entries = heapless::Vec::<pico1541_common::storage::DirectoryEntry, 48>::new();
+                        let mut all_entries = heapless::Vec::<crate::storage::DirectoryEntry, 48>::new();
                         let fetch_res = self.opener.list_dir_range(
                             path.as_str(),
                             use_internal,
@@ -369,7 +369,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                             let slice_end = (slice_start + 16).min(all_entries.len());
                                             let block_slice = &all_entries[slice_start..slice_end];
                                             
-                                            let mut block_entries = heapless::Vec::<pico1541_common::storage::DirectoryEntry, 16>::new();
+                                            let mut block_entries = heapless::Vec::<crate::storage::DirectoryEntry, 16>::new();
                                             for e in block_slice {
                                                 let _ = block_entries.push(*e);
                                             }
@@ -461,7 +461,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                         (guard.0.clone(), guard.1)
                                     };
                                     
-                                    let mut all_entries = heapless::Vec::<pico1541_common::storage::DirectoryEntry, 48>::new();
+                                    let mut all_entries = heapless::Vec::<crate::storage::DirectoryEntry, 48>::new();
                                     let _ = self.opener.list_dir_range(
                                         dir_path.as_str(),
                                         use_internal,
@@ -562,7 +562,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                         (guard.0.clone(), guard.1)
                                     };
                                     
-                                    let mut all_entries = heapless::Vec::<pico1541_common::storage::DirectoryEntry, 48>::new();
+                                    let mut all_entries = heapless::Vec::<crate::storage::DirectoryEntry, 48>::new();
                                     let _ = self.opener.list_dir_range(
                                         dir_path.as_str(),
                                         use_internal,
@@ -604,7 +604,7 @@ impl<'a, S: Read + Seek + 'static, D: DirectorySource + 'static, O: FileOpener<F
                                         let copy_len = filename.len().min(16);
                                         entry_name[..copy_len].copy_from_slice(&filename[..copy_len]);
                                         
-                                        let shortcut = pico1541_common::storage::DirectoryEntry::new(&entry_name, 0x82, 1, 1);
+                                        let shortcut = crate::storage::DirectoryEntry::new(&entry_name, 0x82, 1, 1);
                                         let mut disk_opt = self.disk_image.lock().await;
                                         if let Some(disk) = disk_opt.as_mut() {
                                             if let Some(vdir) = disk.as_virtual_disk_mut() {

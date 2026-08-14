@@ -4,10 +4,10 @@ use pico1541_common::snooper::IecBusState;
 #[allow(unused_imports)]
 use pico1541_common::context::ViaHardware;
 use log;
-use pico1541_common::formats::{AnyDiskImage, DiskImage, G64Image};
+use pico1541_manager::formats::{AnyDiskImage, DiskImage, G64Image};
 use pico1541_common::track_buffer::TrackLayout;
 use pico1541_common::iec_com::IecComHostBus;
-use pico1541_common::storage::DummySource;
+use pico1541_manager::storage::DummySource;
 use pico1541_common::snooper::{IecSnooper, IecSnoopByteHandler};
 use pico1541_common::interface::{DriveEvent, HostInterface};
 use pico1541_common::magnetic_surface::SoftwareMagneticSurface;
@@ -74,7 +74,7 @@ pub fn reset_drive(drive: &mut Emulator<TestBridge, SoftwareMagneticSurface>, br
     );
 }
 
-pub struct DiskRunner<S: embedded_io_async::Read + embedded_io_async::Seek + Send + 'static, D: pico1541_common::storage::DirectorySource = DummySource> {
+pub struct DiskRunner<S: embedded_io_async::Read + embedded_io_async::Seek + Send + 'static, D: pico1541_manager::storage::DirectorySource = DummySource> {
     pub image: AnyDiskImage<S, D>,
     pub last_half_track: u8,
 }
@@ -82,7 +82,7 @@ pub struct DiskRunner<S: embedded_io_async::Read + embedded_io_async::Seek + Sen
 impl<S, D> DiskRunner<S, D> 
 where 
     S: embedded_io_async::Read + embedded_io_async::Seek + Send + 'static,
-    D: pico1541_common::storage::DirectorySource
+    D: pico1541_manager::storage::DirectorySource
 {
     pub fn sync(&mut self, buffer: &'static pico1541_common::track_buffer::DualCoreTrackBuffer) {
         let manager = buffer.split().0;
@@ -213,7 +213,7 @@ impl TestBridge {
     }
 
     pub fn mount_g64(&mut self, path: &str) {
-        use pico1541_common::storage::{MemoryStorage, DummySource};
+        use pico1541_manager::storage::{MemoryStorage, DummySource};
         use std::fs;
         let data = fs::read(path).expect("Failed to read G64");
         let data_ref: &'static [u8] = Box::leak(data.into_boxed_slice());

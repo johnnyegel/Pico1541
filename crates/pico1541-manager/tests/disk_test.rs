@@ -1,5 +1,5 @@
 use futures_executor::block_on;
-use pico1541_manager::{D64Image, DiskImage, MemoryStorage};
+use crate::{D64Image, DiskImage, MemoryStorage};
 
 #[test]
 fn test_d64_load_track() {
@@ -36,7 +36,7 @@ fn test_d64_load_track() {
 
 #[test]
 fn test_gcr_encoding() {
-    use pico1541_manager::gcr;
+    use crate::gcr;
     let data = [0x01, 0x02, 0x03, 0x04];
     let mut gcr_buf = [0u8; 5];
     gcr::encode_gcr_block(&data, &mut gcr_buf);
@@ -49,9 +49,9 @@ fn test_gcr_encoding() {
 
 #[test]
 fn test_get_status_mode() {
-    use pico1541_manager::{get_status_mode, StatusLedMode, AnyDiskImage, MemoryStorage, D64Image, G64Image};
-    use pico1541_common::formats::VirtualDiskImage;
-    use pico1541_common::storage::StaticDirectorySource;
+    use crate::{get_status_mode, StatusLedMode, AnyDiskImage, MemoryStorage, D64Image, G64Image};
+    use crate::formats::VirtualDiskImage;
+    use crate::storage::StaticDirectorySource;
 
     // 1. None (Unmounted)
     assert_eq!(

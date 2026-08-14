@@ -1,7 +1,7 @@
 #![cfg(any())]
 #[allow(unused_imports)]
 use pico1541_common::context::ViaHardware;
-use pico1541_common::formats::G64Image;
+use pico1541_manager::formats::G64Image;
 use pico1541_common::track_buffer::TrackBuffer;
 use pico1541_common::magnetic_surface::{MagneticSurface, SoftwareMagneticSurface};
 use pico1541_emulator::Emulator;
