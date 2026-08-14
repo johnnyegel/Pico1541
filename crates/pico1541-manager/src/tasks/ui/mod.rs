@@ -8,12 +8,15 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use core::str::FromStr;
 use pico1541_common::snooper::SnooperConfig;
-use crate::storage::PagedDirectorySourceTrait;
 use portable_atomic::Ordering;
+use crate::storage::PagedDirectorySourceTrait;
 
 pub mod monitor;
+pub mod boot;
+pub mod home;
 
 pub enum PageState {
+    BootScreen,
     MainMenu,
     SdCardMenu,
     InternalMenu,
@@ -121,98 +124,40 @@ where
 
 
     pub async fn run(&mut self) -> ! {
-        // Initialize the status LED to the default startup mode (Unmounted - Red)
-        self.leds.set_status(StatusLedMode::Unmounted);
-        {
-            let mut disk = self._disk_image.lock().await;
-            *disk = None;
-            let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::ImageUnmounted);
-        }
+        let mut state = PageState::BootScreen;
 
-        // 1. Boot Screen
-        self.display.clear().await;
-        self.display.print_large(1, "  Pico1541").await; 
-        
-        let mut id_str = heapless::String::<16>::new();
-        use core::fmt::Write;
-        write!(id_str, "    Drive ID: {}", self.config.device_id.load(Ordering::Relaxed)).unwrap();
-        self.display.print(4, id_str.as_str()).await;
-        
-        let mut rom_str = heapless::String::<64>::new();
-        write!(rom_str, "{}", self.rom_name.as_str()).unwrap();
-        self.display.print(5, rom_str.as_str()).await;
-        
-        self.display.request_redraw();
-        Timer::after(Duration::from_millis(1500)).await;
-
-        let mut cursor = 0;
         loop {
-            let mut main_items = Vec::<String<16>, 4>::new();
-
-            // 0. Internal
-            let mut int_str = String::<16>::from_str("Internal").unwrap();
-            let int_available = self.internal.is_available().await;
-            if !int_available {
-                let _ = int_str.push_str(" (X)");
-            }
-            let _ = main_items.push(int_str);
-
-            // 1. SD Card
-            let mut sd_str = String::<16>::from_str("SD Card").unwrap();
-            let sd_available = self.storage.is_available().await;
-            if !sd_available {
-                let _ = sd_str.push_str(" (X)");
-            }
-            let _ = main_items.push(sd_str);
-
-            // 2. Settings
-            let _ = main_items.push(String::from_str("Settings").unwrap());
-            
-            let mut main_menu = Menu::new("--- Main Menu ---", main_items);
-            main_menu.set_cursor(cursor);
-
-            match main_menu.run(&mut self.display).await {
-                MenuEvent::Selected(idx) => {
-                    cursor = idx;
-                    match idx {
-                        0 => {
-                            if int_available {
-                                let _ = self.internal_menu().await;
-                            }
-                        }
-                        1 => {
-                            if sd_available {
-                                let _ = self.sd_card_menu().await;
-                            }
-                        }
-                        2 => {
-                            let _ = self.settings_menu().await;
-                        }
-                        _ => {
-                            log::info!("Selected: {:?}", main_menu.selected_item());
-                        }
+            state = match state {
+                PageState::BootScreen => {
+                    {
+                        let mut disk = self._disk_image.lock().await;
+                        *disk = None;
+                        let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::ImageUnmounted);
                     }
+                    boot::run_boot_screen(&mut self.display, &mut self.leds, self.config, &self.rom_name).await
                 }
-                MenuEvent::Back => {
-                    // Back in main menu could maybe show a "Shutting down" or just ignore
+                PageState::MainMenu => {
+                    home::run_main_menu(&mut self.display, &mut self.storage, &mut self.internal, &mut self.sd_path).await
                 }
-                MenuEvent::Home => {
-                    // Home in main menu does nothing
-                }
-                MenuEvent::Monitor => {
+                PageState::Monitor => {
                     let _ = monitor::run_monitor_page(&mut self.display, &mut self.internal, self.config).await;
-                    continue;
+                    PageState::MainMenu
                 }
-                MenuEvent::LoadBlock(_) => {}
-                MenuEvent::Timeout => {
-                    cursor = main_menu.selected_index();
-                    if !self.storage.is_available().await {
-                        self.sd_path = String::from_str("/").unwrap();
-                    }
-                    // Just let the loop run again to refresh status icons
-                    continue;
+                PageState::SdCardMenu => {
+                    if self.sd_card_menu().await { PageState::MainMenu } else { PageState::MainMenu }
                 }
-                MenuEvent::ContextAction(_) => {}
+                PageState::InternalMenu => {
+                    if self.internal_menu().await { PageState::MainMenu } else { PageState::MainMenu }
+                }
+                PageState::Settings => {
+                    if self.settings_menu().await { PageState::MainMenu } else { PageState::Settings }
+                }
+                PageState::DeviceIdSelect => {
+                    if self.device_id_menu().await { PageState::Settings } else { PageState::Settings }
+                }
+                PageState::BootRomSelect => {
+                    if self.select_boot_rom_menu().await { PageState::Settings } else { PageState::Settings }
+                }
             }
         }
     }
