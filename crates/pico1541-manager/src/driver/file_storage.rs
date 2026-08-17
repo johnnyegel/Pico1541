@@ -270,8 +270,18 @@ where
             let owned = OwnedFatFileTryBuilder {
                 fs,
                 file_builder: |fs_ref| {
-                    fs_ref.root_dir().open_file(normalize_path(path_str.as_str()))
-                        .map_err(|_| CommonError::Io)
+                    let path = normalize_path(path_str.as_str());
+                    let mut current_dir = fs_ref.root_dir();
+                    
+                    let mut parts = path.split('/');
+                    let mut last_part = parts.next().unwrap_or("");
+                    
+                    for part in parts {
+                        current_dir = current_dir.open_dir(last_part).map_err(|_| CommonError::Io)?;
+                        last_part = part;
+                    }
+                    
+                    current_dir.open_file(last_part).map_err(|_| CommonError::Io)
                 }
             }.try_build()?;
             
