@@ -489,14 +489,14 @@
       "no_connect_dangling": "warning",
       "pin_not_connected": "error",
       "pin_not_driven": "error",
-      "pin_to_pin": "warning",
+      "pin_to_pin": "error",
       "power_pin_not_driven": "error",
       "same_local_global_label": "warning",
       "similar_label_and_power": "warning",
       "similar_labels": "warning",
       "similar_power": "warning",
       "simulation_model_issue": "ignore",
-      "single_global_label": "ignore",
+      "single_global_label": "warning",
       "stacked_pin_name": "warning",
       "unannotated": "error",
       "unconnected_wire_endpoint": "warning",
@@ -511,7 +511,7 @@
     "pinned_symbol_libs": []
   },
   "meta": {
-    "filename": "Pico1541.kicad_pro",
+    "filename": "Pico1541v2.kicad_pro",
     "version": 3
   },
   "net_settings": {
@@ -706,18 +706,18 @@
     "subpart_id_separator": 0,
     "top_level_sheets": [
       {
-        "filename": "Pico1541.kicad_sch",
-        "name": "Root",
+        "filename": "Pico1541v2.kicad_sch",
+        "name": "Pico1541v2",
         "uuid": "fb7a9a9a-73a1-4d45-b1f9-1589f10de67b"
       }
     ],
-    "used_designators": "FID1-6,D4,R3,RN5",
+    "used_designators": "J1-7,Q1,RN1-5,SW1-5,R1-4,U1-2,D1-2,D4,C1-6,A1,FID1-6,#PWR1-26,#PWR31,LS1,#FLG1-2,H1-10",
     "variants": []
   },
   "sheets": [
     [
       "fb7a9a9a-73a1-4d45-b1f9-1589f10de67b",
-      "Root"
+      "Pico1541v2"
     ]
   ],
   "text_variables": {},
