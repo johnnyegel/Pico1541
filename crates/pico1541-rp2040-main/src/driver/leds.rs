@@ -36,7 +36,7 @@ impl RgbLedDriver for StatusLeds {
         let (r, g, b) = match mode {
             StatusLedMode::Unmounted => (true, false, false),      // Red
             StatusLedMode::VirtualDisk => (false, false, true),    // Blue
-            StatusLedMode::NonAccurateDisk => (true, true, false),  // Yellow (Red + Green)
+            StatusLedMode::NonAccurateDisk => (false, true, false), // Green
             StatusLedMode::AccurateDisk => (false, true, false),   // Green
         };
         self.set_color(r, g, b);

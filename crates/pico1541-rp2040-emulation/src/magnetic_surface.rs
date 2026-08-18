@@ -29,10 +29,6 @@ const PIO_SPEED_ZONES: [u32; 4] = [
 ];
 
 // Static buffers for DMA
-#[repr(C, align(4))]
-struct ReadBuffer([u16; 2]);
-static mut READ_BUFFER: ReadBuffer = ReadBuffer([0x8000, 0x8000]);
-static mut READ_IDX: usize = 0;
 static mut CURRENT_TRACK_PTR: u32 = 0;
 
 pub struct PioMagneticSurface {
@@ -100,7 +96,6 @@ impl PioMagneticSurface {
         let pio = pac::PIO0;
 
         let ch_a = dma.ch(0);
-        let ch_c = dma.ch(2);
 
         // --- Channel A: TX Worker (Streams data to PIO) ---
         // Paced by PIO TX DREQ, 32-bit words, read inc, write no inc. Chains to B.
@@ -137,47 +132,27 @@ impl PioMagneticSurface {
         ctrl_b.set_chain_to(1); // Doesn't chain to others (chains to itself)
         ctrl_b.set_en(false);
         ch_b.ctrl_trig().write_value(ctrl_b);
-
-        // --- Channel C: RX Sentinel Ring (Extracts data to RAM) ---
-        // Paced by PIO RX DREQ, 16-bit, read no inc, write inc, ring size 4 bytes.
-        ch_c.read_addr().write_value(pio.rxf(0).as_ptr() as u32);
-        ch_c.write_addr().write_value(core::ptr::addr_of!(READ_BUFFER) as u32);
-        ch_c.trans_count().write_value(0xFFFFFFFF); // Infinite
-        
-        let mut ctrl_c = ch_c.ctrl_trig().read();
-        ctrl_c.set_data_size(pac::dma::vals::DataSize::SIZE_HALFWORD);
-        ctrl_c.set_incr_read(false);
-        ctrl_c.set_incr_write(true);
-        ctrl_c.set_treq_sel(pac::dma::vals::TreqSel::PIO0_RX0);
-        ctrl_c.set_ring_sel(true); 
-        ctrl_c.set_ring_size(2);
-        ctrl_c.set_chain_to(2);
-        ctrl_c.set_en(true);
-        ch_c.ctrl_trig().write_value(ctrl_c);
     }
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn is_sync_active() -> bool {
-        let sio = pac::SIO;
-        // Read physical state of SYNC GPIO via SIO
-        (sio.gpio_in(0).read() & (1 << GPIO_SYNC_PIN)) != 0
+        let pio = pac::PIO0;
+        // Read internal PIO DBG_PADOUT register rather than physical GPIO
+        (pio.dbg_padout().read() & (1 << GPIO_SYNC_PIN)) != 0
     }
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn try_read_ram_byte(&mut self) -> Option<u8> {
-        unsafe {
-            let ptr = core::ptr::addr_of_mut!(READ_BUFFER.0[READ_IDX]);
-            let val = core::ptr::read_volatile(ptr);
-            if (val & 0x8000) == 0 {
-                let byte = (val & 0xFF) as u8;
-                core::ptr::write_volatile(ptr, 0x8000);
-                READ_IDX ^= 1;
-                Some(byte)
-            } else {
-                None
-            }
+        let pio = pac::PIO0;
+        // Check if the RX FIFO is NOT empty (this is our exact BYTE_READY signal!)
+        if (pio.fstat().read().rxempty() & (1 << 0)) == 0 {
+            // Read the actual data directly from the PIO hardware FIFO
+            let byte = pio.rxf(0).read() as u8;
+            Some(byte)
+        } else {
+            None
         }
     }
 
@@ -222,14 +197,6 @@ impl PioMagneticSurface {
         let shiftctrl = pio.sm(0).shiftctrl();
         shiftctrl.modify(|w| w.set_fjoin_rx(!w.fjoin_rx()));
         shiftctrl.modify(|w| w.set_fjoin_rx(!w.fjoin_rx()));
-        
-        unsafe {
-            READ_BUFFER.0[0] = 0x8000;
-            READ_BUFFER.0[1] = 0x8000;
-            READ_IDX = 0;
-            // Also reset DMA ch 2 write address so it starts from 0 again
-            pac::DMA.ch(2).write_addr().write_value(core::ptr::addr_of!(READ_BUFFER) as u32);
-        }
 
         pio.ctrl().write(|w| {
             w.set_sm_restart(1 << 0);

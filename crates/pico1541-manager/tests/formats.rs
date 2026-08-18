@@ -1,6 +1,6 @@
-use crate::formats::{D64Image, DiskImage, G64Image, VirtualDiskImage};
+use pico1541_manager::formats::{D64Image, DiskImage, G64Image, VirtualDiskImage};
 use pico1541_common::track_buffer::TrackLayout;
-use crate::storage::{DirectoryEntry, DirectorySource, MemoryStorage};
+use pico1541_manager::storage::{DirectoryEntry, DirectorySource, MemoryStorage};
 use pollster::block_on;
 
 #[test]

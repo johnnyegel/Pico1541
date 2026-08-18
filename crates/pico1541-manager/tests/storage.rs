@@ -1,5 +1,5 @@
 use embedded_io_async::{Read, Seek, SeekFrom};
-use crate::storage::{DirectoryEntry, MemoryStorage};
+use pico1541_manager::storage::{DirectoryEntry, MemoryStorage};
 use pollster::block_on;
 
 #[test]
@@ -55,7 +55,7 @@ fn test_directory_entry() {
 
 #[test]
 fn test_paged_directory_source() {
-    use crate::storage::{PagedDirectorySource, PagedDirectorySourceTrait, DirectorySource};
+    use pico1541_manager::storage::{PagedDirectorySource, PagedDirectorySourceTrait, DirectorySource};
 
     let mut paged = PagedDirectorySource::<48>::new(b"TEST DRIVE");
     // Before any block is loaded total_count is usize::MAX (unknown)

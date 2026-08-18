@@ -26,3 +26,4 @@ defmt = ["dep:defmt", "pico1541-common/defmt"]
 
 [dev-dependencies]
 futures-executor = "0.3.32"
+pollster = "1.0.1"

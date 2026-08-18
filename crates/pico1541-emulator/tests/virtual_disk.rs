@@ -178,7 +178,7 @@ fn test_virtual_disk_load_interception() {
 #[test]
 fn test_virtual_disk_shortcut_generation() {
     use pico1541_manager::storage::DirectoryEntry;
-    use pico1541_common::DiskImage;
+    use pico1541_manager::DiskImage;
 
     let source = DummySource;
     let mut vdir = VirtualDiskImage::<pico1541_manager::storage::MemoryStorage<'static>, DummySource>::new(source, b"TEST");
