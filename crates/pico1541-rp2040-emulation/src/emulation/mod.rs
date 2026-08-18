@@ -29,6 +29,9 @@ pub struct EmulatorHardware {
     pub pin_1: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_1>,
 }
 
+#[no_mangle]
+pub static mut RAM_POINTER: *mut [u8; 32768] = core::ptr::null_mut();
+
 pub fn spawn_core1(
     core1: embassy_rp::Peri<'static, CORE1>,
     stack: &'static mut Stack<1024>,
@@ -77,6 +80,7 @@ pub fn spawn_core1(
         let emulator = unsafe {
             let ptr: *mut Emulator<HardwareBridge, PioMagneticSurface> = core::ptr::addr_of_mut!(EMULATOR).cast();
             let memory = &mut *core::ptr::addr_of_mut!(SYS_MEMORY);
+            RAM_POINTER = memory as *mut _;
             let surface = PioMagneticSurface::new(pio0);
             let mechanics = DriveMechanics::new(surface, emulator_handle);
             core::ptr::write(ptr, Emulator::new(rom_buffer, memory, drive_id, mechanics));
