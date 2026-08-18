@@ -327,7 +327,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
                 min = min.min(via.t2c() as u32 + 1);
             }
             if mask & crate::via6522::Via6522::SR_ACTIVE != 0 {
-                min = min.min(via.sr_count() as u32 + 1);
+                min = min.min(via.sr_cycles() + 1);
             }
             min
         }

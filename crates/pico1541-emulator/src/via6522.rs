@@ -36,7 +36,7 @@ pub struct Via6522 {
     last_cb1: bool,
     last_ca2: bool,
     last_cb2: bool,
-    sr_count: u8,
+    sr_cycles: u32,
     active_mask: u8,
 }
 
@@ -88,7 +88,31 @@ impl Via6522 {
     pub fn t2c(&self) -> u16 { self.t2c }
 
     #[inline(always)]
-    pub fn sr_count(&self) -> u8 { self.sr_count }
+    pub fn sr_cycles(&self) -> u32 { self.sr_cycles }
+
+    #[inline(always)]
+    #[link_section = ".data.ram_func"]
+    fn trigger_sr(&mut self) {
+        let sr_mode = (self.acr >> 2) & 0x07;
+        if sr_mode == 0 || sr_mode == 4 {
+            // Disabled or Mode 4 (free running out, no IRQ)
+            self.active_mask &= !Self::SR_ACTIVE;
+            return;
+        }
+        
+        self.active_mask |= Self::SR_ACTIVE;
+        if sr_mode == 1 || sr_mode == 5 {
+            // Timer 2 controlled
+            let t2l = self.t2l as u32;
+            self.sr_cycles = 16 * (t2l + 2);
+        } else if sr_mode == 2 || sr_mode == 6 {
+            // System clock (phi2) controlled
+            self.sr_cycles = 16;
+        } else {
+            // External clock (CB1). Not implemented internally here.
+            self.active_mask &= !Self::SR_ACTIVE;
+        }
+    }
 
     /// Read a byte from a VIA register.
     
@@ -141,6 +165,7 @@ impl Via6522 {
                 // SR
                 self.ifr &= !0x04; // Clear SR interrupt flag
                 self.update_irq();
+                self.trigger_sr();
                 self.sr
             }
             0x0B => self.acr,
@@ -213,10 +238,7 @@ impl Via6522 {
                 self.sr = value;
                 self.ifr &= !0x04; // Clear SR interrupt flag
                 self.update_irq();
-                if (self.acr & 0x1C) != 0 {
-                    self.active_mask |= Self::SR_ACTIVE;
-                    self.sr_count = 8;
-                }
+                self.trigger_sr();
             }
             0x0B => self.acr = value,
             0x0C => self.pcr = value,
@@ -317,11 +339,10 @@ impl Via6522 {
 
                 // --- Shift Register (Simplified) ---
                 if (self.active_mask & Self::SR_ACTIVE) != 0 {
-                    let delta8 = delta16 as u8;
-                    if self.sr_count >= delta8 {
-                        self.sr_count -= delta8;
+                    if self.sr_cycles > delta {
+                        self.sr_cycles -= delta;
                     } else {
-                        self.sr_count = 0;
+                        self.sr_cycles = 0;
                         self.ifr |= 0x04;
                         self.active_mask &= !Self::SR_ACTIVE;
                         self.update_irq();
