@@ -13,6 +13,7 @@ pub struct FlightRecord {
     pub _padding: u8,
 }
 
+#[repr(C)]
 pub struct FlightRecorder {
     pub buffer: [FlightRecord; 512],
     pub index: usize,
@@ -20,16 +21,14 @@ pub struct FlightRecorder {
 }
 
 impl FlightRecorder {
+    #[inline(always)]
+    #[link_section = ".data.ram_func"]
     pub fn record(&mut self, record: FlightRecord) {
-        let prev = &self.last_record;
-        
-        if prev.via1_pb != record.via1_pb || prev.via2_pb != record.via2_pb || prev.pcr1 != record.pcr1 || prev.pcr2 != record.pcr2 || prev.pc != record.pc || record.event_type != 0 || prev.via2_pa != record.via2_pa || prev.is_sync != record.is_sync {
-            unsafe {
-                core::ptr::write_volatile(self.buffer.as_mut_ptr().add(self.index), record);
-                core::ptr::write_volatile(&mut self.index, (self.index + 1) % 512);
-            }
-            self.last_record = record;
+        unsafe {
+            core::ptr::write_volatile(self.buffer.as_mut_ptr().add(self.index), record);
+            core::ptr::write_volatile(&mut self.index, (self.index + 1) % 512);
         }
+        self.last_record = record;
     }
 }
 

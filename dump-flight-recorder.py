@@ -8,8 +8,8 @@ import shutil
 
 # Configuration
 ELF_PATHS = [
-    "target/thumbv6m-none-eabi/release/pico1541-rp2040",
-    "target/thumbv6m-none-eabi/debug/pico1541-rp2040"
+    "target/thumbv6m-none-eabi/release/pico1541-rp2040-main",
+    "target/thumbv6m-none-eabi/debug/pico1541-rp2040-main"
 ]
 NM_CANDIDATES = [
     "nm",

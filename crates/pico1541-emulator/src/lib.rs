@@ -134,19 +134,24 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         #[cfg(feature = "flight-recorder")]
         unsafe {
             let ptr = core::ptr::addr_of_mut!(crate::flight_recorder::FLIGHT_RECORDER) as *mut crate::flight_recorder::FlightRecorder;
-            let is_sync = (self.memory.via2.in_b & 0x80) == 0;
-            (*ptr).record(crate::flight_recorder::FlightRecord {
-                cycle: self.cpu.cycles,
-                pc: self.cpu.pc as u32,
-                event_type: 0,
-                via1_pb: self.memory.via1.in_b,
-                via2_pb: self.memory.via2.in_b,
-                pcr1: self.memory.via1.pcr,
-                pcr2: self.memory.via2.pcr,
-                via2_pa: self.memory.via2.in_a,
-                is_sync: if is_sync { 1 } else { 0 },
-                _padding: 0,
-            });
+            let current_via1 = self.systembus.via1.pb_in();
+            
+            // Inline the check to avoid function call overhead and branch prediction misses for non-events
+            if (*ptr).last_record.via1_pb != current_via1 {
+                let is_sync = (self.systembus.via2.pb_in() & 0x80) == 0;
+                (*ptr).record(crate::flight_recorder::FlightRecord {
+                    cycle: self.cpu.cycles,
+                    pc: self.cpu.pc as u32,
+                    event_type: 0,
+                    via1_pb: current_via1,
+                    via2_pb: self.systembus.via2.pb_in(),
+                    pcr1: self.systembus.via1.pcr(),
+                    pcr2: self.systembus.via2.pcr(),
+                    via2_pa: self.systembus.via2.pa_in(),
+                    is_sync: if is_sync { 1 } else { 0 },
+                    _padding: 0,
+                });
+            }
         }
         self.cycles = self.cpu.cycles;
         elapsed as u32
