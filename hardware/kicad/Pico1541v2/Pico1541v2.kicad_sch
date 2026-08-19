@@ -8205,10 +8205,6 @@
 		(uuid "86c45f13-8eac-4c52-ad6c-67a19b4ac547")
 	)
 	(no_connect
-		(at 74.93 80.01)
-		(uuid "ac219419-5a49-4332-90b8-473e385a0f41")
-	)
-	(no_connect
 		(at 120.65 41.91)
 		(uuid "b68fd196-ee70-4664-ab2d-102e6781b753")
 	)
@@ -8223,6 +8219,10 @@
 	(no_connect
 		(at 92.71 31.75)
 		(uuid "d9f31243-631e-4715-abf5-4437843e7c0b")
+	)
+	(no_connect
+		(at 120.65 87.63)
+		(uuid "f2c76739-8d7e-4dea-9590-4f1dae61c77f")
 	)
 	(no_connect
 		(at 74.93 49.53)
@@ -10100,6 +10100,16 @@
 	)
 	(wire
 		(pts
+			(xy 71.12 80.01) (xy 74.93 80.01)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "d794a337-7298-4c4a-ae40-8036ca3cfe54")
+	)
+	(wire
+		(pts
 			(xy 241.3 138.43) (xy 241.3 137.16)
 		)
 		(stroke
@@ -10297,16 +10307,6 @@
 			(type default)
 		)
 		(uuid "edbd08fb-a83b-4c04-988e-e59f40e27333")
-	)
-	(wire
-		(pts
-			(xy 123.19 87.63) (xy 120.65 87.63)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "ee230d24-8497-41c9-b8cb-2c4ea09a7557")
 	)
 	(wire
 		(pts
@@ -10718,7 +10718,7 @@
 		)
 		(uuid "7a93671b-dba4-4d0c-a581-62896c6111c3")
 	)
-	(label "PLED_N"
+	(label "ALED_N"
 		(at 167.64 128.27 270)
 		(effects
 			(font
@@ -10769,12 +10769,12 @@
 		(uuid "81e58da9-2825-48fc-9f6d-a7d5051e729c")
 	)
 	(label "ALED_P"
-		(at 123.19 87.63 0)
+		(at 71.12 80.01 180)
 		(effects
 			(font
 				(size 1.27 1.27)
 			)
-			(justify left bottom)
+			(justify right bottom)
 		)
 		(uuid "81eacc8c-b380-4ffe-971a-8388d4a7b2f8")
 	)
