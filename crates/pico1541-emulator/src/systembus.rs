@@ -25,6 +25,8 @@ pub struct SystemBus<H: HostInterface, S: MagneticSurface> {
     pub time: crate::time::EmulatorTime,
     so_pulsed: bool,
     last_iec_out: u8,
+    last_iec_in: u8,
+    last_via1_pb_out: u8,
     last_via2_out: u8,
     _phantom: PhantomData<H>,
 }
@@ -49,6 +51,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             time: crate::time::EmulatorTime::new(),
             so_pulsed: false,
             last_iec_out: 0xFF, // Force first write
+            last_iec_in: 0xFF,
+            last_via1_pb_out: 0xFF,
             last_via2_out: 0xFF,
             _phantom: PhantomData,
         };
@@ -84,6 +88,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         self.mechanics.reset();
         self.device_id_pb_bits = (self.device_id & 0x03) << 5;
         self.last_iec_out = 0xFF; // Force first write
+        self.last_iec_in = 0xFF;
+        self.last_via1_pb_out = 0xFF;
         self.last_via2_out = 0xFF;
         self.mechanics.update_state(self.via2.get_pb_out(), hardware, 0);
 
@@ -96,6 +102,18 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     pub fn sync_iec_bus(&mut self, hardware: &mut H, current_cycle: u32) {
         // :: Capture the IEC bus state, and update the VIA1 input register
         let iec_in = hardware.read_iec_port() | self.device_id_pb_bits;
+        let via1_pb_out = self.via1.get_pb_out();
+        
+        // Fast path: if the physical IEC lines haven't changed AND the 6502 hasn't written a new output state,
+        // effective_orb cannot change.
+        if iec_in == self.last_iec_in && via1_pb_out == self.last_via1_pb_out {
+            self.time.last_iec_sync_cycle = current_cycle;
+            return;
+        }
+        
+        self.last_iec_in = iec_in;
+        self.last_via1_pb_out = via1_pb_out;
+
         let prev_atn = self.via1.pb_in() & H::VIA1_IEC_MASK_ATN_RX;
         let curr_atn = iec_in & H::VIA1_IEC_MASK_ATN_RX;
         self.via1.set_pb_in(iec_in);
