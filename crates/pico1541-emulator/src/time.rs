@@ -18,7 +18,7 @@ impl EmulatorTime {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn should_sync_iec(&self, current_cycle: u32) -> bool {
-        current_cycle.wrapping_sub(self.last_iec_sync_cycle) >= 32
+        current_cycle.wrapping_sub(self.last_iec_sync_cycle) >= 4
     }
 
     #[link_section = ".data.ram_func"]

@@ -58,6 +58,8 @@ fn test_disk_streaming_data() {
 
     // PCR: CB2=111 (Manual High), CA2=111 (Manual High) -> 0b1110_1110
     bus.via2.write(0x0C, 0b1110_1110);
+    // Enable CA1 interrupt in IER
+    bus.via2.write(0x0E, 0x82);
 
     // First byte delivered should be idx 0: 0xAA. Should take exactly 26 ticks.
     let (ticks, last_pulse) = wait_for_pulse(&mut bus, false);
