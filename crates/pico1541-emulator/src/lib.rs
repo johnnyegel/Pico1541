@@ -117,7 +117,9 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         let elapsed = self.cpu.step(&mut self.systembus, hw);
         
         // Poll IEC and DriveMechanics on every instruction for real-time accuracy without jitter
-        self.systembus.poll_realtime(hw, elapsed, self.cpu.cycles);
+        // If the CPU's Interrupt Disable flag is set, we are in a timing critical section (e.g. custom loader)
+        let fast_mode = (self.cpu.p & 0x04) != 0;
+        self.systembus.poll_realtime(hw, elapsed, self.cpu.cycles, fast_mode);
         
         // Let the central Timekeeper advance and handle any potential spin-waiting
         self.systembus.time.sync_realtime(self.cpu.cycles, hw);

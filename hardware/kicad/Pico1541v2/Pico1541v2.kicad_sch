@@ -5982,6 +5982,88 @@
 			)
 			(embedded_fonts no)
 		)
+		(symbol "Pico1541:CC-BY-NC"
+			(exclude_from_sim no)
+			(in_bom yes)
+			(on_board yes)
+			(in_pos_files yes)
+			(duplicate_pin_numbers_are_jumpers no)
+			(property "Reference" "#LOGO"
+				(at -0.508 3.556 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Value" ""
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Footprint" "Symbol:Symbol_CC-Noncommercial_CopperTop_Small"
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Datasheet" ""
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "Description" ""
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(symbol "CC-BY-NC_1_1"
+				(rectangle
+					(start -6.35 2.54)
+					(end 6.35 -2.54)
+					(stroke
+						(width 0)
+						(type solid)
+					)
+					(fill
+						(type background)
+					)
+				)
+				(text "CC-BY-NC"
+					(at 0 0 0)
+					(effects
+						(font
+							(size 1.27 1.27)
+						)
+					)
+				)
+			)
+			(embedded_fonts no)
+		)
 		(symbol "Power_Protection:SRV05-4"
 			(pin_names
 				(offset 0)
@@ -8188,6 +8270,16 @@
 	)
 	(wire
 		(pts
+			(xy 151.13 97.79) (xy 151.13 100.33)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "093cd16a-93eb-4933-95b6-ab1b588d87e1")
+	)
+	(wire
+		(pts
 			(xy 123.19 57.15) (xy 120.65 57.15)
 		)
 		(stroke
@@ -9878,6 +9970,16 @@
 	)
 	(wire
 		(pts
+			(xy 143.51 97.79) (xy 143.51 100.33)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "c61382de-b00f-4dae-8526-a73747140187")
+	)
+	(wire
+		(pts
 			(xy 146.05 114.3) (xy 148.59 114.3)
 		)
 		(stroke
@@ -10148,6 +10250,16 @@
 	)
 	(wire
 		(pts
+			(xy 146.05 97.79) (xy 146.05 100.33)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "e75cea35-c1ad-41e3-a420-9d5f0dd78eab")
+	)
+	(wire
+		(pts
 			(xy 256.54 143.51) (xy 256.54 147.32)
 		)
 		(stroke
@@ -10288,6 +10400,16 @@
 	)
 	(wire
 		(pts
+			(xy 148.59 97.79) (xy 148.59 100.33)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "f54b24fc-2e8b-479c-9716-3da0300257c6")
+	)
+	(wire
+		(pts
 			(xy 227.33 116.84) (xy 238.76 116.84)
 		)
 		(stroke
@@ -10357,7 +10479,7 @@
 		(uuid "fe055d07-2d7b-446d-ab20-9ab852a852e4")
 	)
 	(label "SLED_R"
-		(at 148.59 100.33 90)
+		(at 148.59 97.79 90)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -10587,7 +10709,7 @@
 		(uuid "7a212748-9218-45e8-ab40-c3bd2a344e2d")
 	)
 	(label "SLED_G"
-		(at 146.05 100.33 90)
+		(at 146.05 97.79 90)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -10727,7 +10849,7 @@
 		(uuid "a7c2cd44-df06-430b-9074-932f3113e4d0")
 	)
 	(label "ALED_P"
-		(at 151.13 100.33 90)
+		(at 151.13 97.79 90)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -10737,7 +10859,7 @@
 		(uuid "b176b217-44c0-4b90-aa7b-5ab23a099686")
 	)
 	(label "SLED_B"
-		(at 143.51 100.33 90)
+		(at 143.51 97.79 90)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -10978,6 +11100,154 @@
 			(project "Pico1541v2"
 				(path "/fb7a9a9a-73a1-4d45-b1f9-1589f10de67b"
 					(reference "#PWR018")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Pico1541:CC-BY-NC")
+		(at 129.54 187.96 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "0896c0d9-239b-49f9-ae57-4bf5d573c2f9")
+		(property "Reference" "LOGO2"
+			(at 126.492 184.15 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" ""
+			(at 129.54 187.96 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Symbol:Symbol_CC-Noncommercial_CopperTop_Small"
+			(at 129.54 187.96 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 129.54 187.96 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" ""
+			(at 129.54 187.96 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(instances
+			(project "Pico1541v2"
+				(path "/fb7a9a9a-73a1-4d45-b1f9-1589f10de67b"
+					(reference "LOGO2")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "Pico1541:CC-BY-NC")
+		(at 242.57 152.4 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(uuid "0a2c0bc4-f49d-46ee-a1a4-c44bf1349fd5")
+		(property "Reference" "LOGO1"
+			(at 239.522 148.59 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" ""
+			(at 242.57 152.4 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Footprint" "Symbol:Symbol_CC-Noncommercial_CopperTop_Small"
+			(at 242.57 152.4 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 242.57 152.4 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" ""
+			(at 242.57 152.4 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(instances
+			(project "Pico1541v2"
+				(path "/fb7a9a9a-73a1-4d45-b1f9-1589f10de67b"
+					(reference "LOGO1")
 					(unit 1)
 				)
 			)
@@ -11788,7 +12058,7 @@
 	)
 	(symbol
 		(lib_id "Mechanical:Fiducial")
-		(at 227.33 152.4 0)
+		(at 220.98 153.67 0)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -11799,7 +12069,7 @@
 		(fields_autoplaced yes)
 		(uuid "27bf49f1-db3a-4999-905c-40e60ec1169e")
 		(property "Reference" "FID6"
-			(at 229.87 151.1299 0)
+			(at 223.52 152.3999 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -11810,7 +12080,7 @@
 			)
 		)
 		(property "Value" "Fiducial"
-			(at 229.87 153.6699 0)
+			(at 223.52 154.9399 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -11821,7 +12091,7 @@
 			)
 		)
 		(property "Footprint" "Fiducial:Fiducial_1mm_Mask3mm"
-			(at 227.33 152.4 0)
+			(at 220.98 153.67 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -11832,7 +12102,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 227.33 152.4 0)
+			(at 220.98 153.67 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -11843,7 +12113,7 @@
 			)
 		)
 		(property "Description" "Fiducial Marker"
-			(at 227.33 152.4 0)
+			(at 220.98 153.67 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -12841,7 +13111,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Button_Switch_SMD:SW_SPST_EVPBF"
+		(property "Footprint" "Button_Switch_SMD:SW_SPST_Omron_B3FS-100xP"
 			(at 248.92 133.35 0)
 			(hide yes)
 			(show_name no)
@@ -13649,7 +13919,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Button_Switch_SMD:SW_SPST_EVPBF"
+		(property "Footprint" "Button_Switch_SMD:SW_SPST_Omron_B3FS-100xP"
 			(at 248.92 128.27 0)
 			(hide yes)
 			(show_name no)
@@ -14445,7 +14715,7 @@
 	)
 	(symbol
 		(lib_id "Mechanical:Fiducial")
-		(at 198.12 152.4 0)
+		(at 191.77 153.67 0)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -14456,7 +14726,7 @@
 		(fields_autoplaced yes)
 		(uuid "837779f4-e4ff-4889-ac71-ccbb05630ea1")
 		(property "Reference" "FID4"
-			(at 200.66 151.1299 0)
+			(at 194.31 152.3999 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -14467,7 +14737,7 @@
 			)
 		)
 		(property "Value" "Fiducial"
-			(at 200.66 153.6699 0)
+			(at 194.31 154.9399 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -14478,7 +14748,7 @@
 			)
 		)
 		(property "Footprint" "Fiducial:Fiducial_1mm_Mask3mm"
-			(at 198.12 152.4 0)
+			(at 191.77 153.67 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -14489,7 +14759,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 198.12 152.4 0)
+			(at 191.77 153.67 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -14500,7 +14770,7 @@
 			)
 		)
 		(property "Description" "Fiducial Marker"
-			(at 198.12 152.4 0)
+			(at 191.77 153.67 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -15687,7 +15957,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Button_Switch_SMD:SW_SPST_EVPBF"
+		(property "Footprint" "Button_Switch_SMD:SW_SPST_Omron_B3FS-100xP"
 			(at 248.92 138.43 0)
 			(hide yes)
 			(show_name no)
@@ -15757,7 +16027,7 @@
 			)
 		)
 		(property "Value" "OLED/Key_Hat"
-			(at 199.39 143.764 0)
+			(at 197.358 142.748 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -17446,7 +17716,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Button_Switch_SMD:SW_SPST_EVPBF"
+		(property "Footprint" "Button_Switch_SMD:SW_SPST_Omron_B3FS-100xP"
 			(at 248.92 123.19 0)
 			(hide yes)
 			(show_name no)
@@ -17575,7 +17845,7 @@
 	)
 	(symbol
 		(lib_id "Mechanical:Fiducial")
-		(at 213.36 152.4 0)
+		(at 207.01 153.67 0)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -17586,7 +17856,7 @@
 		(fields_autoplaced yes)
 		(uuid "f9ac5c24-7764-43fb-a967-9b23a02f6bf1")
 		(property "Reference" "FID5"
-			(at 215.9 151.1299 0)
+			(at 209.55 152.3999 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -17597,7 +17867,7 @@
 			)
 		)
 		(property "Value" "Fiducial"
-			(at 215.9 153.6699 0)
+			(at 209.55 154.9399 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -17608,7 +17878,7 @@
 			)
 		)
 		(property "Footprint" "Fiducial:Fiducial_1mm_Mask3mm"
-			(at 213.36 152.4 0)
+			(at 207.01 153.67 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -17619,7 +17889,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 213.36 152.4 0)
+			(at 207.01 153.67 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -17630,7 +17900,7 @@
 			)
 		)
 		(property "Description" "Fiducial Marker"
-			(at 213.36 152.4 0)
+			(at 207.01 153.67 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)

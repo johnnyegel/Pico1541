@@ -125,8 +125,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn poll_realtime(&mut self, hardware: &mut H, elapsed: u32, current_cycle: u32) {
-        if self.time.should_sync_iec(current_cycle) {
+    pub fn poll_realtime(&mut self, hardware: &mut H, elapsed: u32, current_cycle: u32, fast_mode: bool) {
+        if self.time.should_sync_iec(current_cycle, fast_mode) {
             self.sync_iec_bus(hardware, current_cycle);
         }
 
