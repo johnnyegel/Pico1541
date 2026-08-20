@@ -7903,16 +7903,16 @@
 		(uuid "14354165-890a-45fc-9f03-5f1413e89024")
 	)
 	(junction
+		(at 127 147.32)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "1c4ba3a2-08f4-4ab2-b990-520f83495df7")
+	)
+	(junction
 		(at 46.99 100.33)
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "1c6eb139-374b-4f75-a069-7cc2a8ef5cfd")
-	)
-	(junction
-		(at 127 147.32)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "1e3d28ce-1ebd-4a6c-afb1-14ab7e95c255")
 	)
 	(junction
 		(at 186.69 24.13)
@@ -8039,12 +8039,6 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "903f4178-2b71-45d4-b1a3-7f60256c3015")
-	)
-	(junction
-		(at 127 144.78)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "990e8bb3-53fc-4d91-b06c-8920b452824d")
 	)
 	(junction
 		(at 27.94 190.5)
@@ -8664,16 +8658,6 @@
 	)
 	(wire
 		(pts
-			(xy 127 142.24) (xy 127 144.78)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "42d17b29-150a-4fb5-bca8-074cae058e00")
-	)
-	(wire
-		(pts
 			(xy 50.8 49.53) (xy 50.8 46.99)
 		)
 		(stroke
@@ -8781,16 +8765,6 @@
 			(type default)
 		)
 		(uuid "4d006e47-e58f-4369-b026-71be3bdcaab2")
-	)
-	(wire
-		(pts
-			(xy 127 144.78) (xy 119.38 144.78)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "4e29ac19-083e-4eda-951c-433fe35515e8")
 	)
 	(wire
 		(pts
@@ -9571,16 +9545,6 @@
 			(type default)
 		)
 		(uuid "95027a37-2f9c-4df8-b315-c2773e042f9e")
-	)
-	(wire
-		(pts
-			(xy 111.76 144.78) (xy 106.68 144.78)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "95457c93-e251-40f2-a46c-3e781c7075f1")
 	)
 	(wire
 		(pts
@@ -10492,7 +10456,7 @@
 		)
 		(uuid "1049f8a9-6664-4a82-8b72-f26ec7ba767c")
 	)
-	(label "SD_DET"
+	(label "DET_SD"
 		(at 71.12 82.55 180)
 		(effects
 			(font
@@ -10812,16 +10776,6 @@
 		)
 		(uuid "a1600b2a-6164-45a2-ac80-8ea611b34bcf")
 	)
-	(label "SD_DET"
-		(at 106.68 144.78 180)
-		(effects
-			(font
-				(size 1.27 1.27)
-			)
-			(justify right bottom)
-		)
-		(uuid "a798b530-f10e-4e29-b1bc-4ed8c7adfa59")
-	)
 	(label "RESET_RX"
 		(at 123.19 85.09 0)
 		(effects
@@ -10882,7 +10836,7 @@
 		)
 		(uuid "c61e2472-6203-49df-ba33-9a5d64a4ef1b")
 	)
-	(label "SD_DET"
+	(label "DET_SD"
 		(at 77.47 140.97 0)
 		(effects
 			(font
@@ -11091,8 +11045,7 @@
 	)
 	(symbol
 		(lib_id "Device:R_Pack04")
-		(at 115.57 152.4 90)
-		(mirror x)
+		(at 115.57 152.4 270)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -11102,7 +11055,7 @@
 		(dnp no)
 		(uuid "0b8d1565-6c9f-4023-8275-bf835861b722")
 		(property "Reference" "RN1"
-			(at 110.744 157.226 90)
+			(at 115.824 157.48 90)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -11112,7 +11065,7 @@
 			)
 		)
 		(property "Value" "10k"
-			(at 110.744 159.766 90)
+			(at 115.824 159.512 90)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -11268,7 +11221,8 @@
 	)
 	(symbol
 		(lib_id "Device:R_Pack04")
-		(at 146.05 105.41 180)
+		(at 148.59 105.41 0)
+		(mirror x)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -11276,10 +11230,9 @@
 		(on_board yes)
 		(in_pos_files yes)
 		(dnp no)
-		(fields_autoplaced yes)
 		(uuid "17c78ae4-fdb3-4d33-82fc-e92a86b22de0")
 		(property "Reference" "RN2"
-			(at 153.67 104.1399 0)
+			(at 140.97 104.1399 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -11290,7 +11243,7 @@
 			)
 		)
 		(property "Value" "330"
-			(at 153.67 106.6799 0)
+			(at 140.97 106.6799 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -11301,7 +11254,7 @@
 			)
 		)
 		(property "Footprint" "Resistor_SMD:R_Array_Convex_4x0603"
-			(at 139.065 105.41 90)
+			(at 155.575 105.41 90)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -11312,7 +11265,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 146.05 105.41 0)
+			(at 148.59 105.41 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -11323,7 +11276,7 @@
 			)
 		)
 		(property "Description" "4 resistor network, parallel topology"
-			(at 146.05 105.41 0)
+			(at 148.59 105.41 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -11517,86 +11470,6 @@
 			(project "Pico1541v2"
 				(path "/fb7a9a9a-73a1-4d45-b1f9-1589f10de67b"
 					(reference "#PWR019")
-					(unit 1)
-				)
-			)
-		)
-	)
-	(symbol
-		(lib_id "Device:R")
-		(at 115.57 144.78 90)
-		(mirror x)
-		(unit 1)
-		(body_style 1)
-		(exclude_from_sim no)
-		(in_bom yes)
-		(on_board yes)
-		(in_pos_files yes)
-		(dnp no)
-		(uuid "1a952698-0548-437f-905e-a24da2c7974d")
-		(property "Reference" "R3"
-			(at 115.57 140.462 90)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Value" "10K"
-			(at 115.57 142.494 90)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Footprint" "Resistor_SMD:R_0603_1608Metric_Pad0.98x0.95mm_HandSolder"
-			(at 115.57 143.002 90)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Datasheet" ""
-			(at 115.57 144.78 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(property "Description" "Resistor"
-			(at 115.57 144.78 0)
-			(hide yes)
-			(show_name no)
-			(do_not_autoplace no)
-			(effects
-				(font
-					(size 1.27 1.27)
-				)
-			)
-		)
-		(pin "1"
-			(uuid "ba2035dd-323b-4060-9879-62e5bbcb3b27")
-		)
-		(pin "2"
-			(uuid "579ab171-d89a-45ea-bf70-a16e4bade97d")
-		)
-		(instances
-			(project "Pico1541v2"
-				(path "/fb7a9a9a-73a1-4d45-b1f9-1589f10de67b"
-					(reference "R3")
 					(unit 1)
 				)
 			)
@@ -12204,7 +12077,7 @@
 	)
 	(symbol
 		(lib_id "power:+3.3V")
-		(at 127 142.24 0)
+		(at 127 144.78 0)
 		(mirror y)
 		(unit 1)
 		(body_style 1)
@@ -12216,7 +12089,7 @@
 		(fields_autoplaced yes)
 		(uuid "3324a460-48dc-495f-a6d0-62a5c7a8dbb2")
 		(property "Reference" "#PWR015"
-			(at 127 146.05 0)
+			(at 127 148.59 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -12227,7 +12100,7 @@
 			)
 		)
 		(property "Value" "+3.3V"
-			(at 127 137.16 0)
+			(at 127 139.7 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -12237,7 +12110,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 127 142.24 0)
+			(at 127 144.78 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -12248,7 +12121,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 127 142.24 0)
+			(at 127 144.78 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -12259,7 +12132,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"+3.3V\""
-			(at 127 142.24 0)
+			(at 127 144.78 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -12684,7 +12557,7 @@
 				(justify right)
 			)
 		)
-		(property "Footprint" "Pico1541 Footprints:LED_D5.0mm-4_RGB_CorrectStaggered_Pins"
+		(property "Footprint" "Pico1541-footprints:LED_D5.0mm-4_RGB_CorrectStaggered_Pins"
 			(at 147.32 121.92 0)
 			(hide yes)
 			(show_name no)
@@ -13911,7 +13784,7 @@
 				(justify right)
 			)
 		)
-		(property "Footprint" "Pico1541 Footprints:DIN-6-240deg"
+		(property "Footprint" "Pico1541-footprints:DIN-6-240deg"
 			(at 259.08 38.1 0)
 			(hide yes)
 			(show_name no)
@@ -14165,7 +14038,7 @@
 				(justify left)
 			)
 		)
-		(property "Footprint" "Pico1541 Footprints:MicroSD_HPJF"
+		(property "Footprint" "Pico1541-footprints:MicroSD_HPJF"
 			(at -1.27 171.45 0)
 			(hide yes)
 			(show_name no)
@@ -15764,7 +15637,7 @@
 		(dnp no)
 		(uuid "9ed4b6e7-97b1-4be0-bcec-baea9b9f5e8e")
 		(property "Reference" "D2"
-			(at 159.258 122.428 90)
+			(at 172.212 124.206 90)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -15774,8 +15647,8 @@
 				(justify right)
 			)
 		)
-		(property "Value" "PWR_STATE"
-			(at 153.162 124.968 90)
+		(property "Value" "LED_ACT"
+			(at 169.672 126.492 90)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -16206,7 +16079,6 @@
 	(symbol
 		(lib_id "Device:C")
 		(at 127 162.56 0)
-		(mirror y)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -16216,7 +16088,7 @@
 		(dnp no)
 		(uuid "aa53eab4-1a29-4511-856b-5f67678fe23e")
 		(property "Reference" "C3"
-			(at 133.35 162.306 0)
+			(at 120.65 162.306 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -16227,7 +16099,7 @@
 			)
 		)
 		(property "Value" "10u"
-			(at 133.35 164.846 0)
+			(at 120.65 164.846 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -16238,7 +16110,7 @@
 			)
 		)
 		(property "Footprint" "Capacitor_SMD:C_0603_1608Metric_Pad1.08x0.95mm_HandSolder"
-			(at 126.0348 166.37 0)
+			(at 127.9652 166.37 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)

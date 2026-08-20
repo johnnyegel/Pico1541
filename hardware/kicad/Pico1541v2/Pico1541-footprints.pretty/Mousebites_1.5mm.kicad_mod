@@ -1,4 +1,4 @@
-(footprint "Mousebites_2.0mm"
+(footprint "Mousebites_1.5mm"
 	(version 20260206)
 	(generator "pcbnew")
 	(generator_version "10.0")
@@ -8,7 +8,7 @@
 		(unlocked yes)
 		(layer "F.SilkS")
 		(hide yes)
-		(uuid "6fb33fc1-9e6f-412a-92ff-8856abbe2055")
+		(uuid "cfeeb4c1-d14b-4614-98f5-7224aa2e1dcc")
 		(effects
 			(font
 				(size 1 1)
@@ -21,7 +21,7 @@
 		(unlocked yes)
 		(layer "F.Fab")
 		(hide yes)
-		(uuid "658c4003-01d7-409a-9bfe-093cd7128d3b")
+		(uuid "bf192a42-0b56-4651-bf34-7f24e2752e98")
 		(effects
 			(font
 				(size 1 1)
@@ -34,7 +34,7 @@
 		(unlocked yes)
 		(layer "F.Fab")
 		(hide yes)
-		(uuid "41797a63-b4fe-4cdd-a4af-7a6a696eb911")
+		(uuid "5175804a-9005-40b3-a6b3-496ab1905054")
 		(effects
 			(font
 				(size 1 1)
@@ -47,7 +47,7 @@
 		(unlocked yes)
 		(layer "F.Fab")
 		(hide yes)
-		(uuid "3e1b259d-8559-4ec6-b7bf-8cb347c0be38")
+		(uuid "1a88a5be-e7a3-4e0c-9e86-26e751f8bb9f")
 		(effects
 			(font
 				(size 1 1)
@@ -61,7 +61,7 @@
 		(at 0 2 0)
 		(unlocked yes)
 		(layer "F.Fab")
-		(uuid "789886f2-7373-4753-97e3-232ef162e80b")
+		(uuid "07832119-55ea-4b92-8aa6-37ac0f80d29d")
 		(effects
 			(font
 				(size 1 1)
@@ -70,39 +70,39 @@
 		)
 	)
 	(pad "" np_thru_hole circle
-		(at -4.5 0)
-		(size 2 2)
-		(drill 2)
+		(at -3.5 -0.010684)
+		(size 1.5 1.5)
+		(drill 1.5)
 		(layers "*.Cu" "*.Mask")
-		(uuid "32d55da7-95bb-4506-9f98-549944ccd2e0")
+		(uuid "188ae014-7bed-41b2-ab41-f05247874e47")
 	)
 	(pad "" np_thru_hole circle
-		(at -2.25 0)
-		(size 2 2)
-		(drill 2)
+		(at -1.75 0)
+		(size 1.5 1.5)
+		(drill 1.5)
 		(layers "*.Cu" "*.Mask")
-		(uuid "f2be7b79-8594-4c6f-a282-9ca9c525ffaa")
+		(uuid "55f17048-cf23-48b4-86c6-62b19777f1bb")
 	)
 	(pad "" np_thru_hole circle
 		(at 0 0)
-		(size 2 2)
-		(drill 2)
+		(size 1.5 1.5)
+		(drill 1.5)
 		(layers "*.Cu" "*.Mask")
-		(uuid "0bfaf346-1d16-493a-8c9e-4250cfa7fd32")
+		(uuid "0937a295-c418-460b-9029-7f6ef53a1fe9")
 	)
 	(pad "" np_thru_hole circle
-		(at 2.25 0)
-		(size 2 2)
-		(drill 2)
+		(at 1.75 0)
+		(size 1.5 1.5)
+		(drill 1.5)
 		(layers "*.Cu" "*.Mask")
-		(uuid "547c94cb-4117-414e-8f0f-7ea8cbcf5475")
+		(uuid "8860e308-6cab-4034-bc73-13728f3d174f")
 	)
 	(pad "" np_thru_hole circle
-		(at 4.5 0)
-		(size 2 2)
-		(drill 2)
+		(at 3.5 0)
+		(size 1.5 1.5)
+		(drill 1.5)
 		(layers "*.Cu" "*.Mask")
-		(uuid "c840171f-94a8-4fde-aab3-b374dd93f9cc")
+		(uuid "2b100a53-4020-4f04-b693-40cfc0e90911")
 	)
 	(embedded_fonts no)
 )

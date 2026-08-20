@@ -1,0 +1,8 @@
+(version 1)
+(rule "SC Tracks to Tracks and Vias"
+    (constraint clearance (min 0.5mm))
+    (condition "A.NetName == '*SD_*' && (A.Type == 'Track' || A.Type == 'Via') && (B.Type == 'Track' || B.Type == 'Via')"))
+
+(rule "SC Tracks to Copper Pour"
+    (constraint clearance (min 0.5mm))
+    (condition "A.NetName == '*SD_*' && B.Type == 'Zone'"))

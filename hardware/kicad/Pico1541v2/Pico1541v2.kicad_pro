@@ -62,10 +62,10 @@
           "hatch_thickness": 1.0,
           "min_clearance": 0.2,
           "min_island_area": 10.0,
-          "min_thickness": 0.25,
+          "min_thickness": 0.2,
           "pad_connection": 1,
           "remove_islands": 0,
-          "thermal_relief_gap": 0.5,
+          "thermal_relief_gap": 0.3,
           "thermal_relief_spoke_width": 0.5
         }
       },
@@ -521,7 +521,7 @@
         "clearance": 0.2,
         "diff_pair_gap": 0.25,
         "diff_pair_via_gap": 0.25,
-        "diff_pair_width": 0.2,
+        "diff_pair_width": 0.25,
         "line_style": 0,
         "microvia_diameter": 0.3,
         "microvia_drill": 0.1,
@@ -536,7 +536,7 @@
         "wire_width": 6
       },
       {
-        "clearance": 0.35,
+        "clearance": 0.25,
         "diff_pair_gap": 0.35,
         "diff_pair_width": 0.5,
         "microvia_diameter": 0.4,
@@ -563,10 +563,6 @@
       },
       {
         "netclass": "Power",
-        "pattern": "VBUS"
-      },
-      {
-        "netclass": "Power",
         "pattern": "GND"
       },
       {
@@ -576,10 +572,6 @@
       {
         "netclass": "Power",
         "pattern": "GNDA"
-      },
-      {
-        "netclass": "Power",
-        "pattern": "VS"
       }
     ]
   },
@@ -587,7 +579,7 @@
     "last_paths": {
       "idf": "",
       "netlist": "",
-      "plot": "gerber2/",
+      "plot": "gerber/",
       "specctra_dsn": "",
       "vrml": ""
     },
@@ -711,7 +703,7 @@
         "uuid": "fb7a9a9a-73a1-4d45-b1f9-1589f10de67b"
       }
     ],
-    "used_designators": "LS1,#PWR1-26,#PWR31,H1-10,#FLG1-2,#LOGO1-2,J1-7,CC2,Q1,RN1-5,SW1-5,R1-4,U1-2,D1-2,D4,C1-6,A1,FID1-6",
+    "used_designators": "D1-2,D4,U1-2,R1-4,FID1-6,A1,C1-6,LS1,#PWR1-26,#PWR31,H1-10,#FLG1-2,#LOGO1-2,J1-7,CC2,Q1,RN1-5,SW1-5",
     "variants": []
   },
   "sheets": [
