@@ -1,2 +1,6 @@
 **/*-backups/
 **/.history/
+
+**/gerber/*
+**/fp-lib-table
+**/*.lck
