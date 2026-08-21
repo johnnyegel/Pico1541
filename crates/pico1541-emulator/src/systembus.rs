@@ -98,7 +98,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn sync_iec_bus(&mut self, hardware: &mut H, current_cycle: u32) {
+    pub fn sync_iec_bus(&mut self, hardware: &mut H, _current_cycle: u32) {
         // :: Capture the IEC bus state, and update the VIA1 input register
         let iec_in = hardware.read_iec_port() | self.device_id_pb_bits;
         let via1_pb_out = self.via1.get_pb_out();
@@ -106,7 +106,6 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         // Fast path: if the physical IEC lines haven't changed AND the 6502 hasn't written a new output state,
         // effective_orb cannot change.
         if iec_in == self.last_iec_in && via1_pb_out == self.last_via1_pb_out {
-            self.time.last_iec_sync_cycle = current_cycle;
             return;
         }
         
@@ -132,16 +131,12 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             hardware.write_iec_port(effective_orb);
             self.last_iec_out = effective_orb;
         }
-        
-        self.time.mark_iec_synced(current_cycle);
     }
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn poll_realtime(&mut self, hardware: &mut H, elapsed: u32, current_cycle: u32) {
-        if self.time.should_sync_iec(current_cycle) {
-            self.sync_iec_bus(hardware, current_cycle);
-        }
+        self.sync_iec_bus(hardware, current_cycle);
 
         if (current_cycle ^ current_cycle.wrapping_sub(elapsed)) & !0x3FF != 0 {
             self.device_id = hardware.get_device_id();
@@ -323,52 +318,6 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         if delta > 0 {
             self.tick_cycles(delta);
         }
-        self.update_next_sync_cycle();
-    }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    pub fn update_next_sync_cycle(&mut self) {
-        let mut min_delta = 1024 - (self.time.last_sync_cycle & 0x3FF);
-        #[inline(always)]
-        fn check_via(via: &crate::via6522::Via6522, mut min: u32) -> u32 {
-            let mask = via.active_mask();
-            if mask & crate::via6522::Via6522::T1_ACTIVE != 0 {
-                min = min.min(via.t1c() as u32 + 1);
-            }
-            if mask & crate::via6522::Via6522::T2_ACTIVE != 0 {
-                min = min.min(via.t2c() as u32 + 1);
-            }
-            if mask & crate::via6522::Via6522::SR_ACTIVE != 0 {
-                min = min.min(via.sr_cycles() + 1);
-            }
-            min
-        }
-
-        min_delta = check_via(&self.via1, min_delta);
-        min_delta = check_via(&self.via2, min_delta);
-        
-        if self.is_motor_on() {
-            // OPTIMIZATION (Option A): We predict the arrival of the next byte from the DMA.
-            // A byte at the fastest zone arrives every ~25-26 cycles.
-            // By running freely for up to 24 cycles since the last byte, we skip 
-            // expensive real-time timer polling until we are in the exact window 
-            // where the byte is expected to drop.
-            let cycles_since_last_byte = self.time.last_sync_cycle.wrapping_sub(self.time.last_byte_cycle);
-            
-            // If we are within 24 cycles of the last byte, run freely until we hit the 24 cycle mark.
-            // If we exceed 24 cycles, we drop min_delta to 1 to strictly poll real-time every cycle
-            // and catch the byte exactly when it arrives (0-jitter).
-            let safe_window = 24;
-            if cycles_since_last_byte < safe_window {
-                let cycles_until_window = safe_window - cycles_since_last_byte;
-                min_delta = min_delta.min(cycles_until_window);
-            } else {
-                min_delta = 1;
-            }
-        }
-        
-        self.time.next_event_cycle = self.time.last_sync_cycle.wrapping_add(min_delta);
     }
 
     

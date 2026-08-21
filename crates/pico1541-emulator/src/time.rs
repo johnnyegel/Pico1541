@@ -1,39 +1,20 @@
 pub struct EmulatorTime {
     pub last_sync_cycle: u32,
-    pub next_event_cycle: u32,
     pub last_byte_cycle: u32,
-    pub last_iec_sync_cycle: u32,
 }
 
 impl EmulatorTime {
     pub fn new() -> Self {
         Self {
             last_sync_cycle: 0,
-            next_event_cycle: 1024,
             last_byte_cycle: 0,
-            last_iec_sync_cycle: 0,
         }
-    }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    pub fn should_sync_iec(&self, current_cycle: u32) -> bool {
-        current_cycle.wrapping_sub(self.last_iec_sync_cycle) >= 32
-    }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    pub fn mark_iec_synced(&mut self, current_cycle: u32) {
-        self.last_iec_sync_cycle = current_cycle;
     }
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn sync_realtime<H: pico1541_common::interface::HostInterface>(&self, current_cycle: u32, hw: &mut H) {
-        // Centralized spin-wait check!
-        if current_cycle.wrapping_sub(self.next_event_cycle) < 0x80000000 {
-            hw.spin_until(current_cycle);
-        }
+        hw.spin_until(current_cycle);
     }
 
     #[link_section = ".data.ram_func"]

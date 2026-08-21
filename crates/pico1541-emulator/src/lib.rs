@@ -116,16 +116,18 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         
         let elapsed = self.cpu.step(&mut self.systembus, hw);
         
-        // Poll IEC and DriveMechanics on every instruction for real-time accuracy without jitter
-        self.systembus.poll_realtime(hw, elapsed, self.cpu.cycles);
-        
-        // Let the central Timekeeper advance and handle any potential spin-waiting
-        self.systembus.time.sync_realtime(self.cpu.cycles, hw);
+        // Do all internal emulation math (timers, mechanics) while we have free time
         self.systembus.catch_up(self.cpu.cycles);
         
         if self.systembus.so_pending() {
             self.cpu.pending_so = true;
         }
+
+        // Wait until physical real-time matches the simulated cpu.cycles
+        self.systembus.time.sync_realtime(self.cpu.cycles, hw);
+
+        // Now that we are perfectly synchronized in time, sample physical pins!
+        self.systembus.poll_realtime(hw, elapsed, self.cpu.cycles);
 
         // Flight recorder re-enabled, optimized to waste minimal cycles
         #[cfg(feature = "flight-recorder")]
