@@ -121,7 +121,6 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         
         // Let the central Timekeeper advance and handle any potential spin-waiting
         self.systembus.time.sync_realtime(self.cpu.cycles, hw);
-
         self.systembus.catch_up(self.cpu.cycles);
         
         if self.systembus.so_pending() {
