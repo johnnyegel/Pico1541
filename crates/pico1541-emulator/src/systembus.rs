@@ -125,12 +125,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         }
 
         // :: Calculate the effective VIA1 Port B output
-        let mut effective_orb = self.via1.get_pb_out();
-
-        // Auto-acknowledge ATN: if ATN is asseted and ATNA is not asserted
-        effective_orb |= bit_align_u8(curr_atn, H::VIA1_IEC_BIT_ATN_RX, H::VIA1_IEC_BIT_DATA_TX)
-                & bit_align_u8(!effective_orb, H::VIA1_IEC_BIT_ATN_ACK, H::VIA1_IEC_BIT_DATA_TX)
-                & H::VIA1_IEC_MASK_DATA_TX;
+        // The hardware (PIO) now handles ATN auto-acknowledge, so we just pass the raw PB out
+        let effective_orb = self.via1.get_pb_out();
 
         // :: Write the effective VIA1 Port B output to the physical IEC bus
         if effective_orb != self.last_iec_out {

@@ -11,6 +11,7 @@ pub trait ViaHardware {
     const VIA1_IEC_MASK_DATA_TX: u8 = 1 << Self::VIA1_IEC_BIT_DATA_TX; // PB1
     const VIA1_IEC_MASK_CLK_RX: u8 = 1 << Self::VIA1_IEC_BIT_CLK_RX;  // PB2
     const VIA1_IEC_MASK_CLK_TX: u8 = 1 << Self::VIA1_IEC_BIT_CLK_TX;  // PB3
+    const VIA1_IEC_MASK_ATN_ACK: u8 = 1 << Self::VIA1_IEC_BIT_ATN_ACK; // PB4
     const VIA1_IEC_MASK_ATN_RX: u8 = 1 << Self::VIA1_IEC_BIT_ATN_RX;  // PB7
     
     // VIA2 constants for motor and LED control

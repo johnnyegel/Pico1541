@@ -164,19 +164,32 @@ impl ViaHardware for HardwareBridge {
     #[inline(always)]
     fn write_iec_port(&mut self, via_port_b: u8) {
 
-        let pb_data_mask = bit_align_u32((via_port_b & Self::VIA1_IEC_MASK_DATA_TX) as u32,
-            Self::VIA1_IEC_BIT_DATA_TX, GPIO_IEC_BIT_DATA_TX);
-
-        // IEC_CLK_TX is bit 3, we want it at bit 20 -> shift by 17
-        let pb_clk_mask = bit_align_u32((via_port_b & Self::VIA1_IEC_MASK_CLK_TX) as u32,
-            Self::VIA1_IEC_BIT_CLK_TX, GPIO_IEC_BIT_CLK_TX);
-
-        let target_state = pb_data_mask | pb_clk_mask;
-        let mask = GPIO_IEC_MASK_DATA_TX | GPIO_IEC_MASK_CLK_TX;
+        // Check emulator logic state (1 = Asserted, 0 = Released)
+        let pb3_asserted = (via_port_b & Self::VIA1_IEC_MASK_CLK_TX) != 0;
         
-        // It is crucial that bits are cleared before set.
-        embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(mask & !target_state);
-        embassy_rp::pac::SIO.gpio_out(0).value_set().write_value(target_state);
+        // 7405 Inverter Logic:
+        // RP2040 Pin HIGH (1) -> 7405 Output LOW (Bus Asserted)
+        // RP2040 Pin LOW (0) -> 7405 Output Float (Bus Released)
+        
+        // SIO Controls CLK_TX (GPIO 20)
+        let target_clk = if pb3_asserted { GPIO_IEC_MASK_CLK_TX } else { 0 };
+        let mask = GPIO_IEC_MASK_CLK_TX;
+        
+        // Write to SIO
+        embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(mask & !target_clk);
+        embassy_rp::pac::SIO.gpio_out(0).value_set().write_value(target_clk);
+
+        // PIO Controls DATA_TX (GPIO 19)
+        // Extract PB1 (Data) and PB4 (ATN_ACK) as 0 or 1
+        let pb1 = (via_port_b >> Self::VIA1_IEC_BIT_DATA_TX) & 1;
+        let pb4 = (via_port_b >> Self::VIA1_IEC_BIT_ATN_ACK) & 1;
+        
+        // Pack into 2-bit command for PIO:
+        // Bit 0 (Pin state when ATN pin is 0): pb1
+        // Bit 1 (Pin state when ATN pin is 1): pb1 OR NOT pb4
+        let pio_cmd = pb1 | ((pb1 | (pb4 ^ 1)) << 1);
+        
+        embassy_rp::pac::PIO1.txf(0).write_value(pio_cmd as u32);
     }
 
     #[link_section = ".data.ram_func"]
@@ -225,4 +238,55 @@ impl ViaHardware for HardwareBridge {
     fn is_reset_line_asserted(&self) -> bool {
         embassy_rp::pac::SIO.gpio_in(0).read() & GPIO_IEC_MASK_RESET != 0
     }
+}
+
+pub fn init_iec_pio(mut pio1: embassy_rp::pio::Pio<'static, embassy_rp::peripherals::PIO1>) {
+    // IEC DATA TX Logic: Combines PB1, PB4, and ATN in real-time.
+    // The emulator pushes a 2-bit state to the TX FIFO representing the physical RP2040 pin state.
+    // 1 = HIGH (Drives 7405 LOW = Bus Asserted)
+    // 0 = LOW  (Drives 7405 Float = Bus Released)
+    // Bit 0: Pin state when ATN pin is 0 (Bus Released)
+    // Bit 1: Pin state when ATN pin is 1 (Bus Asserted)
+    let iec_prg = pio::pio_asm!(
+        r#"
+        set pindirs, 1      ; Always Push-Pull (7405 handles Open Collector)
+        set x, 0            ; Initialize X to 0 (Release in all cases)
+    loop:
+        pull noblock        ; If TX FIFO has data, pull to OSR. If empty, OSR = X.
+        mov x, osr          ; Store latest state back into X
+        jmp pin atn_high    ; Read ATN (GPIO 18). Jump if HIGH (Bus Asserted).
+    atn_low:
+        mov osr, x          ; OSR = X
+        out pins, 1         ; Shift Bit 0 into PINS
+        jmp loop
+    atn_high:
+        mov osr, x          ; OSR = X
+        out null, 1         ; Discard Bit 0
+        out pins, 1         ; Shift Bit 1 into PINS
+        jmp loop
+        "#
+    ).program;
+    
+    let iec_loaded = pio1.common.load_program(&iec_prg);
+    let data_tx_pin = pio1.common.make_pio_pin(unsafe { embassy_rp::peripherals::PIN_19::steal() });
+    let atn_pin = pio1.common.make_pio_pin(unsafe { embassy_rp::peripherals::PIN_18::steal() });
+    
+    let mut iec_cfg = embassy_rp::pio::Config::default();
+    iec_cfg.use_program(&iec_loaded, &[]);
+    iec_cfg.set_set_pins(&[&data_tx_pin]);
+    iec_cfg.set_out_pins(&[&data_tx_pin]);
+    iec_cfg.set_in_pins(&[&atn_pin]);
+    iec_cfg.set_jmp_pin(&atn_pin);
+    
+    // Shift right, auto-pull disabled, 32-bit threshold
+    iec_cfg.shift_out.direction = embassy_rp::pio::ShiftDirection::Right;
+    iec_cfg.shift_out.auto_fill = false;
+    
+    pio1.sm0.set_config(&iec_cfg);
+    pio1.sm0.set_enable(true);
+    
+    core::mem::forget(data_tx_pin);
+    core::mem::forget(atn_pin);
+    core::mem::forget(iec_loaded);
+    core::mem::forget(pio1); // DO NOT DROP PIO1, otherwise Drop will disable the state machine!
 }

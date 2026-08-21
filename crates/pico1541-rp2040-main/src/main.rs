@@ -22,7 +22,7 @@ use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::i2c::{Config, InterruptHandler};
-use embassy_rp::peripherals::{I2C0, DMA_CH0, DMA_CH1, PIO0};
+use embassy_rp::peripherals::{I2C0, DMA_CH0, DMA_CH1, PIO0, PIO1};
 use embassy_rp::spi::{Config as SpiConfig, Spi};
 use embassy_rp::multicore::Stack;
 use embassy_rp::Peri;
@@ -69,6 +69,7 @@ bind_interrupts!(struct Irqs {
     I2C0_IRQ => InterruptHandler<I2C0>;
     DMA_IRQ_0 => embassy_rp::dma::InterruptHandler<DMA_CH0>, embassy_rp::dma::InterruptHandler<DMA_CH1>;
     PIO0_IRQ_0 => embassy_rp::pio::InterruptHandler<PIO0>;
+    PIO1_IRQ_0 => embassy_rp::pio::InterruptHandler<PIO1>;
 });
 
 const DEFAULT_DRIVE_ID: u8 = 8;
@@ -315,6 +316,7 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
         &SNOOPER_CONFIG,
         drive_id,
         pio0,
+        embassy_rp::pio::Pio::new(p.PIO1, Irqs),
         emulator_handle,
         unsafe { &*core::ptr::addr_of!(ROM_BUFFER) },
     );

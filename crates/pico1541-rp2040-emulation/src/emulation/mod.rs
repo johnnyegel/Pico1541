@@ -9,8 +9,7 @@ use pico1541_common::context::ViaHardware;
 
 use embassy_rp::multicore::Stack;
 use embassy_rp::pio::Pio;
-use embassy_rp::peripherals::PIO0;
-use embassy_rp::peripherals::CORE1;
+use embassy_rp::peripherals::{CORE1, PIO0, PIO1};
 
 use pico1541_common::track_buffer::EmulatorHandle;
 use crate::magnetic_surface::PioMagneticSurface;
@@ -39,6 +38,7 @@ pub fn spawn_core1(
     snooper_config: &'static SnooperConfig,
     drive_id: u8,
     pio0: Pio<'static, PIO0>,
+    pio1: Pio<'static, PIO1>,
     emulator_handle: EmulatorHandle,
     rom_buffer: &'static [u8; 16384],
 ) {
@@ -60,6 +60,8 @@ pub fn spawn_core1(
         _dbg_0: embassy_rp::gpio::Output::new(hardware.pin_0, embassy_rp::gpio::Level::Low),
         _dbg_1: embassy_rp::gpio::Output::new(hardware.pin_1, embassy_rp::gpio::Level::Low),    
     };
+
+    bridge::init_iec_pio(pio1);
 
     let mut bridge = HardwareBridge::new(snooper_config, pins_iec, pins_led, pins_debug);
 
