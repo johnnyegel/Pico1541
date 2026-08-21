@@ -7,7 +7,6 @@ use core::marker::PhantomData;
 use pico1541_common::context::ViaHardware;
 use pico1541_common::interface::HostInterface;
 use pico1541_common::magnetic_surface::MagneticSurface;
-use pico1541_common::util::bit_align_u8;
 
 /// Represents the 1541's memory bus, mapping access to RAM, ROM, and I/O.
 ///
@@ -139,8 +138,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn poll_realtime(&mut self, hardware: &mut H, elapsed: u32, current_cycle: u32, fast_mode: bool) {
-        if self.time.should_sync_iec(current_cycle, fast_mode) {
+    pub fn poll_realtime(&mut self, hardware: &mut H, elapsed: u32, current_cycle: u32) {
+        if self.time.should_sync_iec(current_cycle) {
             self.sync_iec_bus(hardware, current_cycle);
         }
 
