@@ -135,7 +135,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn poll_realtime(&mut self, hardware: &mut H, elapsed: u32, current_cycle: u32) {
+    pub fn poll_io(&mut self, hardware: &mut H, elapsed: u32, current_cycle: u32) {
+        self.poll_mechanics(elapsed, current_cycle);
         self.sync_iec_bus(hardware, current_cycle);
 
         if (current_cycle ^ current_cycle.wrapping_sub(elapsed)) & !0x3FF != 0 {
@@ -201,11 +202,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         if delta == 0 {
             return;
         }
-        // time.last_sync_cycle has already been updated to target_cycle in consume_catchup_delta
-        let current_cycle = self.time.last_sync_cycle;
         
-        self.poll_mechanics(delta, current_cycle);
-
         if self.via1.any_active() {
             self.via1.tick_cycles(delta);
         }

@@ -98,7 +98,7 @@ fn test_g64_track_reading_low_level() {
     // However, some tracks in Zone 0 can take up to 246,144 cycles.
     // We use 300,000 to be safe.
     for i in 0..300_000 {
-        bus.tick_cycles(1); let byte_ready = bus.so_pending();
+        bus.tick_cycles(1); bus.poll_mechanics(1, 0); let byte_ready = bus.so_pending();
 
         let sync_active = (bus.via2.pb_in() & 0x80) == 0;
 

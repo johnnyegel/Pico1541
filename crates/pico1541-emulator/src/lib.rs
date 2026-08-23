@@ -119,15 +119,15 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         // Do all internal emulation math (timers, mechanics) while we have free time
         self.systembus.catch_up(self.cpu.cycles);
         
-        if self.systembus.so_pending() {
-            self.cpu.pending_so = true;
-        }
-
         // Wait until physical real-time matches the simulated cpu.cycles
         self.systembus.time.sync_realtime(self.cpu.cycles, hw);
 
         // Now that we are perfectly synchronized in time, sample physical pins!
-        self.systembus.poll_realtime(hw, elapsed, self.cpu.cycles);
+        self.systembus.poll_io(hw, elapsed, self.cpu.cycles);
+
+        if self.systembus.so_pending() {
+            self.cpu.pending_so = true;
+        }
 
         // Flight recorder re-enabled, optimized to waste minimal cycles
         #[cfg(feature = "flight-recorder")]
