@@ -114,6 +114,12 @@ impl HostInterface for HardwareBridge {
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
+    fn spin_until_half(&mut self, target_cycle: u32) -> bool {
+        self.timekeeper.spin_until_half(target_cycle)
+    }
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
     fn check_halt_requested(&self) -> bool {
         self.config.halt_emulator.load(Ordering::Relaxed)
     }

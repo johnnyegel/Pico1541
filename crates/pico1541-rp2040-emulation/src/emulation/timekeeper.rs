@@ -63,4 +63,25 @@ impl TimeKeeper {
         }
         did_wait
     }
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
+    pub fn spin_until_half(&mut self, target_cycle: u32) -> bool {
+        // Wait for target_cycle + 0.5 cycles
+        let target_ticks = target_cycle * (SYSTEM_CLOCK_FREQ / 1_000_000) + (SYSTEM_CLOCK_FREQ / 1_000_000) / 2;
+        let target_time = self.base_time_24.wrapping_add(target_ticks) & 0x00FFFFFF;
+
+        let mut did_wait = false;
+        if target_time.wrapping_sub(Self::now_24()) & 0x00FFFFFF < 0x800000 {
+            did_wait = true;
+            embassy_rp::pac::BUSCTRL.bus_priority().write(|w| w.set_proc1(false));
+            
+            while target_time.wrapping_sub(Self::now_24()) & 0x00FFFFFF < 0x800000 {
+                self.idle_counter = self.idle_counter.wrapping_add(1);
+            }
+            
+            embassy_rp::pac::BUSCTRL.bus_priority().write(|w| w.set_proc1(true));
+        }
+        did_wait
+    }
 }
