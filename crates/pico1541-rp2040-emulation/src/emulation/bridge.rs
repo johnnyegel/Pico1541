@@ -169,31 +169,15 @@ impl ViaHardware for HardwareBridge {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn write_iec_port(&mut self, via_port_b: u8) {
-
-        // Check emulator logic state (1 = Asserted, 0 = Released)
-        let pb3_asserted = (via_port_b & Self::VIA1_IEC_MASK_CLK_TX) != 0;
-        
-        // 7405 Inverter Logic:
-        // RP2040 Pin HIGH (1) -> 7405 Output LOW (Bus Asserted)
-        // RP2040 Pin LOW (0) -> 7405 Output Float (Bus Released)
-        
-        // SIO Controls CLK_TX (GPIO 20)
-        let target_clk = if pb3_asserted { GPIO_IEC_MASK_CLK_TX } else { 0 };
-        let mask = GPIO_IEC_MASK_CLK_TX;
-        
-        // Write to SIO
-        embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(mask & !target_clk);
-        embassy_rp::pac::SIO.gpio_out(0).value_set().write_value(target_clk);
-
-        // PIO Controls DATA_TX (GPIO 19)
-        // Extract PB1 (Data) and PB4 (ATN_ACK) as 0 or 1
+        // PIO Unified IEC Logic
+        // Bit 0: CLK target
+        // Bit 1: PB1 (DATA_OUT)
+        // Bit 2: PB4 (ATNA)
+        let clk_out = (via_port_b >> Self::VIA1_IEC_BIT_CLK_TX) & 1;
         let pb1 = (via_port_b >> Self::VIA1_IEC_BIT_DATA_TX) & 1;
         let pb4 = (via_port_b >> Self::VIA1_IEC_BIT_ATN_ACK) & 1;
         
-        // Pack into 2-bit command for PIO:
-        // Bit 0 (Pin state when ATN pin is 0): pb1
-        // Bit 1 (Pin state when ATN pin is 1): pb1 OR NOT pb4
-        let pio_cmd = pb1 | ((pb1 | (pb4 ^ 1)) << 1);
+        let pio_cmd = clk_out | (pb1 << 1) | (pb4 << 2);
         
         embassy_rp::pac::PIO1.txf(0).write_value(pio_cmd as u32);
     }
@@ -247,40 +231,65 @@ impl ViaHardware for HardwareBridge {
 }
 
 pub fn init_iec_pio(mut pio1: embassy_rp::pio::Pio<'static, embassy_rp::peripherals::PIO1>) {
-    // IEC DATA TX Logic: Combines PB1, PB4, and ATN in real-time.
-    // The emulator pushes a 2-bit state to the TX FIFO representing the physical RP2040 pin state.
-    // 1 = HIGH (Drives 7405 LOW = Bus Asserted)
-    // 0 = LOW  (Drives 7405 Float = Bus Released)
-    // Bit 0: Pin state when ATN pin is 0 (Bus Released)
-    // Bit 1: Pin state when ATN pin is 1 (Bus Asserted)
+    // PIO unified IEC logic for CLK and DATA
+    // Bit 0: CLK target
+    // Bit 1: PB1 (DATA_OUT)
+    // Bit 2: PB4 (ATNA)
     let iec_prg = pio::pio_asm!(
         r#"
-        set pindirs, 1      ; Always Push-Pull (7405 handles Open Collector)
         set x, 0            ; Initialize X to 0 (Release in all cases)
     loop:
-        pull noblock        ; If TX FIFO has data, pull to OSR. If empty, OSR = X.
-        mov x, osr          ; Store latest state back into X
-        jmp pin atn_high    ; Read ATN (GPIO 18). Jump if HIGH (Bus Asserted).
-    atn_low:
-        mov osr, x          ; OSR = X
-        out pins, 1         ; Shift Bit 0 into PINS
+        ; 1. Fetch the unified VIA state
+        pull noblock        ; Pull new state from Rust, or restore previous state from X
+        mov x, osr          ; Back up the state in X for the next loop
+        
+        ; 2. Handle CLOCK (Bit 0)
+        out pins, 1         ; Instantly applies Bit 0 directly to the CLOCK pin
+        
+        ; 3. Extract PB1 (Bit 1)
+        out y, 1        
+        jmp !y check_pb4    ; If PB1 is 0, check PB4
+        jmp drive_1         ; If PB1 is 1, assert DATA immediately
+        
+    check_pb4:
+        ; 4. Extract PB4 (Bit 2)
+        out y, 1        
+        
+        ; 5. Evaluate XOR: (PB4 ^ ATN)
+        jmp pin atn_1   
+        
+    atn_0:
+        jmp !y drive_0
+        jmp drive_1
+        
+    atn_1:
+        jmp !y drive_1
+        jmp drive_0
+        
+    drive_0:
+        set pins, 0         ; Release DATA
         jmp loop
-    atn_high:
-        mov osr, x          ; OSR = X
-        out null, 1         ; Discard Bit 0
-        out pins, 1         ; Shift Bit 1 into PINS
+        
+    drive_1:
+        set pins, 1         ; Assert DATA
         jmp loop
         "#
     ).program;
     
     let iec_loaded = pio1.common.load_program(&iec_prg);
     let data_tx_pin = pio1.common.make_pio_pin(unsafe { embassy_rp::peripherals::PIN_19::steal() });
+    let clk_tx_pin = pio1.common.make_pio_pin(unsafe { embassy_rp::peripherals::PIN_20::steal() });
     let atn_pin = pio1.common.make_pio_pin(unsafe { embassy_rp::peripherals::PIN_18::steal() });
     
     let mut iec_cfg = embassy_rp::pio::Config::default();
     iec_cfg.use_program(&iec_loaded, &[]);
+    
+    // `set_pins` controls DATA_TX
     iec_cfg.set_set_pins(&[&data_tx_pin]);
-    iec_cfg.set_out_pins(&[&data_tx_pin]);
+    
+    // `out_pins` controls CLK_TX
+    iec_cfg.set_out_pins(&[&clk_tx_pin]);
+    
     iec_cfg.set_in_pins(&[&atn_pin]);
     iec_cfg.set_jmp_pin(&atn_pin);
     
@@ -289,9 +298,15 @@ pub fn init_iec_pio(mut pio1: embassy_rp::pio::Pio<'static, embassy_rp::peripher
     iec_cfg.shift_out.auto_fill = false;
     
     pio1.sm0.set_config(&iec_cfg);
+    
+    // Configure pin directions for PIO
+    pio1.sm0.set_pin_dirs(embassy_rp::pio::Direction::Out, &[&data_tx_pin, &clk_tx_pin]);
+    pio1.sm0.set_pin_dirs(embassy_rp::pio::Direction::In, &[&atn_pin]);
+    
     pio1.sm0.set_enable(true);
     
     core::mem::forget(data_tx_pin);
+    core::mem::forget(clk_tx_pin);
     core::mem::forget(atn_pin);
     core::mem::forget(iec_loaded);
     core::mem::forget(pio1); // DO NOT DROP PIO1, otherwise Drop will disable the state machine!

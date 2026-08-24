@@ -51,15 +51,10 @@ impl TimeKeeper {
         let mut did_wait = false;
         if target_time.wrapping_sub(Self::now_24()) & 0x00FFFFFF < 0x800000 {
             did_wait = true;
-            // Yield bus priority to Core 0 (Manager) while we are just waiting for time to pass
-            embassy_rp::pac::BUSCTRL.bus_priority().write(|w| w.set_proc1(false));
             
             while target_time.wrapping_sub(Self::now_24()) & 0x00FFFFFF < 0x800000 {
                 self.idle_counter = self.idle_counter.wrapping_add(1);
             }
-            
-            // Reclaim bus priority now that we need to execute 6502 instructions
-            embassy_rp::pac::BUSCTRL.bus_priority().write(|w| w.set_proc1(true));
         }
         did_wait
     }
@@ -74,13 +69,10 @@ impl TimeKeeper {
         let mut did_wait = false;
         if target_time.wrapping_sub(Self::now_24()) & 0x00FFFFFF < 0x800000 {
             did_wait = true;
-            embassy_rp::pac::BUSCTRL.bus_priority().write(|w| w.set_proc1(false));
             
             while target_time.wrapping_sub(Self::now_24()) & 0x00FFFFFF < 0x800000 {
                 self.idle_counter = self.idle_counter.wrapping_add(1);
             }
-            
-            embassy_rp::pac::BUSCTRL.bus_priority().write(|w| w.set_proc1(true));
         }
         did_wait
     }

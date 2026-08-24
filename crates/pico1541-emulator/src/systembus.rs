@@ -23,7 +23,6 @@ pub struct SystemBus<H: HostInterface, S: MagneticSurface> {
     device_id_pb_bits: u8,
     pub time: crate::time::EmulatorTime,
     so_pulsed: bool,
-    last_iec_out: u8,
     last_iec_in: u8,
     last_via1_pb_out: u8,
     last_via2_out: u8,
@@ -49,7 +48,6 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             device_id_pb_bits: (device_id & 0x03) << 5,
             time: crate::time::EmulatorTime::new(),
             so_pulsed: false,
-            last_iec_out: 0xFF, // Force first write
             last_iec_in: 0xFF,
             last_via1_pb_out: 0xFF,
             last_via2_out: 0xFF,
@@ -86,7 +84,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         self.via2.reset();
         self.mechanics.reset();
         self.device_id_pb_bits = (self.device_id & 0x03) << 5;
-        self.last_iec_out = 0xFF; // Force first write
+        self.via1.set_pb_in(0xFF);
         self.last_iec_in = 0xFF;
         self.last_via1_pb_out = 0xFF;
         self.last_via2_out = 0xFF;
@@ -99,37 +97,31 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn sync_iec_bus(&mut self, hardware: &mut H, _current_cycle: u32) {
-        // :: Capture the IEC bus state, and update the VIA1 input register
         let iec_in = hardware.read_iec_port() | self.device_id_pb_bits;
         let via1_pb_out = self.via1.get_pb_out();
         
-        // Fast path: if the physical IEC lines haven't changed AND the 6502 hasn't written a new output state,
-        // effective_orb cannot change.
+        // Fast path: if nothing changed, do nothing
         if iec_in == self.last_iec_in && via1_pb_out == self.last_via1_pb_out {
             return;
         }
-        
-        self.last_iec_in = iec_in;
-        self.last_via1_pb_out = via1_pb_out;
 
-        let prev_atn = self.via1.pb_in() & H::VIA1_IEC_MASK_ATN_RX;
-        let curr_atn = iec_in & H::VIA1_IEC_MASK_ATN_RX;
-        self.via1.set_pb_in(iec_in);
+        // :: Handle input changes (ATN IRQ and VIA input register)
+        if iec_in != self.last_iec_in {
+            let prev_atn = self.last_iec_in & H::VIA1_IEC_MASK_ATN_RX;
+            let curr_atn = iec_in & H::VIA1_IEC_MASK_ATN_RX;
+            
+            self.last_iec_in = iec_in;
+            self.via1.set_pb_in(iec_in);
 
-        // :? Did the ATN state change?
-        if prev_atn != curr_atn {
-            // -> Yes, then call the VIA1 CA1 edge handler to trigger an interrupt if needed
-            self.via1.ca1_edge(curr_atn != 0);
+            if prev_atn != curr_atn {
+                self.via1.ca1_edge(curr_atn != 0);
+            }
         }
 
-        // :: Calculate the effective VIA1 Port B output
-        // The hardware (PIO) now handles ATN auto-acknowledge, so we just pass the raw PB out
-        let effective_orb = self.via1.get_pb_out();
-
-        // :: Write the effective VIA1 Port B output to the physical IEC bus
-        if effective_orb != self.last_iec_out {
-            hardware.write_iec_port(effective_orb);
-            self.last_iec_out = effective_orb;
+        // :: Handle output changes (Update PIO state)
+        if via1_pb_out != self.last_via1_pb_out {
+            self.last_via1_pb_out = via1_pb_out;
+            hardware.write_iec_port(via1_pb_out);
         }
     }
 
@@ -159,7 +151,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             return;
         }
 
-                // Hardware Wiring: Pull bytes from the DMA buffer and wire SYNC/SO directly to VIA2/CPU.
+        // Hardware Wiring: Pull bytes from the DMA buffer and wire SYNC/SO directly to VIA2/CPU.
         if self.is_motor_on() {
             let pcr_cb2 = self.via2.pcr() & 0b1110_0000;
             let is_read_mode = pcr_cb2 != 0b1100_0000;
@@ -197,7 +189,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     }
 
     #[link_section = ".data.ram_func"]
-    #[inline]
+    #[inline(always)]
     pub fn tick_cycles(&mut self, delta: u32) {
         if delta == 0 {
             return;
