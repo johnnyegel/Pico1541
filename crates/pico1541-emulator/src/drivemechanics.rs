@@ -41,7 +41,6 @@ pub struct DriveMechanics<S: MagneticSurface> {
     pub track_handle: EmulatorHandle,
     pub current_identifier: TrackIdentifier,
     
-    time_until_next_check: u8,
     last_requested_sector: u8,
     last_active_index: u8,
 }
@@ -53,7 +52,6 @@ impl<S: MagneticSurface> DriveMechanics<S> {
             surface,
             track_handle,
             current_identifier: TrackIdentifier::void(),
-            time_until_next_check: 0,
             last_requested_sector: 255,
             last_active_index: 0,
         }
@@ -111,10 +109,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn advance_read_head(&mut self, elapsed: u32, master_clock: u32) -> ReadHeadSignals {
-        self.time_until_next_check = self.time_until_next_check.wrapping_sub(elapsed as u8);
-        if self.time_until_next_check < (elapsed as u8) {
-            self.check_active_index(master_clock);
-        }
+        self.check_active_index(master_clock);
         ReadHeadSignals {
             byte_opt: self.surface.try_read_byte(elapsed),
             is_sync: self.surface.is_sync_active(),
@@ -124,10 +119,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn advance_write_head(&mut self, elapsed: u32, master_clock: u32, byte: u8) {
-        self.time_until_next_check = self.time_until_next_check.wrapping_sub(elapsed as u8);
-        if self.time_until_next_check < (elapsed as u8) {
-            self.check_active_index(master_clock);
-        }
+        self.check_active_index(master_clock);
         // Writing ignores elapsed for time advancement because the surface time is driven by it.
         // Wait, the surface needs to advance by elapsed!
         // try_read_byte advances time. The write mode just advances time by `elapsed` cycles but doesn't output bytes.
