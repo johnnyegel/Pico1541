@@ -66,6 +66,7 @@ pub fn spawn_core1(
     let mut bridge = HardwareBridge::new(snooper_config, pins_iec, pins_led, pins_debug);
 
     embassy_rp::multicore::spawn_core1(core1, stack, move || {
+        #[link_section = ".scratch_x"]
         static mut EMULATOR: core::mem::MaybeUninit<Emulator<HardwareBridge, PioMagneticSurface>> = core::mem::MaybeUninit::uninit();
         #[link_section = ".sram3"]
         static mut SYS_MEMORY: [u8; 32768] = [0; 32768];
