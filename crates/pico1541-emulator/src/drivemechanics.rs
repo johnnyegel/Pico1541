@@ -28,7 +28,6 @@ const MASK_STEP: u8 = 0x03;
 const MASK_LED: u8 = 0x08;
 
 // Mask used to determine the last state of stepper motor phases (PB0, PB1), MOTOR bit and ACT LED and (PB2, PB3)
-const MASK_HARDWARE_STATE: u8 = 0x0F;
 const MASK_SPEED_ZONE: u8 = 0x60;
 
 const SHIFT_SPEED_ZONE: u8 = 5;
@@ -43,7 +42,6 @@ pub struct DriveMechanics<S: MagneticSurface> {
     pub current_identifier: TrackIdentifier,
     
     time_until_next_check: u8,
-    last_state: u8,
     last_requested_sector: u8,
     last_active_index: u8,
 }
@@ -56,7 +54,6 @@ impl<S: MagneticSurface> DriveMechanics<S> {
             track_handle,
             current_identifier: TrackIdentifier::void(),
             time_until_next_check: 0,
-            last_state: 0,
             last_requested_sector: 255,
             last_active_index: 0,
         }
@@ -67,7 +64,6 @@ impl<S: MagneticSurface> DriveMechanics<S> {
     pub fn reset(&mut self) {
         self.halftrack_head_pos = INITIAL_HALF_TRACK;
         self.current_identifier = TrackIdentifier::void();
-        self.last_state = 0;
         self.last_requested_sector = 0xFF;
     }
 
@@ -83,16 +79,6 @@ impl<S: MagneticSurface> DriveMechanics<S> {
         self.track_handle.seek_to_byte(index);
         let expected_identifier = self.current_identifier;
         self.track_handle.next_write_byte(expected_identifier, 0xFF, data);
-    }
-
-    /// Updates the drive mechanics state based on VIA2 Port B outputs.
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    pub fn update_state<H: HostInterface>(&mut self, effective_orb: u8, hardware: &mut H, master_clock: u32) {
-        let full_state = effective_orb & (MASK_HARDWARE_STATE | MASK_SPEED_ZONE);
-        if full_state != self.last_state {
-            self.update_state_slow(full_state, hardware, master_clock);
-        }
     }
 
     #[link_section = ".data.ram_func"]
@@ -124,30 +110,30 @@ impl<S: MagneticSurface> DriveMechanics<S> {
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn advance_read_head(&mut self, delta: u32, master_clock: u32) -> ReadHeadSignals {
-        self.time_until_next_check = self.time_until_next_check.wrapping_sub(delta as u8);
-        if self.time_until_next_check < (delta as u8) {
+    pub fn advance_read_head(&mut self, elapsed: u32, master_clock: u32) -> ReadHeadSignals {
+        self.time_until_next_check = self.time_until_next_check.wrapping_sub(elapsed as u8);
+        if self.time_until_next_check < (elapsed as u8) {
             self.check_active_index(master_clock);
         }
         ReadHeadSignals {
-            byte_opt: self.surface.try_read_byte(delta),
+            byte_opt: self.surface.try_read_byte(elapsed),
             is_sync: self.surface.is_sync_active(),
         }
     }
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn advance_write_head(&mut self, delta: u32, master_clock: u32, byte: u8) {
-        self.time_until_next_check = self.time_until_next_check.wrapping_sub(delta as u8);
-        if self.time_until_next_check < (delta as u8) {
+    pub fn advance_write_head(&mut self, elapsed: u32, master_clock: u32, byte: u8) {
+        self.time_until_next_check = self.time_until_next_check.wrapping_sub(elapsed as u8);
+        if self.time_until_next_check < (elapsed as u8) {
             self.check_active_index(master_clock);
         }
-        // Writing ignores delta for time advancement because the surface time is driven by it.
-        // Wait, the surface needs to advance by delta!
-        // try_read_byte advances time. The write mode just advances time by `delta` cycles but doesn't output bytes.
+        // Writing ignores elapsed for time advancement because the surface time is driven by it.
+        // Wait, the surface needs to advance by elapsed!
+        // try_read_byte advances time. The write mode just advances time by `elapsed` cycles but doesn't output bytes.
         // Actually, try_read_byte is the only way to advance the surface time right now.
         // Let's use try_read_byte to advance time and just ignore the output byte.
-        let _ = self.surface.try_read_byte(delta);
+        let _ = self.surface.try_read_byte(elapsed);
         let index = self.surface.get_absolute_head_position(0);
         self.write_byte_at(index, byte);
     }
@@ -168,7 +154,6 @@ impl<S: MagneticSurface> DriveMechanics<S> {
     pub fn force_state_for_testing(&mut self, halftrack: u8, speed_zone: u8, master_clock: u32) {
         let new_track_identifier = TrackIdentifier::new(halftrack, speed_zone);
         self.halftrack_head_pos = halftrack as i8;
-        self.last_state = (self.last_state & !MASK_SPEED_ZONE) | (speed_zone << SHIFT_SPEED_ZONE);
         self.track_handle.update_head_half_track(halftrack);
         self.surface.set_speed_zone(speed_zone);
         self.evaluate_track_identifier(new_track_identifier, master_clock);
@@ -177,10 +162,8 @@ impl<S: MagneticSurface> DriveMechanics<S> {
     /// Updates the drive mechanics state, and issues events accordingly.
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    fn update_state_slow<H: HostInterface>(&mut self, full_state: u8, hardware: &mut H, master_clock: u32) {
-        let last_state = self.last_state;
+    pub fn update_state<H: HostInterface>(&mut self, full_state: u8, last_state: u8, hardware: &mut H, master_clock: u32) {
         let state_changes = full_state ^ last_state;
-        self.last_state = full_state;
 
         if (state_changes & MASK_MOTOR) != 0 {
             let motor_on = (full_state & MASK_MOTOR) != 0;

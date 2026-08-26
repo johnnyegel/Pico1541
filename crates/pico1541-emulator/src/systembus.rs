@@ -88,7 +88,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         self.last_iec_in = 0xFF;
         self.last_via1_pb_out = 0xFF;
         self.last_via2_out = 0xFF;
-        self.mechanics.update_state(self.via2.get_pb_out(), hardware, 0);
+        self.mechanics.update_state(self.via2.get_pb_out(), self.last_via2_out, hardware, 0);
 
         // Force the track manager to load the reset track
         hardware.track_changed(self.mechanics.half_track());
@@ -146,10 +146,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn poll_mechanics(&mut self, delta: u32, current_cycle: u32) {
-        if delta == 0 {
-            return;
-        }
+    pub fn poll_mechanics(&mut self, elapsed: u32, current_cycle: u32) {
 
         // Hardware Wiring: Pull bytes from the DMA buffer and wire SYNC/SO directly to VIA2/CPU.
         if self.is_motor_on() {
@@ -157,16 +154,16 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             let is_read_mode = pcr_cb2 != 0b1100_0000;
 
             if is_read_mode {
-                let signals = self.mechanics.advance_read_head(delta, current_cycle);
+                let signals = self.mechanics.advance_read_head(elapsed, current_cycle);
                 
                 let mut new_byte_arrived = false;
                 if let Some(byte) = signals.byte_opt {
                     self.via2.set_pa_in(byte);
                     new_byte_arrived = true;
-                    // We must assume the byte arrived at the BEGINNING of this delta block, 
-                    // otherwise the up to 7-cycle instruction jitter will shift the prediction window forward,
-                    // allowing the emulator to poll the DMA prematurely on the next byte.
-                    self.time.last_byte_cycle = current_cycle.wrapping_sub(delta);
+                    // We must assume the byte arrived at the BEGINNING of this elapsed block, 
+                    // otherwise subsequent reads may happen too fast before we advance time enough to clear the flag.
+                    // If we just use current_cycle, we might be up to 7 cycles too late.
+                    self.time.last_byte_cycle = current_cycle.wrapping_sub(elapsed);
                 }
                 
                 // Assert SYNC (Pull PB7 Low). Branchless logic for optimal speed.
@@ -183,23 +180,20 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
                 }
             } else {
                 // WRITE mode
-                self.mechanics.advance_write_head(delta, current_cycle, self.via2.ora());
+                self.mechanics.advance_write_head(elapsed, current_cycle, self.via2.ora());
             }
         }
     }
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn tick_cycles(&mut self, delta: u32) {
-        if delta == 0 {
-            return;
-        }
+    pub fn tick_cycles(&mut self, elapsed: u32) {
         
         if self.via1.any_active() {
-            self.via1.tick_cycles(delta);
+            self.via1.tick_cycles(elapsed);
         }
         if self.via2.any_active() {
-            self.via2.tick_cycles(delta);
+            self.via2.tick_cycles(elapsed);
         }
     }
 
@@ -247,9 +241,9 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 
                 if effective_orb != self.last_via2_out {
                     ctx.write_mechanics_port(effective_orb);
+                    self.mechanics.update_state(effective_orb, self.last_via2_out, ctx, cycle);
                     self.last_via2_out = effective_orb;
                 }
-                self.mechanics.update_state(effective_orb, ctx, cycle);
             }
         }
     }
@@ -302,9 +296,9 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     #[link_section = ".data.ram_func"]
     #[inline]
     pub fn catch_up(&mut self, target_cycle: u32) {
-        let delta = self.time.consume_catchup_delta(target_cycle);
-        if delta > 0 {
-            self.tick_cycles(delta);
+        let elapsed = self.time.consume_catchup_delta(target_cycle);
+        if elapsed > 0 {
+            self.tick_cycles(elapsed);
         }
     }
 
