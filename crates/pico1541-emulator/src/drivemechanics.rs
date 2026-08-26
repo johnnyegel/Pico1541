@@ -157,7 +157,6 @@ impl<S: MagneticSurface> DriveMechanics<S> {
     fn check_active_index(&mut self, master_clock: u32) {
         let current_active_index = self.track_handle.get_generation();
         if current_active_index != self.last_active_index {
-            log::info!("TICK SEES CHANGE! current={} last={}", current_active_index, self.last_active_index);
             self.last_active_index = current_active_index;
             self.evaluate_track_source(master_clock);
         }
@@ -185,7 +184,6 @@ impl<S: MagneticSurface> DriveMechanics<S> {
 
         if (state_changes & MASK_MOTOR) != 0 {
             let motor_on = (full_state & MASK_MOTOR) != 0;
-            log::info!("Motor state changed: motor_on = {}, head_pos = {}", motor_on, self.halftrack_head_pos);
             self.surface.set_motor_running(motor_on, master_clock);
         }
 
@@ -242,8 +240,6 @@ impl<S: MagneticSurface> DriveMechanics<S> {
     #[inline(always)]
     fn evaluate_track_source(&mut self, master_clock: u32) {
         let loaded_identifier = self.track_handle.get_active_track_identifier();
-        
-        log::info!("EVAL current={:?} loaded={:?}", self.current_identifier, loaded_identifier);
         
         if self.current_identifier == loaded_identifier {
             let length = self.track_handle.get_active_track_length() as u32;
