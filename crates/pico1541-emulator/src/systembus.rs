@@ -90,6 +90,35 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
+    pub fn poll_io(&mut self, hardware: &mut H, elapsed: u32, current_cycle: u32) {
+        // :? Is the motor running?
+        if self.is_motor_on() {
+            // -> Yes, then poll the drive mechanics for motor-on behavior
+            self.poll_mechanics_motor_on(elapsed, current_cycle);
+        }
+        else {
+            // -> No, then handle device ID and write-protect state changes
+            // NOTE! While these can change when motor is ON, it is not actually a prime use case!
+            if (current_cycle ^ current_cycle.wrapping_sub(elapsed)) & !0x3FF != 0 {
+                self.device_id = hardware.get_device_id();
+                self.device_id_pb_bits = (self.device_id & 0x03) << 5;
+
+                let wp = self.mechanics.is_write_protected();
+                if wp {
+                    self.via2.set_pb_in(self.via2.pb_in() & !0x10);
+                } else {
+                    self.via2.set_pb_in(self.via2.pb_in() | 0x10);
+                }
+            }
+        }
+
+        // :: Ensure the IEC bus is synchronized with the VIA1 outputs and inputs
+        self.sync_iec_bus(hardware, current_cycle);
+    }
+
+
+    #[link_section = ".data.ram_func"]
+    #[inline(always)]
     pub fn sync_iec_bus(&mut self, hardware: &mut H, _current_cycle: u32) {
         // :: Handle IEC via inputs and VIA1 CA1 edge detection
         let iec_in = hardware.read_iec_port() | self.device_id_pb_bits;
@@ -104,68 +133,44 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
-    pub fn poll_io(&mut self, hardware: &mut H, elapsed: u32, current_cycle: u32) {
-        self.poll_mechanics(elapsed, current_cycle);
-        self.sync_iec_bus(hardware, current_cycle);
+    pub fn poll_mechanics_motor_on(&mut self, elapsed: u32, current_cycle: u32) {
+        let pcr_cb2 = self.via2.pcr() & 0b1110_0000;
+        let is_read_mode = pcr_cb2 != 0b1100_0000;
 
-        if (current_cycle ^ current_cycle.wrapping_sub(elapsed)) & !0x3FF != 0 {
-            self.device_id = hardware.get_device_id();
-            self.device_id_pb_bits = (self.device_id & 0x03) << 5;
-
-            let wp = self.mechanics.is_write_protected();
-            if wp {
-                self.via2.set_pb_in(self.via2.pb_in() & !0x10);
-            } else {
-                self.via2.set_pb_in(self.via2.pb_in() | 0x10);
+        if is_read_mode {
+            let signals = self.mechanics.advance_read_head(elapsed, current_cycle);
+            
+            let mut new_byte_arrived = false;
+            if let Some(byte) = signals.byte_opt {
+                self.via2.set_pa_in(byte);
+                new_byte_arrived = true;
+                // We must assume the byte arrived at the BEGINNING of this elapsed block, 
+                // otherwise subsequent reads may happen too fast before we advance time enough to clear the flag.
+                // If we just use current_cycle, we might be up to 7 cycles too late.
+                self.time.last_byte_cycle = current_cycle.wrapping_sub(elapsed);
             }
-        }
-    }
-
-    #[link_section = ".data.ram_func"]
-    #[inline(always)]
-    pub fn poll_mechanics(&mut self, elapsed: u32, current_cycle: u32) {
-
-        // Hardware Wiring: Pull bytes from the DMA buffer and wire SYNC/SO directly to VIA2/CPU.
-        if self.is_motor_on() {
-            let pcr_cb2 = self.via2.pcr() & 0b1110_0000;
-            let is_read_mode = pcr_cb2 != 0b1100_0000;
-
-            if is_read_mode {
-                let signals = self.mechanics.advance_read_head(elapsed, current_cycle);
-                
-                let mut new_byte_arrived = false;
-                if let Some(byte) = signals.byte_opt {
-                    self.via2.set_pa_in(byte);
-                    new_byte_arrived = true;
-                    // We must assume the byte arrived at the BEGINNING of this elapsed block, 
-                    // otherwise subsequent reads may happen too fast before we advance time enough to clear the flag.
-                    // If we just use current_cycle, we might be up to 7 cycles too late.
-                    self.time.last_byte_cycle = current_cycle.wrapping_sub(elapsed);
+            
+            // Assert SYNC (Pull PB7 Low). Branchless logic for optimal speed.
+            let sync_mask = if signals.is_sync { 0x00 } else { 0x80 };
+            self.via2.set_pb_in((self.via2.pb_in() & 0x7F) | sync_mask);
+            
+            if !signals.is_sync && new_byte_arrived {
+                let pcr_ca2 = self.via2.pcr() & 0b0000_1110;
+                let is_so_enabled = (pcr_ca2 & 0b0000_1010) == 0b0000_1010;
+                if is_so_enabled {
+                    self.via2.ca1_irq();
+                    self.so_pulsed = true;
                 }
-                
-                // Assert SYNC (Pull PB7 Low). Branchless logic for optimal speed.
-                let sync_mask = if signals.is_sync { 0x00 } else { 0x80 };
-                self.via2.set_pb_in((self.via2.pb_in() & 0x7F) | sync_mask);
-                
-                if !signals.is_sync && new_byte_arrived {
-                    let pcr_ca2 = self.via2.pcr() & 0b0000_1110;
-                    let is_so_enabled = (pcr_ca2 & 0b0000_1010) == 0b0000_1010;
-                    if is_so_enabled {
-                        self.via2.ca1_irq();
-                        self.so_pulsed = true;
-                    }
-                }
-            } else {
-                // WRITE mode
-                self.mechanics.advance_write_head(elapsed, current_cycle, self.via2.ora());
             }
+        } else {
+            // WRITE mode
+            self.mechanics.advance_write_head(elapsed, current_cycle, self.via2.ora());
         }
     }
 
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn tick_cycles(&mut self, elapsed: u32) {
-        
         if self.via1.any_active() {
             self.via1.tick_cycles(elapsed);
         }
@@ -175,7 +180,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     }
 
     #[link_section = ".data.ram_func"]
-    #[cold]
+    #[inline(never)]
     fn read_io(&mut self, addr: u16, cycle: u32, ctx: &mut H) -> u8 {
         self.catch_up(cycle);
 
@@ -197,7 +202,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     }
 
     #[link_section = ".data.ram_func"]
-    #[cold]
+    #[inline(never)]
     fn write_io(&mut self, addr: u16, val: u8, cycle: u32, ctx: &mut H) {
         self.catch_up(cycle);
 
