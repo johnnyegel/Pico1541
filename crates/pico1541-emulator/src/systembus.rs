@@ -23,8 +23,6 @@ pub struct SystemBus<H: HostInterface, S: MagneticSurface> {
     device_id_pb_bits: u8,
     pub time: crate::time::EmulatorTime,
     so_pulsed: bool,
-    last_iec_in: u8,
-    last_via1_pb_out: u8,
     last_via2_out: u8,
     _phantom: PhantomData<H>,
 }
@@ -48,8 +46,6 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             device_id_pb_bits: (device_id & 0x03) << 5,
             time: crate::time::EmulatorTime::new(),
             so_pulsed: false,
-            last_iec_in: 0xFF,
-            last_via1_pb_out: 0xFF,
             last_via2_out: 0xFF,
             _phantom: PhantomData,
         };
@@ -85,8 +81,6 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         self.mechanics.reset();
         self.device_id_pb_bits = (self.device_id & 0x03) << 5;
         self.via1.set_pb_in(0xFF);
-        self.last_iec_in = 0xFF;
-        self.last_via1_pb_out = 0xFF;
         self.last_via2_out = 0xFF;
         self.mechanics.update_state(self.via2.get_pb_out(), self.last_via2_out, hardware, 0);
 
@@ -97,32 +91,15 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn sync_iec_bus(&mut self, hardware: &mut H, _current_cycle: u32) {
+        // :: Handle IEC via inputs and VIA1 CA1 edge detection
         let iec_in = hardware.read_iec_port() | self.device_id_pb_bits;
+        let curr_atn = iec_in & H::VIA1_IEC_MASK_ATN_RX != 0;
+        self.via1.set_pb_in(iec_in);
+        self.via1.set_ca1(curr_atn);
+
+        // :: Handle VIA1 outputs to IEC bus
         let via1_pb_out = self.via1.get_pb_out();
-        
-        // Fast path: if nothing changed, do nothing
-        if iec_in == self.last_iec_in && via1_pb_out == self.last_via1_pb_out {
-            return;
-        }
-
-        // :: Handle input changes (ATN IRQ and VIA input register)
-        if iec_in != self.last_iec_in {
-            let prev_atn = self.last_iec_in & H::VIA1_IEC_MASK_ATN_RX;
-            let curr_atn = iec_in & H::VIA1_IEC_MASK_ATN_RX;
-            
-            self.last_iec_in = iec_in;
-            self.via1.set_pb_in(iec_in);
-
-            if prev_atn != curr_atn {
-                self.via1.ca1_edge(curr_atn != 0);
-            }
-        }
-
-        // :: Handle output changes (Update PIO state)
-        if via1_pb_out != self.last_via1_pb_out {
-            self.last_via1_pb_out = via1_pb_out;
-            hardware.write_iec_port(via1_pb_out);
-        }
+        hardware.write_iec_port(via1_pb_out);
     }
 
     #[link_section = ".data.ram_func"]
