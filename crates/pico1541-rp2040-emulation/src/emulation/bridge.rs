@@ -173,11 +173,14 @@ impl ViaHardware for HardwareBridge {
         // Bit 0: CLK target
         // Bit 1: PB1 (DATA_OUT)
         // Bit 2: PB4 (ATNA)
+
+        // NOTE! We align and mask the bits to their target positions in the PIO command format
         let clk_out = (via_port_b >> Self::VIA1_IEC_BIT_CLK_TX) & 1;
-        let pb1 = (via_port_b >> Self::VIA1_IEC_BIT_DATA_TX) & 1;
-        let pb4 = (via_port_b >> Self::VIA1_IEC_BIT_ATN_ACK) & 1;
+        let pb1 = (via_port_b >> (Self::VIA1_IEC_BIT_DATA_TX - 1)) & 2;
+        let pb4 = (via_port_b >> (Self::VIA1_IEC_BIT_ATN_ACK - 2)) & 4;
         
-        let pio_cmd = clk_out | (pb1 << 1) | (pb4 << 2);
+        // Combine the bits into a single command for the PIO state machine
+        let pio_cmd = clk_out | pb1 | pb4;
         
         embassy_rp::pac::PIO1.txf(0).write_value(pio_cmd as u32);
     }
