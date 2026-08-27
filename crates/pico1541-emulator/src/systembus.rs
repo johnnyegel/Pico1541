@@ -91,6 +91,9 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn poll_io(&mut self, hardware: &mut H, elapsed: u32, current_cycle: u32) {
+        // :: Ensure the IEC bus is synchronized with the VIA1 outputs and inputs
+        self.sync_iec_bus(hardware, current_cycle);
+        
         // :? Is the motor running?
         if self.is_motor_on() {
             // -> Yes, then poll the drive mechanics for motor-on behavior
@@ -111,9 +114,6 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
                 }
             }
         }
-
-        // :: Ensure the IEC bus is synchronized with the VIA1 outputs and inputs
-        self.sync_iec_bus(hardware, current_cycle);
     }
 
 
