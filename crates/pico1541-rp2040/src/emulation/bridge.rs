@@ -15,8 +15,6 @@ pub struct IecPins {
     pub(crate) _data_rx: Input<'static>,
     pub(crate) _clk_rx: Input<'static>,
     pub(crate) _atn_rx: Input<'static>,
-    pub(crate) _data_tx: Output<'static>,
-    pub(crate) _clk_tx: Output<'static>,
     pub(crate) _reset_rx: Input<'static>,
 }
 
@@ -280,9 +278,9 @@ pub fn init_iec_pio(mut pio1: embassy_rp::pio::Pio<'static, embassy_rp::peripher
     ).program;
     
     let iec_loaded = pio1.common.load_program(&iec_prg);
-    let data_tx_pin = pio1.common.make_pio_pin(unsafe { embassy_rp::peripherals::PIN_19::steal() });
-    let clk_tx_pin = pio1.common.make_pio_pin(unsafe { embassy_rp::peripherals::PIN_20::steal() });
-    let atn_pin = pio1.common.make_pio_pin(unsafe { embassy_rp::peripherals::PIN_18::steal() });
+    let data_tx_pin = pio1.common.make_pio_pin(unsafe { PinIecDataTx::steal() });
+    let clk_tx_pin = pio1.common.make_pio_pin(unsafe { PinIecClkTx::steal() });
+    let atn_pin = pio1.common.make_pio_pin(unsafe { PinIecAtnRx::steal() });
     
     let mut iec_cfg = embassy_rp::pio::Config::default();
     iec_cfg.use_program(&iec_loaded, &[]);

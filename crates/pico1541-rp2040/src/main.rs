@@ -301,18 +301,7 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
 
     // (track_addr unused)
 
-    let emulator_hardware = emulation::EmulatorHardware {
-        pin_16: p.PIN_16.into(),
-        pin_17: p.PIN_17.into(),
-        pin_18: p.PIN_18.into(),
-        pin_19: p.PIN_19.into(),
-        pin_20: p.PIN_20.into(),
-        pin_21: p.PIN_21.into(),
-        pin_22: p.PIN_22.into(),
-        pin_3: p.PIN_3.into(),
-        pin_0: p.PIN_0.into(),
-        pin_1: p.PIN_1.into(),
-    };
+    let hardware = emulation::EmulatorHardware {};
 
     let pio0 = embassy_rp::pio::Pio::new(p.PIO0, Irqs);
 
@@ -320,7 +309,7 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
     emulation::spawn_core1(
         p.CORE1.into(),
         stack,
-        emulator_hardware,
+        hardware,
         &SNOOPER_CONFIG,
         drive_id,
         pio0,

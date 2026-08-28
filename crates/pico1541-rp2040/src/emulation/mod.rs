@@ -16,18 +16,7 @@ use pico1541_common::track_buffer::EmulatorHandle;
 use crate::emulation::magnetic_surface::PioMagneticSurface;
 use bridge::{HardwareBridge, IecPins, LedPins, DebugPins};
 
-pub struct EmulatorHardware {
-    pub pin_16: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_16>,
-    pub pin_17: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_17>,
-    pub pin_18: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_18>,
-    pub pin_19: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_19>,
-    pub pin_20: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_20>,
-    pub pin_21: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_21>,
-    pub pin_22: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_22>,
-    pub pin_3: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_3>,
-    pub pin_0: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_0>,
-    pub pin_1: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_1>,
-}
+pub struct EmulatorHardware {}
 
 #[no_mangle]
 pub static mut RAM_POINTER: *mut [u8; 32768] = core::ptr::null_mut();
@@ -35,7 +24,7 @@ pub static mut RAM_POINTER: *mut [u8; 32768] = core::ptr::null_mut();
 pub fn spawn_core1(
     core1: embassy_rp::Peri<'static, CORE1>,
     stack: &'static mut Stack<1024>,
-    hardware: EmulatorHardware,
+    _hardware: EmulatorHardware,
     snooper_config: &'static SnooperConfig,
     drive_id: u8,
     pio0: Pio<'static, PIO0>,
@@ -43,23 +32,22 @@ pub fn spawn_core1(
     emulator_handle: EmulatorHandle,
     rom_buffer: &'static [u8; 16384],
 ) {
+    use crate::emulation::config::*;
     let pins_iec = IecPins {
-        _data_rx: embassy_rp::gpio::Input::new(hardware.pin_16, embassy_rp::gpio::Pull::None),
-        _clk_rx: embassy_rp::gpio::Input::new(hardware.pin_17, embassy_rp::gpio::Pull::None),
-        _atn_rx: embassy_rp::gpio::Input::new(hardware.pin_18, embassy_rp::gpio::Pull::None),
-        _data_tx: embassy_rp::gpio::Output::new(hardware.pin_19, embassy_rp::gpio::Level::Low),
-        _clk_tx: embassy_rp::gpio::Output::new(hardware.pin_20, embassy_rp::gpio::Level::Low),
-        _reset_rx: embassy_rp::gpio::Input::new(hardware.pin_21, embassy_rp::gpio::Pull::Up),
+        _data_rx: embassy_rp::gpio::Input::new(unsafe { embassy_rp::gpio::AnyPin::steal(GPIO_IEC_BIT_DATA_RX as u8) }, embassy_rp::gpio::Pull::None),
+        _clk_rx: embassy_rp::gpio::Input::new(unsafe { embassy_rp::gpio::AnyPin::steal(GPIO_IEC_BIT_CLK_RX as u8) }, embassy_rp::gpio::Pull::None),
+        _atn_rx: embassy_rp::gpio::Input::new(unsafe { embassy_rp::gpio::AnyPin::steal(GPIO_IEC_BIT_ATN_RX as u8) }, embassy_rp::gpio::Pull::None),
+        _reset_rx: embassy_rp::gpio::Input::new(unsafe { embassy_rp::gpio::AnyPin::steal(GPIO_IEC_BIT_RESET as u8) }, embassy_rp::gpio::Pull::Up),
     };
 
     let pins_led = LedPins {
-        _led_pos: embassy_rp::gpio::Output::new(hardware.pin_22, embassy_rp::gpio::Level::Low),
-        _led_neg: embassy_rp::gpio::Output::new(hardware.pin_3, embassy_rp::gpio::Level::Low),
+        _led_pos: embassy_rp::gpio::Output::new(unsafe { embassy_rp::gpio::AnyPin::steal(GPIO_LED_BIT_GREEN as u8) }, embassy_rp::gpio::Level::Low),
+        _led_neg: embassy_rp::gpio::Output::new(unsafe { embassy_rp::gpio::AnyPin::steal(GPIO_LED_BIT_RED as u8) }, embassy_rp::gpio::Level::Low),
     };
 
     let pins_debug = DebugPins {
-        _dbg_0: embassy_rp::gpio::Output::new(hardware.pin_0, embassy_rp::gpio::Level::Low),
-        _dbg_1: embassy_rp::gpio::Output::new(hardware.pin_1, embassy_rp::gpio::Level::Low),    
+        _dbg_0: embassy_rp::gpio::Output::new(unsafe { embassy_rp::gpio::AnyPin::steal(GPIO_DEBUG_BIT_0 as u8) }, embassy_rp::gpio::Level::Low),
+        _dbg_1: embassy_rp::gpio::Output::new(unsafe { embassy_rp::gpio::AnyPin::steal(GPIO_DEBUG_BIT_1 as u8) }, embassy_rp::gpio::Level::Low),    
     };
 
     bridge::init_iec_pio(pio1);
