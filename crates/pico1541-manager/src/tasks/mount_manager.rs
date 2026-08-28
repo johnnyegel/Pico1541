@@ -2,7 +2,8 @@ use embedded_io_async::{Read, Seek};
 use crate::formats::{AnyDiskImage, DiskImage};
 use pico1541_common::track_buffer::{ManagerHandle, TrackLayout};
 use crate::storage::DirectorySource;
-use crate::{CMD_CHANNEL, TRACK_CHANNEL, InternalCommand, MountPayload};
+use crate::{CMD_CHANNEL, TRACK_REQUEST, TRACK_SIGNAL, InternalCommand, MountPayload};
+use core::sync::atomic::Ordering;
 use embassy_futures::select::{select, select3, Either, Either3};
 #[cfg(feature = "defmt")]
 use defmt::{info, warn, error, debug};
@@ -135,7 +136,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
         let mut disk_opt = self.disk_image.as_mut();
         if let Some(disk) = disk_opt.as_mut() {
             let data = self.track_handle.start_track_load();
-            match embassy_futures::select::select(disk.read_track(desired_track, data), TRACK_CHANNEL.receive()).await {
+            match embassy_futures::select::select(disk.read_track(desired_track, data), TRACK_SIGNAL.wait()).await {
                 embassy_futures::select::Either::First(Ok(layout)) => {
                     self.pre_cached_ht = Some((desired_track, layout.0, layout.1, layout.2));
                     debug!("Pre-cached Track {}.{} (HT: {}) into back buffer", (desired_track / 2) + 1, desired_track % 2, desired_track);
@@ -144,8 +145,8 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
                 embassy_futures::select::Either::First(Err(_)) => {
                     return None;
                 }
-                embassy_futures::select::Either::Second(new_ht) => {
-                    return Some(new_ht);
+                embassy_futures::select::Either::Second(_) => {
+                    return Some(TRACK_REQUEST.load(Ordering::Relaxed));
                 }
             }
         }
@@ -156,9 +157,9 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
         let mut target_ht = half_track;
 
         loop {
-            // Drain queue
-            while let Ok(ht) = TRACK_CHANNEL.try_receive() {
-                target_ht = ht;
+            let requested = TRACK_REQUEST.load(Ordering::Relaxed);
+            if requested != target_ht {
+                target_ht = requested;
             }
             
             // Update direction based on the previously active track
@@ -200,7 +201,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
                 
                 let start_time = embassy_time::Instant::now();
                 // Read track but CANCEL if the head steps again!
-                match select(disk.read_track(target_ht, data), TRACK_CHANNEL.receive()).await {
+                match select(disk.read_track(target_ht, data), TRACK_SIGNAL.wait()).await {
                     Either::First(Ok(layout)) => {
                         let speed_zone = layout.2.unwrap_or_else(|| pico1541_common::track_buffer::default_speed_zone(target_ht));
                         let identifier = pico1541_common::track_buffer::TrackIdentifier::new(target_ht, speed_zone);
@@ -223,10 +224,10 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
                         self.track_handle.set_active_layout(old_layout);
                         break;
                     }
-                    Either::Second(new_ht) => {
+                    Either::Second(_) => {
                         // The head stepped WHILE we were reading from the SD card!
                         // The read is aborted. We loop around to start reading the NEW track!
-                        target_ht = new_ht;
+                        target_ht = TRACK_REQUEST.load(Ordering::Relaxed);
                         continue;
                     }
                 }
@@ -241,20 +242,20 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
     pub async fn run(&mut self) {
         let mut motor_on = false;
         loop {
-            // Check if there is a pending track event IMMEDIATELY.
-            // If so, handle it first to prevent select3 from randomly choosing the timer/cmd.
-            if let Ok(half_track) = TRACK_CHANNEL.try_receive() {
+            if TRACK_SIGNAL.signaled() {
+                let half_track = TRACK_REQUEST.load(Ordering::Relaxed);
+                TRACK_SIGNAL.reset();
                 self.handle_track_event(half_track).await;
                 continue;
             }
 
-            let track_fut = TRACK_CHANNEL.receive();
+            let track_fut = TRACK_SIGNAL.wait();
             let timer_fut = embassy_time::Timer::after_millis(20);
             let cmd_fut = CMD_CHANNEL.receive();
 
             match select3(track_fut, timer_fut, cmd_fut).await {
-                Either3::First(half_track) => {
-                    self.handle_track_event(half_track).await;
+                Either3::First(_) => {
+                    self.handle_track_event(TRACK_REQUEST.load(Ordering::Relaxed)).await;
                 }
                 Either3::Second(_) => {
                     // (first_missing_block, batch_count)

@@ -3,7 +3,7 @@ use embassy_rp::gpio::{Input, Output};
 use pico1541_common::context::ViaHardware;
 use pico1541_common::snooper::{IecSnooper, SnooperConfig};
 use pico1541_common::util::bit_align_u32;
-use pico1541_manager::{EVENT_CHANNEL, TRACK_CHANNEL, CMD_CHANNEL, InternalCommand};
+use pico1541_manager::{EVENT_CHANNEL, TRACK_REQUEST, TRACK_SIGNAL, CMD_CHANNEL, InternalCommand};
 use pico1541_common::interface::HostInterface;
 use pico1541_common::DriveEvent;
 use super::timekeeper::TimeKeeper;
@@ -91,10 +91,10 @@ impl HostInterface for HardwareBridge {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn track_changed(&mut self, half_track: u8) {
-        // We notify the TRACK_CHANNEL directly instead of using DriveEvent
-        // First we drain the channel to avoid blocking if the manager is behind
-        while TRACK_CHANNEL.try_receive().is_ok() {}
-        let _ = TRACK_CHANNEL.try_send(half_track);
+        // We notify the TRACK_SIGNAL directly instead of using DriveEvent
+        // since we want to avoid flooding the queue if the head moves very fast!
+        TRACK_REQUEST.store(half_track, core::sync::atomic::Ordering::Relaxed);
+        TRACK_SIGNAL.signal(());
         
         // Pend TIMER_IRQ_3 on Core 0 to wake up the DiskTask!
         embassy_rp::pac::TIMER.intf().write(|w| w.set_alarm(3, true));
