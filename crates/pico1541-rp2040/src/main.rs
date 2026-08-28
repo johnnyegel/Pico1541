@@ -59,10 +59,18 @@ use storage_manager::*;
 use static_cell::StaticCell;
 
 pub mod littlefs_storage;
+mod emulation;
+
+
+pub mod pio {
+    pub fn magnetic_surface_program() -> ::pio::Program<32> {
+        ::pio::pio_file!("pio/magnetic_surface.pio").program
+    }
+}
 use littlefs_storage::LittleFsStorage;
 use flash_storage::FlashStorage;
 
-use pico1541_rp2040_emulation::emulation;
+
 
 
 bind_interrupts!(struct Irqs {

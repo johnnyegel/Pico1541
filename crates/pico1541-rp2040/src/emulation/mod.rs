@@ -2,6 +2,7 @@ pub mod config;
 pub mod timekeeper;
 pub mod profiler;
 pub mod bridge;
+pub mod magnetic_surface;
 
 use pico1541_common::snooper::SnooperConfig;
 use pico1541_emulator::{DriveMechanics, Emulator};
@@ -12,7 +13,7 @@ use embassy_rp::pio::Pio;
 use embassy_rp::peripherals::{CORE1, PIO0, PIO1};
 
 use pico1541_common::track_buffer::EmulatorHandle;
-use crate::magnetic_surface::PioMagneticSurface;
+use crate::emulation::magnetic_surface::PioMagneticSurface;
 use bridge::{HardwareBridge, IecPins, LedPins, DebugPins};
 
 pub struct EmulatorHardware {

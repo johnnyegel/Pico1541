@@ -7,8 +7,7 @@ members = [
     "crates/pico1541-common",
     "crates/pico1541-manager",
     "crates/pico1541-emulator",
-    "crates/pico1541-rp2040-main",
-    "crates/pico1541-rp2040-emulation",
+    "crates/pico1541-rp2040",
     "crates/pico1541-perf"]
 
 resolver = "2"
