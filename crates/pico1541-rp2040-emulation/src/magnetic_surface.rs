@@ -1,15 +1,18 @@
 use pico1541_common::magnetic_surface::MagneticSurface;
 use pico1541_common::track_buffer::{TrackBuffer, TrackLayout};
 use embassy_rp::pac;
+use crate::emulation::config::GPIO_SYNC_SHADOW_BIT;
 
 
 // Speed zone PIO timing
 // The PIO program executes exactly 8 cycles per *bit*, not per byte!
 const PIO_CYCLES_PER_BIT: u64 = 8; 
+
 // We use exactly 100M for perfect real-time emulation.
 const PIO_TIMING_DENOMINATOR: u64 = 100_000_000 * PIO_CYCLES_PER_BIT;
 
-const GPIO_SYNC_PIN: u8 = 10; // GPIO 10 is the SYNC pin for the PIO program
+// Disk rotation: 200ms per rotation, 5 rotations per second, 300 RPM
+const DISK_ROTATION_PERIOD_US: u32 = 200_000; 
 
 // This const function executes entirely at compile time.
 const fn calc_speed_zone_register(multiplier: u64) -> u32 {
@@ -139,7 +142,7 @@ impl PioMagneticSurface {
     pub fn is_sync_active() -> bool {
         let pio = pac::PIO0;
         // Read internal PIO DBG_PADOUT register rather than physical GPIO
-        (pio.dbg_padout().read() & (1 << GPIO_SYNC_PIN)) != 0
+        (pio.dbg_padout().read() & (1 << GPIO_SYNC_SHADOW_BIT)) != 0
     }
 
     #[link_section = ".data.ram_func"]
@@ -254,12 +257,14 @@ impl PioMagneticSurface {
             dma_ch0.trans_count().write_value(track_length);
         }
     }
+
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn update_and_get_angle(&mut self, master_clock: u32) -> u32 {
+        // FIXME! Remove motor on check here
         if self.is_motor_on {
             let delta = master_clock.wrapping_sub(self.motor_start_time_us);
-            self.saved_angle_us = (self.saved_angle_us + delta) % 200_000;
+            self.saved_angle_us = (self.saved_angle_us + delta) % DISK_ROTATION_PERIOD_US;
             self.motor_start_time_us = master_clock;
         }
         self.saved_angle_us
@@ -338,7 +343,7 @@ impl MagneticSurface for PioMagneticSurface {
             TrackLayout::Void => 0,
             TrackLayout::Accurate => {
                 let current_angle_us = self.update_and_get_angle(master_clock);
-                (current_angle_us * stream_length) / 200_000
+                (current_angle_us * stream_length) / DISK_ROTATION_PERIOD_US
             }
         };
 

@@ -7,6 +7,7 @@ pub struct TimeKeeper {
 }
 
 impl TimeKeeper {
+    #[link_section = ".data.ram_func"]
     #[inline(always)]
     fn now_24() -> u32 {
         // SYST_CVR (Current Value Register) is a 24-bit down counter.
@@ -34,6 +35,7 @@ impl TimeKeeper {
         self.base_time_24 = Self::now_24();
     }
 
+    #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn update_base(&mut self, current_cycles: u32) {
         // 1 cycle = 1 us. At Core frequency, 1us = (SYSTEM_CLOCK_FREQ / 1_000_000) ticks.
