@@ -11,13 +11,13 @@ impl EmulatorTime {
         }
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn sync_realtime<H: pico1541_common::interface::HostInterface>(&self, current_cycle: u32, hw: &mut H) {
         hw.spin_until(current_cycle);
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn consume_catchup_delta(&mut self, target_cycle: u32) -> u32 {
         let delta = target_cycle.wrapping_sub(self.last_sync_cycle);

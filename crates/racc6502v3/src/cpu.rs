@@ -51,13 +51,13 @@ impl CPU {
         }
     }
 
-    #[unsafe(link_section = ".data.ram_func")]
+    #[unsafe(link_section = ".data.pico1541_emulator_core")]
     pub fn reset<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) {
         self.pending_interrupt = Some(Interrupt::Reset);
         self.step(bus, ctx);
     }
     
-    #[unsafe(link_section = ".data.ram_func")]
+    #[unsafe(link_section = ".data.pico1541_emulator_core")]
     pub fn set_so_pin(&mut self, active: bool) {
         if active && !self.last_so_pin {
             self.pending_so = true;
@@ -65,7 +65,7 @@ impl CPU {
         self.last_so_pin = active;
     }
 
-    #[unsafe(link_section = ".data.ram_func")]
+    #[unsafe(link_section = ".data.pico1541_emulator_core")]
     #[inline(always)]
     fn read<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, addr: u16) -> u8 {
         let val = bus.read(addr, self.cycles, ctx);
@@ -73,14 +73,14 @@ impl CPU {
         val
     }
 
-    #[unsafe(link_section = ".data.ram_func")]
+    #[unsafe(link_section = ".data.pico1541_emulator_core")]
     #[inline(always)]
     fn write<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, addr: u16, val: u8) {
         bus.write(addr, val, self.cycles, ctx);
         self.cycles = self.cycles.wrapping_add(1);
     }
 
-    #[unsafe(link_section = ".data.ram_func")]
+    #[unsafe(link_section = ".data.pico1541_emulator_core")]
     #[inline(always)]
     fn read_pc<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) -> u8 {
         let val = bus.read(self.pc, self.cycles, ctx);
@@ -89,7 +89,7 @@ impl CPU {
         val
     }
 
-    #[unsafe(link_section = ".data.ram_func")]
+    #[unsafe(link_section = ".data.pico1541_emulator_core")]
     #[inline(always)]
     fn read_word<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, addr: u16) -> u16 {
         let lo = bus.read(addr, self.cycles, ctx) as u16;
@@ -99,7 +99,7 @@ impl CPU {
         (hi << 8) | lo
     }
 
-    #[unsafe(link_section = ".data.ram_func")]
+    #[unsafe(link_section = ".data.pico1541_emulator_core")]
     #[inline(always)]
     fn read_word_pc<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) -> u16 {
         let lo = self.read_pc(bus, ctx) as u16;
@@ -107,28 +107,28 @@ impl CPU {
         (hi << 8) | lo
     }
 
-    #[unsafe(link_section = ".data.ram_func")]
+    #[unsafe(link_section = ".data.pico1541_emulator_core")]
     #[inline(always)]
     fn push<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, val: u8) {
         self.write(bus, ctx, 0x0100 | (self.s as u16), val);
         self.s = self.s.wrapping_sub(1);
     }
 
-    #[unsafe(link_section = ".data.ram_func")]
+    #[unsafe(link_section = ".data.pico1541_emulator_core")]
     #[inline(always)]
     fn pop<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) -> u8 {
         self.s = self.s.wrapping_add(1);
         self.read(bus, ctx, 0x0100 | (self.s as u16))
     }
 
-    #[unsafe(link_section = ".data.ram_func")]
+    #[unsafe(link_section = ".data.pico1541_emulator_core")]
     #[inline(always)]
     fn push_word<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, val: u16) {
         self.push(bus, ctx, (val >> 8) as u8);
         self.push(bus, ctx, val as u8);
     }
 
-    #[unsafe(link_section = ".data.ram_func")]
+    #[unsafe(link_section = ".data.pico1541_emulator_core")]
     #[inline(always)]
     fn pop_word<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) -> u16 {
         let lo = self.pop(bus, ctx) as u16;
@@ -136,26 +136,26 @@ impl CPU {
         (hi << 8) | lo
     }
 
-    #[unsafe(link_section = ".data.ram_func")]
+    #[unsafe(link_section = ".data.pico1541_emulator_core")]
     #[inline(always)]
     fn set_z(&mut self, val: u8) {
         if val == 0 { self.p |= FLAG_Z; } else { self.p &= !FLAG_Z; }
     }
 
-    #[unsafe(link_section = ".data.ram_func")]
+    #[unsafe(link_section = ".data.pico1541_emulator_core")]
     #[inline(always)]
     fn set_n(&mut self, val: u8) {
         if val & 0x80 != 0 { self.p |= FLAG_N; } else { self.p &= !FLAG_N; }
     }
 
-    #[unsafe(link_section = ".data.ram_func")]
+    #[unsafe(link_section = ".data.pico1541_emulator_core")]
     #[inline(always)]
     fn set_zn(&mut self, val: u8) {
         self.set_z(val);
         self.set_n(val);
     }
     
-    #[unsafe(link_section = ".data.ram_func")]
+    #[unsafe(link_section = ".data.pico1541_emulator_core")]
     #[allow(unused_variables, unused_assignments)]
     pub fn step<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) -> u8 {
         if let Some(interrupt) = self.pending_interrupt.take() {

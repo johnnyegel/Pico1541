@@ -7,7 +7,7 @@ pub struct TimeKeeper {
 }
 
 impl TimeKeeper {
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     fn now_24() -> u32 {
         // SYST_CVR (Current Value Register) is a 24-bit down counter.
@@ -35,7 +35,7 @@ impl TimeKeeper {
         self.base_time_24 = Self::now_24();
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn update_base(&mut self, current_cycles: u32) {
         // 1 cycle = 1 us. At Core frequency, 1us = (SYSTEM_CLOCK_FREQ / 1_000_000) ticks.
@@ -43,7 +43,7 @@ impl TimeKeeper {
         self.base_time_24 = Self::now_24().wrapping_sub(current_ticks) & 0x00FFFFFF;
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn spin_until(&mut self, target_cycle: u32) -> bool {
         // Use u64 to prevent a discontinuity every 17.18 seconds when target_cycle * 250 overflows u32
@@ -61,7 +61,7 @@ impl TimeKeeper {
         did_wait
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn spin_until_half(&mut self, target_cycle: u32) -> bool {
         // Wait for target_cycle + 0.5 cycles

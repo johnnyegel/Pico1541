@@ -11,7 +11,7 @@ pub fn configure_sram_contention_counters() {
 }
 
 /// Clears all 4 counters to 0, effectively starting the profiling.
-#[link_section = ".data.ram_func"]
+#[link_section = ".data.pico1541_emulator_core"]
 #[inline(always)]
 pub fn start_profiling() {
     BUSCTRL.perfctr(0).write_value(embassy_rp::pac::busctrl::regs::Perfctr(0));
@@ -21,7 +21,7 @@ pub fn start_profiling() {
 }
 
 /// Reads the counters, and prints a micro-stall report to the RTT log if any collision occurred.
-#[link_section = ".data.ram_func"]
+#[link_section = ".data.pico1541_emulator_core"]
 #[inline(never)]
 pub fn snapshot_profiling() {
     let collisions_0 = BUSCTRL.perfctr(0).read();

@@ -84,34 +84,34 @@ impl<S: MagneticSurface> DriveMechanics<S> {
         self.track_handle.next_write_byte(expected_identifier, 0xFF, data);
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn half_track(&self) -> u8 {
         // Do not expose the physical half-track outside the drive mechanics.
         self.halftrack_head_pos.clamp(0, MAX_HALF_TRACK) as u8
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn track_byte_pos_ix(&self) -> usize {
         self.surface.get_absolute_head_position(0) as usize
     }
 
     #[cfg(feature = "debug")]
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn led_on(&self, via2: &Via6522) -> bool {
         (via2.get_pb_out() & MASK_LED) != 0
     }
 
     #[cfg(feature = "debug")]
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn motor_on(&self, via2: &Via6522) -> bool {
         (via2.get_pb_out() & MASK_MOTOR) != 0
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn advance_read_head(&mut self, elapsed: u32, master_clock: u32) -> ReadHeadSignals {
         self.check_active_index(master_clock);
@@ -121,7 +121,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
         }
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn advance_write_head(&mut self, elapsed: u32, master_clock: u32, byte: u8) {
         self.check_active_index(master_clock);
@@ -135,7 +135,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
         self.write_byte_at(index, byte);
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     fn check_active_index(&mut self, master_clock: u32) {
         let current_active_index = self.track_handle.get_generation();
@@ -157,7 +157,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
     }
 
     /// Updates the drive mechanics state, and issues events accordingly.
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn update_state<H: HostInterface>(&mut self, full_state: u8, last_state: u8, hardware: &mut H, master_clock: u32) {
         // :: Update stepper, motor and speed zones
@@ -208,7 +208,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
         }
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     fn evaluate_track_identifier(&mut self, new_track_identifier: TrackIdentifier, master_clock: u32) {
         // :? Has identifier changed?
@@ -219,7 +219,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
         }
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     fn evaluate_track_source(&mut self, master_clock: u32) {
         let loaded_identifier = self.track_handle.get_active_track_identifier();

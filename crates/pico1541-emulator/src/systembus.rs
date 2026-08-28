@@ -88,7 +88,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         hardware.track_changed(self.mechanics.half_track());
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn poll_io(&mut self, hardware: &mut H, elapsed: u32, current_cycle: u32) {
         // :: Ensure the IEC bus is synchronized with the VIA1 outputs and inputs
@@ -121,7 +121,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     }
 
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn sync_iec_bus(&mut self, hardware: &mut H, _current_cycle: u32) {
         // :: Handle IEC via inputs and VIA1 CA1 edge detection
@@ -135,7 +135,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         hardware.write_iec_port(via1_pb_out);
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn poll_mechanics_motor_on(&mut self, elapsed: u32, current_cycle: u32) {
         let pcr_cb2 = self.via2.pcr() & 0b1110_0000;
@@ -172,7 +172,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         }
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn tick_cycles(&mut self, elapsed: u32) {
         if self.via1.any_active() {
@@ -183,7 +183,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         }
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(never)]
     fn read_io(&mut self, addr: u16, cycle: u32, ctx: &mut H) -> u8 {
         self.catch_up(cycle);
@@ -205,7 +205,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         result
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(never)]
     fn write_io(&mut self, addr: u16, val: u8, cycle: u32, ctx: &mut H) {
         self.catch_up(cycle);
@@ -234,7 +234,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         }
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn has_irq(&self) -> bool {
         self.via1.has_irq() || self.via2.has_irq()
@@ -245,13 +245,13 @@ impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H,
     type Ctx = H;
 
     #[inline(always)]
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     fn get_instruction_ptr(&self, addr: u16) -> *const u8 {
         self.memory.get_ptr(addr)
     }
 
     #[inline(always)]
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     fn read(&mut self, hw: &mut H, addr: u16, cycle: u32) -> u8 {
         if (addr & 0x9800) == 0x1800 {
             self.read_io(addr, cycle, hw)
@@ -261,7 +261,7 @@ impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H,
     }
 
     #[inline(always)]
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     fn write(&mut self, ctx: &mut Self::Ctx, addr: u16, val: u8, cycle: u32) {
         if (addr & 0x9800) == 0x1800 {
             self.write_io(addr, val, cycle, ctx);
@@ -271,7 +271,7 @@ impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H,
         }
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     fn irq_pending(&self) -> bool {
         self.has_irq()
@@ -279,7 +279,7 @@ impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H,
 }
 
 impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline]
     pub fn catch_up(&mut self, target_cycle: u32) {
         let elapsed = self.time.consume_catchup_delta(target_cycle);
@@ -289,7 +289,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     }
 
     
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn so_pending(&mut self) -> bool {
         let result = self.so_pulsed;
@@ -297,7 +297,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         result
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn is_motor_on(&self) -> bool {
         (self.via2.get_pb_out() & 0x04) != 0

@@ -36,13 +36,13 @@ impl Default for CPU {
 }
 
 impl CPU {
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn read<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, offset: u32, addr: u16) -> u8 {
         bus.read(ctx, addr, self.cycles.wrapping_add(offset))
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn write<B: Bus>(
         &mut self,
@@ -55,7 +55,7 @@ impl CPU {
         bus.write(ctx, addr, val, self.cycles.wrapping_add(offset));
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn read_pc<B: Bus>(&mut self, _bus: &mut B, _ctx: &mut B::Ctx) -> u8 {
         let val = unsafe { *self.instr_ptr };
@@ -64,7 +64,7 @@ impl CPU {
         val
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn read_word<B: Bus>(
         &mut self,
@@ -78,7 +78,7 @@ impl CPU {
         (hi << 8) | lo
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn read_word_pc<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) -> u16 {
         let lo = self.read_pc(bus, ctx) as u16;
@@ -86,28 +86,28 @@ impl CPU {
         (hi << 8) | lo
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn push<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, offset: u32, val: u8) {
         self.write(bus, ctx, offset, 0x0100 | (self.s as u16), val);
         self.s = self.s.wrapping_sub(1);
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn pop<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, offset: u32) -> u8 {
         self.s = self.s.wrapping_add(1);
         self.read(bus, ctx, offset, 0x0100 | (self.s as u16))
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn push_word<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, offset: u32, val: u16) {
         self.push(bus, ctx, offset, (val >> 8) as u8);
         self.push(bus, ctx, offset + 1, val as u8);
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn pop_word<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx, offset: u32) -> u16 {
         let lo = self.pop(bus, ctx, offset) as u16;
@@ -115,7 +115,7 @@ impl CPU {
         (hi << 8) | lo
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn set_z(&mut self, val: u8) {
         if val == 0 {
@@ -125,7 +125,7 @@ impl CPU {
         }
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn set_n(&mut self, val: u8) {
         if val & 0x80 != 0 {
@@ -135,7 +135,7 @@ impl CPU {
         }
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn set_zn(&mut self, val: u8) {
         self.set_z(val);
@@ -169,7 +169,7 @@ impl CPU {
 }
 
 impl CPU {
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     pub fn set_so_pin(&mut self, active: bool) {
         if active && !self.last_so_pin {
             self.pending_so = true;
@@ -177,7 +177,7 @@ impl CPU {
         self.last_so_pin = active;
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn do_adc(&mut self, val: u8) {
         if self.p & FLAG_D != 0 {
@@ -233,7 +233,7 @@ impl CPU {
         }
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn do_sbc(&mut self, val: u8) {
         if self.p & FLAG_D != 0 {
@@ -289,7 +289,7 @@ impl CPU {
         }
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn step<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) -> u32 {
         if let Some(interrupt) = self.pending_interrupt.take() {

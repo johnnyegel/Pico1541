@@ -91,7 +91,7 @@ impl Via6522 {
     pub fn sr_cycles(&self) -> u32 { self.sr_cycles }
 
     #[inline(always)]
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     fn trigger_sr(&mut self) {
         let sr_mode = (self.acr >> 2) & 0x07;
         if sr_mode == 0 || sr_mode == 4 {
@@ -117,7 +117,7 @@ impl Via6522 {
     /// Read a byte from a VIA register.
     
     #[inline(always)]
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     pub fn read(&mut self, addr: u16) -> u8 {
         let register = (addr & 0x0F) as usize;
         match register {
@@ -187,7 +187,7 @@ impl Via6522 {
 
     /// Write a byte to a VIA register.
     #[inline(always)]
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     pub fn write(&mut self, addr: u16, value: u8) {
         let register = (addr & 0x0F) as usize;
         match register {
@@ -266,7 +266,7 @@ impl Via6522 {
     /// Update the IRQ status based on IFR and IER.
     
     #[inline(always)]
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     fn update_irq(&mut self) {
         let pending = self.ifr & self.ier & 0x7F;
         self.irq = pending != 0;
@@ -277,7 +277,7 @@ impl Via6522 {
     /// This method is called on each CPU cycle.
     
     #[inline(always)]
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     pub fn any_active(&self) -> bool {
         self.active_mask != 0
     }
@@ -285,7 +285,7 @@ impl Via6522 {
     /// This method is called on each CPU cycle.
     
     #[inline(always)]
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     pub fn tick_cycles(&mut self, delta: u32) {
         if delta == 0 || self.active_mask == 0 { return; }
         let delta16 = delta as u16;
@@ -353,21 +353,21 @@ impl Via6522 {
     }
 
     /// Convenience function to get the value of PB, masked by the direction register.
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn get_pb_out(&self) -> u8 {
         self.orb & self.ddrb
     }
 
     /// Convenience function to get the value of PA, masked by the direction register.
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn get_pa_out(&self) -> u8 {
         self.ora & self.ddra
     }
 
     /// Convenience function to get the value of CB1, if it an output
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn get_ca2_out(&self) -> Option<bool> {
         match self.pcr & 0b0000_1110 {
@@ -379,7 +379,7 @@ impl Via6522 {
     }
 
     /// Convenience function to get the value of CB2, if it an output
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn get_cb2_out(&self) -> Option<bool> {
         match self.pcr & 0b1110_0000 {
@@ -391,7 +391,7 @@ impl Via6522 {
 
     /// Trigger the CA1 IRQ and Latch PA, regardless of the Edge configuration
     /// (Fast convenience method, but this is NOT exact behavior)
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn ca1_irq(&mut self) {
         self.ifr |= 0x02;
@@ -403,7 +403,7 @@ impl Via6522 {
 
     /// Trigger the CA2 IRQ, regardless of the Edge configuration
     /// (Fast convenience method, but this is NOT exact behavior)
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn ca2_irq(&mut self) {
         self.ifr |= 0x01;
@@ -412,7 +412,7 @@ impl Via6522 {
 
     /// Trigger the CA1 edge IRQ, when we already know that the edge has changed
     /// (Fast convenience method, but this is NOT exact behavior)
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn ca1_edge(&mut self, edge: bool) {
         self.last_ca1 = edge;
@@ -423,7 +423,7 @@ impl Via6522 {
         }
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn set_ca1(&mut self, val: bool) {
         let positive_edge = (self.pcr & 0x01) != 0;
@@ -433,7 +433,7 @@ impl Via6522 {
         self.last_ca1 = val;
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn set_ca2(&mut self, val: bool) {
         if (self.pcr & 0x08) == 0 {
@@ -445,7 +445,7 @@ impl Via6522 {
         self.last_ca2 = val;
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn set_cb1(&mut self, val: bool) {
         let positive_edge = (self.pcr & 0x10) != 0;
@@ -459,7 +459,7 @@ impl Via6522 {
         self.last_cb1 = val;
     }
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn set_cb2(&mut self, val: bool) {
         if (self.pcr & 0x80) == 0 {

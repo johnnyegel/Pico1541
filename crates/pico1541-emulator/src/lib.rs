@@ -101,7 +101,7 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
     }
 
 
-    #[link_section = ".data.ram_func"]
+    #[link_section = ".data.pico1541_emulator_core"]
     #[inline(always)]
     pub fn tick(&mut self, hw: &mut H) -> u32 {
         

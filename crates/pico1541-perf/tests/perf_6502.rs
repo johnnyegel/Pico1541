@@ -111,11 +111,11 @@ mod tests {
     struct Racc3Bus { memory: [u8; 65536] }
     impl racc6502v3::bus::Bus for Racc3Bus {
         type Ctx = ();
-        #[unsafe(link_section = ".data.ram_func")]
+        #[unsafe(link_section = ".data.pico1541_emulator_core")]
         #[inline(always)]
         fn read(&mut self, addr: u16, _cycle: u32, _ctx: &mut ()) -> u8 { self.memory[addr as usize] }
 
-        #[unsafe(link_section = ".data.ram_func")]
+        #[unsafe(link_section = ".data.pico1541_emulator_core")]
         #[inline(always)]
         fn write(&mut self, addr: u16, val: u8, _cycle: u32, _ctx: &mut ()) { self.memory[addr as usize] = val; }
     }
