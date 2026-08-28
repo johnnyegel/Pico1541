@@ -6,7 +6,7 @@ fn wait_for_pulse(bus: &mut pico1541_emulator::systembus::SystemBus<TestBridge, 
     loop {
         ticks += 1;
         bus.tick_cycles(1);
-        bus.poll_mechanics(1, ticks);
+        bus.poll_mechanics_motor_on(1, ticks);
         let pulse = bus.so_pending();
         if pulse && !last_pulse {
             return (ticks, pulse);
@@ -53,7 +53,7 @@ fn test_disk_streaming_data() {
     // In our implementation Zone 3 (26 cycles) is bits 5,6 = 11 (0x60)
     bus.via2.write(0x02, 0xFF); // All bits are output
     bus.via2.write(0x00, (bus.via2.ora() & !0x60) | 0x60 | 0x04); // Zone 3 (26 cycles), Motor ON
-    bus.mechanics.update_state(bus.via2.get_pb_out(), &mut hardware, 0);
+    bus.mechanics.update_state(bus.via2.get_pb_out(), 0xFF, &mut hardware, 0);
 
     // Set READ mode (CB2 out = true) AND enable SO (CA2 out = true)
 
@@ -94,7 +94,7 @@ fn test_disk_streaming_sync() {
     bus.mechanics.force_state_for_testing(0, 3, 0);
     bus.via2.write(0x02, 0xFF);
     bus.via2.write(0x00, (bus.via2.ora() & !0x60) | 0x60 | 0x04); // Zone 3 (26 cycles), Motor ON
-    bus.mechanics.update_state(bus.via2.get_pb_out(), &mut hardware, 0);
+    bus.mechanics.update_state(bus.via2.get_pb_out(), 0xFF, &mut hardware, 0);
     
     // Set READ mode (CB2 out = true) AND enable SO (CA2 out = true)
     bus.via2.write(0x0C, 0b1110_1110);
@@ -102,7 +102,7 @@ fn test_disk_streaming_sync() {
     // First byte idx 0: 0xFF
     // Due to the new SYNC logic, the FIRST 0xFF is treated as data and pulses SO!
     let mut ticks = 0;
-    while !({ bus.tick_cycles(1); bus.poll_mechanics(1, 0); bus.so_pending() }) {
+    while !({ bus.tick_cycles(1); bus.poll_mechanics_motor_on(1, 0); bus.so_pending() }) {
         ticks += 1;
         if ticks > 100 {
              panic!("Timeout waiting for first byte");
@@ -111,13 +111,13 @@ fn test_disk_streaming_sync() {
     assert!(bus.via2.pb_in() & 0x80 != 0, "SYNC should NOT be indicated yet (active low)");
     
     // Wait for the SO pulse to clear
-    while { bus.tick_cycles(1); bus.poll_mechanics(1, 0); bus.so_pending() } {}
+    while { bus.tick_cycles(1); bus.poll_mechanics_motor_on(1, 0); bus.so_pending() } {}
 
     // Second byte idx 1: 0xFF
     // Now last_gcr_byte == 0xFF, so it establishes SYNC!
     for i in 0..26 {
         assert!(
-            !( { bus.tick_cycles(1); bus.poll_mechanics(1, 0); bus.so_pending() } ),
+            !( { bus.tick_cycles(1); bus.poll_mechanics_motor_on(1, 0); bus.so_pending() } ),
             "SYNC should NOT pulse SO (cycle {})", i
         );
     }
@@ -126,7 +126,7 @@ fn test_disk_streaming_sync() {
     // Third byte idx 2: 0x55 (Data)
     // This one IS data, so it should return true on the 26th cycle.
     let mut ticks = 0;
-    while !({ bus.tick_cycles(1); bus.poll_mechanics(1, 0); bus.so_pending() }) {
+    while !({ bus.tick_cycles(1); bus.poll_mechanics_motor_on(1, 0); bus.so_pending() }) {
         ticks += 1;
         if ticks > 100 {
              panic!("Timeout waiting for data byte after SYNC");
@@ -162,25 +162,25 @@ fn test_disk_bitrate_zones() {
 
     // Test Zone 3: 26 cycles (bits 5,6 = 11 -> 0x60)
     bus.via2.write(0x00, 0x60 | 0x04); // Motor ON
-    bus.mechanics.update_state(bus.via2.get_pb_out(), &mut hardware, 0);
+    bus.mechanics.update_state(bus.via2.get_pb_out(), 0xFF, &mut hardware, 0);
     let (ticks, lp3) = wait_for_pulse(&mut bus, false);
     assert_eq!(ticks, 26, "Zone 3 should take 26 cycles");
 
     // Test Zone 2: 28 cycles (bits 5,6 = 10 -> 0x40)
     bus.via2.write(0x00, 0x40 | 0x04);
-    bus.mechanics.update_state(bus.via2.get_pb_out(), &mut hardware, 0);
+    bus.mechanics.update_state(bus.via2.get_pb_out(), 0xFF, &mut hardware, 0);
     let (ticks, lp2) = wait_for_pulse(&mut bus, lp3);
     assert_eq!(ticks, 28, "Zone 2 should take 28 cycles");
 
     // Test Zone 1: 30 cycles (bits 5,6 = 01 -> 0x20)
     bus.via2.write(0x00, 0x20 | 0x04);
-    bus.mechanics.update_state(bus.via2.get_pb_out(), &mut hardware, 0);
+    bus.mechanics.update_state(bus.via2.get_pb_out(), 0xFF, &mut hardware, 0);
     let (ticks, lp1) = wait_for_pulse(&mut bus, lp2);
     assert_eq!(ticks, 30, "Zone 1 should take 30 cycles");
 
     // Test Zone 0: 32 cycles (bits 5,6 = 00 -> 0x00)
     bus.via2.write(0x00, 0x00 | 0x04);
-    bus.mechanics.update_state(bus.via2.get_pb_out(), &mut hardware, 0);
+    bus.mechanics.update_state(bus.via2.get_pb_out(), 0xFF, &mut hardware, 0);
     let (ticks, _) = wait_for_pulse(&mut bus, lp1);
     assert_eq!(ticks, 32, "Zone 0 should take 32 cycles");
 }

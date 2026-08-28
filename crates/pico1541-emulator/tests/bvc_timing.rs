@@ -57,7 +57,7 @@ fn test_bvc_so_timing() {
     
     // update state
     let effective_orb = emu.systembus.via2.get_pb_out();
-    emu.systembus.mechanics.update_state(effective_orb, &mut hw, 0);
+    emu.systembus.mechanics.update_state(effective_orb, 0xFF, &mut hw, 0);
     
     emu.systembus.mechanics.force_state_for_testing(0, 3, 0);
 
@@ -67,7 +67,7 @@ fn test_bvc_so_timing() {
         emu.step(&mut hw);
         let pc = emu.cpu.pc;
         let a = emu.cpu.a;
-        println!("Cycle {}: BVC completed. PC=${:04X}, A=${:02X}, in_a=${:02X}", c, emu.cpu.pc, a, emu.systembus.via2.pa_in());
+        println!("Cycle {}: BVC completed. PC=${:04X}, A=${:02X}, in_a=${:02X}", c, pc, a, emu.systembus.via2.pa_in());
 
         if emu.cpu.pc >= 0x0009 {
             finished = true;
