@@ -138,7 +138,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
             match embassy_futures::select::select(disk.read_track(desired_track, data), TRACK_CHANNEL.receive()).await {
                 embassy_futures::select::Either::First(Ok(layout)) => {
                     self.pre_cached_ht = Some((desired_track, layout.0, layout.1, layout.2));
-                    debug!("Pre-cached half-track {} into back buffer", desired_track);
+                    debug!("Pre-cached Track {}.{} (HT: {}) into back buffer", (desired_track / 2) + 1, desired_track % 2, desired_track);
                     return None;
                 }
                 embassy_futures::select::Either::First(Err(_)) => {
@@ -170,7 +170,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
                 }
             }
             
-            debug!("Manager loading half-track: {}", target_ht);
+            debug!("Manager loading Track {}.{} (HT: {})", (target_ht / 2) + 1, target_ht % 2, target_ht);
 
             // Check if it's already pre-cached in the back buffer!
             if let Some((ht, layout, length, speed_zone)) = self.pre_cached_ht {
@@ -182,7 +182,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
                         length
                     );
                     self.pre_cached_ht = None; // Used it!
-                    info!("Half-Track {} load took 0 ms (PRE-CACHED)", target_ht);
+                    info!("Track {}.{} (HT: {}) load took 0 ms (PRE-CACHED)", (target_ht / 2) + 1, target_ht % 2, target_ht);
                     break;
                 }
             }
@@ -215,7 +215,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
                         }
                         
                         let elapsed = start_time.elapsed().as_millis();
-                        info!("Half-Track {} load took {} ms", target_ht, elapsed);
+                        info!("Track {}.{} (HT: {}) load took {} ms", (target_ht / 2) + 1, target_ht % 2, target_ht, elapsed);
                         break; // Success, done loading the track!
                     }
                     Either::First(Err(e)) => {
@@ -335,7 +335,8 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
                         }
                     }
 
-                    if let Some((blocks_start, blocks_count)) = block_batch {
+                    if false /* let Some((blocks_start, blocks_count)) = block_batch */ {
+                        let (blocks_start, blocks_count) = block_batch.unwrap();
 
                         // Mark active track as Void during background directory fetch to prevent Core 0 emu hang/timeouts.
                         let old_layout = self.track_handle.get_active_layout();
@@ -485,10 +486,10 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
                                 let half_track = self.track_handle.get_head_half_track();
                                 
                                 // Initialize Virtual Directory if applicable before reading track
-                                let mut is_virtual_disk = false;
+                                let mut _is_virtual_disk = false;
                                 if let Some(disk) = disk_opt.as_mut() {
                                     if let Some(vdir) = disk.as_virtual_disk_mut() {
-                                        is_virtual_disk = true;
+                                        _is_virtual_disk = true;
                                         vdir.set_shortcut_entry(None);
                                         vdir.file_storage = None;
                                         vdir.source.rewind();
@@ -499,7 +500,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
                                 }
                                 drop(disk_opt);
                                 
-                                if is_virtual_disk {
+                                if false /* is_virtual_disk */ {
                                     let (dir_path, use_internal) = {
                                         let guard = self.mounted_dir.lock().await;
                                         (guard.0.clone(), guard.1)
@@ -534,9 +535,12 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
                                 let mut disk_opt = self.disk_image.as_mut();
                                 if let Some(disk) = disk_opt.as_mut() {
                                     let data = self.track_handle.start_track_load();
+                                    let start_time = embassy_time::Instant::now();
                                     match disk.read_track(half_track, data).await {
                                         Ok(layout) => {
                                             self.track_handle.commit_loaded_track(pico1541_common::track_buffer::TrackIdentifier::new(half_track, layout.2.unwrap_or_else(|| pico1541_common::track_buffer::default_speed_zone(half_track))), layout.0, layout.1);
+                                            let elapsed = start_time.elapsed().as_millis();
+                                            info!("Track {}.{} (HT: {}) load took {} ms", (half_track / 2) + 1, half_track % 2, half_track, elapsed);
                                         }
                                         Err(e) => {
                                             error!("Failed to read track on mount: {:?}", &e);
@@ -586,11 +590,11 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
                                 info!("Directory requested. Rewinding.");
                                 
                                 // Reset shortcut logic
-                                let mut is_virtual_disk = false;
+                                let mut _is_virtual_disk = false;
                                 let mut disk_opt = self.disk_image.as_mut();
                                 if let Some(disk) = disk_opt.as_mut() {
                                     if let Some(vdir) = disk.as_virtual_disk_mut() {
-                                        is_virtual_disk = true;
+                                        _is_virtual_disk = true;
                                         vdir.set_shortcut_entry(None);
                                         vdir.file_storage = None;
                                         vdir.source.rewind();
@@ -601,7 +605,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
                                 }
                                 drop(disk_opt);
                                 
-                                if is_virtual_disk {
+                                if false /* _is_virtual_disk */ {
                                     // Temporarily set layout to Void so the 1541 DOS waits for SYNC
                                     // while we fetch the directory, preventing race conditions and timeouts.
                                     let old_layout = self.track_handle.get_active_layout();

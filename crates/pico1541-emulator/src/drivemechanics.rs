@@ -72,6 +72,11 @@ impl<S: MagneticSurface> DriveMechanics<S> {
     pub fn pop_force_disk_change(&mut self) -> bool {
         self.track_handle.pop_force_disk_change()
     }
+
+    #[inline(always)]
+    pub fn force_evaluate_track_source(&mut self, master_clock: u32) {
+        self.evaluate_track_source(master_clock);
+    }
     
     pub fn write_byte_at(&mut self, index: u32, data: u8) {
         self.track_handle.seek_to_byte(index);
@@ -155,24 +160,22 @@ impl<S: MagneticSurface> DriveMechanics<S> {
     #[link_section = ".data.ram_func"]
     #[inline(always)]
     pub fn update_state<H: HostInterface>(&mut self, full_state: u8, last_state: u8, hardware: &mut H, master_clock: u32) {
+        // :: Update stepper, motor and speed zones
         let state_changes = full_state ^ last_state;
 
-        if (state_changes & MASK_MOTOR) != 0 {
-            let motor_on = (full_state & MASK_MOTOR) != 0;
-            self.surface.set_motor_running(motor_on, master_clock);
-        }
-
-        // :: Update stepper motor and tracking
-        // Did speed-zone change? (PB5, PB6)
+        // :? Did speed-zone change? (PB5, PB6)
         if (state_changes & MASK_SPEED_ZONE) != 0 {
+            // -> Yes, then update the speed zone and evaluate the track identifier.
             let speed_zone = (full_state & MASK_SPEED_ZONE) >> SHIFT_SPEED_ZONE;
             let new_track_identifier = self.current_identifier.with_speed_zone(speed_zone);
             self.surface.set_speed_zone(speed_zone);
             self.evaluate_track_identifier(new_track_identifier, master_clock);
         }
         
+        // :? Did stepper motor phase change? (PB0, PB1)
         let is_track_step = state_changes & MASK_STEP != 0;
         if is_track_step {
+            // -> Yes, then determine the direction and the next track position.
             let last_phase = last_state & MASK_STEP;
             let new_phase = full_state & MASK_STEP;
             let delta = (new_phase.wrapping_sub(last_phase) & MASK_STEP) as i8;
@@ -197,6 +200,11 @@ impl<S: MagneticSurface> DriveMechanics<S> {
                     hardware.track_changed(current_half_track);
                 }
             }
+        }
+
+        if (state_changes & MASK_MOTOR) != 0 {
+            let motor_on = (full_state & MASK_MOTOR) != 0;
+            self.surface.set_motor_running(motor_on, master_clock);
         }
     }
 

@@ -112,6 +112,10 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
                 } else {
                     self.via2.set_pb_in(self.via2.pb_in() | 0x10);
                 }
+                
+                if self.mechanics.pop_force_disk_change() {
+                    self.mechanics.force_evaluate_track_source(current_cycle);
+                }
             }
         }
     }
