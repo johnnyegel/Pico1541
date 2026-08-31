@@ -9,12 +9,12 @@ static HEAP: embedded_alloc::LlffHeap = embedded_alloc::LlffHeap::empty();
 mod driver;
 mod flash_storage;
 
+use embassy_rp::interrupt;
 #[allow(unused_imports)]
 use pico1541_common::context::ViaHardware;
-use embassy_rp::interrupt;
 
 use core::sync::atomic::Ordering;
-use defmt::{info, error};
+use defmt::{error, info};
 use defmt_rtt as _;
 use panic_probe as _;
 
@@ -22,16 +22,17 @@ use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::i2c::{Config, InterruptHandler};
-use embassy_rp::peripherals::{I2C0, DMA_CH0, DMA_CH1, PIO0, PIO1};
-use embassy_rp::spi::{Config as SpiConfig, Spi};
 use embassy_rp::multicore::Stack;
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, I2C0, PIO0, PIO1};
+use embassy_rp::spi::{Config as SpiConfig, Spi};
 use embassy_rp::Peri;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 
-use pico1541_common::snooper::{SnooperConfig};
+use pico1541_common::snooper::SnooperConfig;
 use pico1541_manager::tasks::{
-    ActionTask, MountManagerTask, DisplayTask, DriveActivityTask, KeyboardTask, MainMenuTask, SnooperTask
+    ActionTask, DisplayTask, DriveActivityTask, KeyboardTask, MainMenuTask, MountManagerTask,
+    SnooperTask,
 };
 
 #[cfg(has_mklittlefs)]
@@ -40,19 +41,19 @@ use pico1541_manager::tasks::{
 static FS_IMAGE: [u8; 512 * 1024] = *include_bytes!(concat!(env!("OUT_DIR"), "/fs.bin"));
 
 // Local drivers
+use crate::driver::blockdevsdcard::{SdBlockIo, SdCard};
 use crate::driver::display::{DisplayHardware, DisplayState, DisplayWrapper};
-use crate::driver::leds::{StatusLeds, StatusLedsWrapper};
-use crate::driver::input::KeyboardInput;
-use crate::driver::speaker::PiezoSpeaker;
-use crate::driver::blockdevsdcard::{SdCard, SdBlockIo};
-use pico1541_manager::driver::file_storage::{FatStorage, StorageWrapper};
 use crate::driver::indicator::{ActivityIndicator, IndicatorWrapper};
+use crate::driver::input::KeyboardInput;
+use crate::driver::leds::{StatusLeds, StatusLedsWrapper};
+use crate::driver::speaker::PiezoSpeaker;
+use pico1541_manager::driver::file_storage::{FatStorage, StorageWrapper};
 
 // Tasks and manager components
-use pico1541_manager::{SETTINGS_CHANNEL, SettingsCommand};
+use pico1541_manager::{SettingsCommand, SETTINGS_CHANNEL};
 
+use pico1541_common::track_buffer::{DualCoreTrackBuffer, ManagerHandle};
 use pico1541_common::SYSTEM_CLOCK_FREQ;
-use pico1541_common::track_buffer::{DualCoreTrackBuffer, TrackBuffer, ManagerHandle};
 use static_cell::StaticCell;
 
 #[link_section = ".dual_core_buffer"]
@@ -61,20 +62,16 @@ static DUAL_CORE_BUFFER: DualCoreTrackBuffer = DualCoreTrackBuffer::new();
 mod storage_manager;
 use storage_manager::*;
 
-pub mod littlefs_storage;
 mod emulation;
-
+pub mod littlefs_storage;
 
 pub mod pio {
     pub fn magnetic_surface_program() -> ::pio::Program<32> {
         ::pio::pio_file!("pio/magnetic_surface.pio").program
     }
 }
-use littlefs_storage::LittleFsStorage;
 use flash_storage::FlashStorage;
-
-
-
+use littlefs_storage::LittleFsStorage;
 
 bind_interrupts!(struct Irqs {
     I2C0_IRQ => InterruptHandler<I2C0>;
@@ -85,20 +82,23 @@ bind_interrupts!(struct Irqs {
 
 const DEFAULT_DRIVE_ID: u8 = 8;
 
-
 static SNOOPER_CONFIG: SnooperConfig = SnooperConfig::new(DEFAULT_DRIVE_ID);
 
-static CURRENT_DIR: Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)> = Mutex::new((heapless::String::new(), false));
-static MOUNTED_DIR: Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)> = Mutex::new((heapless::String::new(), false));
+static CURRENT_DIR: Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)> =
+    Mutex::new((heapless::String::new(), false));
+static MOUNTED_DIR: Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)> =
+    Mutex::new((heapless::String::new(), false));
 
-static EXECUTOR_HIGH: embassy_executor::InterruptExecutor = embassy_executor::InterruptExecutor::new();
+static EXECUTOR_HIGH: embassy_executor::InterruptExecutor =
+    embassy_executor::InterruptExecutor::new();
 
 #[embassy_rp::interrupt]
 unsafe fn TIMER_IRQ_3() {
-    embassy_rp::pac::TIMER.intf().write(|w| w.set_alarm(3, false));
+    embassy_rp::pac::TIMER
+        .intf()
+        .write(|w| w.set_alarm(3, false));
     EXECUTOR_HIGH.on_interrupt();
 }
-
 
 // Core 1 Stack
 #[link_section = ".core1_stack"]
@@ -107,8 +107,6 @@ static mut CORE1_STACK: core::mem::MaybeUninit<Stack<1024>> = core::mem::MaybeUn
 // ROM Buffer for dynamic loading
 #[link_section = ".sram3"]
 static mut ROM_BUFFER: [u8; 16384] = [0; 16384];
-
-
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -148,13 +146,20 @@ async fn main(spawner: Spawner) {
     let mut config = embassy_rp::config::Config::default();
     config.clocks = embassy_rp::clocks::ClockConfig::system_freq(SYSTEM_CLOCK_FREQ).unwrap();
     let p = embassy_rp::init(config);
-    info!("Pico1541 Starting at {}MHz...", SYSTEM_CLOCK_FREQ / 1_000_000);
+    info!(
+        "Pico1541 Starting at {}MHz...",
+        SYSTEM_CLOCK_FREQ / 1_000_000
+    );
 
     // Initialize Flash for LittleFS
     // RP2040 has 2MB of flash. We reserved 1MB at the end.
-    let flash_driver = embassy_rp::flash::Flash::<_, embassy_rp::flash::Blocking, { 2 * 1024 * 1024 }>::new_blocking(p.FLASH);
+    let flash_driver = embassy_rp::flash::Flash::<
+        _,
+        embassy_rp::flash::Blocking,
+        { 2 * 1024 * 1024 },
+    >::new_blocking(p.FLASH);
     let fs_storage_inst = FlashStorage::new(flash_driver);
-    
+
     fn fs_config() -> littlefs_rust::Config {
         let mut config = littlefs_rust::Config::new(4096, 128);
         config.read_size = 256;
@@ -163,10 +168,12 @@ async fn main(spawner: Spawner) {
         config.lookahead_size = 16;
         config
     }
-    
+
     // Attempt to mount LittleFS, if it fails format it
     let mut fs_storage_inst = match littlefs_rust::Filesystem::mount(fs_storage_inst, fs_config()) {
-        Ok(fs) => fs.unmount().unwrap_or_else(|e| panic!("failed to unmount: {:?}", e)),
+        Ok(fs) => fs
+            .unmount()
+            .unwrap_or_else(|e| panic!("failed to unmount: {:?}", e)),
         Err((_, mut fs_storage)) => {
             info!("Formatting LittleFS...");
             if let Err(_e) = littlefs_rust::Filesystem::format(&mut fs_storage, &fs_config()) {
@@ -175,11 +182,12 @@ async fn main(spawner: Spawner) {
             fs_storage
         }
     };
-    
+
     // Read Settings and Load ROM
     let mut drive_id = DEFAULT_DRIVE_ID;
     let mut rom_name = heapless::String::<32>::new();
     let _ = rom_name.push_str("-- Not available --");
+    
     fs_storage_inst = match littlefs_rust::Filesystem::mount(fs_storage_inst, fs_config()) {
         Ok(fs) => {
             if let Ok(data) = fs.read_to_vec("/settings.dat") {
@@ -189,7 +197,7 @@ async fn main(spawner: Spawner) {
             }
 
             let mut loaded_rom = false;
-            
+
             // Try to load configured boot rom first
             if let Ok(file) = fs.open("/settings/boot_rom.txt", littlefs_rust::OpenFlags::READ) {
                 let mut name_buf = [0u8; 32];
@@ -197,11 +205,12 @@ async fn main(spawner: Spawner) {
                     if let Ok(s) = core::str::from_utf8(&name_buf[..(n as usize)]) {
                         rom_name.clear();
                         let _ = rom_name.push_str(s);
-                        
+
                         let mut path = heapless::String::<64>::new();
                         let _ = path.push_str("/roms/");
                         let _ = path.push_str(s);
-                        if let Ok(rom_file) = fs.open(path.as_str(), littlefs_rust::OpenFlags::READ) {
+                        if let Ok(rom_file) = fs.open(path.as_str(), littlefs_rust::OpenFlags::READ)
+                        {
                             if rom_file.size() == 16384 {
                                 let buf = unsafe { &mut *core::ptr::addr_of_mut!(ROM_BUFFER) };
                                 if let Ok(n) = rom_file.read(buf) {
@@ -221,11 +230,16 @@ async fn main(spawner: Spawner) {
                 if let Ok(dir) = fs.read_dir("/roms") {
                     for entry in dir.flatten() {
                         let name_str = entry.name.as_str();
-                        if name_str.ends_with(".bin") || name_str.ends_with(".BIN") || name_str.ends_with(".rom") || name_str.ends_with(".ROM") {
+                        if name_str.ends_with(".bin")
+                            || name_str.ends_with(".BIN")
+                            || name_str.ends_with(".rom")
+                            || name_str.ends_with(".ROM")
+                        {
                             let mut path = heapless::String::<64>::new();
                             let _ = path.push_str("/roms/");
                             let _ = path.push_str(name_str);
-                            if let Ok(file) = fs.open(path.as_str(), littlefs_rust::OpenFlags::READ) {
+                            if let Ok(file) = fs.open(path.as_str(), littlefs_rust::OpenFlags::READ)
+                            {
                                 if file.size() == 16384 {
                                     let buf = unsafe { &mut *core::ptr::addr_of_mut!(ROM_BUFFER) };
                                     if let Ok(n) = file.read(buf) {
@@ -250,26 +264,32 @@ async fn main(spawner: Spawner) {
     info!("Settings loaded. Drive ID: {}", drive_id);
     SNOOPER_CONFIG.device_id.store(drive_id, Ordering::Relaxed);
 
-// Force RP2040 Timer to 1us ticks (12 cycles of 12MHz clk_ref)
-let (old_val, new_val) = unsafe {
-    let timer_tick_reg = 0x4005802c as *mut u32;
-    let old = core::ptr::read_volatile(timer_tick_reg);
-    // Set to 12 cycles per tick and ENABLE bit (1 << 9 | 12 = 524)
-    core::ptr::write_volatile(timer_tick_reg, (1 << 9) | 12);
-    let new = core::ptr::read_volatile(timer_tick_reg);
-    (old, new)
-};
+    // Force RP2040 Timer to 1us ticks (12 cycles of 12MHz clk_ref)
+    let (old_val, new_val) = unsafe {
+        let timer_tick_reg = 0x4005802c as *mut u32;
+        let old = core::ptr::read_volatile(timer_tick_reg);
+        // Set to 12 cycles per tick and ENABLE bit (1 << 9 | 12 = 524)
+        core::ptr::write_volatile(timer_tick_reg, (1 << 9) | 12);
+        let new = core::ptr::read_volatile(timer_tick_reg);
+        (old, new)
+    };
 
-// Timer speed verification
-let t1 = embassy_rp::pac::TIMER.timelr().read();
-cortex_m::asm::delay(10_000_000); 
-let t2 = embassy_rp::pac::TIMER.timelr().read();
-let startup_ticks = t2.wrapping_sub(t1);
+    // Timer speed verification
+    let t1 = embassy_rp::pac::TIMER.timelr().read();
+    cortex_m::asm::delay(10_000_000);
+    let t2 = embassy_rp::pac::TIMER.timelr().read();
+    let startup_ticks = t2.wrapping_sub(t1);
 
-SNOOPER_CONFIG.diag_old_tick.store(old_val, Ordering::Relaxed);
-SNOOPER_CONFIG.diag_startup_ticks.store(startup_ticks, Ordering::Relaxed);
-info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_ticks);
-
+    SNOOPER_CONFIG
+        .diag_old_tick
+        .store(old_val, Ordering::Relaxed);
+    SNOOPER_CONFIG
+        .diag_startup_ticks
+        .store(startup_ticks, Ordering::Relaxed);
+    info!(
+        "Timer Diag: Old={} New={} StartupTicks={}",
+        old_val, new_val, startup_ticks
+    );
 
     // Initialize the shared double track buffers
     DUAL_CORE_BUFFER.reset();
@@ -324,7 +344,14 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
 
     // --- Run Manager on Core 0 ---
     spawner.spawn(settings_save_task(fs_storage_inst).unwrap());
-    core0_init_task(spawner, core1_pins, &SNOOPER_CONFIG, rom_name, manager_handle).await;
+    core0_init_task(
+        spawner,
+        core1_pins,
+        &SNOOPER_CONFIG,
+        rom_name,
+        manager_handle,
+    )
+    .await;
 }
 
 #[embassy_executor::task]
@@ -336,53 +363,57 @@ async fn activity_run(mut task: DriveActivityTask<IndicatorWrapper<CriticalSecti
 async fn core0_perf_task(config: &'static pico1541_common::snooper::SnooperConfig) {
     let mut last_emu_ticks = config.emu_total_ticks.load(Ordering::Relaxed);
     let mut last_idle_loops = config.emu_total_idles.load(Ordering::Relaxed);
-    
+
     // Start max idle at 1 so it quickly calibrates UP to the actual idle loops
     let mut max_idle_per_20ms = 1u32;
     let mut max_load = 0;
-    
+
     let mut last_time = embassy_time::Instant::now();
     let mut ticks_since_last = 0;
-    
+
     loop {
         embassy_time::Timer::after(embassy_time::Duration::from_millis(20)).await;
-        
+
         let current_emu_ticks = config.emu_total_ticks.load(Ordering::Relaxed);
         let current_idle_loops = config.emu_total_idles.load(Ordering::Relaxed);
-        
+
         let diff_ticks = current_emu_ticks.wrapping_sub(last_emu_ticks);
         let diff_idles = current_idle_loops.wrapping_sub(last_idle_loops);
-        
+
         last_emu_ticks = current_emu_ticks;
         last_idle_loops = current_idle_loops;
-        
+
         ticks_since_last += diff_ticks;
-        
+
         if diff_idles > max_idle_per_20ms {
             max_idle_per_20ms = diff_idles;
         }
-        
+
         if max_idle_per_20ms > 0 {
-            let idle_pct = if diff_idles > max_idle_per_20ms { 100 } else { (diff_idles * 100) / max_idle_per_20ms };
+            let idle_pct = if diff_idles > max_idle_per_20ms {
+                100
+            } else {
+                (diff_idles * 100) / max_idle_per_20ms
+            };
             let load_pct = 100 - idle_pct;
-            
+
             // Reconstruct fake SYST cycles for compatibility with main_menu.rs
             let fake_busy_syst = (load_pct * (SYSTEM_CLOCK_FREQ / 50)) / 100;
-            
+
             if fake_busy_syst > max_load {
                 max_load = fake_busy_syst;
             }
         }
-        
+
         let now = embassy_time::Instant::now();
         let elapsed_ms = now.duration_since(last_time).as_millis();
-        
+
         // Update speed and reset stats roughly twice a second
         if elapsed_ms >= 500 {
             let speed_hz = ((ticks_since_last as u64 * 1000) / elapsed_ms) as u32;
             config.emu_speed_hz.store(speed_hz, Ordering::Relaxed);
             config.core0_avg_raw.store(max_load, Ordering::Relaxed);
-            
+
             // FIXME! Remove this
             //defmt::info!("SPEED: {} Hz, MAX LOAD: {} (out of {})", speed_hz, max_load, (SYSTEM_CLOCK_FREQ / 50));
 
@@ -398,11 +429,14 @@ async fn snooper_run(mut task: SnooperTask) {
     task.run().await;
 }
 
-
-
-
 #[embassy_executor::task]
-async fn vdisk_run(mut task: MountManagerTask<MyStorage, PlatformStorageManager, StatusLedsWrapper<CriticalSectionRawMutex>>) {
+async fn vdisk_run(
+    mut task: MountManagerTask<
+        MyStorage,
+        PlatformStorageManager,
+        StatusLedsWrapper<CriticalSectionRawMutex>,
+    >,
+) {
     task.run().await;
 }
 
@@ -421,7 +455,6 @@ async fn action_run(mut task: ActionTask) {
     task.run().await;
 }
 
-
 #[embassy_executor::task]
 #[allow(clippy::type_complexity)]
 async fn menu_run(
@@ -430,7 +463,7 @@ async fn menu_run(
         StatusLedsWrapper<CriticalSectionRawMutex>,
         IndicatorWrapper<CriticalSectionRawMutex>,
         StorageWrapper<MyRawBlockIo, MyDet>,
-        LittleFsStorage
+        LittleFsStorage,
     >,
 ) {
     task.run().await;
@@ -452,25 +485,29 @@ async fn blinky(pin: Peri<'static, embassy_rp::peripherals::PIN_25>) {
 async fn core1_load_run(config: &'static SnooperConfig) {
     let mut iterations = 0u32;
     let mut last_time = embassy_time::Instant::now();
-    
+
     loop {
         iterations += 1;
         // Yield to let other tasks run, but don't do it every microsecond!
         // Using a longer delay significantly reduces context switching overhead.
         embassy_time::Timer::after_millis(10).await;
-        
+
         let now = embassy_time::Instant::now();
         let elapsed = now.duration_since(last_time).as_millis();
         if elapsed >= 1000 {
             let old_avg = config.core1_avg_raw.load(Ordering::Relaxed);
-            let new_avg = if old_avg == 0 { iterations } else { (iterations + old_avg * 3) / 4 };
+            let new_avg = if old_avg == 0 {
+                iterations
+            } else {
+                (iterations + old_avg * 3) / 4
+            };
             config.core1_avg_raw.store(new_avg, Ordering::Relaxed);
 
             let max_raw = config.core1_max_raw.load(Ordering::Relaxed);
             if iterations > max_raw {
                 config.core1_max_raw.store(iterations, Ordering::Relaxed);
             }
-            
+
             iterations = 0;
             last_time = now;
         }
@@ -505,7 +542,7 @@ pub struct Core0Pins {
 
 #[embassy_executor::task]
 async fn sd_card_monitor_task(
-    sd_mutex: &'static Mutex<CriticalSectionRawMutex, FatStorage<MyRawBlockIo, MyDet>>
+    sd_mutex: &'static Mutex<CriticalSectionRawMutex, FatStorage<MyRawBlockIo, MyDet>>,
 ) {
     loop {
         let mut mounted = false;
@@ -579,16 +616,17 @@ async fn core0_init_task(
     let mut spi_config = SpiConfig::default();
     spi_config.frequency = 400_000;
     let spi = Spi::new_blocking(pins.spi1, pins.clk, pins.mosi, pins.miso, spi_config);
-    
+
     let baudrate = option_env!("PICO1541_SD_BAUDRATE")
         .and_then(|s| s.parse::<u32>().ok())
         .unwrap_or(25_000_000);
-        
+
     static SD_CARD: StaticCell<SdCard<MySpi, MyCs, MyDelay>> = StaticCell::new();
     let card = SD_CARD.init(SdCard::new(spi, cs, embassy_time::Delay, baudrate));
 
     let block_io = SdBlockIo::new(card as *mut _);
-    static SD_STORAGE: StaticCell<Mutex<CriticalSectionRawMutex, FatStorage<MyRawBlockIo, MyDet>>> = StaticCell::new();
+    static SD_STORAGE: StaticCell<Mutex<CriticalSectionRawMutex, FatStorage<MyRawBlockIo, MyDet>>> =
+        StaticCell::new();
     let sd_obj = FatStorage::new(block_io, det);
     let sd_mutex = SD_STORAGE.init(Mutex::new(sd_obj));
 
@@ -605,7 +643,10 @@ async fn core0_init_task(
 
     let vdisk_task = MountManagerTask::new(
         manager_handle,
-        PlatformStorageManager { storage: StorageWrapper(sd_mutex), mounted_dir: &MOUNTED_DIR },
+        PlatformStorageManager {
+            storage: StorageWrapper(sd_mutex),
+            mounted_dir: &MOUNTED_DIR,
+        },
         StatusLedsWrapper(status_leds_mutex),
         &MOUNTED_DIR,
     );
@@ -643,127 +684,157 @@ async fn core0_init_task(
 async fn settings_save_task(mut flash_storage: FlashStorage<'static>) {
     loop {
         let cmd = SETTINGS_CHANNEL.receive().await;
-        
+
         let mut config = littlefs_rust::Config::new(4096, 128);
         config.read_size = 256;
         config.prog_size = 256;
         config.cache_size = 256;
         config.lookahead_size = 16;
-        
+
         match cmd {
-                SettingsCommand::SaveDriveId(id) => {
-                    match littlefs_rust::Filesystem::mount(flash_storage, config) {
-                        Ok(fs) => {
-                            if let Ok(file) = fs.open("/settings.dat", littlefs_rust::OpenFlags::WRITE | littlefs_rust::OpenFlags::CREATE | littlefs_rust::OpenFlags::TRUNC) {
-                                let _ = file.write(&[id]);
-                                let _ = file.sync();
-                                info!("Successfully wrote /settings.dat: Drive ID {}", id);
-                            }
-                            flash_storage = fs.unmount().unwrap();
+            SettingsCommand::SaveDriveId(id) => {
+                match littlefs_rust::Filesystem::mount(flash_storage, config) {
+                    Ok(fs) => {
+                        if let Ok(file) = fs.open(
+                            "/settings.dat",
+                            littlefs_rust::OpenFlags::WRITE
+                                | littlefs_rust::OpenFlags::CREATE
+                                | littlefs_rust::OpenFlags::TRUNC,
+                        ) {
+                            let _ = file.write(&[id]);
+                            let _ = file.sync();
+                            info!("Successfully wrote /settings.dat: Drive ID {}", id);
                         }
-                        Err((_, storage)) => {
-                            flash_storage = storage;
-                        }
+                        flash_storage = fs.unmount().unwrap();
+                    }
+                    Err((_, storage)) => {
+                        flash_storage = storage;
                     }
                 }
-                SettingsCommand::SaveBootRom(name) => {
-                    match littlefs_rust::Filesystem::mount(flash_storage, config) {
-                        Ok(fs) => {
-                            let _ = fs.mkdir("/settings");
-                            if let Ok(file) = fs.open("/settings/boot_rom.txt", littlefs_rust::OpenFlags::WRITE | littlefs_rust::OpenFlags::CREATE | littlefs_rust::OpenFlags::TRUNC) {
-                                let _ = file.write(name.as_bytes());
-                                let _ = file.sync();
-                                info!("Successfully wrote /settings/boot_rom.txt: {}", name.as_str());
-                            }
-                            flash_storage = fs.unmount().unwrap();
+            }
+            SettingsCommand::SaveBootRom(name) => {
+                match littlefs_rust::Filesystem::mount(flash_storage, config) {
+                    Ok(fs) => {
+                        let _ = fs.mkdir("/settings");
+                        if let Ok(file) = fs.open(
+                            "/settings/boot_rom.txt",
+                            littlefs_rust::OpenFlags::WRITE
+                                | littlefs_rust::OpenFlags::CREATE
+                                | littlefs_rust::OpenFlags::TRUNC,
+                        ) {
+                            let _ = file.write(name.as_bytes());
+                            let _ = file.sync();
+                            info!(
+                                "Successfully wrote /settings/boot_rom.txt: {}",
+                                name.as_str()
+                            );
                         }
-                        Err((_, storage)) => {
-                            flash_storage = storage;
-                        }
+                        flash_storage = fs.unmount().unwrap();
+                    }
+                    Err((_, storage)) => {
+                        flash_storage = storage;
                     }
                 }
-                SettingsCommand::DeleteRom(name) => {
-                    match littlefs_rust::Filesystem::mount(flash_storage, config) {
-                        Ok(fs) => {
-                            let mut full_path = heapless::String::<128>::new();
-                            let _ = full_path.push_str("/roms/");
-                            let _ = full_path.push_str(name.as_str());
-                            let _ = fs.remove(full_path.as_str());
-                            info!("Deleted ROM: {}", full_path.as_str());
-                            flash_storage = fs.unmount().unwrap();
-                        }
-                        Err((_, storage)) => {
-                            flash_storage = storage;
-                        }
+            }
+            SettingsCommand::DeleteRom(name) => {
+                match littlefs_rust::Filesystem::mount(flash_storage, config) {
+                    Ok(fs) => {
+                        let mut full_path = heapless::String::<128>::new();
+                        let _ = full_path.push_str("/roms/");
+                        let _ = full_path.push_str(name.as_str());
+                        let _ = fs.remove(full_path.as_str());
+                        info!("Deleted ROM: {}", full_path.as_str());
+                        flash_storage = fs.unmount().unwrap();
+                    }
+                    Err((_, storage)) => {
+                        flash_storage = storage;
                     }
                 }
-                SettingsCommand::InstallRomStart { filename, size: _, offset: _ } => {
-                    match littlefs_rust::Filesystem::mount(flash_storage, config) {
-                        Ok(fs) => {
-                            let _ = fs.mkdir("/roms");
-                            let mut full_path = heapless::String::<128>::new();
-                            let _ = full_path.push_str("/roms/");
-                            let _ = full_path.push_str(filename.as_str());
-                            
-                            if let Ok(file) = fs.open(full_path.as_str(), littlefs_rust::OpenFlags::WRITE | littlefs_rust::OpenFlags::CREATE | littlefs_rust::OpenFlags::TRUNC) {
-                                info!("Opened {} for writing", full_path.as_str());
-                                loop {
-                                    let inner_cmd = SETTINGS_CHANNEL.receive().await;
-                                    match inner_cmd {
-                                        SettingsCommand::InstallRomChunk(data) => {
-                                            let _ = file.write(&data);
-                                        }
-                                        SettingsCommand::InstallRomFinish => {
-                                            let _ = file.sync();
-                                            info!("Finished installing ROM");
-                                            break;
-                                        }
-                                        _ => {
-                                            // Ignore other commands during installation
-                                        }
+            }
+            SettingsCommand::InstallRomStart {
+                filename,
+                size: _,
+                offset: _,
+            } => {
+                match littlefs_rust::Filesystem::mount(flash_storage, config) {
+                    Ok(fs) => {
+                        let _ = fs.mkdir("/roms");
+                        let mut full_path = heapless::String::<128>::new();
+                        let _ = full_path.push_str("/roms/");
+                        let _ = full_path.push_str(filename.as_str());
+
+                        if let Ok(file) = fs.open(
+                            full_path.as_str(),
+                            littlefs_rust::OpenFlags::WRITE
+                                | littlefs_rust::OpenFlags::CREATE
+                                | littlefs_rust::OpenFlags::TRUNC,
+                        ) {
+                            info!("Opened {} for writing", full_path.as_str());
+                            loop {
+                                let inner_cmd = SETTINGS_CHANNEL.receive().await;
+                                match inner_cmd {
+                                    SettingsCommand::InstallRomChunk(data) => {
+                                        let _ = file.write(&data);
+                                    }
+                                    SettingsCommand::InstallRomFinish => {
+                                        let _ = file.sync();
+                                        info!("Finished installing ROM");
+                                        break;
+                                    }
+                                    _ => {
+                                        // Ignore other commands during installation
                                     }
                                 }
                             }
-                            flash_storage = fs.unmount().unwrap();
                         }
-                        Err((_, storage)) => {
-                            flash_storage = storage;
-                        }
+                        flash_storage = fs.unmount().unwrap();
+                    }
+                    Err((_, storage)) => {
+                        flash_storage = storage;
                     }
                 }
-                SettingsCommand::LoadRomToMemory(name) => {
-                    match littlefs_rust::Filesystem::mount(flash_storage, config) {
-                        Ok(fs) => {
-                            let mut full_path = heapless::String::<128>::new();
-                            let _ = full_path.push_str("/roms/");
-                            let _ = full_path.push_str(name.as_str());
-                            crate::SNOOPER_CONFIG.halt_emulator.store(true, portable_atomic::Ordering::Relaxed);
-                            if let Ok(file) = fs.open(full_path.as_str(), littlefs_rust::OpenFlags::READ) {
-                                unsafe {
-                                    let mut bytes_read = 0;
-                                    while bytes_read < 16384 {
-                                        if let Ok(n) = file.read(&mut ROM_BUFFER[bytes_read..]) {
-                                            if n == 0 { break; }
-                                            bytes_read += n as usize;
-                                        } else {
+            }
+            SettingsCommand::LoadRomToMemory(name) => {
+                match littlefs_rust::Filesystem::mount(flash_storage, config) {
+                    Ok(fs) => {
+                        let mut full_path = heapless::String::<128>::new();
+                        let _ = full_path.push_str("/roms/");
+                        let _ = full_path.push_str(name.as_str());
+                        crate::SNOOPER_CONFIG
+                            .halt_emulator
+                            .store(true, portable_atomic::Ordering::Relaxed);
+                        if let Ok(file) =
+                            fs.open(full_path.as_str(), littlefs_rust::OpenFlags::READ)
+                        {
+                            unsafe {
+                                let mut bytes_read = 0;
+                                while bytes_read < 16384 {
+                                    if let Ok(n) = file.read(&mut ROM_BUFFER[bytes_read..]) {
+                                        if n == 0 {
                                             break;
                                         }
+                                        bytes_read += n as usize;
+                                    } else {
+                                        break;
                                     }
                                 }
-                                info!("Loaded ROM {} into memory", name.as_str());
-                                crate::SNOOPER_CONFIG.trigger_reset.store(true, portable_atomic::Ordering::Relaxed);
                             }
-                            crate::SNOOPER_CONFIG.halt_emulator.store(false, portable_atomic::Ordering::Relaxed);
-                            flash_storage = fs.unmount().unwrap();
+                            info!("Loaded ROM {} into memory", name.as_str());
+                            crate::SNOOPER_CONFIG
+                                .trigger_reset
+                                .store(true, portable_atomic::Ordering::Relaxed);
                         }
-                        Err((_, storage)) => {
-                            flash_storage = storage;
-                        }
+                        crate::SNOOPER_CONFIG
+                            .halt_emulator
+                            .store(false, portable_atomic::Ordering::Relaxed);
+                        flash_storage = fs.unmount().unwrap();
+                    }
+                    Err((_, storage)) => {
+                        flash_storage = storage;
                     }
                 }
-                _ => {}
+            }
+            _ => {}
         }
     }
 }
-
-

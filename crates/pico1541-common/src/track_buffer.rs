@@ -160,10 +160,10 @@ pub struct DualCoreTrackBuffer {
     // Now holding our unified struct
     buffers: UnsafeCell<[TrackBuffer; 2]>,
     generation: core::sync::atomic::AtomicU8,
-    pub is_write_protected: AtomicBool,
-    pub force_disk_change: AtomicBool,
-    pub current_byte_idx: core::sync::atomic::AtomicUsize,
-    pub current_head_half_track: core::sync::atomic::AtomicU8,
+    is_write_protected: AtomicBool,
+    force_disk_change: AtomicBool,
+    current_byte_idx: core::sync::atomic::AtomicUsize,
+    current_head_half_track: core::sync::atomic::AtomicU8,
 }
 
 unsafe impl Sync for DualCoreTrackBuffer {}
@@ -222,7 +222,7 @@ impl Default for DualCoreTrackBuffer {
 // The MANAGER handle
 // =====================================================================
 pub struct ManagerHandle {
-    core_buffer: &'static DualCoreTrackBuffer,
+    pub core_buffer: &'static DualCoreTrackBuffer,
 }
 
 impl ManagerHandle {
