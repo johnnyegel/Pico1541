@@ -17,6 +17,10 @@ unsafe impl core::alloc::GlobalAlloc for DummyAlloc {
 
 #[defmt_test::tests]
 mod tests {
+    #[init]
+    fn init() {
+        pico1541_emulator::init_core1_text();
+    }
     use pico1541_emulator::via6522::Via6522;
     use cortex_m::peripheral::SYST;
 

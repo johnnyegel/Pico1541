@@ -40,6 +40,7 @@ mod tests {
 
     #[init]
     fn init() -> () {
+        pico1541_emulator::init_core1_text();
         let mut cp = cortex_m::Peripherals::take().unwrap();
         init_cycle_counter(&mut cp.SYST);
         ()
@@ -111,11 +112,11 @@ mod tests {
     struct Racc3Bus { memory: [u8; 65536] }
     impl racc6502v3::bus::Bus for Racc3Bus {
         type Ctx = ();
-        #[unsafe(link_section = ".data.pico1541_emulator_core")]
+        #[unsafe(link_section = ".core1_text")]
         #[inline(always)]
         fn read(&mut self, addr: u16, _cycle: u32, _ctx: &mut ()) -> u8 { self.memory[addr as usize] }
 
-        #[unsafe(link_section = ".data.pico1541_emulator_core")]
+        #[unsafe(link_section = ".core1_text")]
         #[inline(always)]
         fn write(&mut self, addr: u16, val: u8, _cycle: u32, _ctx: &mut ()) { self.memory[addr as usize] = val; }
     }

@@ -19,6 +19,10 @@ unsafe impl core::alloc::GlobalAlloc for DummyAlloc {
 
 #[defmt_test::tests]
 mod tests {
+    #[init]
+    fn init() {
+        pico1541_emulator::init_core1_text();
+    }
     use pico1541_common::context::ViaHardware;
     use pico1541_common::interface::{DriveEvent, HostInterface};
     use pico1541_common::magnetic_surface::MagneticSurface;
@@ -80,7 +84,7 @@ impl HostInterface for DummyHost {
         let mut host = DummyHost;
 
         // Setup Motor ON (Bit 2 = 0x04)
-        mechanics.update_state(0x04, &mut host, 0);
+        mechanics.update_state(0x04, 0, &mut host, 0);
         
         let cycles = measure_cycles!({
             for _ in 0..1000 {
@@ -99,7 +103,7 @@ impl HostInterface for DummyHost {
         let mut mechanics = DriveMechanics::new(surface, BUFFER.split().1);
         let mut host = DummyHost;
 
-        mechanics.update_state(0x04, &mut host, 0);
+        mechanics.update_state(0x04, 0, &mut host, 0);
         
         let cycles = measure_cycles!({
             for _ in 0..1000 {
@@ -120,7 +124,7 @@ impl HostInterface for DummyHost {
         let _via1 = Via6522::new();
         let _via2 = Via6522::new();
 
-        mechanics.update_state(0x04, &mut host, 0);
+        mechanics.update_state(0x04, 0, &mut host, 0);
         
         let cycles = measure_cycles!({
             for _ in 0..1000 {

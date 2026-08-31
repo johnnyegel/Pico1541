@@ -13,6 +13,10 @@ extern crate alloc;
 static HEAP: embedded_alloc::Heap = embedded_alloc::Heap::empty();
 #[defmt_test::tests]
 mod tests {
+    #[init]
+    fn init() {
+        pico1541_emulator::init_core1_text();
+    }
     use pico1541_common::context::ViaHardware;
     use pico1541_common::interface::{DriveEvent, HostInterface};
     use pico1541_common::magnetic_surface::MagneticSurface;
@@ -105,18 +109,11 @@ impl HostInterface for DummyHost {
 
     #[test]
     fn test_fastloader_stress() {
-        {
-            use core::mem::MaybeUninit;
-            const HEAP_SIZE: usize = 32768 + 1024;
-            static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
-            // Only init if not already initialized
-            unsafe { if super::HEAP.free() == 0 { super::HEAP.init(core::ptr::addr_of_mut!(HEAP_MEM) as usize, HEAP_SIZE) } }
-        }
-
+        static mut RAM: [u8; 32768] = [0; 32768];
         let surface = DummySurface { cycles_since_byte: 0 };
         static BUFFER: pico1541_common::track_buffer::DualCoreTrackBuffer = pico1541_common::track_buffer::DualCoreTrackBuffer::new();
         let mechanics = DriveMechanics::new(surface, BUFFER.split().1);
-        let mut emulator = Emulator::new(&ROM, alloc::boxed::Box::leak(alloc::boxed::Box::new([0u8; 32768])), 8, mechanics);
+        let mut emulator = Emulator::new(&ROM, unsafe { &mut *core::ptr::addr_of_mut!(RAM) }, 8, mechanics);
         let mut host = DummyHost;
 
         emulator.reset(&mut host);
@@ -124,7 +121,7 @@ impl HostInterface for DummyHost {
         // Turn on motor to ensure DriveMechanics operates properly and generates SO pulses
         emulator.systembus.via2.write(0x00, 0x04); // Motor ON
         emulator.systembus.via2.write(0x0C, 0x0E); // Enable SO (CA2 output)
-        emulator.systembus.mechanics.update_state(emulator.systembus.via2.get_pb_out(), &mut host, emulator.cycles);
+        emulator.systembus.mechanics.update_state(emulator.systembus.via2.get_pb_out(), 0, &mut host, emulator.cycles);
 
         // Pre-run a few cycles to get the CPU past the reset vector logic and into our loop
         emulator.run_for(&mut host, 100);
@@ -177,23 +174,17 @@ impl HostInterface for DummyHost {
 
     #[test]
     fn test_fastloader_2bit_unrolled() {
-        {
-            use core::mem::MaybeUninit;
-            const HEAP_SIZE: usize = 32768 + 1024;
-            static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
-            unsafe { if super::HEAP.free() == 0 { super::HEAP.init(core::ptr::addr_of_mut!(HEAP_MEM) as usize, HEAP_SIZE) } }
-        }
-
+        static mut RAM: [u8; 32768] = [0; 32768];
         let surface = DummySurface { cycles_since_byte: 0 };
         static BUFFER: pico1541_common::track_buffer::DualCoreTrackBuffer = pico1541_common::track_buffer::DualCoreTrackBuffer::new();
         let mechanics = DriveMechanics::new(surface, BUFFER.split().1);
-        let mut emulator = Emulator::new(&ROM_2BIT, alloc::boxed::Box::leak(alloc::boxed::Box::new([0u8; 32768])), 8, mechanics);
+        let mut emulator = Emulator::new(&ROM_2BIT, unsafe { &mut *core::ptr::addr_of_mut!(RAM) }, 8, mechanics);
         let mut host = DummyHost;
 
         emulator.reset(&mut host);
         emulator.systembus.via2.write(0x00, 0x04); // Motor ON
         emulator.systembus.via2.write(0x0C, 0x0E); // Enable SO (CA2 output)
-        emulator.systembus.mechanics.update_state(emulator.systembus.via2.get_pb_out(), &mut host, emulator.cycles);
+        emulator.systembus.mechanics.update_state(emulator.systembus.via2.get_pb_out(), 0, &mut host, emulator.cycles);
         emulator.run_for(&mut host, 100);
         
         let test_start_cycles = emulator.cycles;
