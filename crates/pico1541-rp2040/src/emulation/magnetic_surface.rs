@@ -137,7 +137,7 @@ impl PioMagneticSurface {
         ch_b.ctrl_trig().write_value(ctrl_b);
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     pub fn is_sync_active() -> bool {
         let pio = pac::PIO0;
@@ -145,7 +145,7 @@ impl PioMagneticSurface {
         (pio.dbg_padout().read() & (1 << GPIO_SYNC_SHADOW_BIT)) != 0
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     pub fn try_read_ram_byte(&mut self) -> Option<u8> {
         let pio = pac::PIO0;
@@ -161,7 +161,7 @@ impl PioMagneticSurface {
 
     /// Asserts both floppy spinning DMA channels to abort any in-flight transfers.
     /// WARNING! This function does NOT wait for the channels to finish aborting. 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     pub fn stop_floppy_dma() {
         let dma = pac::DMA;
@@ -177,7 +177,7 @@ impl PioMagneticSurface {
     /// Starts the floppy spinning DMA channels.
     /// If the DMA has previously been stopped, the function will wait for the channels to
     /// finish aborting before re-enabling them.
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     pub fn start_floppy_dma() {
         let dma = pac::DMA;
@@ -193,7 +193,7 @@ impl PioMagneticSurface {
         dma.ch(0).ctrl_trig().modify(|w| w.set_en(true));
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn clear_pio_fifos() {
         let pio = pac::PIO0;
@@ -208,7 +208,7 @@ impl PioMagneticSurface {
     }
 
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn set_stream_source_offset(&self, stream: &'static TrackBuffer, offset: u32) {
         // :: Ensure the floppy DMA channels are stopped and the PIO FIFOs are cleared.
@@ -258,7 +258,7 @@ impl PioMagneticSurface {
         }
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn update_and_get_angle(&mut self, master_clock: u32) -> u32 {
         // FIXME! Remove motor on check here
@@ -273,19 +273,19 @@ impl PioMagneticSurface {
 
 impl MagneticSurface for PioMagneticSurface {
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn is_sync_active(&self) -> bool {
         Self::is_sync_active()
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn try_read_byte(&mut self, _delta_cycles: u32) -> Option<u8> {
         self.try_read_ram_byte()
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn get_absolute_head_position(&self, _master_clock: u32) -> u32 {
         let dma = pac::DMA;
@@ -294,7 +294,7 @@ impl MagneticSurface for PioMagneticSurface {
     }
 
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn set_motor_running(&mut self, is_running: bool, master_clock: u32) {
         if self.is_motor_on == is_running {
@@ -319,7 +319,7 @@ impl MagneticSurface for PioMagneticSurface {
         }
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn set_speed_zone(&mut self, expected_speed_zone: u8) {
         self.current_speed_zone = expected_speed_zone & 3;
@@ -333,7 +333,7 @@ impl MagneticSurface for PioMagneticSurface {
         });
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn set_stream_source(&mut self, stream: &'static TrackBuffer, master_clock: u32) {
         // :? Is this a data holding stream?

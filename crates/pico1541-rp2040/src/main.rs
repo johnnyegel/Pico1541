@@ -52,11 +52,14 @@ use crate::driver::indicator::{ActivityIndicator, IndicatorWrapper};
 use pico1541_manager::{SETTINGS_CHANNEL, SettingsCommand};
 
 use pico1541_common::SYSTEM_CLOCK_FREQ;
-use pico1541_common::track_buffer::{DualCoreTrackBuffer, ManagerHandle};
+use pico1541_common::track_buffer::{DualCoreTrackBuffer, TrackBuffer, ManagerHandle};
+use static_cell::StaticCell;
+
+#[link_section = ".dual_core_buffer"]
+static DUAL_CORE_BUFFER: DualCoreTrackBuffer = DualCoreTrackBuffer::new();
 
 mod storage_manager;
 use storage_manager::*;
-use static_cell::StaticCell;
 
 pub mod littlefs_storage;
 mod emulation;
@@ -109,6 +112,7 @@ static mut ROM_BUFFER: [u8; 16384] = [0; 16384];
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
+    pico1541_emulator::init_core1_text();
     // Copy .ram_rodata from Flash to RAM
     unsafe {
         extern "C" {
@@ -268,7 +272,7 @@ info!("Timer Diag: Old={} New={} StartupTicks={}", old_val, new_val, startup_tic
 
 
     // Initialize the shared double track buffers
-    static DUAL_CORE_BUFFER: DualCoreTrackBuffer = DualCoreTrackBuffer::new();
+    DUAL_CORE_BUFFER.reset();
     let (manager_handle, emulator_handle) = DUAL_CORE_BUFFER.split();
 
     let stack = unsafe {

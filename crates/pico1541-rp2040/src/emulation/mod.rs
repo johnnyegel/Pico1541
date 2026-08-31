@@ -86,7 +86,7 @@ pub fn spawn_core1(
     });
 }
 
-#[link_section = ".data.pico1541_emulator_core"]
+#[link_section = ".core1_text"]
 #[inline(never)]
 pub fn run_emulator(
     emulator: &mut Emulator<HardwareBridge, PioMagneticSurface>,

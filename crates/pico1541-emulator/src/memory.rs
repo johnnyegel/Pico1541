@@ -11,7 +11,7 @@ impl Memory {
         Self { data }
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     pub fn read(&self, addr: u16) -> u8 {
         if addr < 0x8000 {
@@ -21,7 +21,7 @@ impl Memory {
         }
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     pub fn get_ptr(&self, addr: u16) -> *const u8 {
         if addr < 0x8000 {
@@ -31,7 +31,7 @@ impl Memory {
         }
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     pub fn write(&mut self, addr: u16, val: u8) -> bool {
         if addr < 0x8000 {
@@ -54,7 +54,7 @@ impl Memory {
         self.data[0..0x0800].fill(0);
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     pub fn get_iec_addresses(&self) -> (u8, u8) {
         (self.data[0x0077], self.data[0x0078])

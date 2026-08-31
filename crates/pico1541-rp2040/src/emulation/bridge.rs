@@ -59,26 +59,26 @@ impl HardwareBridge {
 
 impl HostInterface for HardwareBridge {
     
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn send_event(&mut self, event: DriveEvent) {
         // try_send is non-blocking and safe for Core 0.
         let _ = EVENT_CHANNEL.try_send(event);
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn is_hijacked(&self) -> bool {
         self.config.hijack_active.load(Ordering::Relaxed)
     }
     
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn pop_discard_request(&mut self) -> bool {
         self.config.discard_request.swap(false, Ordering::Relaxed)
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn update_iec_addresses(&mut self, listen: u8, talk: u8) {
         self.config.listen_addr.store(listen, Ordering::Relaxed);
@@ -86,7 +86,7 @@ impl HostInterface for HardwareBridge {
     }
 
     
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn track_changed(&mut self, half_track: u8) {
         // We notify the TRACK_SIGNAL directly instead of using DriveEvent
@@ -98,31 +98,31 @@ impl HostInterface for HardwareBridge {
         embassy_rp::pac::TIMER.intf().write(|w| w.set_alarm(3, true));
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn get_device_id(&self) -> u8 {
         self.config.device_id.load(Ordering::Relaxed)
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn spin_until(&mut self, target_cycle: u32) -> bool {
         self.timekeeper.spin_until(target_cycle)
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn spin_until_half(&mut self, target_cycle: u32) -> bool {
         self.timekeeper.spin_until_half(target_cycle)
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn check_halt_requested(&self) -> bool {
         self.config.halt_emulator.load(Ordering::Relaxed)
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn report_performance_counters(&mut self, ticks: u32, idles: u32) {
         self.config.emu_total_ticks.store(ticks, Ordering::Relaxed);
@@ -134,7 +134,7 @@ impl HostInterface for HardwareBridge {
 
 impl ViaHardware for HardwareBridge {
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn set_reset_state(&mut self, asserted: bool) {
         if asserted {
@@ -146,7 +146,7 @@ impl ViaHardware for HardwareBridge {
         }
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn read_iec_port(&mut self) -> u8 {
         // Sample GPIO inputs
@@ -164,7 +164,7 @@ impl ViaHardware for HardwareBridge {
         data | clk | atn
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn write_iec_port(&mut self, via_port_b: u8) {
         // PIO Unified IEC Logic
@@ -183,7 +183,7 @@ impl ViaHardware for HardwareBridge {
         embassy_rp::pac::PIO1.txf(0).write_value(pio_cmd as u32);
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn write_mechanics_port(&mut self, via_port_b: u8) {
         let motor_on = (via_port_b & Self::VIA2_MASK_MOTOR) != 0;
@@ -213,7 +213,7 @@ impl ViaHardware for HardwareBridge {
         }
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn consume_trigger_reset(&mut self) -> bool {
         if self.config.trigger_reset.load(Ordering::Relaxed) {
@@ -224,7 +224,7 @@ impl ViaHardware for HardwareBridge {
         }
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn is_reset_line_asserted(&self) -> bool {
         embassy_rp::pac::SIO.gpio_in(0).read() & GPIO_IEC_MASK_RESET != 0

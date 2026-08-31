@@ -120,7 +120,7 @@ impl TrackBuffer {
     pub const fn new() -> Self {
         Self {
             data: [0; 8192],
-            identifier: TrackIdentifier(0xFF), // 0xFF represents invalid/unloaded
+            identifier: TrackIdentifier(0), // 0xFF represents invalid/unloaded
             length: 0,
             layout: TrackLayout::Void,
         }
@@ -177,7 +177,23 @@ impl DualCoreTrackBuffer {
             is_write_protected: AtomicBool::new(false),
             force_disk_change: AtomicBool::new(false),
             current_byte_idx: core::sync::atomic::AtomicUsize::new(0),
-            current_head_half_track: core::sync::atomic::AtomicU8::new(34),
+            current_head_half_track: core::sync::atomic::AtomicU8::new(0),
+        }
+    }
+
+    pub fn reset(&self) {
+        self.generation.store(0, core::sync::atomic::Ordering::Relaxed);
+        self.is_write_protected.store(false, core::sync::atomic::Ordering::Relaxed);
+        self.force_disk_change.store(false, core::sync::atomic::Ordering::Relaxed);
+        self.current_byte_idx.store(0, core::sync::atomic::Ordering::Relaxed);
+        self.current_head_half_track.store(34, core::sync::atomic::Ordering::Relaxed);
+        unsafe {
+            let bufs = &mut *self.buffers.get();
+            for buf in bufs.iter_mut() {
+                buf.identifier = TrackIdentifier(0xFF);
+                buf.length = 0;
+                buf.layout = TrackLayout::Void;
+            }
         }
     }
 

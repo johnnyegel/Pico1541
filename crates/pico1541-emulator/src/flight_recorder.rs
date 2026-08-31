@@ -22,7 +22,7 @@ pub struct FlightRecorder {
 
 impl FlightRecorder {
     #[inline(always)]
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     pub fn record(&mut self, record: FlightRecord) {
         unsafe {
             core::ptr::write_volatile(self.buffer.as_mut_ptr().add(self.index), record);

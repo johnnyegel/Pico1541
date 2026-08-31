@@ -43,6 +43,25 @@ pub mod flight_recorder;
 
 pub mod hle;
 pub mod memory;
+
+
+pub fn init_core1_text() {
+    unsafe {
+        extern "C" {
+            static mut __score1_text: u32;
+            static mut __ecore1_text: u32;
+            static __sicore1_text: u32;
+        }
+        let mut dest = core::ptr::addr_of_mut!(__score1_text);
+        let end = core::ptr::addr_of_mut!(__ecore1_text);
+        let mut src = core::ptr::addr_of!(__sicore1_text);
+        while dest < end {
+            core::ptr::write_volatile(dest, core::ptr::read_volatile(src));
+            dest = dest.add(1);
+            src = src.add(1);
+        }
+    }
+}
 pub mod systembus;
 pub mod time;
 pub mod via6522;
@@ -101,7 +120,7 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
     }
 
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     pub fn tick(&mut self, hw: &mut H) -> u32 {
         

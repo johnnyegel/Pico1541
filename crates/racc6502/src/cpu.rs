@@ -87,7 +87,7 @@ impl CPU {
         self.step_index = 0;
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     pub fn tick<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) {
         if bus.so_pending() {
@@ -103,7 +103,7 @@ impl CPU {
         }
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn tick_reset<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) {
         match self.step_index {
@@ -120,7 +120,7 @@ impl CPU {
         }
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn tick_interrupt<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) {
         match self.step_index {
@@ -140,7 +140,7 @@ impl CPU {
         }
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn tick_fetch<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) {
         if bus.nmi_pending() {
@@ -174,7 +174,7 @@ impl CPU {
         self.step_index = 0;
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn tick_addr<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) {
         if self.step_index < self.active_addr.len() {
@@ -197,7 +197,7 @@ impl CPU {
         }
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn tick_operation<B: Bus>(&mut self, bus: &mut B, ctx: &mut B::Ctx) {
         if self.step_index < self.active_exec.len() {
@@ -209,7 +209,7 @@ impl CPU {
         }
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn update_zn(&mut self, val: u8) {
         self.p &= 0x7D;
@@ -217,7 +217,7 @@ impl CPU {
         self.p |= val & 0x80;
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn execute_addr_uop<B: Bus>(&mut self, uop: AddrMicroOp, bus: &mut B, ctx: &mut B::Ctx) {
         match uop {
@@ -242,7 +242,7 @@ impl CPU {
         }
     }
 
-    #[link_section = ".data.pico1541_emulator_core"]
+    #[link_section = ".core1_text"]
     #[inline(always)]
     fn execute_exec_uop<B: Bus>(&mut self, uop: ExecMicroOp, bus: &mut B, ctx: &mut B::Ctx) {
         match uop {

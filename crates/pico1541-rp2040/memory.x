@@ -2,7 +2,8 @@ MEMORY {
     BOOT2 : ORIGIN = 0x10000000, LENGTH = 256
     FLASH : ORIGIN = 0x10000100, LENGTH = 1536K - 256
     FS    : ORIGIN = 0x10180000, LENGTH = 512K
-    RAM   : ORIGIN = 0x21000000, LENGTH = 192K
+    RAM   : ORIGIN = 0x21000000, LENGTH = 128K
+    SRAM2 : ORIGIN = 0x21020000, LENGTH = 64K
     SRAM3 : ORIGIN = 0x21030000, LENGTH = 64K
     SCRATCH_X : ORIGIN = 0x20040000, LENGTH = 4K
     SCRATCH_Y : ORIGIN = 0x20041000, LENGTH = 4K
@@ -40,6 +41,14 @@ SECTIONS {
         . = ALIGN(4);
     } > SCRATCH_Y
 
+    .core1_text : ALIGN(4) {
+        __score1_text = .;
+        *(.core1_text .core1_text.*);
+        . = ALIGN(4);
+        __ecore1_text = .;
+    } > SRAM2 AT > FLASH
+    __sicore1_text = LOADADDR(.core1_text);
+
 
     .ram_rodata : ALIGN(4) {
         __sram_rodata = .;
@@ -51,3 +60,10 @@ SECTIONS {
     __siram_rodata = LOADADDR(.ram_rodata);
 }
 INSERT AFTER .data;
+
+SECTIONS {
+    .dual_core_buffer (NOLOAD) : ALIGN(16384) {
+        *(.dual_core_buffer .dual_core_buffer.*);
+    } > RAM
+}
+INSERT AFTER .uninit;

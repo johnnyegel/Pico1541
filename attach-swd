@@ -6,11 +6,11 @@ if [ "$1" == "--release" ]; then
     PROFILE="release"
 fi
 
-ELF_FILE="target/thumbv6m-none-eabi/${PROFILE}/pico1541-rp2040-main"
+ELF_FILE="target/thumbv6m-none-eabi/${PROFILE}/pico1541-rp2040"
 
 if [ ! -f "$ELF_FILE" ]; then
     echo "ELF file not found at: $ELF_FILE"
-    echo "Please build the project first (e.g. 'cargo build --package pico1541-rp2040-main --target thumbv6m-none-eabi')."
+    echo "Please build the project first (e.g. 'cargo build --package pico1541-rp2040 --target thumbv6m-none-eabi')."
     exit 1
 fi
 
