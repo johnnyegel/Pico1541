@@ -199,7 +199,7 @@ impl DualCoreTrackBuffer {
         }
     }
 
-    pub fn reset(&self) {
+    pub fn reset(&self, data: *mut [[u8; crate::track_buffer::TRACK_SIZE]; 2]) {
         self.generation.store(0, core::sync::atomic::Ordering::Relaxed);
         self.is_write_protected.store(false, core::sync::atomic::Ordering::Relaxed);
         self.force_disk_change.store(false, core::sync::atomic::Ordering::Relaxed);
@@ -207,6 +207,10 @@ impl DualCoreTrackBuffer {
         self.current_head_half_track.store(34, core::sync::atomic::Ordering::Relaxed);
         unsafe {
             let bufs = &mut *self.buffers.get();
+            let ptr0 = data.cast::<[u8; crate::track_buffer::TRACK_SIZE]>();
+            let ptr1 = ptr0.add(1);
+            bufs[0].data = ptr0;
+            bufs[1].data = ptr1;
             for buf in bufs.iter_mut() {
                 buf.identifier = TrackIdentifier(0xFF);
                 buf.length = 0;
