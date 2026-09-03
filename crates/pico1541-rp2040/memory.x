@@ -62,8 +62,8 @@ SECTIONS {
 INSERT AFTER .data;
 
 SECTIONS {
-    .dual_core_buffer (NOLOAD) : ALIGN(16384) {
+    .dual_core_buffer (NOLOAD) : ALIGN(8192) {
         *(.dual_core_buffer .dual_core_buffer.*);
-    } > RAM
+    } > SRAM3
 }
 INSERT AFTER .uninit;

@@ -109,17 +109,37 @@ impl TrackIdentifier {
 /// Represents a single track buffer which holds the GCR-encoded data for a track,
 /// along with metadata about the track such as its ID and layout.
 #[repr(C, align(8192))]
+
+#[repr(C, align(8192))]
+pub struct DualCoreTrackData {
+    pub buffers: core::cell::UnsafeCell<[[u8; TRACK_SIZE]; 2]>,
+}
+
+unsafe impl Sync for DualCoreTrackData {}
+unsafe impl Send for DualCoreTrackData {}
+
+impl DualCoreTrackData {
+    pub const fn new() -> Self {
+        Self {
+            buffers: core::cell::UnsafeCell::new([[0; TRACK_SIZE], [0; TRACK_SIZE]]),
+        }
+    }
+}
+
 pub struct TrackBuffer {
-    pub data: [u8; 8192],
+    pub data: *mut [u8; TRACK_SIZE],
     pub identifier: TrackIdentifier,
     pub length: usize, // Valid bytes in the buffer
     pub layout: TrackLayout,
 }
 
+unsafe impl Sync for TrackBuffer {}
+unsafe impl Send for TrackBuffer {}
+
 impl TrackBuffer {
-    pub const fn new() -> Self {
+        pub const fn new(data: *mut [u8; TRACK_SIZE]) -> Self {
         Self {
-            data: [0; 8192],
+            data,
             identifier: TrackIdentifier(0), // 0xFF represents invalid/unloaded
             length: 0,
             layout: TrackLayout::Void,
@@ -128,34 +148,30 @@ impl TrackBuffer {
 
     pub const fn noise() -> &'static Self {
         #[repr(C, align(8192))]
-        struct StaticNoise {
-            buffer: TrackBuffer,
-        }
+        struct NoiseData([u8; 8192]);
 
-        static NOISE_BUFFER: StaticNoise = StaticNoise {
-            buffer: TrackBuffer {
-                data: {
-                    let mut arr = [0; 8192];
-                    arr[0] = 0x55; arr[1] = 0xAA; arr[2] = 0x33; arr[3] = 0xCC;
-                    arr[4] = 0x0F; arr[5] = 0xF0; arr[6] = 0x55; arr[7] = 0xAA;
-                    arr[8] = 0x33; arr[9] = 0xCC; arr[10] = 0x0F; arr[11] = 0xF0;
-                    arr[12] = 0x55; arr[13] = 0xAA; arr[14] = 0x33; arr[15] = 0xCC;
-                    arr
-                },
-                identifier: TrackIdentifier(0xFF),
-                length: 16,
-                layout: TrackLayout::Void,
-            }
+        static mut NOISE_DATA: NoiseData = NoiseData({
+            let mut arr = [0; 8192];
+            arr[0] = 0x55; arr[1] = 0xAA; arr[2] = 0x33; arr[3] = 0xCC;
+            arr[4] = 0x0F; arr[5] = 0xF0; arr[6] = 0x55; arr[7] = 0xAA;
+            arr[8] = 0x33; arr[9] = 0xCC; arr[10] = 0x0F; arr[11] = 0xF0;
+            arr[12] = 0x55; arr[13] = 0xAA; arr[14] = 0x33; arr[15] = 0xCC;
+            arr
+        });
+
+        static NOISE_BUFFER: TrackBuffer = TrackBuffer {
+            data: unsafe { core::ptr::addr_of_mut!(NOISE_DATA.0) },
+            identifier: TrackIdentifier(0xFF),
+            length: 16,
+            layout: TrackLayout::Void,
         };
-
-        &NOISE_BUFFER.buffer
+        &NOISE_BUFFER
     }
 }
 
 
 
 /// Dual core track buffer that can be split into two handles for the Emulator and Manager
-#[repr(C, align(16384))]
 pub struct DualCoreTrackBuffer {
     // Now holding our unified struct
     buffers: UnsafeCell<[TrackBuffer; 2]>,
@@ -170,9 +186,11 @@ unsafe impl Sync for DualCoreTrackBuffer {}
 unsafe impl Send for DualCoreTrackBuffer {}
 
 impl DualCoreTrackBuffer {
-    pub const fn new() -> Self {
+        pub const fn new(data: *mut [[u8; TRACK_SIZE]; 2]) -> Self {
+        let ptr0 = data.cast::<[u8; TRACK_SIZE]>();
+        let ptr1 = unsafe { ptr0.add(1) };
         Self {
-            buffers: UnsafeCell::new([TrackBuffer::new(), TrackBuffer::new()]),
+            buffers: UnsafeCell::new([TrackBuffer::new(ptr0), TrackBuffer::new(ptr1)]),
             generation: core::sync::atomic::AtomicU8::new(0),
             is_write_protected: AtomicBool::new(false),
             force_disk_change: AtomicBool::new(false),
@@ -212,11 +230,6 @@ impl DualCoreTrackBuffer {
     }
 }
 
-impl Default for DualCoreTrackBuffer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 // =====================================================================
 // The MANAGER handle
@@ -243,7 +256,7 @@ impl ManagerHandle {
         let back_buffer = unsafe { &mut (*self.core_buffer.buffers.get())[back_idx] };
 
         fill_buffer(
-            &mut back_buffer.data,
+            unsafe { &mut *back_buffer.data },
             &mut back_buffer.layout,
             &mut back_buffer.identifier,
         );
@@ -274,7 +287,7 @@ impl ManagerHandle {
     pub fn start_track_load(&self) -> &mut [u8] {
         let generation = self.core_buffer.generation.load(Ordering::Acquire);
         let back_idx = ((generation % 2) ^ 1) as usize;
-        unsafe { &mut (*self.core_buffer.buffers.get())[back_idx].data }
+        unsafe { &mut *(*self.core_buffer.buffers.get())[back_idx].data }
     }
 
     pub fn commit_loaded_track(
@@ -291,7 +304,7 @@ impl ManagerHandle {
 
         // Pad the remainder of the 8192-byte buffer with standard GCR gap byte
         if length < 8192 {
-            back_buffer.data[length..8192].fill(0x55);
+            unsafe { (&mut *back_buffer.data)[length..8192].fill(0x55) };
         }
 
         let mut final_length = length;
@@ -318,12 +331,12 @@ impl ManagerHandle {
             let active_buffer = &(*buffers_ptr)[active_idx];
             let back_buffer = &mut (*buffers_ptr)[back_idx];
 
-            back_buffer.data.copy_from_slice(&active_buffer.data);
+            (*back_buffer.data).copy_from_slice(&*active_buffer.data);
             back_buffer.layout = active_buffer.layout;
             back_buffer.identifier = active_buffer.identifier;
             back_buffer.length = active_buffer.length;
 
-            &mut back_buffer.data
+            &mut *back_buffer.data
         }
     }
 
@@ -354,7 +367,7 @@ impl ManagerHandle {
             let active_buffer = &(*buffers_ptr)[active_idx];
             let back_buffer = &mut (*buffers_ptr)[back_idx];
 
-            back_buffer.data.copy_from_slice(&active_buffer.data);
+            (*back_buffer.data).copy_from_slice(&*active_buffer.data);
             back_buffer.layout = active_buffer.layout;
             back_buffer.identifier = active_buffer.identifier;
             back_buffer.length = active_buffer.length;
@@ -442,7 +455,7 @@ impl EmulatorHandle {
     pub fn get_active_buffer_slice(&self) -> &[u8] {
         let active_idx = (self.get_generation() % 2) as usize;
         let buffer = unsafe { &(*self.core_buffer.buffers.get())[active_idx] };
-        &buffer.data[..buffer.length]
+        unsafe { &(&*buffer.data)[..buffer.length] }
     }
 
     pub fn get_active_track_buffer(&self) -> &'static TrackBuffer {
@@ -541,7 +554,7 @@ impl EmulatorHandle {
             requested_sector,
             just_started_listening,
         ) {
-            buffer.data[ix]
+            unsafe { (*buffer.data)[ix] }
         } else {
             VOID_BYTE
         }
@@ -558,7 +571,7 @@ impl EmulatorHandle {
         if ix >= buffer.length {
             ix = 0;
         }
-        buffer.data[ix]
+        unsafe { (*buffer.data)[ix] }
     }
 
     /// Safely writes a GCR byte back to the disk buffer and flags it for background SD flush.

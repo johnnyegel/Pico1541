@@ -60,7 +60,7 @@ impl MagneticSurface for SoftwareMagneticSurface {
             if self.pending_bit_count == 0 {
                 let byte = if let Some(stream) = self.stream {
                     if stream.length > 0 {
-                        let b = stream.data[self.stream_idx];
+                        let b = unsafe { (*stream.data)[self.stream_idx] };
                         self.stream_idx = (self.stream_idx + 1) % stream.length;
                         b
                     } else {

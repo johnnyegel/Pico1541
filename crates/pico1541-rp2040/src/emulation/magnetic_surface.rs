@@ -216,7 +216,7 @@ impl PioMagneticSurface {
         Self::clear_pio_fifos();
 
         // :: Set the new track pointer and length for the DMA transfer    
-        let track_ptr = stream.data.as_ptr() as u32;
+        let track_ptr = stream.data as u32;
         let track_length = stream.length as u32;
 
         unsafe {

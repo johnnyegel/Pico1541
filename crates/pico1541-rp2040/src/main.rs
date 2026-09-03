@@ -57,7 +57,8 @@ use pico1541_common::SYSTEM_CLOCK_FREQ;
 use static_cell::StaticCell;
 
 #[link_section = ".dual_core_buffer"]
-static DUAL_CORE_BUFFER: DualCoreTrackBuffer = DualCoreTrackBuffer::new();
+static mut DUAL_CORE_DATA: pico1541_common::track_buffer::DualCoreTrackData = pico1541_common::track_buffer::DualCoreTrackData::new();
+static DUAL_CORE_BUFFER: DualCoreTrackBuffer = DualCoreTrackBuffer::new(unsafe { DUAL_CORE_DATA.buffers.get() });
 
 mod storage_manager;
 use storage_manager::*;
