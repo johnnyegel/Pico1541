@@ -264,7 +264,7 @@ async fn main(spawner: Spawner) {
         Err((_, storage)) => storage,
     };
     info!("Settings loaded. Drive ID: {}", drive_id);
-    SNOOPER_CONFIG.device_id.store(drive_id, Ordering::Relaxed);
+    SNOOPER_CONFIG.update_device_id(drive_id);
 
     // Force RP2040 Timer to 1us ticks (12 cycles of 12MHz clk_ref)
     let (old_val, new_val) = unsafe {
@@ -693,6 +693,10 @@ async fn settings_save_task(mut flash_storage: FlashStorage<'static>) {
         config.cache_size = 256;
         config.lookahead_size = 16;
 
+        crate::SNOOPER_CONFIG
+            .halt_emulator
+            .store(true, portable_atomic::Ordering::Relaxed);
+
         match cmd {
             SettingsCommand::SaveDriveId(id) => {
                 match littlefs_rust::Filesystem::mount(flash_storage, config) {
@@ -802,9 +806,6 @@ async fn settings_save_task(mut flash_storage: FlashStorage<'static>) {
                         let mut full_path = heapless::String::<128>::new();
                         let _ = full_path.push_str("/roms/");
                         let _ = full_path.push_str(name.as_str());
-                        crate::SNOOPER_CONFIG
-                            .halt_emulator
-                            .store(true, portable_atomic::Ordering::Relaxed);
                         if let Ok(file) =
                             fs.open(full_path.as_str(), littlefs_rust::OpenFlags::READ)
                         {
@@ -826,9 +827,6 @@ async fn settings_save_task(mut flash_storage: FlashStorage<'static>) {
                                 .trigger_reset
                                 .store(true, portable_atomic::Ordering::Relaxed);
                         }
-                        crate::SNOOPER_CONFIG
-                            .halt_emulator
-                            .store(false, portable_atomic::Ordering::Relaxed);
                         flash_storage = fs.unmount().unwrap();
                     }
                     Err((_, storage)) => {
@@ -838,5 +836,9 @@ async fn settings_save_task(mut flash_storage: FlashStorage<'static>) {
             }
             _ => {}
         }
+
+        crate::SNOOPER_CONFIG
+            .halt_emulator
+            .store(false, portable_atomic::Ordering::Relaxed);
     }
 }

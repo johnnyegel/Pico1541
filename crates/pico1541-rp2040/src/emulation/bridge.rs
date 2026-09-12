@@ -227,7 +227,8 @@ impl ViaHardware for HardwareBridge {
     #[link_section = ".core1_text"]
     #[inline(always)]
     fn is_reset_line_asserted(&self) -> bool {
-        embassy_rp::pac::SIO.gpio_in(0).read() & GPIO_IEC_MASK_RESET != 0
+        (embassy_rp::pac::SIO.gpio_in(0).read() & GPIO_IEC_MASK_RESET != 0)
+            || self.check_halt_requested()
     }
 }
 

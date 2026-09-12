@@ -64,10 +64,13 @@ pub fn spawn_core1(
         defmt::info!("Core 1 spawned! Initializing emulator...");
 
         // :: Set Core1 to have bus priority
-        // Disable interrupts on Core1 to prevent preemption of the emulator core
         embassy_rp::pac::BUSCTRL.bus_priority().write(|w| w.set_proc1(true));
-        cortex_m::interrupt::disable(); // Guarantee no IRQs preempt the emulator core
-
+        
+        // Note: Do NOT disable interrupts on Core 1! 
+        // The embassy_rp flash driver relies on SIO_IRQ_PROC1 to pause Core 1 
+        // during flash erase/write operations. If interrupts are disabled, 
+        // Core 0 will deadlock waiting for Core 1 to acknowledge the pause!
+        
         // :: Initialize the emulator in place in SRAM3
         // We do not want this on the stack, because it is too large and will cause stack overflow.
         let emulator = unsafe {

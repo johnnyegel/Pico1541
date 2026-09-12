@@ -19,7 +19,7 @@ where
 {
     let mut cursor = 0;
     loop {
-        let mut items = Vec::<String<32>, 5>::new();
+        let mut items = Vec::<String<32>, 3>::new();
         
         let mut id_str = String::<32>::new();
         let _ = core::fmt::write(&mut id_str, format_args!("Drive ID: {}", config.device_id.load(Ordering::Relaxed)));
@@ -28,7 +28,6 @@ where
         let _ = items.push(String::from_str("Select ROM").unwrap());
 
         let _ = items.push(String::from_str("Monitor").unwrap());
-        let _ = items.push(String::from_str("Store Settings").unwrap());
 
         let mut menu = Menu::new("--- Settings ---", items);
         menu.set_cursor(cursor);
@@ -45,15 +44,6 @@ where
                     }
                     2 => {
                         return PageState::Monitor;
-                    }
-                    3 => {
-                        let current_id = config.device_id.load(Ordering::Relaxed);
-                        let _ = crate::SETTINGS_CHANNEL.try_send(crate::SettingsCommand::SaveDriveId(current_id));
-                        
-                        display.clear().await;
-                        display.print(2, "   Settings Saved!").await;
-                        display.request_redraw();
-                        Timer::after(Duration::from_millis(1500)).await;
                     }
                     _ => {}
                 }
@@ -98,9 +88,14 @@ where
 
         match menu.run(display).await {
             MenuEvent::Selected(idx) => {
-                cursor = idx;
                 let new_id = (idx + 8) as u8;
                 config.update_device_id(new_id);
+                let _ = crate::SETTINGS_CHANNEL.try_send(crate::SettingsCommand::SaveDriveId(new_id));
+                display.clear().await;
+                display.print(2, "   Drive ID Saved!").await;
+                display.request_redraw();
+                Timer::after(Duration::from_millis(1500)).await;
+                return PageState::Settings;
             }
             MenuEvent::Back => return PageState::Settings,
             MenuEvent::Home => return PageState::MainMenu,

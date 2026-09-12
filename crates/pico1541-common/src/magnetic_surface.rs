@@ -136,7 +136,8 @@ mod tests {
 
     #[test]
     fn test_is_sync_logic() {
-        let dual_buffer = Box::leak(Box::new(DualCoreTrackBuffer::new()));
+        let data = Box::into_raw(Box::new([[0u8; 8192]; 2]));
+        let dual_buffer = Box::leak(Box::new(DualCoreTrackBuffer::new(data)));
         let (manager, emulator) = dual_buffer.split();
 
         let active_buf = manager.start_track_modification();
