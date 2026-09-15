@@ -40,10 +40,10 @@ impl<I: InputDriver> KeyboardTask<I> {
                 for i in 0..4 {
                     if (current_state >> i) & 1 == 1 {
                         let button = match i {
-                            0 => Button::Back,
+                            0 => Button::Up,
                             1 => Button::Down,
                             2 => Button::Select,
-                            3 => Button::Up,
+                            3 => Button::Back,
                             _ => unreachable!(),
                         };
                         log::info!("KEYBOARD: Button {:?} HELD", button);
@@ -76,10 +76,10 @@ impl<I: InputDriver> KeyboardTask<I> {
                 for i in 0..4 {
                     if (changes >> i) & 1 == 1 {
                         let button = match i {
-                            0 => Button::Back,
+                            0 => Button::Up,
                             1 => Button::Down,
                             2 => Button::Select,
-                            3 => Button::Up,
+                            3 => Button::Back,
                             _ => unreachable!(),
                         };
                         if (new_state >> i) & 1 == 1 {

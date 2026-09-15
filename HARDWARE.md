@@ -3,12 +3,12 @@
 ## Hardware Specification (RP235x)
 
 ### IEC Bus (Use hardware 74LS06 inverter as IEC PHY!)
-- **GPIO 19:** DATA_RX (Input)
-- **GPIO 20:** DATA_TX (Output)
-- **GPIO 21:** CLK_RX (Input)
+- **GPIO 19:** DATA_RX (Input, 1K external pull-up)
+- **GPIO 20:** DATA_TX (Output, 1K external pull-up)
+- **GPIO 21:** CLK_RX (Input, 1K external pull-up)
 - **GPIO 22:** CLK_TX (Output)
-- **GPIO 26:** ATN_RX (Input)
-- **GPIO 27:** RESET_RX (Input)
+- **GPIO 26:** ATN_RX (Input, 1K external pull-up)
+- **GPIO 27:** RESET_RX (Input, 1K external pull-up)
 
 ### UI & Peripherals
 - **GPIO 2:** Piezo Speaker

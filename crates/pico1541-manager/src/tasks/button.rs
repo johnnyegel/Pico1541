@@ -36,10 +36,10 @@ impl ButtonManager {
             let bit = (self.debounced_state >> i) & 1;
 
             let button = match i {
-                0 => Button::Back,
+                0 => Button::Up,
                 1 => Button::Down,
                 2 => Button::Select,
-                3 => Button::Up,
+                3 => Button::Back,
                 _ => unreachable!(),
             };
 

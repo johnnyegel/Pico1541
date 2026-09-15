@@ -150,7 +150,7 @@ impl Via6522 {
                 if (self.acr & 0x02) != 0 {
                     self.latch_b
                 } else {
-                    let pb = self.in_b & self.in_b;
+                    let pb = self.in_b;
                     (self.orb & self.ddrb) | (pb & !self.ddrb)
                 }
             }
@@ -161,7 +161,7 @@ impl Via6522 {
                 if (self.acr & 0x01) != 0 {
                     self.latch_a
                 } else {
-                    let pa = self.in_a & self.in_a;
+                    let pa = self.in_a;
                     (self.ora & self.ddra) | (pa & !self.ddra)
                 }
             }
@@ -199,7 +199,7 @@ impl Via6522 {
                 if (self.acr & 0x01) != 0 {
                     self.latch_a
                 } else {
-                    let pa = self.in_a & self.in_a;
+                    let pa = self.in_a;
                     (self.ora & self.ddra) | (pa & !self.ddra)
                 }
             }
@@ -421,7 +421,7 @@ impl Via6522 {
         self.ifr |= 0x02;
         self.update_irq();
         if (self.acr & 0x01) != 0 {
-            self.latch_a = (self.ora & self.ddra) | (self.in_a & self.in_a & !self.ddra);
+            self.latch_a = (self.ora & self.ddra) | (self.in_a & !self.ddra);
         }
     }
 

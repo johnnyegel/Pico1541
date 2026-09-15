@@ -28,7 +28,7 @@ use embassy_sync::mutex::Mutex;
 
 use pico1541_common::snooper::SnooperConfig;
 
-use embassy_rp::block::{Architecture, Security, Block, item_image_type_exe, item_vector_table};
+use embassy_rp::block::{item_image_type_exe, item_vector_table, Architecture, Block, Security};
 
 #[link_section = ".start_block"]
 #[used]
@@ -171,7 +171,8 @@ async fn main(spawner: Spawner) {
         CONTROL_BUF.init([0; 64]),
     );
 
-    static CDC_STATE: static_cell::StaticCell<embassy_usb::class::cdc_acm::State> = static_cell::StaticCell::new();
+    static CDC_STATE: static_cell::StaticCell<embassy_usb::class::cdc_acm::State> =
+        static_cell::StaticCell::new();
     let mut _cdc = embassy_usb::class::cdc_acm::CdcAcmClass::new(
         &mut builder,
         CDC_STATE.init(embassy_usb::class::cdc_acm::State::new()),
@@ -887,4 +888,3 @@ async fn usb_task(
 ) {
     usb.run().await
 }
-

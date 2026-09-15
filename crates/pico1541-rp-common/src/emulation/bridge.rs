@@ -206,10 +206,10 @@ impl ViaHardware for HardwareBridge {
     #[link_section = ".core1_text"]
     #[inline(always)]
     fn write_mechanics_port(&mut self, via_port_b: u8) {
-        let motor_on = (via_port_b & Self::VIA2_MASK_MOTOR) != 0;
+        let motor_on = (via_port_b & Self::VIA2_MASK_MOTOR) == 0;
 
         let mut set_mask = 0;
-        if (via_port_b & Self::VIA2_MASK_LED) != 0 {
+        if (via_port_b & Self::VIA2_MASK_LED) == 0 {
             set_mask = GPIO_LED_MASK_RED;
         } else if motor_on {
             set_mask = GPIO_LED_MASK_GREEN;
@@ -253,7 +253,7 @@ impl ViaHardware for HardwareBridge {
     #[link_section = ".core1_text"]
     #[inline(always)]
     fn is_reset_line_asserted(&self) -> bool {
-        (embassy_rp::pac::SIO.gpio_in(0).read() & GPIO_IEC_MASK_RESET != 0)
+        (embassy_rp::pac::SIO.gpio_in(0).read() & GPIO_IEC_MASK_RESET == 0)
             || self.check_halt_requested()
     }
 }
