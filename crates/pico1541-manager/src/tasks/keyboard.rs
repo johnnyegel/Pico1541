@@ -1,6 +1,6 @@
 use crate::driver::InputDriver;
 use crate::{Button, ButtonEvent, KEYBOARD_CHANNEL};
-use embassy_time::{with_timeout, Duration, Timer};
+use embassy_time::{Duration, Timer};
 
 pub struct KeyboardTask<I: InputDriver> {
     input: I,
@@ -12,91 +12,81 @@ impl<I: InputDriver> KeyboardTask<I> {
     }
 
     pub async fn run(&mut self) -> ! {
-        let mut current_state = 0;
+        let mut stable_state = 0;
+        let mut last_sample = 0;
+        let mut sample_count = 0;
         let mut hold_time = Duration::from_millis(300);
 
         loop {
-            let mut timeout_occurred = if current_state == 0 {
-                // No buttons pressed, wait indefinitely (avoids Duration::MAX overflow!)
-                self.input.wait_for_change().await;
-                false
-            } else {
-                // Button(s) pressed, wait with timeout to trigger Hold events
-                let result = with_timeout(hold_time, self.input.wait_for_change()).await;
-                result.is_err()
-            };
+            // Read all button states (acts as reading SIO)
+            let current_sample = self.input.scan().await;
 
-            if timeout_occurred {
-                // Before assuming it's a Hold, verify the button is still pressed
-                let candidate_state = self.input.scan().await;
-                if candidate_state != current_state {
-                    // We missed an edge! Let the IRQ logic handle the state change.
-                    timeout_occurred = false;
+            if current_sample == last_sample {
+                // State is consistent with the last sample
+                if sample_count < 3 {
+                    sample_count += 1;
                 }
+            } else {
+                // State changed, reset the counter
+                sample_count = 1;
+                last_sample = current_sample;
             }
 
-            if timeout_occurred {
-                // Timeout occurred! Button(s) are being held.
-                for i in 0..4 {
-                    if (current_state >> i) & 1 == 1 {
-                        let button = match i {
-                            0 => Button::Up,
-                            1 => Button::Down,
-                            2 => Button::Select,
-                            3 => Button::Back,
-                            _ => unreachable!(),
-                        };
-                        log::info!("KEYBOARD: Button {:?} HELD", button);
-                        let _ = KEYBOARD_CHANNEL.try_send(ButtonEvent::Hold(button));
-                    }
-                }
-                hold_time = Duration::from_millis(30); // Repeat hold timer
-            } else {
-                // IRQ fired! A hardware state change or noise spike occurred.
-                Timer::after(Duration::from_millis(15)).await; // wait for bounce to settle
+            // If we have 3 consistent samples, consider it stable
+            if sample_count == 3 {
+                let changes = stable_state ^ current_sample;
 
-                // Read the state 3 times, 5ms apart. All must agree to filter out EMI noise spikes.
-                let candidate_state = self.input.scan().await;
-                let mut agrees = true;
-                for _ in 0..2 {
-                    Timer::after(Duration::from_millis(5)).await;
-                    if self.input.scan().await != candidate_state {
-                        agrees = false;
-                        break;
-                    }
-                }
+                if changes != 0 {
+                    for i in 0..4 {
+                        if (changes >> i) & 1 == 1 {
+                            let button = match i {
+                                0 => Button::Up,
+                                1 => Button::Down,
+                                2 => Button::Select,
+                                3 => Button::Back,
+                                _ => unreachable!(),
+                            };
 
-                if !agrees || candidate_state == current_state {
-                    continue; // just bounce noise, ignore
-                }
-
-                let new_state = candidate_state;
-
-                let changes = current_state ^ new_state;
-                for i in 0..4 {
-                    if (changes >> i) & 1 == 1 {
-                        let button = match i {
-                            0 => Button::Up,
-                            1 => Button::Down,
-                            2 => Button::Select,
-                            3 => Button::Back,
-                            _ => unreachable!(),
-                        };
-                        if (new_state >> i) & 1 == 1 {
-                            log::info!("KEYBOARD: Button {:?} PRESSED", button);
-                            let _ = KEYBOARD_CHANNEL.try_send(ButtonEvent::Pressed(button));
-                        } else {
-                            log::info!("KEYBOARD: Button {:?} RELEASED", button);
-                            let _ = KEYBOARD_CHANNEL.try_send(ButtonEvent::Released(button));
+                            if (current_sample >> i) & 1 == 1 {
+                                log::info!("KEYBOARD: Button {:?} PRESSED", button);
+                                let _ = KEYBOARD_CHANNEL.try_send(ButtonEvent::Pressed(button));
+                            } else {
+                                log::info!("KEYBOARD: Button {:?} RELEASED", button);
+                                let _ = KEYBOARD_CHANNEL.try_send(ButtonEvent::Released(button));
+                            }
                         }
                     }
-                }
+                    stable_state = current_sample;
 
-                current_state = new_state;
-                if current_state != 0 {
-                    hold_time = Duration::from_millis(300); // Start initial hold timer
+                    if stable_state != 0 {
+                        hold_time = Duration::from_millis(300); // Start initial hold timer
+                    }
                 }
             }
+
+            // Handle Hold events if a button is stable and pressed
+            if stable_state != 0 {
+                if hold_time.as_millis() == 0 {
+                    for i in 0..4 {
+                        if (stable_state >> i) & 1 == 1 {
+                            let button = match i {
+                                0 => Button::Up,
+                                1 => Button::Down,
+                                2 => Button::Select,
+                                3 => Button::Back,
+                                _ => unreachable!(),
+                            };
+                            log::info!("KEYBOARD: Button {:?} HELD", button);
+                            let _ = KEYBOARD_CHANNEL.try_send(ButtonEvent::Hold(button));
+                        }
+                    }
+                    hold_time = Duration::from_millis(30); // Repeat hold timer
+                } else {
+                    hold_time = Duration::from_millis(hold_time.as_millis().saturating_sub(10));
+                }
+            }
+
+            Timer::after(Duration::from_millis(10)).await;
         }
     }
 }

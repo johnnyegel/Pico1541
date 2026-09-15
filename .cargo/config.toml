@@ -30,7 +30,7 @@ flash-usb = [
     "run",
     "--package", "pico1541-rp2350",
     "--target", "thumbv8m.main-none-eabihf",
-    "--config", "target.'cfg(all(target_arch = \"arm\", target_os = \"none\"))'.runner = \"picotool load -f -x\"",
+    "--config", "target.'cfg(all(target_arch = \"arm\", target_os = \"none\"))'.runner = \"picotool load -f -x -t elf\"",
 ]
 
 attach-swd = [
