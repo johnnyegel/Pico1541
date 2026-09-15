@@ -581,6 +581,7 @@
       "netlist": "",
       "plot": "gerber/",
       "specctra_dsn": "",
+      "step": "",
       "vrml": ""
     },
     "page_layout_descr_file": ""
@@ -703,7 +704,7 @@
         "uuid": "fb7a9a9a-73a1-4d45-b1f9-1589f10de67b"
       }
     ],
-    "used_designators": "CC2,Q1,J1-7,SW1-5,RN1-5,A1,C1-6,D1-2,D4,U1-2,R1-4,FID1-6,LS1,#PWR1-26,#PWR31,H1-10,#FLG1-2,#LOGO1-2",
+    "used_designators": "#PWR1-26,#PWR31,LS1,FID1-6,#LOGO1-2,#FLG1-2,H1-10,CC2,Q1,J1-7,SW1-5,RN1-5,A1,C1-6,U1-2,D1-2,D4,R1-4",
     "variants": []
   },
   "sheets": [
