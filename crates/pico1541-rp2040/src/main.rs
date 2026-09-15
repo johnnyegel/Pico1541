@@ -15,7 +15,7 @@ use pico1541_common::context::ViaHardware;
 
 use core::sync::atomic::Ordering;
 use defmt::{error, info};
-use defmt_rtt as _;
+use embassy_defmt_usb as _;
 use panic_probe as _;
 
 use embassy_executor::Spawner;
@@ -76,6 +76,7 @@ use flash_storage::FlashStorage;
 use littlefs_storage::LittleFsStorage;
 
 bind_interrupts!(struct Irqs {
+    USBCTRL_IRQ => embassy_rp::usb::InterruptHandler<embassy_rp::peripherals::USB>;
     I2C0_IRQ => InterruptHandler<I2C0>;
     DMA_IRQ_0 => embassy_rp::dma::InterruptHandler<DMA_CH0>, embassy_rp::dma::InterruptHandler<DMA_CH1>;
     PIO0_IRQ_0 => embassy_rp::pio::InterruptHandler<PIO0>;
@@ -148,6 +149,34 @@ async fn main(spawner: Spawner) {
     let mut config = embassy_rp::config::Config::default();
     config.clocks = embassy_rp::clocks::ClockConfig::system_freq(SYSTEM_CLOCK_FREQ).unwrap();
     let p = embassy_rp::init(config);
+    
+    let usb_driver = embassy_rp::usb::Driver::new(p.USB, Irqs);
+    let mut usb_config = embassy_usb::Config::new(0xc0de, 0xcafe);
+    usb_config.manufacturer = Some("Antigravity");
+    usb_config.product = Some("Pico1541 USB Debug");
+    usb_config.serial_number = Some("12345678");
+    usb_config.max_power = 100;
+    usb_config.max_packet_size_0 = 64;
+
+    static CONFIG_DESCRIPTOR: static_cell::StaticCell<[u8; 256]> = static_cell::StaticCell::new();
+    static BOS_DESCRIPTOR: static_cell::StaticCell<[u8; 256]> = static_cell::StaticCell::new();
+    static CONTROL_BUF: static_cell::StaticCell<[u8; 64]> = static_cell::StaticCell::new();
+
+    let mut builder = embassy_usb::Builder::new(
+        usb_driver,
+        usb_config,
+        CONFIG_DESCRIPTOR.init([0; 256]),
+        BOS_DESCRIPTOR.init([0; 256]),
+        &mut [],
+        CONTROL_BUF.init([0; 64]),
+    );
+
+    let defmt_task = embassy_defmt_usb::UsbDefmtLogger::new().build(&mut builder);
+    let usb = builder.build();
+
+    spawner.spawn(usb_task(usb).unwrap());
+    spawner.spawn(defmt_drain_task(defmt_task).unwrap());
+
     info!(
         "Pico1541 Starting at {}MHz...",
         SYSTEM_CLOCK_FREQ / 1_000_000
@@ -842,3 +871,14 @@ async fn settings_save_task(mut flash_storage: FlashStorage<'static>) {
             .store(false, portable_atomic::Ordering::Relaxed);
     }
 }
+
+#[embassy_executor::task]
+async fn usb_task(mut usb: embassy_usb::UsbDevice<'static, embassy_rp::usb::Driver<'static, embassy_rp::peripherals::USB>>)  {
+    usb.run().await
+}
+
+#[embassy_executor::task]
+async fn defmt_drain_task(task: embassy_defmt_usb::UsbDefmtTask<embassy_rp::usb::Driver<'static, embassy_rp::peripherals::USB>>)  {
+    task.run().await
+}
+
