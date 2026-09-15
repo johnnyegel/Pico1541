@@ -16,11 +16,11 @@ pub trait ViaHardware {
 
     // VIA2 constants for motor and LED control
     const VIA2_BIT_MOTOR: usize = 2; // PB2
-    const VIA2_BIT_LED: usize = 3; // PB3
+    const VIA2_BIT_ACTLED: usize = 3; // PB3
 
     const VIA2_MASK_MOTOR: u8 = 1 << Self::VIA2_BIT_MOTOR; // PB2
-    const VIA2_MASK_LED: u8 = 1 << Self::VIA2_BIT_LED; // PB3
-    const VIA2_MASK_LED_MOTOR: u8 = Self::VIA2_MASK_MOTOR | Self::VIA2_MASK_LED;
+    const VIA2_MASK_ACTLED: u8 = 1 << Self::VIA2_BIT_ACTLED; // PB3
+    const VIA2_MASK_LED_MOTOR: u8 = Self::VIA2_MASK_MOTOR | Self::VIA2_MASK_ACTLED;
 
     // Hardware interface methods (HAL)
 

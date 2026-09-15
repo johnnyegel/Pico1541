@@ -37,19 +37,19 @@ pub fn spawn_core1(
     let pins_iec = IecPins {
         _data_rx: embassy_rp::gpio::Input::new(
             unsafe { embassy_rp::gpio::AnyPin::steal(GPIO_IEC_BIT_DATA_RX as u8) },
-            embassy_rp::gpio::Pull::Up,
+            embassy_rp::gpio::Pull::None,
         ),
         _clk_rx: embassy_rp::gpio::Input::new(
             unsafe { embassy_rp::gpio::AnyPin::steal(GPIO_IEC_BIT_CLK_RX as u8) },
-            embassy_rp::gpio::Pull::Up,
+            embassy_rp::gpio::Pull::None,
         ),
         _atn_rx: embassy_rp::gpio::Input::new(
             unsafe { embassy_rp::gpio::AnyPin::steal(GPIO_IEC_BIT_ATN_RX as u8) },
-            embassy_rp::gpio::Pull::Up,
+            embassy_rp::gpio::Pull::None,
         ),
         _reset_rx: embassy_rp::gpio::Input::new(
             unsafe { embassy_rp::gpio::AnyPin::steal(GPIO_IEC_BIT_RESET as u8) },
-            embassy_rp::gpio::Pull::Up,
+            embassy_rp::gpio::Pull::None,
         ),
     };
 

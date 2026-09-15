@@ -8,6 +8,9 @@
 
 # TODO
 
+- The littlefs handling seems to be duplicated in the 2040 and 2350 crates.
+- 
+
 - Refactor code to create a crate dedicated for all Core 1 (emulator code), to make SRAM mapping easy and consistent.
  
     emulation::run_emulator()
