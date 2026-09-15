@@ -3,7 +3,7 @@ use crate::storage::DirectorySource;
 use embedded_io_async::{Read, Seek};
 use pico1541_common::track_buffer::TrackLayout;
 
-use super::{DiskImage, Error, sectors_per_track};
+use super::{sectors_per_track, DiskImage, Error};
 
 pub struct VirtualDiskImage<S, D: DirectorySource> {
     pub source: D,
@@ -68,18 +68,32 @@ impl<S: Read + Seek, D: DirectorySource> VirtualDiskImage<S, D> {
                 break;
             }
             raw[offset] = entry.file_type;
-            if offset + 1 < 256 { raw[offset + 1] = entry.first_track; }
-            if offset + 2 < 256 { raw[offset + 2] = entry.first_sector; }
+            if offset + 1 < 256 {
+                raw[offset + 1] = entry.first_track;
+            }
+            if offset + 2 < 256 {
+                raw[offset + 2] = entry.first_sector;
+            }
             for j in 0..16 {
                 if offset + 3 + j < 256 {
                     raw[offset + 3 + j] = entry.filename[j];
                 }
             }
-            if offset + 19 < 256 { raw[offset + 19] = 0; } // side track
-            if offset + 20 < 256 { raw[offset + 20] = 0; } // side sector
-            if offset + 21 < 256 { raw[offset + 21] = 0; } // REL record length
-            if offset + 28 < 256 { raw[offset + 28] = (entry.block_size & 0xFF) as u8; }
-            if offset + 29 < 256 { raw[offset + 29] = (entry.block_size >> 8) as u8; }
+            if offset + 19 < 256 {
+                raw[offset + 19] = 0;
+            } // side track
+            if offset + 20 < 256 {
+                raw[offset + 20] = 0;
+            } // side sector
+            if offset + 21 < 256 {
+                raw[offset + 21] = 0;
+            } // REL record length
+            if offset + 28 < 256 {
+                raw[offset + 28] = (entry.block_size & 0xFF) as u8;
+            }
+            if offset + 29 < 256 {
+                raw[offset + 29] = (entry.block_size >> 8) as u8;
+            }
         }
         dest.copy_from_slice(&raw);
     }
@@ -111,7 +125,11 @@ impl<S: Read + Seek, D: DirectorySource> VirtualDiskImage<S, D> {
         }
     }
 
-    pub async fn update_dynamic_buffer(&mut self, current_byte_idx: usize, gcr_data: &mut [u8]) -> bool {
+    pub async fn update_dynamic_buffer(
+        &mut self,
+        current_byte_idx: usize,
+        gcr_data: &mut [u8],
+    ) -> bool {
         if self.treadmill_spinup_delay > 0 {
             self.treadmill_spinup_delay -= 1;
             return false;
@@ -145,14 +163,18 @@ impl<S: Read + Seek, D: DirectorySource> VirtualDiskImage<S, D> {
             let mut bytes_read = 0;
             loop {
                 let n = storage.read(&mut file_buf[bytes_read..]).await.unwrap_or(0);
-                if n == 0 { break; }
+                if n == 0 {
+                    break;
+                }
                 bytes_read += n;
-                if bytes_read == 254 { break; }
+                if bytes_read == 254 {
+                    break;
+                }
             }
-            
+
             let mut raw_sector = [0u8; 256];
-            raw_sector[2..2+bytes_read].copy_from_slice(&file_buf[..bytes_read]);
-            
+            raw_sector[2..2 + bytes_read].copy_from_slice(&file_buf[..bytes_read]);
+
             let (next_t, next_s) = if bytes_read == 254 {
                 (1, if target_sector == 1 { 2 } else { 1 })
             } else {
@@ -160,7 +182,7 @@ impl<S: Read + Seek, D: DirectorySource> VirtualDiskImage<S, D> {
             };
             raw_sector[0] = next_t;
             raw_sector[1] = next_s;
-            
+
             let mut data_checksum = 0u8;
             for b in raw_sector.iter() {
                 data_checksum ^= b;
@@ -169,7 +191,7 @@ impl<S: Read + Seek, D: DirectorySource> VirtualDiskImage<S, D> {
             data_raw[0] = 0x07;
             data_raw[1..257].copy_from_slice(&raw_sector);
             data_raw[257] = data_checksum;
-            
+
             let mut dest_gcr = [0u8; 325];
             for (i, chunk) in data_raw.chunks_exact(4).enumerate() {
                 crate::gcr::encode_gcr_block(
@@ -177,12 +199,12 @@ impl<S: Read + Seek, D: DirectorySource> VirtualDiskImage<S, D> {
                     (&mut dest_gcr[i * 5..(i + 1) * 5]).try_into().unwrap(),
                 );
             }
-            
+
             // Reverse bits for the PIO DMA (LSB first shifting)
             for byte in dest_gcr.iter_mut() {
                 *byte = byte.reverse_bits();
             }
-            
+
             if idx + 325 <= gcr_data.len() {
                 gcr_data[idx..idx + 325].copy_from_slice(&dest_gcr);
                 self.next_sector_to_update = next_after;
@@ -193,7 +215,7 @@ impl<S: Read + Seek, D: DirectorySource> VirtualDiskImage<S, D> {
 
         let mut entries = [crate::storage::DirectoryEntry::new(b"", 0, 0, 0); 8];
         let mut count = 0;
-        
+
         if let Some(entry) = self.shortcut_entry {
             if target_sector == 1 {
                 entries[0] = entry;
@@ -211,14 +233,22 @@ impl<S: Read + Seek, D: DirectorySource> VirtualDiskImage<S, D> {
                     break;
                 }
             }
-            let is_exhausted = self.source.as_paged_mut().map(|p| p.is_exhausted()).unwrap_or(true);
+            let is_exhausted = self
+                .source
+                .as_paged_mut()
+                .map(|p| p.is_exhausted())
+                .unwrap_or(true);
             if count == 0 && !is_exhausted {
                 // Blocks not loaded yet by prefetcher, wait for next tick
                 return false;
             }
         }
 
-        log::debug!("Virtual directory: Laid out {} entries in Sector {}", count, target_sector);
+        log::debug!(
+            "Virtual directory: Laid out {} entries in Sector {}",
+            count,
+            target_sector
+        );
 
         let (next_t, next_s) = if count == 0 {
             (0, 0xFF)
@@ -246,31 +276,37 @@ impl<S: Read + Seek, D: DirectorySource> VirtualDiskImage<S, D> {
         // To update Sector 1, we must simulate the head being in Sector 2
         self.next_sector_to_update = 1;
         self.update_dynamic_buffer(40 + 372 * 2 + 1, gcr_data).await; // Head in Sector 2, updates Sector 1
-        
+
         // To update Sector 2, we must simulate the head being in Sector 1
         self.next_sector_to_update = 2;
         self.update_dynamic_buffer(40 + 372 + 1, gcr_data).await; // Head in Sector 1, updates Sector 2
-        
+
         self.next_sector_to_update = 1; // When actual read starts, wait for Sector 1 to pass, then update Sector 2
     }
 }
 
 impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
-    async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<(TrackLayout, usize, Option<u8>), Error> {
+    async fn read_track(
+        &mut self,
+        half_track: u8,
+        dest: &mut [u8],
+    ) -> Result<(TrackLayout, usize, Option<u8>), Error> {
         log::info!("Reading VirtualDisk track {}", half_track);
-        
+
         if !half_track.is_multiple_of(2) || half_track == 0 || half_track > 84 {
             return Ok((TrackLayout::Void, 0, None));
         }
 
-        
         let track = half_track / 2 + 1;
 
         if track == 1 {
             // Track 1: Infinite File Track
             let sectors = 21;
-            let speed_zone = pico1541_common::track_buffer::default_speed_zone(pico1541_common::track_buffer::track_to_half_track(1));
-            let speed_zone_len: usize = pico1541_common::track_buffer::speed_zone_capacity(speed_zone);
+            let speed_zone = pico1541_common::track_buffer::default_speed_zone(
+                pico1541_common::track_buffer::track_to_half_track(1),
+            );
+            let speed_zone_len: usize =
+                pico1541_common::track_buffer::speed_zone_capacity(speed_zone);
             let base_sector_len = 10 + 10 + 9 + 10 + 325; // 364
             let total_base_len = sectors as usize * base_sector_len;
             let remaining_gap = speed_zone_len.saturating_sub(total_base_len);
@@ -365,8 +401,11 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
         if half_track == 34 || half_track == 35 {
             // Track 18: Generate BAM and initial directory sectors
             let sectors = 19;
-            let speed_zone = pico1541_common::track_buffer::default_speed_zone(pico1541_common::track_buffer::track_to_half_track(18));
-            let speed_zone_len: usize = pico1541_common::track_buffer::speed_zone_capacity(speed_zone);
+            let speed_zone = pico1541_common::track_buffer::default_speed_zone(
+                pico1541_common::track_buffer::track_to_half_track(18),
+            );
+            let speed_zone_len: usize =
+                pico1541_common::track_buffer::speed_zone_capacity(speed_zone);
             let base_sector_len = 5 + 10 + 9 + 5 + 325;
             let total_base_len = sectors as usize * base_sector_len;
             let remaining_gap = speed_zone_len.saturating_sub(total_base_len);
@@ -384,7 +423,13 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
             self.source.rewind();
 
             for physical_sector in 0..sectors {
-                let interleave = if track == 18 { 3 } else if sectors == 18 { 11 } else { 10 };
+                let interleave = if track == 18 {
+                    3
+                } else if sectors == 18 {
+                    11
+                } else {
+                    10
+                };
                 let sector = ((physical_sector * interleave) % sectors) as u8;
                 let mut sector_data = [0u8; 256];
 
@@ -395,7 +440,8 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                     for b in sector_data.iter_mut().take(144).skip(4) {
                         *b = 0;
                     }
-                    log::info!("BAM NAME: {:?}", self.source.name()); sector_data[144..160].copy_from_slice(self.source.name());
+                    log::info!("BAM NAME: {:?}", self.source.name());
+                    sector_data[144..160].copy_from_slice(self.source.name());
                     sector_data[160..162].copy_from_slice(b"\xA0\xA0");
                     sector_data[162..164].copy_from_slice(&self.id);
                     sector_data[164] = 0xA0;
@@ -416,7 +462,6 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                             self.encode_directory_sector(&[], 0, 0xFF, &mut sector_data);
                         }
                     } else {
-
                         let mut entries = [crate::storage::DirectoryEntry::new(b"", 0, 0, 0); 8];
                         let mut count = 0;
                         for entry_slot in &mut entries {
@@ -427,15 +472,24 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                                 break;
                             }
                         }
-                        
-                        log::info!("Virtual directory (Initial): Laid out {} entries in Sector {}", count, sector);
-                        
+
+                        log::info!(
+                            "Virtual directory (Initial): Laid out {} entries in Sector {}",
+                            count,
+                            sector
+                        );
+
                         let (next_t, next_s) = if count == 0 {
                             (0, 0xFF)
                         } else {
                             (18, if sector == 1 { 2 } else { 1 })
                         };
-                        self.encode_directory_sector(&entries[..count], next_t, next_s, &mut sector_data);
+                        self.encode_directory_sector(
+                            &entries[..count],
+                            next_t,
+                            next_s,
+                            &mut sector_data,
+                        );
                     }
                 }
 
@@ -504,7 +558,9 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
 
         // Generate Skeleton Track for other tracks
         let sectors = sectors_per_track(track);
-        let speed_zone = pico1541_common::track_buffer::default_speed_zone(pico1541_common::track_buffer::track_to_half_track(track));
+        let speed_zone = pico1541_common::track_buffer::default_speed_zone(
+            pico1541_common::track_buffer::track_to_half_track(track),
+        );
         let speed_zone_len: usize = pico1541_common::track_buffer::speed_zone_capacity(speed_zone);
         let base_sector_len = 5 + 10 + 9 + 5 + 325;
         let total_base_len = sectors as usize * base_sector_len;
@@ -582,4 +638,3 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
         Ok((TrackLayout::Accurate, track_bytes, None))
     }
 }
-

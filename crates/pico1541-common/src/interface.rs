@@ -34,14 +34,18 @@ pub trait HostInterface: crate::context::ViaHardware {
     }
 
     /// Wait until the hardware physical timer aligns with the absolute emulated cycle.
-    fn spin_until(&mut self, _target_cycle: u32) -> bool { true }
+    fn spin_until(&mut self, _target_cycle: u32) -> bool {
+        true
+    }
 
     /// Wait until the hardware physical timer aligns with the absolute emulated cycle + 0.5.
-    fn spin_until_half(&mut self, _target_cycle: u32) -> bool { true }
+    fn spin_until_half(&mut self, _target_cycle: u32) -> bool {
+        true
+    }
 
     /// Update the IEC addresses (LISTEN and TALK) snooped by the manager.
     /// Usually called by the emulator when it detects a change in drive RAM.
-    fn update_iec_addresses(&mut self, _listen: u8, _talk: u8) { }
+    fn update_iec_addresses(&mut self, _listen: u8, _talk: u8) {}
 
     fn get_device_id(&self) -> u8 {
         8
@@ -56,9 +60,13 @@ pub trait HostInterface: crate::context::ViaHardware {
     fn track_changed(&mut self, _half_track: u8) {}
 
     /// Returns true if the track has changed since the last time this was called.
-    fn take_track_changed_flag(&mut self) -> bool { false }
+    fn take_track_changed_flag(&mut self) -> bool {
+        false
+    }
 
     // Execution control
-    fn check_halt_requested(&self) -> bool { false }
+    fn check_halt_requested(&self) -> bool {
+        false
+    }
     fn report_performance_counters(&mut self, _ticks: u32, _idles: u32) {}
 }

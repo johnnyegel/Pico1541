@@ -1,35 +1,22 @@
+use crate::emulation::config::GPIO_SYNC_SHADOW_BIT;
+use embassy_rp::pac;
 use pico1541_common::magnetic_surface::MagneticSurface;
 use pico1541_common::track_buffer::{TrackBuffer, TrackLayout};
-use embassy_rp::pac;
-use crate::emulation::config::GPIO_SYNC_SHADOW_BIT;
-
 
 // Speed zone PIO timing
 // The PIO program executes exactly 8 cycles per *bit*, not per byte!
-const PIO_CYCLES_PER_BIT: u64 = 8; 
+const PIO_CYCLES_PER_BIT: u64 = 8;
 
 // We use exactly 100M for perfect real-time emulation.
 const PIO_TIMING_DENOMINATOR: u64 = 100_000_000 * PIO_CYCLES_PER_BIT;
 
 // Disk rotation: 200ms per rotation, 5 rotations per second, 300 RPM
-const DISK_ROTATION_PERIOD_US: u32 = 200_000; 
+const DISK_ROTATION_PERIOD_US: u32 = 200_000;
 
-// This const function executes entirely at compile time.
-const fn calc_speed_zone_register(multiplier: u64) -> u32 {
-    // 1. Calculate the scaled fraction: (Clock * Time * 256) / Denominator
-    // 64-bit math guarantees no overflow during the massive multiplication step.
-    let div_256 = (pico1541_common::SYSTEM_CLOCK_FREQ as u64 * multiplier * 256) / PIO_TIMING_DENOMINATOR;
-    
-    // Cast back to u32 for the hardware registers safely
+fn calc_speed_zone_register(sys_clock_freq: u32, multiplier: u64) -> u32 {
+    let div_256 = (sys_clock_freq as u64 * multiplier * 256) / PIO_TIMING_DENOMINATOR;
     div_256 as u32
 }
-
-const PIO_SPEED_ZONES: [u32; 4] = [
-    calc_speed_zone_register((pico1541_common::track_buffer::speed_zone_bit_period_100ps(0) / 100) as u64),
-    calc_speed_zone_register((pico1541_common::track_buffer::speed_zone_bit_period_100ps(1) / 100) as u64),
-    calc_speed_zone_register((pico1541_common::track_buffer::speed_zone_bit_period_100ps(2) / 100) as u64),
-    calc_speed_zone_register((pico1541_common::track_buffer::speed_zone_bit_period_100ps(3) / 100) as u64),
-];
 
 // Static buffers for DMA
 static mut CURRENT_TRACK_PTR: u32 = 0;
@@ -43,36 +30,62 @@ pub struct PioMagneticSurface {
     _sync_pin: embassy_rp::pio::Pin<'static, embassy_rp::peripherals::PIO0>,
     _loaded_prg: embassy_rp::pio::LoadedProgram<'static, embassy_rp::peripherals::PIO0>,
     _sm: embassy_rp::pio::StateMachine<'static, embassy_rp::peripherals::PIO0, 0>,
-    
+
     current_speed_zone: u8,
+    pio_speed_zones: [u32; 4],
 }
 
 impl PioMagneticSurface {
     const DMA_FLOPPY_ABORT_MASK: u16 = (1 << 0) | (1 << 1);
     const DMA_CHANNEL_ENABLE_MASK: u32 = (1 << 0);
 
-
     pub fn new(
         mut pio: embassy_rp::pio::Pio<'static, embassy_rp::peripherals::PIO0>,
+        sys_clock_freq: u32,
     ) -> Self {
+        let pio_speed_zones = [
+            calc_speed_zone_register(
+                sys_clock_freq,
+                (pico1541_common::track_buffer::speed_zone_bit_period_100ps(0) / 100) as u64,
+            ),
+            calc_speed_zone_register(
+                sys_clock_freq,
+                (pico1541_common::track_buffer::speed_zone_bit_period_100ps(1) / 100) as u64,
+            ),
+            calc_speed_zone_register(
+                sys_clock_freq,
+                (pico1541_common::track_buffer::speed_zone_bit_period_100ps(2) / 100) as u64,
+            ),
+            calc_speed_zone_register(
+                sys_clock_freq,
+                (pico1541_common::track_buffer::speed_zone_bit_period_100ps(3) / 100) as u64,
+            ),
+        ];
         let prg = crate::pio::magnetic_surface_program();
         let loaded_prg = pio.common.load_program(&prg);
-        
+
         let mut sm = pio.sm0;
         let mut cfg = embassy_rp::pio::Config::default();
         cfg.clock_divider = 162u8.into(); // Overridden by set_speed_zone
-        
+
         // PIO Setup according to user request
         cfg.shift_in.auto_fill = true; // We use ISR Autopush = true
         cfg.shift_in.threshold = 8;
         cfg.shift_in.direction = embassy_rp::pio::ShiftDirection::Left;
-        
+
         cfg.shift_out.auto_fill = false; // OSR Autopull = false
-        cfg.shift_out.threshold = 32; 
+        cfg.shift_out.threshold = 32;
         cfg.shift_out.direction = embassy_rp::pio::ShiftDirection::Left;
 
-        // SET pin mapping to GPIO 10
-        let sync_pin = pio.common.make_pio_pin(unsafe { embassy_rp::peripherals::PIN_10::steal() });
+        // SET pin mapping to SYNC shadow
+        #[cfg(feature = "rp2040")]
+        let sync_pin = pio
+            .common
+            .make_pio_pin(unsafe { embassy_rp::peripherals::PIN_10::steal() });
+        #[cfg(feature = "rp235xa")]
+        let sync_pin = pio
+            .common
+            .make_pio_pin(unsafe { embassy_rp::peripherals::PIN_24::steal() });
         cfg.use_program(&loaded_prg, &[]);
         cfg.set_out_pins(&[&sync_pin]);
         cfg.set_set_pins(&[&sync_pin]);
@@ -90,7 +103,8 @@ impl PioMagneticSurface {
             _sync_pin: sync_pin,
             _loaded_prg: loaded_prg,
             _sm: sm,
-            current_speed_zone: 0,
+            current_speed_zone: 0xFF, // invalid to force update on first load
+            pio_speed_zones,
         }
     }
 
@@ -103,7 +117,7 @@ impl PioMagneticSurface {
         // --- Channel A: TX Worker (Streams data to PIO) ---
         // Paced by PIO TX DREQ, 32-bit words, read inc, write no inc. Chains to B.
         ch_a.write_addr().write_value(pio.txf(0).as_ptr() as u32);
-        
+
         let mut ctrl_a = ch_a.ctrl_trig().read();
         ctrl_a.set_data_size(pac::dma::vals::DataSize::SIZE_BYTE);
         ctrl_a.set_incr_read(true);
@@ -123,10 +137,16 @@ impl PioMagneticSurface {
         // WITHOUT NEEDING ANY CPU INTERVENTION.
         // DO NOT TINKER WITH THIS, OR BREAK THIS, EVER AGAIN!!!
         let ch_b = dma.ch(1);
-        ch_b.read_addr().write_value(core::ptr::addr_of!(CURRENT_TRACK_PTR) as u32);
-        ch_b.write_addr().write_value(ch_a.al3_read_addr_trig().as_ptr() as u32);
+        ch_b.read_addr()
+            .write_value(core::ptr::addr_of!(CURRENT_TRACK_PTR) as u32);
+        ch_b.write_addr()
+            .write_value(ch_a.al3_read_addr_trig().as_ptr() as u32);
+        #[cfg(feature = "rp2040")]
         ch_b.trans_count().write_value(1);
-        
+        #[cfg(feature = "rp235xa")]
+        ch_b.trans_count()
+            .write_value(embassy_rp::pac::dma::regs::ChTransCount(1));
+
         let mut ctrl_b = ch_b.ctrl_trig().read();
         ctrl_b.set_data_size(pac::dma::vals::DataSize::SIZE_WORD);
         ctrl_b.set_incr_read(false);
@@ -160,18 +180,23 @@ impl PioMagneticSurface {
     }
 
     /// Asserts both floppy spinning DMA channels to abort any in-flight transfers.
-    /// WARNING! This function does NOT wait for the channels to finish aborting. 
+    /// WARNING! This function does NOT wait for the channels to finish aborting.
     #[link_section = ".core1_text"]
     #[inline(always)]
     pub fn stop_floppy_dma() {
         let dma = pac::DMA;
 
-        // 1. SAFE DISABLE: Clear Bit 0 (EN) using bitwise AND NOT  
-        dma.ch(1).al1_ctrl().modify(|w| *w &= !Self::DMA_CHANNEL_ENABLE_MASK);
-        dma.ch(0).al1_ctrl().modify(|w| *w &= !Self::DMA_CHANNEL_ENABLE_MASK);
-        
+        // 1. SAFE DISABLE: Clear Bit 0 (EN) using bitwise AND NOT
+        dma.ch(1)
+            .al1_ctrl()
+            .modify(|w| *w &= !Self::DMA_CHANNEL_ENABLE_MASK);
+        dma.ch(0)
+            .al1_ctrl()
+            .modify(|w| *w &= !Self::DMA_CHANNEL_ENABLE_MASK);
+
         // 2. Abort both channels SIMULTANEOUSLY using the bitmask
-        dma.chan_abort().write(|w| w.set_chan_abort(Self::DMA_FLOPPY_ABORT_MASK));
+        dma.chan_abort()
+            .write(|w| w.set_chan_abort(Self::DMA_FLOPPY_ABORT_MASK));
     }
 
     /// Starts the floppy spinning DMA channels.
@@ -187,7 +212,9 @@ impl PioMagneticSurface {
 
         // :: Re-enable both channels
         // Simply set CH 1 enable flag, but DO NOT trigger it.
-        dma.ch(1).al1_ctrl().modify(|w| *w |= Self::DMA_CHANNEL_ENABLE_MASK);
+        dma.ch(1)
+            .al1_ctrl()
+            .modify(|w| *w |= Self::DMA_CHANNEL_ENABLE_MASK);
 
         // Trigger CH 0 enable flag, which will start the DMA trigger chaining
         dma.ch(0).ctrl_trig().modify(|w| w.set_en(true));
@@ -207,7 +234,6 @@ impl PioMagneticSurface {
         });
     }
 
-
     #[link_section = ".core1_text"]
     #[inline(always)]
     fn set_stream_source_offset(&self, stream: &'static TrackBuffer, offset: u32) {
@@ -215,7 +241,7 @@ impl PioMagneticSurface {
         Self::stop_floppy_dma();
         Self::clear_pio_fifos();
 
-        // :: Set the new track pointer and length for the DMA transfer    
+        // :: Set the new track pointer and length for the DMA transfer
         let track_ptr = stream.data as u32;
         let track_length = stream.length as u32;
 
@@ -232,7 +258,7 @@ impl PioMagneticSurface {
         let safe_offset = if offset < track_length {
             offset
         } else {
-            offset - track_length    
+            offset - track_length
         };
 
         // Adjust the track_ptr and length to adjust to the start byte index
@@ -242,8 +268,15 @@ impl PioMagneticSurface {
         // :: Reconfigure the track pointer and length for the new track
         let dma_ch0 = pac::DMA.ch(0);
         dma_ch0.read_addr().write_value(adjusted_track_ptr);
+        #[cfg(feature = "rp2040")]
         dma_ch0.trans_count().write_value(adjusted_track_length);
-        
+        #[cfg(feature = "rp235xa")]
+        dma_ch0
+            .trans_count()
+            .write_value(embassy_rp::pac::dma::regs::ChTransCount(
+                adjusted_track_length,
+            ));
+
         // If the motor is on, we must apply the new track/noise configuration immediately
         if self.is_motor_on {
             // :: Re-enable the DMA channels to start the new transfer
@@ -254,7 +287,12 @@ impl PioMagneticSurface {
             // If the DMA is at the very end of the track when this happens, there is
             // a miniscule chance of a wrap of a few bytes. But this is expected to be
             // garbage anyway, so it is likely completely safe-
+            #[cfg(feature = "rp2040")]
             dma_ch0.trans_count().write_value(track_length);
+            #[cfg(feature = "rp235xa")]
+            dma_ch0
+                .trans_count()
+                .write_value(embassy_rp::pac::dma::regs::ChTransCount(track_length));
         }
     }
 
@@ -272,7 +310,6 @@ impl PioMagneticSurface {
 }
 
 impl MagneticSurface for PioMagneticSurface {
-
     #[link_section = ".core1_text"]
     #[inline(always)]
     fn is_sync_active(&self) -> bool {
@@ -288,11 +325,14 @@ impl MagneticSurface for PioMagneticSurface {
     #[link_section = ".core1_text"]
     #[inline(always)]
     fn get_absolute_head_position(&self, _master_clock: u32) -> u32 {
-        let dma = pac::DMA;
-        let remaining = dma.ch(0).trans_count().read();
+        let _dma = pac::DMA;
+        #[cfg(feature = "rp2040")]
+        let remaining = pac::DMA.ch(0).trans_count().read();
+        #[cfg(feature = "rp235xa")]
+        let remaining = pac::DMA.ch(0).trans_count().read().0;
+
         self.stream_length.saturating_sub(remaining)
     }
-
 
     #[link_section = ".core1_text"]
     #[inline(always)]
@@ -300,15 +340,15 @@ impl MagneticSurface for PioMagneticSurface {
         if self.is_motor_on == is_running {
             return;
         }
-        
+
         if is_running {
             self.motor_start_time_us = master_clock;
         } else {
             self.update_and_get_angle(master_clock);
         }
-        
+
         self.is_motor_on = is_running;
-        
+
         // :? Is the motor running,
         if is_running && self.stream_length > 1 {
             // Motor turned on, start DMA!
@@ -323,7 +363,7 @@ impl MagneticSurface for PioMagneticSurface {
     #[inline(always)]
     fn set_speed_zone(&mut self, expected_speed_zone: u8) {
         self.current_speed_zone = expected_speed_zone & 3;
-        let register_value = PIO_SPEED_ZONES[self.current_speed_zone as usize];
+        let register_value = self.pio_speed_zones[self.current_speed_zone as usize];
         let clk_int = (register_value >> 8) as u16;
         let clk_frac = (register_value & 0xFF) as u8;
         let pio = pac::PIO0;
@@ -353,5 +393,4 @@ impl MagneticSurface for PioMagneticSurface {
         // Set the new stream length
         self.stream_length = stream_length;
     }
-
 }

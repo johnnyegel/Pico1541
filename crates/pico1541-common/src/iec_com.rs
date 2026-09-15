@@ -46,7 +46,11 @@ pub trait IecComHostBus {
 
     async fn wait_for_clk(&mut self, assert: bool, timeout_us: u32) -> Result<(), IecError> {
         let mut elapsed = 0;
-        self.trace_state(if assert { "wait_clk:assert" } else { "wait_clk:release" });
+        self.trace_state(if assert {
+            "wait_clk:assert"
+        } else {
+            "wait_clk:release"
+        });
         while self.get_clk() != assert {
             if elapsed >= timeout_us {
                 self.trace_state("wait_clk:timeout");
@@ -67,7 +71,11 @@ pub trait IecComHostBus {
 
     async fn wait_for_data(&mut self, assert: bool, timeout_us: u32) -> Result<(), IecError> {
         let mut elapsed = 0;
-        self.trace_state(if assert { "wait_data:assert" } else { "wait_data:release" });
+        self.trace_state(if assert {
+            "wait_data:assert"
+        } else {
+            "wait_data:release"
+        });
         while self.get_data() != assert {
             if elapsed >= timeout_us {
                 self.trace_state("wait_data:timeout");
@@ -112,7 +120,7 @@ impl<'a, B: IecComHostBus> IecTransaction<'a, B> {
         // Drive must assert DATA within 1ms to acknowledge ATN
         self.bus.wait_for_data(true, DELAY_ACK_TIMEOUT_US).await?;
 
-        // We are now in data send state. CLK should remain released (false) 
+        // We are now in data send state. CLK should remain released (false)
         // until send() is called, which will then pull it low to start the byte.
         self.bus.set_clk(false);
         self.bus.delay_us(DELAY_DATA_US).await;
@@ -127,7 +135,7 @@ impl<'a, B: IecComHostBus> IecTransaction<'a, B> {
         // Wait the release timeout before ATN release
         self.bus.delay_us(DELAY_RELEASE_US).await;
         self.bus.set_atn(false);
-        
+
         log::debug!("ATN released, waiting for drive to release DATA...");
         // The drive MUST release DATA as an acknowledgment of ATN release.
         self.bus.wait_for_data(false, DELAY_ACK_TIMEOUT_US).await?;
@@ -149,7 +157,9 @@ impl<'a, B: IecComHostBus> IecTransaction<'a, B> {
         // Wait for drive to ACK EOI by asserting DATA
         // We wait up to the EOI timeout plus some extra margin.
         // During this time, the drive's timer will expire and it will assert DATA.
-        self.bus.wait_for_data(true, DELAY_EOI_TIMEOUT_US + 500).await?;
+        self.bus
+            .wait_for_data(true, DELAY_EOI_TIMEOUT_US + 500)
+            .await?;
 
         // Wait for drive to release DATA after EOI ACK
         self.bus.wait_for_data(false, DELAY_ACK_TIMEOUT_US).await?;
@@ -160,7 +170,10 @@ impl<'a, B: IecComHostBus> IecTransaction<'a, B> {
 
     /// Sends a single byte over the IEC bus.
     pub async fn send(self, byte: u8) -> Result<Self, IecError> {
-        log::debug!("Ready to send byte 0x{:02X} over IEC, waiting for ACK.", byte);
+        log::debug!(
+            "Ready to send byte 0x{:02X} over IEC, waiting for ACK.",
+            byte
+        );
 
         // Release CLK to allow drive to exit previous state
         self.bus.set_clk(false);
@@ -267,7 +280,12 @@ impl<'a, B: IecComHostBus> IecTransaction<'a, B> {
         *byte = val;
         *eoi = is_eoi;
 
-        log::debug!("Received byte 0x{:02X} [{}] from drive. EOI: {}", val, Self::safe_byte_to_char(val), is_eoi);
+        log::debug!(
+            "Received byte 0x{:02X} [{}] from drive. EOI: {}",
+            val,
+            Self::safe_byte_to_char(val),
+            is_eoi
+        );
 
         // Acknowledge byte (Listener pulls DATA low)
         self.bus.set_data(true);
@@ -280,7 +298,6 @@ impl<'a, B: IecComHostBus> IecTransaction<'a, B> {
 
         Ok(self)
     }
-
 
     /// Called to complete the communication. Releases all lines, and waits a short delay to ensure the drive has time to settle.
     pub async fn done(self) -> Result<(), IecError> {
@@ -307,7 +324,6 @@ impl<'a, B: IecComHostBus> IecTransaction<'a, B> {
             '.'
         }
     }
-
 }
 
 /// High-level IEC bus commander providing a more ergonomic API.
@@ -367,7 +383,6 @@ impl<'a, B: IecComHostBus> IecCommander<'a, B> {
                 }
                 com = com.send_eoi(*last).await?;
             }
-
 
             com = com
                 .atn_assert()

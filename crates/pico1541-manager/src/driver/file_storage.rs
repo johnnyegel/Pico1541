@@ -1,11 +1,11 @@
-use crate::driver::{FileStorageDriver, FileInfo, StorageDriver};
+use crate::driver::{FileInfo, FileStorageDriver, StorageDriver};
 use crate::formats::Error as ManagerError;
 use crate::storage::Error as CommonError;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 
-use fatfs::{FileSystem, FsOptions, SeekFrom as FatFsSeekFrom, Read, Seek};
 use embedded_hal::digital::InputPin;
+use fatfs::{FileSystem, FsOptions, Read, Seek, SeekFrom as FatFsSeekFrom};
 
 fn normalize_path(path: &str) -> &str {
     let mut p = path;
@@ -28,20 +28,25 @@ fn format_fat_name(name: &str) -> heapless::String<64> {
     if let Some((base, ext)) = name.split_once('.') {
         let base_trim = base.trim_end();
         let ext_trim = ext.trim_end();
-        
+
         for c in base_trim.chars() {
-            if clean_name.push(c).is_err() { break; }
+            if clean_name.push(c).is_err() {
+                break;
+            }
         }
-        
-        if !ext_trim.is_empty()
-            && clean_name.push('.').is_ok() {
-                for c in ext_trim.chars() {
-                    if clean_name.push(c).is_err() { break; }
+
+        if !ext_trim.is_empty() && clean_name.push('.').is_ok() {
+            for c in ext_trim.chars() {
+                if clean_name.push(c).is_err() {
+                    break;
                 }
             }
+        }
     } else {
         for c in name.trim_end().chars() {
-            if clean_name.push(c).is_err() { break; }
+            if clean_name.push(c).is_err() {
+                break;
+            }
         }
     }
     clean_name
@@ -119,7 +124,9 @@ where
         }
     }
 
-    pub async fn ensure_mounted(&mut self) -> Result<&FileSystem<PartitionedBlockDevice<B>>, ManagerError> {
+    pub async fn ensure_mounted(
+        &mut self,
+    ) -> Result<&FileSystem<PartitionedBlockDevice<B>>, ManagerError> {
         if self.det_pin.is_high().map_err(|_| ManagerError::Io)? {
             self.fat_fs = None;
             self.card_init = false;
@@ -134,7 +141,9 @@ where
             defmt::info!("SD: checking partition table...");
 
             let mut raw_dev = self.block_dev.clone();
-            let _ = raw_dev.seek(FatFsSeekFrom::Start(0)).map_err(|_| ManagerError::Io)?;
+            let _ = raw_dev
+                .seek(FatFsSeekFrom::Start(0))
+                .map_err(|_| ManagerError::Io)?;
 
             let mut sector0 = [0u8; 512];
             let partition_start = if raw_dev.read(&mut sector0).is_ok() {
@@ -149,16 +158,23 @@ where
                             sector0[446 + 11],
                         ]);
                         #[cfg(feature = "defmt")]
-                        defmt::info!("SD: Partition table detected. Partition 1 LBA start: {}", lba);
+                        defmt::info!(
+                            "SD: Partition table detected. Partition 1 LBA start: {}",
+                            lba
+                        );
                         lba as u64
                     } else {
                         #[cfg(feature = "defmt")]
-                        defmt::info!("SD: No partitions found in partition table. Defaulting to sector 0.");
+                        defmt::info!(
+                            "SD: No partitions found in partition table. Defaulting to sector 0."
+                        );
                         0
                     }
                 } else {
                     #[cfg(feature = "defmt")]
-                    defmt::info!("SD: No valid partition table detected. Accessing sector 0 directly.");
+                    defmt::info!(
+                        "SD: No valid partition table detected. Accessing sector 0 directly."
+                    );
                     0
                 }
             } else {
@@ -166,8 +182,11 @@ where
             };
             self.partition_start = partition_start;
 
-            let mut partitioned_dev = PartitionedBlockDevice::new(self.block_dev.clone(), partition_start as u64);
-            let _ = partitioned_dev.seek(FatFsSeekFrom::Start(0)).map_err(|_| ManagerError::Io)?;
+            let mut partitioned_dev =
+                PartitionedBlockDevice::new(self.block_dev.clone(), partition_start as u64);
+            let _ = partitioned_dev
+                .seek(FatFsSeekFrom::Start(0))
+                .map_err(|_| ManagerError::Io)?;
 
             #[cfg(feature = "defmt")]
             defmt::info!("SD: opening FatFs...");
@@ -192,9 +211,7 @@ where
     }
 }
 
-pub struct StorageWrapper<B, Det>(
-    pub &'static Mutex<CriticalSectionRawMutex, FatStorage<B, Det>>,
-)
+pub struct StorageWrapper<B, Det>(pub &'static Mutex<CriticalSectionRawMutex, FatStorage<B, Det>>)
 where
     B: fatfs::Read + fatfs::Write + fatfs::Seek + Send + Sync + Clone + 'static,
     Det: InputPin + 'static;
@@ -213,7 +230,8 @@ impl<B, Det> Copy for StorageWrapper<B, Det>
 where
     B: fatfs::Read + fatfs::Write + fatfs::Seek + Send + Sync + Clone + 'static,
     Det: InputPin + 'static,
-{}
+{
+}
 
 pub struct FatFsFileWrapper<B, Det>
 where
@@ -233,7 +251,12 @@ where
     fs: fatfs::FileSystem<PartitionedBlockDevice<B>>,
     #[borrows(fs)]
     #[covariant]
-    file: fatfs::File<'this, PartitionedBlockDevice<B>, fatfs::DefaultTimeProvider, fatfs::LossyOemCpConverter>,
+    file: fatfs::File<
+        'this,
+        PartitionedBlockDevice<B>,
+        fatfs::DefaultTimeProvider,
+        fatfs::LossyOemCpConverter,
+    >,
 }
 
 impl<B, Det> embedded_io_async::ErrorType for FatFsFileWrapper<B, Det>
@@ -253,38 +276,46 @@ where
         if self.owned_file.is_none() {
             let mut storage = self.storage.0.lock().await;
             if storage.fat_fs.is_none() {
-                let _ = storage.ensure_mounted().await.map_err(|_| CommonError::Io)?;
+                let _ = storage
+                    .ensure_mounted()
+                    .await
+                    .map_err(|_| CommonError::Io)?;
             }
-            
+
             // Create a completely new FileSystem instance for our private use
-            let mut block_dev = PartitionedBlockDevice::new(
-                storage.block_dev.clone(),
-                storage.partition_start,
-            );
-            let _ = block_dev.seek(FatFsSeekFrom::Start(0)).map_err(|_| CommonError::Io)?;
+            let mut block_dev =
+                PartitionedBlockDevice::new(storage.block_dev.clone(), storage.partition_start);
+            let _ = block_dev
+                .seek(FatFsSeekFrom::Start(0))
+                .map_err(|_| CommonError::Io)?;
             let fs = fatfs::FileSystem::new(block_dev, fatfs::FsOptions::new())
                 .map_err(|_| CommonError::Io)?;
-                
+
             let path_str = self.path.clone();
-            
+
             let owned = OwnedFatFileTryBuilder {
                 fs,
                 file_builder: |fs_ref| {
                     let path = normalize_path(path_str.as_str());
                     let mut current_dir = fs_ref.root_dir();
-                    
+
                     let mut parts = path.split('/');
                     let mut last_part = parts.next().unwrap_or("");
-                    
+
                     for part in parts {
-                        current_dir = current_dir.open_dir(last_part).map_err(|_| CommonError::Io)?;
+                        current_dir = current_dir
+                            .open_dir(last_part)
+                            .map_err(|_| CommonError::Io)?;
                         last_part = part;
                     }
-                    
-                    current_dir.open_file(last_part).map_err(|_| CommonError::Io)
-                }
-            }.try_build()?;
-            
+
+                    current_dir
+                        .open_file(last_part)
+                        .map_err(|_| CommonError::Io)
+                },
+            }
+            .try_build()?;
+
             self.owned_file = Some(owned);
         }
         Ok(())
@@ -298,16 +329,17 @@ where
 {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         self.ensure_open().await?;
-        
+
         let chunk_size = buf.len().min(512);
         let owned = self.owned_file.as_mut().unwrap();
-        let read_len = owned.with_file_mut(|f| f.read(&mut buf[..chunk_size]))
+        let read_len = owned
+            .with_file_mut(|f| f.read(&mut buf[..chunk_size]))
             .map_err(|_| CommonError::Io)?;
-            
+
         // Yield to the executor so other tasks (like DriveActivityTask)
         // can process events and we can cancel the read if the head steps.
         embassy_futures::yield_now().await;
-        
+
         Ok(read_len)
     }
 }
@@ -319,17 +351,18 @@ where
 {
     async fn seek(&mut self, pos: embedded_io_async::SeekFrom) -> Result<u64, Self::Error> {
         self.ensure_open().await?;
-        
+
         let fat_pos = match pos {
             embedded_io_async::SeekFrom::Start(n) => FatFsSeekFrom::Start(n),
             embedded_io_async::SeekFrom::Current(n) => FatFsSeekFrom::Current(n),
             embedded_io_async::SeekFrom::End(n) => FatFsSeekFrom::End(n),
         };
-        
+
         let owned = self.owned_file.as_mut().unwrap();
-        let new_pos = owned.with_file_mut(|f| f.seek(fat_pos))
+        let new_pos = owned
+            .with_file_mut(|f| f.seek(fat_pos))
             .map_err(|_| CommonError::Io)?;
-            
+
         embassy_futures::yield_now().await;
         Ok(new_pos)
     }
@@ -350,9 +383,13 @@ where
         }
     }
 
-    async fn list_dir(&mut self, path: &str, mut callback: impl FnMut(FileInfo)) -> Result<(), ManagerError> {
+    async fn list_dir(
+        &mut self,
+        path: &str,
+        mut callback: impl FnMut(FileInfo),
+    ) -> Result<(), ManagerError> {
         let mut storage = self.0.lock().await;
-        
+
         if path == "/" {
             storage.volume_label = None;
         }
@@ -377,7 +414,7 @@ where
                 }
             };
             let iter = dir.iter();
-            
+
             for entry_res in iter {
                 let file_entry = match entry_res {
                     Ok(e) => e,
@@ -387,8 +424,11 @@ where
                         return Err(ManagerError::Io);
                     }
                 };
-                
-                if file_entry.attributes().contains(fatfs::FileAttributes::VOLUME_ID) {
+
+                if file_entry
+                    .attributes()
+                    .contains(fatfs::FileAttributes::VOLUME_ID)
+                {
                     let name = file_entry.file_name();
                     let mut label = heapless::String::new();
                     let _ = label.push_str(name.trim());
@@ -412,11 +452,11 @@ where
                 callback(info);
             }
         }
-        
+
         if temp_volume_label.is_some() {
             storage.volume_label = temp_volume_label;
         }
-        
+
         Ok(())
     }
 
@@ -428,7 +468,7 @@ where
         mut callback: impl FnMut(FileInfo),
     ) -> Result<(), ManagerError> {
         let mut storage = self.0.lock().await;
-        
+
         if path == "/" {
             storage.volume_label = None;
         }
@@ -454,7 +494,7 @@ where
                 }
             };
             let iter = dir.iter();
-            
+
             for entry_res in iter {
                 if current_idx >= start_index + count {
                     break;
@@ -468,8 +508,11 @@ where
                         return Err(ManagerError::Io);
                     }
                 };
-                
-                if file_entry.attributes().contains(fatfs::FileAttributes::VOLUME_ID) {
+
+                if file_entry
+                    .attributes()
+                    .contains(fatfs::FileAttributes::VOLUME_ID)
+                {
                     let name = file_entry.file_name();
                     let mut label = heapless::String::new();
                     let _ = label.push_str(name.trim());
@@ -493,15 +536,15 @@ where
                     let _ = core::fmt::write(&mut writer, format_args!("{}", clean_name.as_str()));
                     callback(info);
                 }
-                
+
                 current_idx += 1;
             }
         }
-        
+
         if temp_volume_label.is_some() {
             storage.volume_label = temp_volume_label;
         }
-        
+
         Ok(())
     }
 
@@ -554,10 +597,20 @@ where
     B: fatfs::Read + fatfs::Write + fatfs::Seek + Send + Sync + Clone + 'static,
     Det: InputPin + 'static,
 {
-    async fn read_block(&mut self, _track: u8, _sector: u8, _buf: &mut [u8]) -> Result<(), ManagerError> {
+    async fn read_block(
+        &mut self,
+        _track: u8,
+        _sector: u8,
+        _buf: &mut [u8],
+    ) -> Result<(), ManagerError> {
         Ok(())
     }
-    async fn write_block(&mut self, _track: u8, _sector: u8, _buf: &[u8]) -> Result<(), ManagerError> {
+    async fn write_block(
+        &mut self,
+        _track: u8,
+        _sector: u8,
+        _buf: &[u8],
+    ) -> Result<(), ManagerError> {
         Ok(())
     }
 }

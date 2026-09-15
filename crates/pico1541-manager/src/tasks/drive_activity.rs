@@ -8,7 +8,7 @@ pub struct DriveActivityTask<I: IndicatorDriver> {
 
 impl<I: IndicatorDriver> DriveActivityTask<I> {
     pub fn new(indicator: I) -> Self {
-        Self { 
+        Self {
             _indicator: indicator,
         }
     }
@@ -17,7 +17,6 @@ impl<I: IndicatorDriver> DriveActivityTask<I> {
         loop {
             let event = ACTIVITY_CHANNEL.receive().await;
             match event {
-
                 DriveEvent::IecCommand { data, len } => {
                     let cmd_str =
                         core::str::from_utf8(&data[..len as usize]).unwrap_or("INVALID UTF8");
@@ -27,7 +26,8 @@ impl<I: IndicatorDriver> DriveActivityTask<I> {
                 DriveEvent::IecCloseChannel(sa) => {
                     if sa == 0 {
                         info!("IEC channel 0 closed.");
-                        let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::CloseChannel(sa));
+                        let _ =
+                            crate::CMD_CHANNEL.try_send(crate::InternalCommand::CloseChannel(sa));
                     }
                 }
                 DriveEvent::IecBusIdleTimeout => {
@@ -48,11 +48,11 @@ impl<I: IndicatorDriver> DriveActivityTask<I> {
             let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::LoadFile(filename));
         } else if let Some(path) = cmd.strip_prefix("CD:") {
             info!("Changing directory to: {}", path);
-            
+
             let mut filename = [0xA0; 16];
             let len = path.len().min(16);
             filename[..len].copy_from_slice(&path.as_bytes()[..len]);
-            
+
             let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::LoadFile(filename));
         } else if let Some(path) = cmd.strip_prefix("MD:") {
             info!("Creating directory: {}", path);

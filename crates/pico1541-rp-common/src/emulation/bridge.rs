@@ -1,15 +1,14 @@
+use super::timekeeper::TimeKeeper;
 use core::sync::atomic::Ordering;
 use embassy_rp::gpio::{Input, Output};
 use pico1541_common::context::ViaHardware;
+use pico1541_common::interface::HostInterface;
 use pico1541_common::snooper::{IecSnooper, SnooperConfig};
 use pico1541_common::util::bit_align_u32;
-use pico1541_manager::{EVENT_CHANNEL, TRACK_REQUEST, TRACK_SIGNAL, CMD_CHANNEL, InternalCommand};
-use pico1541_common::interface::HostInterface;
 use pico1541_common::DriveEvent;
-use super::timekeeper::TimeKeeper;
+use pico1541_manager::{InternalCommand, CMD_CHANNEL, EVENT_CHANNEL, TRACK_REQUEST, TRACK_SIGNAL};
 
 use super::config::*;
-
 
 pub struct IecPins {
     pub(crate) _data_rx: Input<'static>,
@@ -40,25 +39,28 @@ pub struct HardwareBridge {
 }
 
 impl HardwareBridge {
-    pub fn new(snooper_config: &'static SnooperConfig,
-            pins_iec: IecPins, pins_led: LedPins, pins_debug: DebugPins) -> Self {
-
+    pub fn new(
+        snooper_config: &'static SnooperConfig,
+        pins_iec: IecPins,
+        pins_led: LedPins,
+        pins_debug: DebugPins,
+        sys_clock_freq: u32,
+    ) -> Self {
         let device_id = snooper_config.device_id.load(Ordering::Relaxed);
         let bridge = Self {
-            timekeeper: TimeKeeper::new(),
+            timekeeper: TimeKeeper::new(sys_clock_freq),
             _snooper: IecSnooper::new(device_id),
             config: snooper_config,
             motor_on: false,
             _pins_iec: pins_iec,
             _pins_led: pins_led,
-            _pins_debug: pins_debug
+            _pins_debug: pins_debug,
         };
         bridge
     }
 }
 
 impl HostInterface for HardwareBridge {
-    
     #[link_section = ".core1_text"]
     #[inline(always)]
     fn send_event(&mut self, event: DriveEvent) {
@@ -71,7 +73,7 @@ impl HostInterface for HardwareBridge {
     fn is_hijacked(&self) -> bool {
         self.config.hijack_active.load(Ordering::Relaxed)
     }
-    
+
     #[link_section = ".core1_text"]
     #[inline(always)]
     fn pop_discard_request(&mut self) -> bool {
@@ -85,7 +87,6 @@ impl HostInterface for HardwareBridge {
         self.config.talk_addr.store(talk, Ordering::Relaxed);
     }
 
-    
     #[link_section = ".core1_text"]
     #[inline(always)]
     fn track_changed(&mut self, half_track: u8) {
@@ -93,9 +94,16 @@ impl HostInterface for HardwareBridge {
         // since we want to avoid flooding the queue if the head moves very fast!
         TRACK_REQUEST.store(half_track, core::sync::atomic::Ordering::Relaxed);
         TRACK_SIGNAL.signal(());
-        
+
         // Pend TIMER_IRQ_3 on Core 0 to wake up the DiskTask!
-        embassy_rp::pac::TIMER.intf().write(|w| w.set_alarm(3, true));
+        #[cfg(feature = "rp2040")]
+        embassy_rp::pac::TIMER
+            .intf()
+            .write(|w| w.set_alarm(3, true));
+        #[cfg(feature = "rp235xa")]
+        embassy_rp::pac::TIMER0
+            .intf()
+            .write(|w| w.set_alarm(3, true));
     }
 
     #[link_section = ".core1_text"]
@@ -130,19 +138,22 @@ impl HostInterface for HardwareBridge {
     }
 }
 
-
-
 impl ViaHardware for HardwareBridge {
-
     #[link_section = ".core1_text"]
     #[inline(always)]
     fn set_reset_state(&mut self, asserted: bool) {
         if asserted {
             // Turn off LEDs when reset is asserted, to indicate the drive is in reset state.
-            embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(GPIO_LED_MASK_GREEN | GPIO_LED_MASK_RED);
+            embassy_rp::pac::SIO
+                .gpio_out(0)
+                .value_clr()
+                .write_value(GPIO_LED_MASK_GREEN | GPIO_LED_MASK_RED);
         } else {
             // Turn on the RED LED when reset is de-asserted, to indicate the drive is ready.
-            embassy_rp::pac::SIO.gpio_out(0).value_set().write_value(GPIO_LED_MASK_RED);
+            embassy_rp::pac::SIO
+                .gpio_out(0)
+                .value_set()
+                .write_value(GPIO_LED_MASK_RED);
         }
     }
 
@@ -153,12 +164,21 @@ impl ViaHardware for HardwareBridge {
         let pins = embassy_rp::pac::SIO.gpio_in(0).read();
 
         // Align the bits to match the VIA1 input register layout
-        let data = bit_align_u32(pins & GPIO_IEC_MASK_DATA_RX, 
-            GPIO_IEC_BIT_DATA_RX, Self::VIA1_IEC_BIT_DATA_RX) as u8;
-        let clk = bit_align_u32(pins & GPIO_IEC_MASK_CLK_RX, 
-            GPIO_IEC_BIT_CLK_RX, Self::VIA1_IEC_BIT_CLK_RX) as u8;
-        let atn = bit_align_u32(pins & GPIO_IEC_MASK_ATN_RX, 
-            GPIO_IEC_BIT_ATN_RX, Self::VIA1_IEC_BIT_ATN_RX) as u8;
+        let data = bit_align_u32(
+            pins & GPIO_IEC_MASK_DATA_RX,
+            GPIO_IEC_BIT_DATA_RX,
+            Self::VIA1_IEC_BIT_DATA_RX,
+        ) as u8;
+        let clk = bit_align_u32(
+            pins & GPIO_IEC_MASK_CLK_RX,
+            GPIO_IEC_BIT_CLK_RX,
+            Self::VIA1_IEC_BIT_CLK_RX,
+        ) as u8;
+        let atn = bit_align_u32(
+            pins & GPIO_IEC_MASK_ATN_RX,
+            GPIO_IEC_BIT_ATN_RX,
+            Self::VIA1_IEC_BIT_ATN_RX,
+        ) as u8;
 
         // Return the combined value in the VIA1 input register format
         data | clk | atn
@@ -176,10 +196,10 @@ impl ViaHardware for HardwareBridge {
         let clk_out = (via_port_b >> Self::VIA1_IEC_BIT_CLK_TX) & 1;
         let pb1 = (via_port_b >> (Self::VIA1_IEC_BIT_DATA_TX - 1)) & 2;
         let pb4 = (via_port_b >> (Self::VIA1_IEC_BIT_ATN_ACK - 2)) & 4;
-        
+
         // Combine the bits into a single command for the PIO state machine
         let pio_cmd = clk_out | pb1 | pb4;
-        
+
         embassy_rp::pac::PIO1.txf(0).write_value(pio_cmd as u32);
     }
 
@@ -187,24 +207,30 @@ impl ViaHardware for HardwareBridge {
     #[inline(always)]
     fn write_mechanics_port(&mut self, via_port_b: u8) {
         let motor_on = (via_port_b & Self::VIA2_MASK_MOTOR) != 0;
-        
+
         let mut set_mask = 0;
         if (via_port_b & Self::VIA2_MASK_LED) != 0 {
             set_mask = GPIO_LED_MASK_RED;
         } else if motor_on {
             set_mask = GPIO_LED_MASK_GREEN;
         }
-        
+
         let clr_mask = (GPIO_LED_MASK_RED | GPIO_LED_MASK_GREEN) & !set_mask;
 
         // Clear before set
-        embassy_rp::pac::SIO.gpio_out(0).value_clr().write_value(clr_mask);
-        embassy_rp::pac::SIO.gpio_out(0).value_set().write_value(set_mask);
+        embassy_rp::pac::SIO
+            .gpio_out(0)
+            .value_clr()
+            .write_value(clr_mask);
+        embassy_rp::pac::SIO
+            .gpio_out(0)
+            .value_set()
+            .write_value(set_mask);
 
         if motor_on != self.motor_on {
             self.motor_on = motor_on;
             let _ = CMD_CHANNEL.try_send(InternalCommand::MotorState(motor_on));
-            
+
             if motor_on {
                 crate::emulation::profiler::start_profiling();
             } else {
@@ -276,37 +302,42 @@ pub fn init_iec_pio(mut pio1: embassy_rp::pio::Pio<'static, embassy_rp::peripher
         set pins, 1         ; Assert DATA
         jmp loop
         "#
-    ).program;
-    
+    )
+    .program;
+
     let iec_loaded = pio1.common.load_program(&iec_prg);
     let data_tx_pin = pio1.common.make_pio_pin(unsafe { PinIecDataTx::steal() });
     let clk_tx_pin = pio1.common.make_pio_pin(unsafe { PinIecClkTx::steal() });
     let atn_pin = pio1.common.make_pio_pin(unsafe { PinIecAtnRx::steal() });
-    
+
     let mut iec_cfg = embassy_rp::pio::Config::default();
     iec_cfg.use_program(&iec_loaded, &[]);
-    
+
     // `set_pins` controls DATA_TX
     iec_cfg.set_set_pins(&[&data_tx_pin]);
-    
+
     // `out_pins` controls CLK_TX
     iec_cfg.set_out_pins(&[&clk_tx_pin]);
-    
+
     iec_cfg.set_in_pins(&[&atn_pin]);
     iec_cfg.set_jmp_pin(&atn_pin);
-    
+
     // Shift right, auto-pull disabled, 32-bit threshold
     iec_cfg.shift_out.direction = embassy_rp::pio::ShiftDirection::Right;
     iec_cfg.shift_out.auto_fill = false;
-    
+
     pio1.sm0.set_config(&iec_cfg);
-    
+
     // Configure pin directions for PIO
-    pio1.sm0.set_pin_dirs(embassy_rp::pio::Direction::Out, &[&data_tx_pin, &clk_tx_pin]);
-    pio1.sm0.set_pin_dirs(embassy_rp::pio::Direction::In, &[&atn_pin]);
-    
+    pio1.sm0.set_pin_dirs(
+        embassy_rp::pio::Direction::Out,
+        &[&data_tx_pin, &clk_tx_pin],
+    );
+    pio1.sm0
+        .set_pin_dirs(embassy_rp::pio::Direction::In, &[&atn_pin]);
+
     pio1.sm0.set_enable(true);
-    
+
     core::mem::forget(data_tx_pin);
     core::mem::forget(clk_tx_pin);
     core::mem::forget(atn_pin);

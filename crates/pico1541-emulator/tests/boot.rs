@@ -1,7 +1,7 @@
-use pico1541_emulator::MemoryMonitor;
-use pico1541_common::track_buffer::TrackLayout;
-use pollster::block_on;
 use pico1541_common::iec_com::{IecCommander, IecError};
+use pico1541_common::track_buffer::TrackLayout;
+use pico1541_emulator::MemoryMonitor;
+use pollster::block_on;
 
 mod common;
 
@@ -21,7 +21,11 @@ fn test_drive_boot() {
 
     log::info!("Drive boot test took {} cycles", cycles);
     let pc = drive.pc();
-    assert!(pc >= common::IDLE_LOW && pc <= common::IDLE_HIGH, "Drive did not reach idle loop within timeout (PC=${:04X})", pc);
+    assert!(
+        pc >= common::IDLE_LOW && pc <= common::IDLE_HIGH,
+        "Drive did not reach idle loop within timeout (PC=${:04X})",
+        pc
+    );
 }
 
 #[test]
@@ -125,7 +129,10 @@ fn test_dir_listing_virtual() {
         entries,
         pos: 0,
     };
-    let mut vdir = VirtualDiskImage::<pico1541_manager::storage::MemoryStorage<'static>, TestSource>::new(source, b"TEST");
+    let mut vdir =
+        VirtualDiskImage::<pico1541_manager::storage::MemoryStorage<'static>, TestSource>::new(
+            source, b"TEST",
+        );
     vdir.set_id([0x31, 0x31]);
 
     let (mut drive, mut bridge) = common::setup_drive(true, 8);
@@ -149,13 +156,17 @@ fn test_dir_listing_virtual() {
 
     let layout = block_on(vdir.read_track(34, &mut gcr_data)).expect("read_track failed");
 
-        println!("MOCK: Loaded track length {}", layout.1);
+    println!("MOCK: Loaded track length {}", layout.1);
     {
         let manager = bridge.buffer.split().0;
         let inactive = manager.get_dormant_buffer_mut();
         inactive.data.copy_from_slice(&gcr_data);
         inactive.layout = layout.0;
-        inactive.length = layout.1; inactive.identifier = pico1541_common::track_buffer::TrackIdentifier::new(34, pico1541_common::track_buffer::default_speed_zone(34));
+        inactive.length = layout.1;
+        inactive.identifier = pico1541_common::track_buffer::TrackIdentifier::new(
+            34,
+            pico1541_common::track_buffer::default_speed_zone(34),
+        );
         manager.commit_dormant_buffer();
     }
 
@@ -169,10 +180,18 @@ fn test_dir_listing_virtual() {
             let b = manager.get_dormant_buffer_mut();
             println!("MOCK HANDLER HT: {}", current_ht);
             if current_ht != 34 {
-                b.layout = TrackLayout::Void; b.identifier = pico1541_common::track_buffer::TrackIdentifier::new(current_ht, pico1541_common::track_buffer::default_speed_zone(current_ht));
+                b.layout = TrackLayout::Void;
+                b.identifier = pico1541_common::track_buffer::TrackIdentifier::new(
+                    current_ht,
+                    pico1541_common::track_buffer::default_speed_zone(current_ht),
+                );
             } else {
                 b.layout = layout.0;
-                b.length = layout.1; b.identifier = pico1541_common::track_buffer::TrackIdentifier::new(current_ht, pico1541_common::track_buffer::default_speed_zone(current_ht));
+                b.length = layout.1;
+                b.identifier = pico1541_common::track_buffer::TrackIdentifier::new(
+                    current_ht,
+                    pico1541_common::track_buffer::default_speed_zone(current_ht),
+                );
             }
             manager.commit_dormant_buffer();
             last_ht = current_ht;
@@ -211,8 +230,13 @@ fn test_dir_listing_virtual() {
                 .await?;
         }
 
-        let text = String::from_utf8_lossy(&received); println!("RECEIVED TEXT: {:?}", text);
-        log::info!("Received {} bytes of directory data:\n{}", received.len(), text);
+        let text = String::from_utf8_lossy(&received);
+        println!("RECEIVED TEXT: {:?}", text);
+        log::info!(
+            "Received {} bytes of directory data:\n{}",
+            received.len(),
+            text
+        );
         assert!(text.contains("FILE01"), "Directory listing missing FILE01");
         assert!(
             text.contains("VIRTUAL DISK"),
@@ -241,7 +265,10 @@ fn test_dir_listing_g64() {
         bridge.ticks(&mut drive, 1000);
         timeout += 1;
         if timeout > 5000 {
-             panic!("Drive never reached idle loop after reset (PC=${:04X})", drive.pc());
+            panic!(
+                "Drive never reached idle loop after reset (PC=${:04X})",
+                drive.pc()
+            );
         }
     }
 
@@ -284,8 +311,13 @@ fn test_dir_listing_g64() {
                 .await?;
         }
 
-        let text = String::from_utf8_lossy(&received); println!("RECEIVED TEXT: {:?}", text);
-        log::info!("Received {} bytes of G64 directory data.\n{}", received.len(), text);
+        let text = String::from_utf8_lossy(&received);
+        println!("RECEIVED TEXT: {:?}", text);
+        log::info!(
+            "Received {} bytes of G64 directory data.\n{}",
+            received.len(),
+            text
+        );
         assert!(text.contains("GAME"), "Directory listing missing GAME");
         Ok::<(), IecError>(())
     })
@@ -295,8 +327,8 @@ fn test_dir_listing_g64() {
 #[test]
 #[ignore = "FIXME: Will fix later"]
 fn test_dir_listing_stable() {
-    use pico1541_manager::formats::{DiskImage, VirtualDiskImage};
     use pico1541_common::track_buffer::TrackLayout;
+    use pico1541_manager::formats::{DiskImage, VirtualDiskImage};
     use pico1541_manager::storage::{DirectoryEntry, DirectorySource};
     use pollster::block_on;
 
@@ -346,7 +378,10 @@ fn test_dir_listing_stable() {
         entries,
         pos: 0,
     };
-    let mut vdir = VirtualDiskImage::<pico1541_manager::storage::MemoryStorage<'static>, TestSource>::new(source, b"TEST");
+    let mut vdir =
+        VirtualDiskImage::<pico1541_manager::storage::MemoryStorage<'static>, TestSource>::new(
+            source, b"TEST",
+        );
     vdir.set_id([0x31, 0x31]);
 
     let (mut drive, mut bridge) = common::setup_drive(true, 8);
@@ -372,7 +407,11 @@ fn test_dir_listing_stable() {
         let inactive = manager.get_dormant_buffer_mut();
         inactive.data.copy_from_slice(&gcr_data);
         inactive.layout = layout.0;
-        inactive.length = layout.1; inactive.identifier = pico1541_common::track_buffer::TrackIdentifier::new(34, pico1541_common::track_buffer::default_speed_zone(34));
+        inactive.length = layout.1;
+        inactive.identifier = pico1541_common::track_buffer::TrackIdentifier::new(
+            34,
+            pico1541_common::track_buffer::default_speed_zone(34),
+        );
         manager.commit_dormant_buffer();
     }
 
@@ -391,11 +430,19 @@ fn test_dir_listing_stable() {
             let b = manager.get_dormant_buffer_mut();
             println!("MOCK HANDLER HT: {}", current_ht);
             if current_ht != 34 {
-                b.layout = TrackLayout::Void; b.identifier = pico1541_common::track_buffer::TrackIdentifier::new(current_ht, pico1541_common::track_buffer::default_speed_zone(current_ht));
+                b.layout = TrackLayout::Void;
+                b.identifier = pico1541_common::track_buffer::TrackIdentifier::new(
+                    current_ht,
+                    pico1541_common::track_buffer::default_speed_zone(current_ht),
+                );
             } else {
                 let lc = *layout_clone.borrow();
                 b.layout = lc.0;
-                b.length = lc.1; b.identifier = pico1541_common::track_buffer::TrackIdentifier::new(current_ht, pico1541_common::track_buffer::default_speed_zone(current_ht));
+                b.length = lc.1;
+                b.identifier = pico1541_common::track_buffer::TrackIdentifier::new(
+                    current_ht,
+                    pico1541_common::track_buffer::default_speed_zone(current_ht),
+                );
             }
             manager.commit_dormant_buffer();
             last_ht = current_ht;
@@ -430,9 +477,16 @@ fn test_dir_listing_stable() {
                 .await?;
         }
 
-        let text = String::from_utf8_lossy(&received); println!("RECEIVED TEXT: {:?}", text);
-        assert!(text.contains("FILE01"), "Directory listing 1 missing FILE01");
-        assert!(text.contains("STABLE DISK"), "Directory listing 1 missing disk name");
+        let text = String::from_utf8_lossy(&received);
+        println!("RECEIVED TEXT: {:?}", text);
+        assert!(
+            text.contains("FILE01"),
+            "Directory listing 1 missing FILE01"
+        );
+        assert!(
+            text.contains("STABLE DISK"),
+            "Directory listing 1 missing disk name"
+        );
         Ok::<(), IecError>(())
     })
     .unwrap_or_else(|e| {
@@ -440,7 +494,10 @@ fn test_dir_listing_stable() {
             let row = (i * 16) as u16;
             let mut s = format!("{:04X}: ", row);
             for j in 0..16 {
-                s.push_str(&format!("{:02X} ", drive.bus_mut().peek(row + j, &mut bridge)));
+                s.push_str(&format!(
+                    "{:02X} ",
+                    drive.bus_mut().peek(row + j, &mut bridge)
+                ));
             }
             log::error!("{}", s);
         }
@@ -458,7 +515,8 @@ fn test_dir_listing_stable() {
             .execute()
             .await?;
         Ok::<(), IecError>(())
-    }).unwrap();
+    })
+    .unwrap();
 
     bridge.ticks(&mut drive, 500_000);
 
@@ -469,7 +527,11 @@ fn test_dir_listing_stable() {
         let inactive = manager.get_dormant_buffer_mut();
         inactive.data.copy_from_slice(&gcr_data);
         inactive.layout = layout2.0;
-        inactive.length = layout2.1; inactive.identifier = pico1541_common::track_buffer::TrackIdentifier::new(34, pico1541_common::track_buffer::default_speed_zone(34));
+        inactive.length = layout2.1;
+        inactive.identifier = pico1541_common::track_buffer::TrackIdentifier::new(
+            34,
+            pico1541_common::track_buffer::default_speed_zone(34),
+        );
         manager.commit_dormant_buffer();
     }
     *layout_rc.borrow_mut() = layout2;
@@ -502,9 +564,16 @@ fn test_dir_listing_stable() {
                 .await?;
         }
 
-        let text = String::from_utf8_lossy(&received); println!("RECEIVED TEXT: {:?}", text);
-        assert!(text.contains("FILE01"), "Directory listing 2 missing FILE01");
-        assert!(text.contains("STABLE DISK"), "Directory listing 2 missing disk name");
+        let text = String::from_utf8_lossy(&received);
+        println!("RECEIVED TEXT: {:?}", text);
+        assert!(
+            text.contains("FILE01"),
+            "Directory listing 2 missing FILE01"
+        );
+        assert!(
+            text.contains("STABLE DISK"),
+            "Directory listing 2 missing disk name"
+        );
         Ok::<(), IecError>(())
     })
     .unwrap();

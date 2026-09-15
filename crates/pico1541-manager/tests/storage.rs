@@ -55,7 +55,9 @@ fn test_directory_entry() {
 
 #[test]
 fn test_paged_directory_source() {
-    use pico1541_manager::storage::{PagedDirectorySource, PagedDirectorySourceTrait, DirectorySource};
+    use pico1541_manager::storage::{
+        DirectorySource, PagedDirectorySource, PagedDirectorySourceTrait,
+    };
 
     let mut paged = PagedDirectorySource::<48>::new(b"TEST DRIVE");
     // Before any block is loaded total_count is usize::MAX (unknown)
@@ -111,4 +113,3 @@ fn test_paged_directory_source() {
     paged.rewind();
     assert!(paged.next_entry().is_none()); // index 0 is not in range 1..4!
 }
-

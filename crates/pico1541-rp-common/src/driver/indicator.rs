@@ -7,9 +7,7 @@ pub struct ActivityIndicator {
 
 impl ActivityIndicator {
     pub fn new(speaker: PiezoSpeaker) -> Self {
-        Self {
-            speaker,
-        }
+        Self { speaker }
     }
 }
 
@@ -40,4 +38,3 @@ impl<M: embassy_sync::blocking_mutex::raw::RawMutex + 'static> IndicatorDriver
         }
     }
 }
-

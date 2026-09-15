@@ -20,10 +20,7 @@ impl KeyboardInput {
                 OutputOpenDrain::new(row0, Level::High),
                 OutputOpenDrain::new(row1, Level::High),
             ],
-            cols: [
-                Input::new(col0, Pull::Up),
-                Input::new(col1, Pull::Up),
-            ],
+            cols: [Input::new(col0, Pull::Up), Input::new(col1, Pull::Up)],
         }
     }
 }
@@ -43,12 +40,13 @@ impl InputDriver for KeyboardInput {
         let _ = embassy_futures::select::select(
             col0_slice[0].wait_for_any_edge(),
             col1_slice[0].wait_for_any_edge(),
-        ).await;
+        )
+        .await;
     }
 
     async fn scan(&mut self) -> u8 {
         let mut pressed = 0;
-        
+
         // Ensure all rows are HIGH (Open Drain = floating) before scanning to avoid ghosting
         for row in self.rows.iter_mut() {
             row.set_high();

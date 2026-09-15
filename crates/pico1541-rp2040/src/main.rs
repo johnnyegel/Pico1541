@@ -6,9 +6,6 @@ extern crate alloc;
 #[global_allocator]
 static HEAP: embedded_alloc::LlffHeap = embedded_alloc::LlffHeap::empty();
 
-mod driver;
-mod flash_storage;
-
 use embassy_rp::interrupt;
 #[allow(unused_imports)]
 use pico1541_common::context::ViaHardware;
@@ -30,6 +27,8 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 
 use pico1541_common::snooper::SnooperConfig;
+
+pub const SYSTEM_CLOCK_FREQ: u32 = 250_000_000;
 use pico1541_manager::tasks::{
     ActionTask, DisplayTask, DriveActivityTask, KeyboardTask, MainMenuTask, MountManagerTask,
     SnooperTask,
@@ -41,39 +40,33 @@ use pico1541_manager::tasks::{
 static FS_IMAGE: [u8; 512 * 1024] = *include_bytes!(concat!(env!("OUT_DIR"), "/fs.bin"));
 
 // Local drivers
-use crate::driver::blockdevsdcard::{SdBlockIo, SdCard};
-use crate::driver::display::{DisplayHardware, DisplayState, DisplayWrapper};
-use crate::driver::indicator::{ActivityIndicator, IndicatorWrapper};
-use crate::driver::input::KeyboardInput;
-use crate::driver::leds::{StatusLeds, StatusLedsWrapper};
-use crate::driver::speaker::PiezoSpeaker;
 use pico1541_manager::driver::file_storage::{FatStorage, StorageWrapper};
+use pico1541_rp_common::driver::blockdevsdcard::{SdBlockIo, SdCard};
+use pico1541_rp_common::driver::display::{DisplayHardware, DisplayState, DisplayWrapper};
+use pico1541_rp_common::driver::indicator::{ActivityIndicator, IndicatorWrapper};
+use pico1541_rp_common::driver::input::KeyboardInput;
+use pico1541_rp_common::driver::leds::{StatusLeds, StatusLedsWrapper};
+use pico1541_rp_common::driver::speaker::PiezoSpeaker;
 
 // Tasks and manager components
 use pico1541_manager::{SettingsCommand, SETTINGS_CHANNEL};
 
 use pico1541_common::track_buffer::{DualCoreTrackBuffer, ManagerHandle};
-use pico1541_common::SYSTEM_CLOCK_FREQ;
+
 use static_cell::StaticCell;
 
 #[link_section = ".dual_core_data"]
-static DUAL_CORE_DATA: pico1541_common::track_buffer::DualCoreTrackData = pico1541_common::track_buffer::DualCoreTrackData::new();
+static DUAL_CORE_DATA: pico1541_common::track_buffer::DualCoreTrackData =
+    pico1541_common::track_buffer::DualCoreTrackData::new();
 #[link_section = ".dual_core_buffer"]
-static DUAL_CORE_BUFFER: DualCoreTrackBuffer = DualCoreTrackBuffer::new(DUAL_CORE_DATA.buffers.get());
+static DUAL_CORE_BUFFER: DualCoreTrackBuffer =
+    DualCoreTrackBuffer::new(DUAL_CORE_DATA.buffers.get());
 
-mod storage_manager;
-use storage_manager::*;
+#[allow(unused_imports)]
+use pico1541_rp_common::storage_manager::*;
 
-mod emulation;
-pub mod littlefs_storage;
-
-pub mod pio {
-    pub fn magnetic_surface_program() -> ::pio::Program<32> {
-        ::pio::pio_file!("pio/magnetic_surface.pio").program
-    }
-}
-use flash_storage::FlashStorage;
-use littlefs_storage::LittleFsStorage;
+use pico1541_rp_common::flash_storage::FlashStorage;
+use pico1541_rp_common::littlefs_storage::LittleFsStorage;
 
 bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => embassy_rp::usb::InterruptHandler<embassy_rp::peripherals::USB>;
@@ -149,7 +142,7 @@ async fn main(spawner: Spawner) {
     let mut config = embassy_rp::config::Config::default();
     config.clocks = embassy_rp::clocks::ClockConfig::system_freq(SYSTEM_CLOCK_FREQ).unwrap();
     let p = embassy_rp::init(config);
-    
+
     let usb_driver = embassy_rp::usb::Driver::new(p.USB, Irqs);
     let mut usb_config = embassy_usb::Config::new(0xc0de, 0xcafe);
     usb_config.manufacturer = Some("Antigravity");
@@ -218,7 +211,7 @@ async fn main(spawner: Spawner) {
     let mut drive_id = DEFAULT_DRIVE_ID;
     let mut rom_name = heapless::String::<32>::new();
     let _ = rom_name.push_str("-- Not available --");
-    
+
     fs_storage_inst = match littlefs_rust::Filesystem::mount(fs_storage_inst, fs_config()) {
         Ok(fs) => {
             if let Ok(data) = fs.read_to_vec("/settings.dat") {
@@ -356,12 +349,12 @@ async fn main(spawner: Spawner) {
 
     // (track_addr unused)
 
-    let hardware = emulation::EmulatorHardware {};
+    let hardware = pico1541_rp_common::emulation::EmulatorHardware {};
 
     let pio0 = embassy_rp::pio::Pio::new(p.PIO0, Irqs);
 
     info!("Starting Emulator on Core 1...");
-    emulation::spawn_core1(
+    pico1541_rp_common::emulation::spawn_core1(
         p.CORE1.into(),
         stack,
         hardware,
@@ -371,6 +364,7 @@ async fn main(spawner: Spawner) {
         embassy_rp::pio::Pio::new(p.PIO1, Irqs),
         emulator_handle,
         unsafe { &*core::ptr::addr_of!(ROM_BUFFER) },
+        SYSTEM_CLOCK_FREQ,
     );
 
     // --- Run Manager on Core 0 ---
@@ -687,10 +681,11 @@ async fn core0_init_task(
         StatusLedsWrapper(status_leds_mutex),
         IndicatorWrapper(indicator_mutex),
         StorageWrapper(sd_mutex),
-        crate::littlefs_storage::LittleFsStorage,
+        pico1541_rp_common::littlefs_storage::LittleFsStorage,
         &CURRENT_DIR,
         config,
         rom_name,
+        SYSTEM_CLOCK_FREQ,
     );
 
     spawner.spawn(menu_run(main_menu_task).unwrap());
@@ -873,12 +868,20 @@ async fn settings_save_task(mut flash_storage: FlashStorage<'static>) {
 }
 
 #[embassy_executor::task]
-async fn usb_task(mut usb: embassy_usb::UsbDevice<'static, embassy_rp::usb::Driver<'static, embassy_rp::peripherals::USB>>)  {
+async fn usb_task(
+    mut usb: embassy_usb::UsbDevice<
+        'static,
+        embassy_rp::usb::Driver<'static, embassy_rp::peripherals::USB>,
+    >,
+) {
     usb.run().await
 }
 
 #[embassy_executor::task]
-async fn defmt_drain_task(task: embassy_defmt_usb::UsbDefmtTask<embassy_rp::usb::Driver<'static, embassy_rp::peripherals::USB>>)  {
+async fn defmt_drain_task(
+    task: embassy_defmt_usb::UsbDefmtTask<
+        embassy_rp::usb::Driver<'static, embassy_rp::peripherals::USB>,
+    >,
+) {
     task.run().await
 }
-

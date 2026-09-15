@@ -49,7 +49,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             last_via2_out: 0xFF,
             _phantom: PhantomData,
         };
-        
+
         // :: Load the ROM image into memory
         systembus.update_rom(rom);
 
@@ -82,7 +82,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         self.device_id_pb_bits = (self.device_id & 0x03) << 5;
         self.via1.set_pb_in(0xFF);
         self.last_via2_out = 0xFF;
-        self.mechanics.update_state(self.via2.get_pb_out(), self.last_via2_out, hardware, 0);
+        self.mechanics
+            .update_state(self.via2.get_pb_out(), self.last_via2_out, hardware, 0);
 
         // Force the track manager to load the reset track
         hardware.track_changed(self.mechanics.half_track());
@@ -93,13 +94,12 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     pub fn poll_io(&mut self, hardware: &mut H, elapsed: u32, current_cycle: u32) {
         // :: Ensure the IEC bus is synchronized with the VIA1 outputs and inputs
         self.sync_iec_bus(hardware, current_cycle);
-        
+
         // :? Is the motor running?
         if self.is_motor_on() {
             // -> Yes, then poll the drive mechanics for motor-on behavior
             self.poll_mechanics_motor_on(elapsed, current_cycle);
-        }
-        else {
+        } else {
             // -> No, then handle device ID and write-protect state changes
             // NOTE! While these can change when motor is ON, it is not actually a prime use case!
             if (current_cycle ^ current_cycle.wrapping_sub(elapsed)) & !0x3FF != 0 {
@@ -112,14 +112,13 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
                 } else {
                     self.via2.set_pb_in(self.via2.pb_in() | 0x10);
                 }
-                
+
                 if self.mechanics.pop_force_disk_change() {
                     self.mechanics.force_evaluate_track_source(current_cycle);
                 }
             }
         }
     }
-
 
     #[link_section = ".core1_text"]
     #[inline(always)]
@@ -143,21 +142,21 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 
         if is_read_mode {
             let signals = self.mechanics.advance_read_head(elapsed, current_cycle);
-            
+
             let mut new_byte_arrived = false;
             if let Some(byte) = signals.byte_opt {
                 self.via2.set_pa_in(byte);
                 new_byte_arrived = true;
-                // We must assume the byte arrived at the BEGINNING of this elapsed block, 
+                // We must assume the byte arrived at the BEGINNING of this elapsed block,
                 // otherwise subsequent reads may happen too fast before we advance time enough to clear the flag.
                 // If we just use current_cycle, we might be up to 7 cycles too late.
                 self.time.last_byte_cycle = current_cycle.wrapping_sub(elapsed);
             }
-            
+
             // Assert SYNC (Pull PB7 Low). Branchless logic for optimal speed.
             let sync_mask = if signals.is_sync { 0x00 } else { 0x80 };
             self.via2.set_pb_in((self.via2.pb_in() & 0x7F) | sync_mask);
-            
+
             if !signals.is_sync && new_byte_arrived {
                 let pcr_ca2 = self.via2.pcr() & 0b0000_1110;
                 let is_so_enabled = (pcr_ca2 & 0b0000_1010) == 0b0000_1010;
@@ -168,7 +167,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             }
         } else {
             // WRITE mode
-            self.mechanics.advance_write_head(elapsed, current_cycle, self.via2.ora());
+            self.mechanics
+                .advance_write_head(elapsed, current_cycle, self.via2.ora());
         }
     }
 
@@ -196,7 +196,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
                 ctx.spin_until_half(cycle);
                 self.sync_iec_bus(ctx, cycle);
             }
-            
+
             self.via1.read(addr)
         } else {
             self.via2.read(addr)
@@ -227,7 +227,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 
                 if effective_orb != self.last_via2_out {
                     ctx.write_mechanics_port(effective_orb);
-                    self.mechanics.update_state(effective_orb, self.last_via2_out, ctx, cycle);
+                    self.mechanics
+                        .update_state(effective_orb, self.last_via2_out, ctx, cycle);
                     self.last_via2_out = effective_orb;
                 }
             }
@@ -288,7 +289,6 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         }
     }
 
-    
     #[link_section = ".core1_text"]
     #[inline(always)]
     pub fn so_pending(&mut self) -> bool {
@@ -307,11 +307,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 /// Implement MemoryMonitor for SystemBus to allow peeking at memory without affecting timing.
 #[cfg(feature = "debug")]
 impl<H: HostInterface, S: MagneticSurface> MemoryMonitor for SystemBus<H, S> {
-    fn peek<H2: ViaHardware>(
-        &mut self,
-        addr: u16,
-        hw: &mut H2,
-    ) -> u8 {
+    fn peek<H2: ViaHardware>(&mut self, addr: u16, hw: &mut H2) -> u8 {
         if (addr & 0x9800) == 0x1800 {
             if addr < 0x1C00 {
                 self.via1.peek(addr, hw)
@@ -323,12 +319,7 @@ impl<H: HostInterface, S: MagneticSurface> MemoryMonitor for SystemBus<H, S> {
         }
     }
 
-    fn poke<H2: ViaHardware>(
-        &mut self,
-        _addr: u16,
-        _value: u8,
-        _hw: &mut H2,
-    ) {
+    fn poke<H2: ViaHardware>(&mut self, _addr: u16, _value: u8, _hw: &mut H2) {
         // NOT implemented yet!
     }
 }
@@ -354,7 +345,12 @@ mod tests {
         .1;
         let surface = pico1541_common::magnetic_surface::SoftwareMagneticSurface::new();
         let mechanics = crate::drivemechanics::DriveMechanics::new(surface, handle);
-        let mut bus = SystemBus::<MockHardware, _>::new(&ROM, alloc::boxed::Box::leak(alloc::boxed::Box::new([0u8; 32768])), 8, mechanics);
+        let mut bus = SystemBus::<MockHardware, _>::new(
+            &ROM,
+            alloc::boxed::Box::leak(alloc::boxed::Box::new([0u8; 32768])),
+            8,
+            mechanics,
+        );
         let mut hw = MockHardware {};
         use racc6502v4::bus::Bus;
         bus.write(&mut hw, 0x0100, 0xAB, 0);

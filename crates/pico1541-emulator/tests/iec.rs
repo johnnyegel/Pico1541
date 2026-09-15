@@ -1,8 +1,8 @@
 mod common;
 
-use pico1541_common::interface::DriveEvent;
 use log::info;
 use pico1541_common::iec_com::{IecCommander, IecError};
+use pico1541_common::interface::DriveEvent;
 
 use pollster::block_on;
 
@@ -25,7 +25,7 @@ fn test_iec_atn_handshake() {
     .unwrap();
 
     assert!(
-        !bridge.drive_iec.get_data()    ,
+        !bridge.drive_iec.get_data(),
         "Drive DATA should be released after ATN end"
     );
 }
@@ -150,10 +150,10 @@ fn test_hijack_command_snoop() {
             .send(b"CD:GAMES")
             .execute()
             .await;
-        
+
         // We now expect the command to finish gracefully before the hijack takes effect
         assert!(res.is_ok(), "Expected command to finish gracefully");
-        
+
         Ok::<(), IecError>(())
     })
     .unwrap();
@@ -170,7 +170,7 @@ fn test_hijack_command_snoop() {
     // 3. Check drive status - should be 00, OK because the snooper hijacks CD:
     // We must ensure the hijack is CLEARED before checking status
     bridge.reset(); // Reset the bridge to clear hijacked state for status check
-    
+
     let mut status_vec = Vec::new();
     block_on(async {
         let mut bus = common::IecTestBridge {

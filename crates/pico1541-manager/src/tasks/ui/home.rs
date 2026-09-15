@@ -1,8 +1,8 @@
-use heapless::{String, Vec};
-use core::str::FromStr;
+use super::PageState;
 use crate::driver::{DisplayDriver, FileStorageDriver};
 use crate::tasks::menu::{Menu, MenuEvent};
-use super::PageState;
+use core::str::FromStr;
+use heapless::{String, Vec};
 
 pub async fn run_main_menu<D, S, Internal>(
     display: &mut D,
@@ -37,7 +37,7 @@ where
 
         // 2. Settings
         let _ = main_items.push(String::from_str("Settings").unwrap());
-        
+
         let mut main_menu = Menu::new("--- Main Menu ---", main_items);
         main_menu.set_cursor(cursor);
 

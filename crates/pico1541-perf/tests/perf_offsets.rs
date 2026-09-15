@@ -1,9 +1,9 @@
 #![no_std]
 #![no_main]
 
-use pico1541_common::track_buffer::DualCoreTrackBuffer;
 use defmt_rtt as _;
 use panic_probe as _;
+use pico1541_common::track_buffer::DualCoreTrackBuffer;
 
 #[defmt_test::tests]
 mod tests {

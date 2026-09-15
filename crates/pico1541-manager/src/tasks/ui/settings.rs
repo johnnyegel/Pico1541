@@ -1,12 +1,12 @@
-use heapless::{String, Vec};
 use core::str::FromStr;
 use embassy_time::{Duration, Timer};
+use heapless::{String, Vec};
 use portable_atomic::Ordering;
 
+use super::PageState;
 use crate::driver::{DisplayDriver, FileStorageDriver};
 use crate::tasks::menu::{Menu, MenuEvent};
 use pico1541_common::snooper::SnooperConfig;
-use super::PageState;
 
 pub async fn run_settings_menu<D, Internal>(
     display: &mut D,
@@ -20,9 +20,12 @@ where
     let mut cursor = 0;
     loop {
         let mut items = Vec::<String<32>, 3>::new();
-        
+
         let mut id_str = String::<32>::new();
-        let _ = core::fmt::write(&mut id_str, format_args!("Drive ID: {}", config.device_id.load(Ordering::Relaxed)));
+        let _ = core::fmt::write(
+            &mut id_str,
+            format_args!("Drive ID: {}", config.device_id.load(Ordering::Relaxed)),
+        );
         let _ = items.push(id_str);
 
         let _ = items.push(String::from_str("Select ROM").unwrap());
@@ -54,7 +57,9 @@ where
                 return PageState::Monitor;
             }
             MenuEvent::LoadBlock(_) => {}
-            MenuEvent::Timeout => { cursor = menu.selected_index(); }
+            MenuEvent::Timeout => {
+                cursor = menu.selected_index();
+            }
             _ => {}
         }
     }
@@ -73,7 +78,7 @@ where
     loop {
         let current_id = config.device_id.load(Ordering::Relaxed);
         let mut items = Vec::<String<16>, 4>::new();
-        
+
         for id in 8..=11 {
             let mut s = String::<16>::new();
             if id == current_id {
@@ -90,7 +95,8 @@ where
             MenuEvent::Selected(idx) => {
                 let new_id = (idx + 8) as u8;
                 config.update_device_id(new_id);
-                let _ = crate::SETTINGS_CHANNEL.try_send(crate::SettingsCommand::SaveDriveId(new_id));
+                let _ =
+                    crate::SETTINGS_CHANNEL.try_send(crate::SettingsCommand::SaveDriveId(new_id));
                 display.clear().await;
                 display.print(2, "   Drive ID Saved!").await;
                 display.request_redraw();
@@ -125,16 +131,24 @@ where
     loop {
         let mut items = Vec::<String<32>, 48>::new();
         let mut infos = Vec::<crate::driver::FileInfo, 48>::new();
-        
-        let _ = internal.list_dir_range("/roms", 0, 48, |info| {
-            let _ = infos.push(info);
-        }).await;
+
+        let _ = internal
+            .list_dir_range("/roms", 0, 48, |info| {
+                let _ = infos.push(info);
+            })
+            .await;
 
         let mut roms_added = 0;
         for info in &infos {
             if !info.is_dir {
-                let name = core::str::from_utf8(&info.name).unwrap_or("???").trim_matches('\0');
-                if name.ends_with(".bin") || name.ends_with(".rom") || name.ends_with(".BIN") || name.ends_with(".ROM") {
+                let name = core::str::from_utf8(&info.name)
+                    .unwrap_or("???")
+                    .trim_matches('\0');
+                if name.ends_with(".bin")
+                    || name.ends_with(".rom")
+                    || name.ends_with(".BIN")
+                    || name.ends_with(".ROM")
+                {
                     let mut s = String::<32>::new();
                     if name == rom_name.as_str() {
                         let _ = s.push('*');
@@ -165,8 +179,10 @@ where
                     name_with_star.as_str()
                 };
                 *rom_name = String::from_str(name).unwrap();
-                let _ = crate::SETTINGS_CHANNEL.try_send(crate::SettingsCommand::SaveBootRom(rom_name.clone()));
-                let _ = crate::SETTINGS_CHANNEL.try_send(crate::SettingsCommand::LoadRomToMemory(rom_name.clone()));
+                let _ = crate::SETTINGS_CHANNEL
+                    .try_send(crate::SettingsCommand::SaveBootRom(rom_name.clone()));
+                let _ = crate::SETTINGS_CHANNEL
+                    .try_send(crate::SettingsCommand::LoadRomToMemory(rom_name.clone()));
                 cursor = idx;
             }
             MenuEvent::Back => return PageState::Settings,
@@ -175,7 +191,9 @@ where
                 return PageState::Monitor;
             }
             MenuEvent::LoadBlock(_) => {}
-            MenuEvent::Timeout => { cursor = menu.selected_index(); }
+            MenuEvent::Timeout => {
+                cursor = menu.selected_index();
+            }
             _ => {}
         }
     }

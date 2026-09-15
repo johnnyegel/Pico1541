@@ -3,13 +3,13 @@
 //! This module provides a detailed simulation of the 6522 VIA,
 //! including timers, interrupts, and I/O ports.
 //! However, the functionality is simplified to cover what is actually
-//! used by the 1541 hardware, and some features (like the shift register) 
+//! used by the 1541 hardware, and some features (like the shift register)
 //! is simplified to only fire interrupts without actually shifting data.
 
-#[allow(unused_imports)]
-use pico1541_common::context::ViaHardware;
 #[cfg(feature = "debug")]
 use crate::MemoryMonitor;
+#[allow(unused_imports)]
+use pico1541_common::context::ViaHardware;
 
 #[derive(Clone, Copy, Default)]
 pub struct Via6522 {
@@ -58,37 +58,59 @@ impl Via6522 {
     }
 
     #[inline(always)]
-    pub fn has_irq(&self) -> bool { self.irq }
+    pub fn has_irq(&self) -> bool {
+        self.irq
+    }
 
     #[inline(always)]
-    pub fn set_pa_in(&mut self, val: u8) { self.in_a = val; }
+    pub fn set_pa_in(&mut self, val: u8) {
+        self.in_a = val;
+    }
 
     #[inline(always)]
-    pub fn set_pb_in(&mut self, val: u8) { self.in_b = val; }
+    pub fn set_pb_in(&mut self, val: u8) {
+        self.in_b = val;
+    }
 
     #[inline(always)]
-    pub fn pb_in(&self) -> u8 { self.in_b }
+    pub fn pb_in(&self) -> u8 {
+        self.in_b
+    }
 
     #[inline(always)]
-    pub fn pa_in(&self) -> u8 { self.in_a }
+    pub fn pa_in(&self) -> u8 {
+        self.in_a
+    }
 
     #[inline(always)]
-    pub fn pcr(&self) -> u8 { self.pcr }
+    pub fn pcr(&self) -> u8 {
+        self.pcr
+    }
 
     #[inline(always)]
-    pub fn ora(&self) -> u8 { self.ora }
+    pub fn ora(&self) -> u8 {
+        self.ora
+    }
 
     #[inline(always)]
-    pub fn active_mask(&self) -> u8 { self.active_mask }
+    pub fn active_mask(&self) -> u8 {
+        self.active_mask
+    }
 
     #[inline(always)]
-    pub fn t1c(&self) -> u16 { self.t1c }
+    pub fn t1c(&self) -> u16 {
+        self.t1c
+    }
 
     #[inline(always)]
-    pub fn t2c(&self) -> u16 { self.t2c }
+    pub fn t2c(&self) -> u16 {
+        self.t2c
+    }
 
     #[inline(always)]
-    pub fn sr_cycles(&self) -> u32 { self.sr_cycles }
+    pub fn sr_cycles(&self) -> u32 {
+        self.sr_cycles
+    }
 
     #[inline(always)]
     #[link_section = ".core1_text"]
@@ -99,7 +121,7 @@ impl Via6522 {
             self.active_mask &= !Self::SR_ACTIVE;
             return;
         }
-        
+
         self.active_mask |= Self::SR_ACTIVE;
         if sr_mode == 1 || sr_mode == 5 {
             // Timer 2 controlled
@@ -115,7 +137,7 @@ impl Via6522 {
     }
 
     /// Read a byte from a VIA register.
-    
+
     #[inline(always)]
     #[link_section = ".core1_text"]
     pub fn read(&mut self, addr: u16) -> u8 {
@@ -264,7 +286,7 @@ impl Via6522 {
     }
 
     /// Update the IRQ status based on IFR and IER.
-    
+
     #[inline(always)]
     #[link_section = ".core1_text"]
     fn update_irq(&mut self) {
@@ -275,7 +297,7 @@ impl Via6522 {
     }
 
     /// This method is called on each CPU cycle.
-    
+
     #[inline(always)]
     #[link_section = ".core1_text"]
     pub fn any_active(&self) -> bool {
@@ -283,11 +305,13 @@ impl Via6522 {
     }
 
     /// This method is called on each CPU cycle.
-    
+
     #[inline(always)]
     #[link_section = ".core1_text"]
     pub fn tick_cycles(&mut self, delta: u32) {
-        if delta == 0 || self.active_mask == 0 { return; }
+        if delta == 0 || self.active_mask == 0 {
+            return;
+        }
         let delta16 = delta as u16;
 
         match self.active_mask {
@@ -305,7 +329,7 @@ impl Via6522 {
                 } else {
                     self.t1c -= delta16;
                 }
-            },
+            }
             _ => {
                 // --- Timer 1 ---
                 if (self.active_mask & Self::T1_ACTIVE) != 0 {
@@ -374,7 +398,7 @@ impl Via6522 {
             0b0000_1100 => Option::Some(false),
             0b0000_1110 => Option::Some(true),
             0b0000_1010 => Option::Some(true), // Pulse output (goes low on read, high on CA1)
-            _ => Option::None
+            _ => Option::None,
         }
     }
 
@@ -385,7 +409,7 @@ impl Via6522 {
         match self.pcr & 0b1110_0000 {
             0b1100_0000 => Option::Some(false),
             0b1110_0000 => Option::Some(true),
-            _ => Option::None
+            _ => Option::None,
         }
     }
 
@@ -417,7 +441,7 @@ impl Via6522 {
     pub fn ca1_edge(&mut self, edge: bool) {
         self.last_ca1 = edge;
         let positive_edge = (self.pcr & 0x01) != 0;
-        
+
         if edge == positive_edge {
             self.ca1_irq();
         }
@@ -438,7 +462,8 @@ impl Via6522 {
     pub fn set_ca2(&mut self, val: bool) {
         if (self.pcr & 0x08) == 0 {
             let positive_edge = (self.pcr & 0x04) != 0;
-            if (val && !self.last_ca2 && positive_edge) || (!val && self.last_ca2 && !positive_edge) {
+            if (val && !self.last_ca2 && positive_edge) || (!val && self.last_ca2 && !positive_edge)
+            {
                 self.ca2_irq();
             }
         }
@@ -471,7 +496,7 @@ impl Via6522 {
             }
         }
         self.last_cb2 = val;
-    }    
+    }
 }
 
 #[cfg(feature = "debug")]

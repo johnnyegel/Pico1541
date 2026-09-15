@@ -4,7 +4,10 @@ use embassy_rp::peripherals::I2C0;
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::mutex::Mutex;
 use embedded_graphics::{
-    mono_font::{ascii::{FONT_6X10, FONT_10X20}, MonoTextStyleBuilder},
+    mono_font::{
+        ascii::{FONT_10X20, FONT_6X10},
+        MonoTextStyleBuilder,
+    },
     pixelcolor::BinaryColor,
     prelude::*,
     primitives::{PrimitiveStyleBuilder, Rectangle},
@@ -117,7 +120,10 @@ impl DisplayHardware {
         let interface = I2CInterface::new(i2c, 0x3C, 0x40);
         let display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
             .into_buffered_graphics_mode();
-        Self { display, retry_counter: 0 }
+        Self {
+            display,
+            retry_counter: 0,
+        }
     }
 
     pub fn init(&mut self) -> bool {
@@ -125,7 +131,9 @@ impl DisplayHardware {
             defmt::error!("OLED display init failed");
             false
         } else {
-            let _ = self.display.clear(embedded_graphics::pixelcolor::BinaryColor::Off);
+            let _ = self
+                .display
+                .clear(embedded_graphics::pixelcolor::BinaryColor::Off);
             let _ = self.display.flush();
             true
         }
@@ -137,7 +145,7 @@ impl DisplayHardware {
                 self.retry_counter -= 1;
                 return false;
             }
-            
+
             defmt::warn!("OLED: Re-initializing display due to needs_init flag...");
             if !self.init() {
                 defmt::error!("OLED: Re-initialization failed! Retrying in 2 seconds...");
@@ -199,17 +207,15 @@ impl DisplayHardware {
             let text = &state.lines[i];
             if is_selected && text.len() >= 2 && text.is_char_boundary(2) {
                 let (prefix, rest) = text.split_at(2);
-                
-                let rest_x = 2 * char_width - state.scroll_offset;
-                let _ = Text::new(rest, Point::new(rest_x, text_y), style)
-                    .draw(&mut self.display);
 
-                let _ = Text::new(prefix, Point::new(0, text_y), style)
-                    .draw(&mut self.display);
+                let rest_x = 2 * char_width - state.scroll_offset;
+                let _ = Text::new(rest, Point::new(rest_x, text_y), style).draw(&mut self.display);
+
+                let _ = Text::new(prefix, Point::new(0, text_y), style).draw(&mut self.display);
             } else {
                 let x_offset = if is_selected { -state.scroll_offset } else { 0 };
-                let _ = Text::new(text, Point::new(x_offset, text_y), style)
-                    .draw(&mut self.display);
+                let _ =
+                    Text::new(text, Point::new(x_offset, text_y), style).draw(&mut self.display);
             }
         }
 

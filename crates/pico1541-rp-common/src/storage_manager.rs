@@ -1,17 +1,17 @@
-use embassy_rp::gpio::Input;
-use embassy_rp::spi::{Spi, Blocking};
-use embassy_rp::peripherals::SPI1;
-use embassy_time::Delay;
-use embassy_rp::gpio::Output;
-use pico1541_manager::storage::RuntimeStorage;
-use pico1541_manager::driver::file_storage::{FatFsFileWrapper, StorageWrapper};
 use crate::driver::blockdevsdcard::SdBlockIo;
-use pico1541_manager::formats::Error as FormatError;
-use pico1541_manager::storage::{DirectoryEntry, mangle_filename};
-use pico1541_manager::driver::{FileInfo, FileStorageDriver};
-use pico1541_manager::tasks::mount_manager::{FileOpener, match_c64_filename};
+use embassy_rp::gpio::Input;
+use embassy_rp::gpio::Output;
+use embassy_rp::peripherals::SPI1;
+use embassy_rp::spi::{Blocking, Spi};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
+use embassy_time::Delay;
+use pico1541_manager::driver::file_storage::{FatFsFileWrapper, StorageWrapper};
+use pico1541_manager::driver::{FileInfo, FileStorageDriver};
+use pico1541_manager::formats::Error as FormatError;
+use pico1541_manager::storage::RuntimeStorage;
+use pico1541_manager::storage::{mangle_filename, DirectoryEntry};
+use pico1541_manager::tasks::mount_manager::{match_c64_filename, FileOpener};
 
 pub type MySpi = Spi<'static, SPI1, Blocking>;
 
@@ -41,7 +41,7 @@ impl FileOpener for PlatformStorageManager {
             let guard = self.mounted_dir.lock().await;
             (guard.0.clone(), guard.1)
         };
-        
+
         let mut found_filename = heapless::String::<64>::new();
         let mut found = false;
 
@@ -49,7 +49,11 @@ impl FileOpener for PlatformStorageManager {
             if !found {
                 let mangled = mangle_filename(&info.name);
                 if match_c64_filename(&mangled, requested_petscii) {
-                    let name_len = info.name.iter().position(|&c| c == 0).unwrap_or(info.name.len());
+                    let name_len = info
+                        .name
+                        .iter()
+                        .position(|&c| c == 0)
+                        .unwrap_or(info.name.len());
                     if let Ok(s) = core::str::from_utf8(&info.name[..name_len]) {
                         let _ = found_filename.push_str(s);
                         found = true;
@@ -60,16 +64,20 @@ impl FileOpener for PlatformStorageManager {
 
         if use_internal {
             let mut internal = crate::littlefs_storage::LittleFsStorage;
-            let _ = internal.list_dir_range(dir_path.as_str(), 0, 1000, find_file).await;
+            let _ = internal
+                .list_dir_range(dir_path.as_str(), 0, 1000, find_file)
+                .await;
         } else {
             let mut sd = self.storage;
-            let _ = sd.list_dir_range(dir_path.as_str(), 0, 1000, find_file).await;
+            let _ = sd
+                .list_dir_range(dir_path.as_str(), 0, 1000, find_file)
+                .await;
         }
-        
+
         if !found {
             return Err(FormatError::FileNotFound);
         }
-        
+
         let mut full_path = heapless::String::<128>::new();
         if dir_path == "/" || dir_path.is_empty() {
             let _ = full_path.push_str("/");
@@ -79,7 +87,7 @@ impl FileOpener for PlatformStorageManager {
             let _ = full_path.push_str("/");
             let _ = full_path.push_str(found_filename.as_str());
         }
-        
+
         if use_internal {
             let internal = crate::littlefs_storage::LittleFsStorage;
             let file_handle = internal.open_file_handle(full_path.as_str());
@@ -101,7 +109,6 @@ impl FileOpener for PlatformStorageManager {
         RuntimeStorage::File2(internal.open_file_handle(path))
     }
 
-
     async fn list_dir_range(
         &self,
         path: &str,
@@ -111,21 +118,26 @@ impl FileOpener for PlatformStorageManager {
         mut callback: impl FnMut(DirectoryEntry),
     ) -> Result<(), FormatError> {
         let handle_info = |info: FileInfo| {
-            let name_len = info.name.iter().position(|&c| c == 0).unwrap_or(info.name.len());
-            let entry = DirectoryEntry::from_file_info(
-                &info.name[..name_len],
-                info.is_dir,
-                info.size,
-            );
+            let name_len = info
+                .name
+                .iter()
+                .position(|&c| c == 0)
+                .unwrap_or(info.name.len());
+            let entry =
+                DirectoryEntry::from_file_info(&info.name[..name_len], info.is_dir, info.size);
             callback(entry);
         };
 
         if use_internal {
             let mut internal = crate::littlefs_storage::LittleFsStorage;
-            internal.list_dir_range(path, start_index, count, handle_info).await
+            internal
+                .list_dir_range(path, start_index, count, handle_info)
+                .await
         } else {
             let mut storage = self.storage;
-            storage.list_dir_range(path, start_index, count, handle_info).await
+            storage
+                .list_dir_range(path, start_index, count, handle_info)
+                .await
         }
     }
 }

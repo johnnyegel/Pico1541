@@ -37,7 +37,7 @@ impl Memory {
         if addr < 0x8000 {
             let index = (addr & 0x07FF) as usize;
             self.data[index] = val;
-            
+
             // Return true if IEC listen/talk addresses were updated
             return index.wrapping_sub(0x0077) <= 1;
         }

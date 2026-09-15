@@ -1,6 +1,6 @@
 use crate::driver::InputDriver;
 use crate::{Button, ButtonEvent, KEYBOARD_CHANNEL};
-use embassy_time::{Duration, Timer, with_timeout};
+use embassy_time::{with_timeout, Duration, Timer};
 
 pub struct KeyboardTask<I: InputDriver> {
     input: I,
@@ -14,7 +14,7 @@ impl<I: InputDriver> KeyboardTask<I> {
     pub async fn run(&mut self) -> ! {
         let mut current_state = 0;
         let mut hold_time = Duration::from_millis(300);
-        
+
         loop {
             let mut timeout_occurred = if current_state == 0 {
                 // No buttons pressed, wait indefinitely (avoids Duration::MAX overflow!)
@@ -22,13 +22,10 @@ impl<I: InputDriver> KeyboardTask<I> {
                 false
             } else {
                 // Button(s) pressed, wait with timeout to trigger Hold events
-                let result = with_timeout(
-                    hold_time, 
-                    self.input.wait_for_change()
-                ).await;
+                let result = with_timeout(hold_time, self.input.wait_for_change()).await;
                 result.is_err()
             };
-            
+
             if timeout_occurred {
                 // Before assuming it's a Hold, verify the button is still pressed
                 let candidate_state = self.input.scan().await;
@@ -37,7 +34,7 @@ impl<I: InputDriver> KeyboardTask<I> {
                     timeout_occurred = false;
                 }
             }
-            
+
             if timeout_occurred {
                 // Timeout occurred! Button(s) are being held.
                 for i in 0..4 {
@@ -57,7 +54,7 @@ impl<I: InputDriver> KeyboardTask<I> {
             } else {
                 // IRQ fired! A hardware state change or noise spike occurred.
                 Timer::after(Duration::from_millis(15)).await; // wait for bounce to settle
-                
+
                 // Read the state 3 times, 5ms apart. All must agree to filter out EMI noise spikes.
                 let candidate_state = self.input.scan().await;
                 let mut agrees = true;
@@ -68,13 +65,13 @@ impl<I: InputDriver> KeyboardTask<I> {
                         break;
                     }
                 }
-                
+
                 if !agrees || candidate_state == current_state {
                     continue; // just bounce noise, ignore
                 }
-                
+
                 let new_state = candidate_state;
-                
+
                 let changes = current_state ^ new_state;
                 for i in 0..4 {
                     if (changes >> i) & 1 == 1 {
@@ -94,7 +91,7 @@ impl<I: InputDriver> KeyboardTask<I> {
                         }
                     }
                 }
-                
+
                 current_state = new_state;
                 if current_state != 0 {
                     hold_time = Duration::from_millis(300); // Start initial hold timer

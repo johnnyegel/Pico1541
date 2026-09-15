@@ -1,6 +1,6 @@
 use core::cmp::min;
-use embedded_hal::spi::SpiBus;
 use embedded_hal::digital::OutputPin;
+use embedded_hal::spi::SpiBus;
 
 #[derive(Debug, defmt::Format)]
 pub enum SdError {
@@ -49,7 +49,7 @@ where
         for _ in 0..10 {
             self.spi.write(&[0xFF]).map_err(|_| SdError::SpiError)?;
         }
-        
+
         self.cs.set_low().map_err(|_| SdError::CsError)?;
 
         let res = (|| {
@@ -65,7 +65,7 @@ where
                     Ok(res) => r1 = res,
                     Err(_) => {}
                 }
-                
+
                 self.cs.set_high().map_err(|_| SdError::CsError)?;
                 for _ in 0..8 {
                     self.spi.write(&[0xFF]).map_err(|_| SdError::SpiError)?;
@@ -75,7 +75,7 @@ where
                 attempts -= 1;
                 self.delay.delay_us(1000);
             }
-            
+
             if r1 != 0x01 {
                 return Err(SdError::CommandError(r1));
             }
@@ -92,14 +92,15 @@ where
                 if r7[2] != 0x01 || r7[3] != 0xAA {
                     return Err(SdError::CommandError(r1));
                 }
-            } else if r1 != 0x05 { // 0x05 means illegal command (older SD cards)
+            } else if r1 != 0x05 {
+                // 0x05 means illegal command (older SD cards)
                 return Err(SdError::CommandError(r1));
             }
 
             self.cs.set_high().map_err(|_| SdError::CsError)?;
             self.spi.write(&[0xFF]).map_err(|_| SdError::SpiError)?;
             self.cs.set_low().map_err(|_| SdError::CsError)?;
-            
+
             // ACMD41: SD_SEND_OP_COND
             let mut retries = 10000;
             loop {
@@ -107,7 +108,7 @@ where
                 if r1 != 0x01 && r1 != 0x00 {
                     return Err(SdError::CommandError(r1));
                 }
-                
+
                 self.cs.set_high().map_err(|_| SdError::CsError)?;
                 self.spi.write(&[0xFF]).map_err(|_| SdError::SpiError)?;
                 self.cs.set_low().map_err(|_| SdError::CsError)?;
@@ -116,7 +117,7 @@ where
                 if r1 == 0x00 {
                     break;
                 }
-                
+
                 self.cs.set_high().map_err(|_| SdError::CsError)?;
                 self.spi.write(&[0xFF]).map_err(|_| SdError::SpiError)?;
                 self.cs.set_low().map_err(|_| SdError::CsError)?;
@@ -157,7 +158,9 @@ where
 
     fn spi_read(&mut self, buf: &mut [u8]) -> Result<(), SdError> {
         buf.fill(0xFF);
-        self.spi.transfer_in_place(buf).map_err(|_| SdError::SpiError)?;
+        self.spi
+            .transfer_in_place(buf)
+            .map_err(|_| SdError::SpiError)?;
         Ok(())
     }
 
@@ -189,7 +192,7 @@ where
             arg as u8,
             crc,
         ];
-        
+
         self.spi.write(&buf).map_err(|_| SdError::SpiError)?;
 
         let mut retries = 100;
@@ -201,7 +204,7 @@ where
             }
             retries -= 1;
         }
-        
+
         Err(SdError::Timeout)
     }
 
@@ -274,9 +277,15 @@ where
                 return Err(SdError::CommandError(r1));
             }
 
-            self.spi.write(&[0xFF, 0xFE]).map_err(|_| SdError::SpiError)?;
-            self.spi.write(&buffer[..512]).map_err(|_| SdError::SpiError)?;
-            self.spi.write(&[0xFF, 0xFF]).map_err(|_| SdError::SpiError)?;
+            self.spi
+                .write(&[0xFF, 0xFE])
+                .map_err(|_| SdError::SpiError)?;
+            self.spi
+                .write(&buffer[..512])
+                .map_err(|_| SdError::SpiError)?;
+            self.spi
+                .write(&[0xFF, 0xFF])
+                .map_err(|_| SdError::SpiError)?;
 
             let mut res = [0xFF];
             self.spi_read(&mut res)?;
@@ -310,9 +319,7 @@ where
     }
 }
 
-pub struct SdBlockIo<Spi, Cs, Delay>
-
-{
+pub struct SdBlockIo<Spi, Cs, Delay> {
     card_ptr: *mut SdCard<Spi, Cs, Delay>,
     offset: u64,
     cache: [u8; 512],
@@ -322,8 +329,7 @@ pub struct SdBlockIo<Spi, Cs, Delay>
 unsafe impl<Spi, Cs, Delay> Send for SdBlockIo<Spi, Cs, Delay> {}
 unsafe impl<Spi, Cs, Delay> Sync for SdBlockIo<Spi, Cs, Delay> {}
 
-impl<Spi, Cs, Delay> Clone for SdBlockIo<Spi, Cs, Delay>
-{
+impl<Spi, Cs, Delay> Clone for SdBlockIo<Spi, Cs, Delay> {
     fn clone(&self) -> Self {
         Self {
             card_ptr: self.card_ptr,
@@ -339,7 +345,8 @@ where
     Spi: SpiBus<u8> + SpiFreq + 'static,
     Cs: OutputPin + 'static,
     Delay: embedded_hal::delay::DelayNs + 'static,
-{}
+{
+}
 
 impl<Spi, Cs, Delay> SdBlockIo<Spi, Cs, Delay>
 where
@@ -382,28 +389,31 @@ where
         let mut total_read = 0;
         let len = buf.len();
         let card = unsafe { &mut *self.card_ptr };
-        
+
         while total_read < len {
             let sector = (self.offset / 512) as u32;
             let offset_in_sector = (self.offset % 512) as usize;
             let bytes_avail = 512 - offset_in_sector;
             let to_copy = min(len - total_read, bytes_avail);
-            
+
             if self.cached_sector != Some(sector) {
                 if let Err(e) = card.read_block(sector, &mut self.cache) {
-                    defmt::error!("SdBlockIo: read block failed: {:?}", defmt::Debug2Format(&e));
+                    defmt::error!(
+                        "SdBlockIo: read block failed: {:?}",
+                        defmt::Debug2Format(&e)
+                    );
                     return Err(fatfs::Error::Io(()));
                 }
                 self.cached_sector = Some(sector);
             }
-            
+
             let src = &self.cache[offset_in_sector..offset_in_sector + to_copy];
             buf[total_read..total_read + to_copy].copy_from_slice(src);
-            
+
             self.offset += to_copy as u64;
             total_read += to_copy;
         }
-        
+
         Ok(total_read)
     }
 }
@@ -438,7 +448,7 @@ where
         let mut total_written = 0;
         let len = buf.len();
         let card = unsafe { &mut *self.card_ptr };
-        
+
         while total_written < len {
             let sector = (self.offset / 512) as u32;
             let offset_in_sector = (self.offset % 512) as usize;
@@ -456,9 +466,12 @@ where
 
             self.cache[offset_in_sector..offset_in_sector + to_copy]
                 .copy_from_slice(&buf[total_written..total_written + to_copy]);
-            
+
             if let Err(e) = card.write_block(sector, &self.cache) {
-                defmt::error!("SdBlockIo: write block failed: {:?}", defmt::Debug2Format(&e));
+                defmt::error!(
+                    "SdBlockIo: write block failed: {:?}",
+                    defmt::Debug2Format(&e)
+                );
                 return Err(fatfs::Error::Io(()));
             }
 

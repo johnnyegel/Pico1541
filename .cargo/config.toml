@@ -19,30 +19,30 @@ EMBASSY_EXECUTOR_TASK_ARENA_SIZE = "1024"
 # Usage: cargo flash-rtt
 flash-swd = [
     "run",
-    "--package", "pico1541-rp2040",
-    "--target", "thumbv6m-none-eabi",
-    "--config", "target.'cfg(all(target_arch = \"arm\", target_os = \"none\"))'.runner = \"probe-rs run --chip RP2040 --speed 1000\"",
+    "--package", "pico1541-rp2350",
+    "--target", "thumbv8m.main-none-eabihf",
+    "--config", "target.'cfg(all(target_arch = \"arm\", target_os = \"none\"))'.runner = \"probe-rs run --chip RP235x --speed 10000\"",
 ]
 
 # Flash via USB (Pico must be in BOOTSEL mode: hold BOOTSEL while plugging in).
 # Usage: cargo flash-usb
 flash-usb = [
     "run",
-    "--package", "pico1541-rp2040",
-    "--target", "thumbv6m-none-eabi",
+    "--package", "pico1541-rp2350",
+    "--target", "thumbv8m.main-none-eabihf",
     "--config", "target.'cfg(all(target_arch = \"arm\", target_os = \"none\"))'.runner = \"elf2uf2-rs -d\"",
 ]
 
 attach-swd = [
     "run",
-    "--package", "pico1541-rp2040",
-    "--target", "thumbv6m-none-eabi",
-    "--config", "target.'cfg(all(target_arch = \"arm\", target_os = \"none\"))'.runner = \"probe-rs attach --chip RP2040 --speed 1000\"",
+    "--package", "pico1541-rp2350",
+    "--target", "thumbv8m.main-none-eabihf",
+    "--config", "target.'cfg(all(target_arch = \"arm\", target_os = \"none\"))'.runner = \"probe-rs attach --chip RP235x --speed 10000\"",
 ]
 test-swd = [
     "test",
-    "--package", "pico1541-rp2040",
+    "--package", "pico1541-rp2350",
     "--bin", "test_pio",
-    "--target", "thumbv6m-none-eabi",
-    "--config", "target.'cfg(all(target_arch = \"arm\", target_os = \"none\"))'.runner = \"probe-rs run --chip RP2040 --speed 1000\""
+    "--target", "thumbv8m.main-none-eabihf",
+    "--config", "target.'cfg(all(target_arch = \"arm\", target_os = \"none\"))'.runner = \"probe-rs run --chip RP235x --speed 10000\""
 ]

@@ -1,4 +1,4 @@
-use crate::{Button, ButtonEvent, UiAction, KEYBOARD_CHANNEL, ACTION_CHANNEL};
+use crate::{Button, ButtonEvent, UiAction, ACTION_CHANNEL, KEYBOARD_CHANNEL};
 
 pub struct ActionTask {
     back_held: bool,

@@ -1,17 +1,17 @@
 #![allow(dead_code)]
-use pico1541_common::snooper::IecBusState;
+use log;
 #[allow(dead_code)]
 #[allow(unused_imports)]
 use pico1541_common::context::ViaHardware;
-use log;
-use pico1541_manager::formats::{AnyDiskImage, DiskImage, G64Image};
-use pico1541_common::track_buffer::TrackLayout;
 use pico1541_common::iec_com::IecComHostBus;
-use pico1541_manager::storage::DummySource;
-use pico1541_common::snooper::{IecSnooper, IecSnoopByteHandler};
 use pico1541_common::interface::{DriveEvent, HostInterface};
 use pico1541_common::magnetic_surface::SoftwareMagneticSurface;
+use pico1541_common::snooper::IecBusState;
+use pico1541_common::snooper::{IecSnoopByteHandler, IecSnooper};
+use pico1541_common::track_buffer::TrackLayout;
 use pico1541_emulator::Emulator;
+use pico1541_manager::formats::{AnyDiskImage, DiskImage, G64Image};
+use pico1541_manager::storage::DummySource;
 use pollster::block_on;
 
 static ROM_BYTES: [u8; 16384] = *include_bytes!("../../../../flash-fs/roms/1541-II.251968-03.bin");
@@ -29,12 +29,19 @@ pub fn setup_drive(
         .parse_default_env()
         .try_init();
 
-    let buffer = Box::leak(Box::new(pico1541_common::track_buffer::DualCoreTrackBuffer::new()));
+    let buffer = Box::leak(Box::new(
+        pico1541_common::track_buffer::DualCoreTrackBuffer::new(),
+    ));
     let (_manager, emulator) = buffer.split();
 
     let surface = SoftwareMagneticSurface::new();
     let mechanics = pico1541_emulator::drivemechanics::DriveMechanics::new(surface, emulator);
-    let mut drive = Emulator::new(&ROM_BYTES, Box::leak(Box::new([0u8; 32768])), device_id, mechanics);
+    let mut drive = Emulator::new(
+        &ROM_BYTES,
+        Box::leak(Box::new([0u8; 32768])),
+        device_id,
+        mechanics,
+    );
     let mut bridge = TestBridge::new(device_id, buffer);
 
     log::info!(
@@ -50,7 +57,10 @@ pub fn setup_drive(
     (drive, bridge)
 }
 
-pub fn reset_drive(drive: &mut Emulator<TestBridge, SoftwareMagneticSurface>, bridge: &mut TestBridge) {
+pub fn reset_drive(
+    drive: &mut Emulator<TestBridge, SoftwareMagneticSurface>,
+    bridge: &mut TestBridge,
+) {
     bridge.reset();
     drive.reset(bridge);
 
@@ -74,15 +84,18 @@ pub fn reset_drive(drive: &mut Emulator<TestBridge, SoftwareMagneticSurface>, br
     );
 }
 
-pub struct DiskRunner<S: embedded_io_async::Read + embedded_io_async::Seek + Send + 'static, D: pico1541_manager::storage::DirectorySource = DummySource> {
+pub struct DiskRunner<
+    S: embedded_io_async::Read + embedded_io_async::Seek + Send + 'static,
+    D: pico1541_manager::storage::DirectorySource = DummySource,
+> {
     pub image: AnyDiskImage<S, D>,
     pub last_half_track: u8,
 }
 
-impl<S, D> DiskRunner<S, D> 
-where 
+impl<S, D> DiskRunner<S, D>
+where
     S: embedded_io_async::Read + embedded_io_async::Seek + Send + 'static,
-    D: pico1541_manager::storage::DirectorySource
+    D: pico1541_manager::storage::DirectorySource,
 {
     pub fn sync(&mut self, buffer: &'static pico1541_common::track_buffer::DualCoreTrackBuffer) {
         let manager = buffer.split().0;
@@ -92,14 +105,26 @@ where
                 "[DiskRunner] Loading track data for half-track {}",
                 track_ht
             );
-            
+
             manager.duplicate_active_to_inactive();
             let inactive = manager.get_dormant_buffer_mut();
-            
-            let layout = block_on(self.image.read_track(track_ht, &mut inactive.data))
-                .unwrap_or((TrackLayout::Void, 0, None));
 
-            manager.commit_loaded_track(pico1541_common::track_buffer::TrackIdentifier::new(track_ht, layout.2.unwrap_or_else(|| pico1541_common::track_buffer::default_speed_zone(track_ht))), layout.0, layout.1);
+            let layout = block_on(self.image.read_track(track_ht, &mut inactive.data)).unwrap_or((
+                TrackLayout::Void,
+                0,
+                None,
+            ));
+
+            manager.commit_loaded_track(
+                pico1541_common::track_buffer::TrackIdentifier::new(
+                    track_ht,
+                    layout.2.unwrap_or_else(|| {
+                        pico1541_common::track_buffer::default_speed_zone(track_ht)
+                    }),
+                ),
+                layout.0,
+                layout.1,
+            );
 
             log::info!("[DiskRunner] Loading track data DONE");
 
@@ -118,11 +143,15 @@ pub struct TestBridge {
     pub total_cycles: u32,
     pub host_iec: IecBusState,
     pub drive_iec: IecBusState,
-    pub sync_hook: Option<Box<dyn FnMut(&'static pico1541_common::track_buffer::DualCoreTrackBuffer)>>,
+    pub sync_hook:
+        Option<Box<dyn FnMut(&'static pico1541_common::track_buffer::DualCoreTrackBuffer)>>,
 }
 
 impl TestBridge {
-    pub fn new(device_id: u8, buffer: &'static pico1541_common::track_buffer::DualCoreTrackBuffer) -> Self {
+    pub fn new(
+        device_id: u8,
+        buffer: &'static pico1541_common::track_buffer::DualCoreTrackBuffer,
+    ) -> Self {
         Self {
             buffer,
             events: Vec::new(),
@@ -141,23 +170,24 @@ impl TestBridge {
         let mut events = Vec::new();
         // Update the snooper using ONLY host physical state (Mandate that it doesn't see drive state)
         self.snooper.update(self.host_iec, |event| {
-             events.push(event);
+            events.push(event);
         });
 
         for event in events {
             self.events.push(event);
             let mut extra_events = Vec::new();
-            self.snoop_handler.handle(event, &mut |e| extra_events.push(e));
-            
+            self.snoop_handler
+                .handle(event, &mut |e| extra_events.push(e));
+
             for e in extra_events {
                 self.events.push(e);
                 // Also check if any extra event triggers hijack/discard
                 if let DriveEvent::IecCommand { data, len } = e {
-                     let cmd = String::from_utf8_lossy(&data[..len as usize]);
-                     log::info!("[SnooperCommand] {:?}", cmd);
+                    let cmd = String::from_utf8_lossy(&data[..len as usize]);
+                    log::info!("[SnooperCommand] {:?}", cmd);
                 }
             }
-            
+
             // Once "CD:" is detected, we "yank the cable" by hijacking the bus
             // and requesting a discard of the command buffer.
             if self.snoop_handler.is_hijacked() && !self.discard_request {
@@ -165,7 +195,7 @@ impl TestBridge {
                 self.discard_request = true;
             }
         }
-        
+
         self.total_cycles += 1;
         if let Some(mut hook) = self.sync_hook.take() {
             hook(self.buffer);
@@ -175,7 +205,14 @@ impl TestBridge {
 
     pub fn reset(&mut self) {
         let manager = self.buffer.split().0;
-        manager.commit_loaded_track(pico1541_common::track_buffer::TrackIdentifier::new(36, pico1541_common::track_buffer::default_speed_zone(36)), pico1541_common::track_buffer::TrackLayout::Void, 0);
+        manager.commit_loaded_track(
+            pico1541_common::track_buffer::TrackIdentifier::new(
+                36,
+                pico1541_common::track_buffer::default_speed_zone(36),
+            ),
+            pico1541_common::track_buffer::TrackLayout::Void,
+            0,
+        );
         self.events.clear();
         self.host_iec = IecBusState::default();
         self.drive_iec = IecBusState::default();
@@ -213,11 +250,12 @@ impl TestBridge {
     }
 
     pub fn mount_g64(&mut self, path: &str) {
-        use pico1541_manager::storage::{MemoryStorage, DummySource};
+        use pico1541_manager::storage::{DummySource, MemoryStorage};
         use std::fs;
         let data = fs::read(path).expect("Failed to read G64");
         let data_ref: &'static [u8] = Box::leak(data.into_boxed_slice());
-        let img = futures::executor::block_on(G64Image::from_storage(MemoryStorage::new(data_ref))).unwrap();
+        let img = futures::executor::block_on(G64Image::from_storage(MemoryStorage::new(data_ref)))
+            .unwrap();
         let mut runner = DiskRunner {
             image: AnyDiskImage::<MemoryStorage<'static>, DummySource>::G64(img),
             last_half_track: 255,
@@ -228,18 +266,29 @@ impl TestBridge {
     }
 }
 
-
 impl ViaHardware for TestBridge {
     fn read_iec_port(&mut self) -> u8 {
         let mut val = 0x00;
         let mut combined = self.host_iec;
-        if self.drive_iec.get_data() { combined.set_data(true); }
-        if self.drive_iec.get_clk() { combined.set_clk(true); }
-        if self.drive_iec.get_atn() { combined.set_atn(true); }
+        if self.drive_iec.get_data() {
+            combined.set_data(true);
+        }
+        if self.drive_iec.get_clk() {
+            combined.set_clk(true);
+        }
+        if self.drive_iec.get_atn() {
+            combined.set_atn(true);
+        }
 
-        if combined.get_data() { val |= Self::VIA1_IEC_MASK_DATA_RX; } // 1 = asserted
-        if combined.get_clk() { val |= Self::VIA1_IEC_MASK_CLK_RX; } // 1 = asserted
-        if combined.get_atn() { val |= Self::VIA1_IEC_MASK_ATN_RX; } // 1 = asserted
+        if combined.get_data() {
+            val |= Self::VIA1_IEC_MASK_DATA_RX;
+        } // 1 = asserted
+        if combined.get_clk() {
+            val |= Self::VIA1_IEC_MASK_CLK_RX;
+        } // 1 = asserted
+        if combined.get_atn() {
+            val |= Self::VIA1_IEC_MASK_ATN_RX;
+        } // 1 = asserted
         val
     }
 
@@ -255,13 +304,16 @@ impl HostInterface for TestBridge {
         self.events.push(event);
         log::info!("[DriveEvent] {:?}", event);
     }
-    
+
     fn track_changed(&mut self, half_track: u8) {
         log::info!("Head stepped to {}", half_track);
         let manager = self.buffer.split().0;
         manager.duplicate_active_to_inactive();
         let inactive = manager.get_dormant_buffer_mut();
-        inactive.identifier = pico1541_common::track_buffer::TrackIdentifier::new(half_track, pico1541_common::track_buffer::default_speed_zone(half_track));
+        inactive.identifier = pico1541_common::track_buffer::TrackIdentifier::new(
+            half_track,
+            pico1541_common::track_buffer::default_speed_zone(half_track),
+        );
         manager.commit_dormant_buffer();
     }
     fn is_hijacked(&self) -> bool {
@@ -278,15 +330,12 @@ impl HostInterface for TestBridge {
     fn update_iec_addresses(&mut self, listen: u8, _talk: u8) {
         self.snooper.set_listen_addr(listen);
     }
-
-
 }
 
 pub struct IecTestBridge<'a> {
     pub drive: &'a mut Emulator<TestBridge, SoftwareMagneticSurface>,
     pub bridge: &'a mut TestBridge,
 }
-
 
 impl<'a> IecComHostBus for IecTestBridge<'a> {
     fn set_atn(&mut self, assert: bool) {

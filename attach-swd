@@ -6,14 +6,14 @@ if [ "$1" == "--release" ]; then
     PROFILE="release"
 fi
 
-ELF_FILE="target/thumbv6m-none-eabi/${PROFILE}/pico1541-rp2040"
+ELF_FILE="target/thumbv8m.main-none-eabihf/${PROFILE}/pico1541-rp2350"
 
 if [ ! -f "$ELF_FILE" ]; then
     echo "ELF file not found at: $ELF_FILE"
-    echo "Please build the project first (e.g. 'cargo build --package pico1541-rp2040 --target thumbv6m-none-eabi')."
+    echo "Please build the project first (e.g. 'cargo build --package pico1541-rp2350 --target thumbv8m.main-none-eabihf')."
     exit 1
 fi
 
 echo "Attaching to SWD using: $ELF_FILE"
 # DEFMT_LOG="debug" is needed for probe-rs to show defmt logs correctly, just like in .cargo/config.toml
-DEFMT_LOG="debug" probe-rs attach --chip RP2040 --speed 5000 "$ELF_FILE"
+DEFMT_LOG="debug" probe-rs attach --chip RP235x --speed 10000 "$ELF_FILE"

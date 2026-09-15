@@ -36,7 +36,8 @@ static ADDR_ABS_ARR: [AddrMicroOp; 2] = [AddrMicroOp::FetchAddrLo, AddrMicroOp::
 pub static ADDR_ABS: &[AddrMicroOp] = &ADDR_ABS_ARR;
 
 #[link_section = ".core1_text"]
-static ADDR_ABS_JMP_ARR: [AddrMicroOp; 2] = [AddrMicroOp::FetchAddrLo, AddrMicroOp::FetchAddrHiAndJump];
+static ADDR_ABS_JMP_ARR: [AddrMicroOp; 2] =
+    [AddrMicroOp::FetchAddrLo, AddrMicroOp::FetchAddrHiAndJump];
 #[link_section = ".core1_text"]
 pub static ADDR_ABS_JMP: &[AddrMicroOp] = &ADDR_ABS_JMP_ARR;
 

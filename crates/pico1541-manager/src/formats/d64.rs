@@ -2,7 +2,7 @@ use crate::gcr;
 use embedded_io_async::{Read, Seek, SeekFrom};
 use pico1541_common::track_buffer::TrackLayout;
 
-use super::{DiskImage, Error, TrackLookupTable, sectors_per_track};
+use super::{sectors_per_track, DiskImage, Error, TrackLookupTable};
 
 pub struct D64Image<S: Read + Seek> {
     storage: S,
@@ -19,7 +19,7 @@ impl<S: Read + Seek> D64Image<S> {
                 lookup_table.offsets[half_track as usize] = Some(Self::get_track_offset(track));
             }
         }
-        
+
         Self {
             storage,
             id: [0x31, 0x31],
@@ -29,13 +29,16 @@ impl<S: Read + Seek> D64Image<S> {
     pub fn set_id(&mut self, id: [u8; 2]) {
         self.id = id;
     }
-    
+
     async fn read_sector_data(&mut self, offset: u64, dest: &mut [u8]) -> Result<(), Error> {
-        self.storage.seek(SeekFrom::Start(offset)).await.map_err(|_| Error::Io)?;
+        self.storage
+            .seek(SeekFrom::Start(offset))
+            .await
+            .map_err(|_| Error::Io)?;
         self.storage.read_exact(dest).await.map_err(|_| Error::Io)?;
         Ok(())
     }
-    
+
     fn get_track_offset(track: u8) -> u32 {
         let mut offset = 0u32;
         for t in 1..track {
@@ -46,19 +49,30 @@ impl<S: Read + Seek> D64Image<S> {
 }
 
 impl<S: Read + Seek> DiskImage for D64Image<S> {
-    async fn read_track(&mut self, half_track: u8, dest: &mut [u8]) -> Result<(TrackLayout, usize, Option<u8>), Error> {
-        let track_offset = self.lookup_table.offsets.get(half_track as usize).copied().flatten();
+    async fn read_track(
+        &mut self,
+        half_track: u8,
+        dest: &mut [u8],
+    ) -> Result<(TrackLayout, usize, Option<u8>), Error> {
+        let track_offset = self
+            .lookup_table
+            .offsets
+            .get(half_track as usize)
+            .copied()
+            .flatten();
         if track_offset.is_none() {
             return Ok((TrackLayout::Void, 0, None));
         }
-        
+
         let track = half_track / 2 + 1;
         let offset = track_offset.unwrap();
         if !(1..=40).contains(&track) {
             return Err(Error::InvalidTrack);
         }
         let sectors = sectors_per_track(track);
-        let speed_zone = pico1541_common::track_buffer::default_speed_zone(pico1541_common::track_buffer::track_to_half_track(track));
+        let speed_zone = pico1541_common::track_buffer::default_speed_zone(
+            pico1541_common::track_buffer::track_to_half_track(track),
+        );
         let speed_zone_len: usize = pico1541_common::track_buffer::speed_zone_capacity(speed_zone);
         let base_sector_len = 5 + 10 + 9 + 5 + 325; // 5 sync + 10 header + 9 gap + 5 sync + 325 data
         let total_base_len = sectors as usize * base_sector_len;
@@ -72,15 +86,14 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
                 write_ptr += 1;
             }
         }
-        
 
         for logical_sector in 0..sectors {
             let mut sector_data = [0u8; 256];
             let sector = logical_sector;
             let sector_offset = sector as usize * 256;
-            self.read_sector_data(offset as u64 + sector_offset as u64, &mut sector_data).await?;
+            self.read_sector_data(offset as u64 + sector_offset as u64, &mut sector_data)
+                .await?;
 
-                
             if track == 18 && sector == 0 {
                 self.id[0] = sector_data[162];
                 self.id[1] = sector_data[163];
@@ -147,4 +160,3 @@ impl<S: Read + Seek> DiskImage for D64Image<S> {
         Ok((TrackLayout::Accurate, track_bytes, None))
     }
 }
-

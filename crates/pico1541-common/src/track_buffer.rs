@@ -40,7 +40,15 @@ pub const fn half_track_to_track(half_track: u8) -> u8 {
 #[inline(always)]
 pub const fn default_speed_zone(half_track: u8) -> u8 {
     let track = half_track_to_track(half_track);
-    if track <= 17 { 3 } else if track <= 24 { 2 } else if track <= 30 { 1 } else { 0 }
+    if track <= 17 {
+        3
+    } else if track <= 24 {
+        2
+    } else if track <= 30 {
+        1
+    } else {
+        0
+    }
 }
 
 /// Returns the standard exact track capacity in bytes for a given speed zone
@@ -84,7 +92,7 @@ impl TrackIdentifier {
     pub fn new(half_track: u8, speed_zone: u8) -> Self {
         Self(((speed_zone as u16) << 8) | (half_track as u16))
     }
-    
+
     #[inline(always)]
     pub fn void() -> Self {
         Self(0xFF)
@@ -109,7 +117,6 @@ impl TrackIdentifier {
 /// Represents a single track buffer which holds the GCR-encoded data for a track,
 /// along with metadata about the track such as its ID and layout.
 #[repr(C, align(8192))]
-
 #[repr(C, align(8192))]
 pub struct DualCoreTrackData {
     pub buffers: core::cell::UnsafeCell<[[u8; TRACK_SIZE]; 2]>,
@@ -137,7 +144,7 @@ unsafe impl Sync for TrackBuffer {}
 unsafe impl Send for TrackBuffer {}
 
 impl TrackBuffer {
-        pub const fn new(data: *mut [u8; TRACK_SIZE]) -> Self {
+    pub const fn new(data: *mut [u8; TRACK_SIZE]) -> Self {
         Self {
             data,
             identifier: TrackIdentifier(0), // 0xFF represents invalid/unloaded
@@ -152,10 +159,22 @@ impl TrackBuffer {
 
         static mut NOISE_DATA: NoiseData = NoiseData({
             let mut arr = [0; 8192];
-            arr[0] = 0x55; arr[1] = 0xAA; arr[2] = 0x33; arr[3] = 0xCC;
-            arr[4] = 0x0F; arr[5] = 0xF0; arr[6] = 0x55; arr[7] = 0xAA;
-            arr[8] = 0x33; arr[9] = 0xCC; arr[10] = 0x0F; arr[11] = 0xF0;
-            arr[12] = 0x55; arr[13] = 0xAA; arr[14] = 0x33; arr[15] = 0xCC;
+            arr[0] = 0x55;
+            arr[1] = 0xAA;
+            arr[2] = 0x33;
+            arr[3] = 0xCC;
+            arr[4] = 0x0F;
+            arr[5] = 0xF0;
+            arr[6] = 0x55;
+            arr[7] = 0xAA;
+            arr[8] = 0x33;
+            arr[9] = 0xCC;
+            arr[10] = 0x0F;
+            arr[11] = 0xF0;
+            arr[12] = 0x55;
+            arr[13] = 0xAA;
+            arr[14] = 0x33;
+            arr[15] = 0xCC;
             arr
         });
 
@@ -168,8 +187,6 @@ impl TrackBuffer {
         &NOISE_BUFFER
     }
 }
-
-
 
 /// Dual core track buffer that can be split into two handles for the Emulator and Manager
 pub struct DualCoreTrackBuffer {
@@ -186,7 +203,7 @@ unsafe impl Sync for DualCoreTrackBuffer {}
 unsafe impl Send for DualCoreTrackBuffer {}
 
 impl DualCoreTrackBuffer {
-        pub const fn new(data: *mut [[u8; TRACK_SIZE]; 2]) -> Self {
+    pub const fn new(data: *mut [[u8; TRACK_SIZE]; 2]) -> Self {
         let ptr0 = data.cast::<[u8; TRACK_SIZE]>();
         let ptr1 = unsafe { ptr0.add(1) };
         Self {
@@ -200,11 +217,16 @@ impl DualCoreTrackBuffer {
     }
 
     pub fn reset(&self, data: *mut [[u8; crate::track_buffer::TRACK_SIZE]; 2]) {
-        self.generation.store(0, core::sync::atomic::Ordering::Relaxed);
-        self.is_write_protected.store(false, core::sync::atomic::Ordering::Relaxed);
-        self.force_disk_change.store(false, core::sync::atomic::Ordering::Relaxed);
-        self.current_byte_idx.store(0, core::sync::atomic::Ordering::Relaxed);
-        self.current_head_half_track.store(34, core::sync::atomic::Ordering::Relaxed);
+        self.generation
+            .store(0, core::sync::atomic::Ordering::Relaxed);
+        self.is_write_protected
+            .store(false, core::sync::atomic::Ordering::Relaxed);
+        self.force_disk_change
+            .store(false, core::sync::atomic::Ordering::Relaxed);
+        self.current_byte_idx
+            .store(0, core::sync::atomic::Ordering::Relaxed);
+        self.current_head_half_track
+            .store(34, core::sync::atomic::Ordering::Relaxed);
         unsafe {
             let bufs = &mut *self.buffers.get();
             let ptr0 = data.cast::<[u8; crate::track_buffer::TRACK_SIZE]>();
@@ -233,7 +255,6 @@ impl DualCoreTrackBuffer {
         )
     }
 }
-
 
 // =====================================================================
 // The MANAGER handle
@@ -264,7 +285,9 @@ impl ManagerHandle {
             &mut back_buffer.layout,
             &mut back_buffer.identifier,
         );
-        self.core_buffer.generation.store(generation.wrapping_add(1), Ordering::Release);
+        self.core_buffer
+            .generation
+            .store(generation.wrapping_add(1), Ordering::Release);
     }
 
     pub fn set_active_layout(&self, layout: TrackLayout) {
@@ -321,7 +344,9 @@ impl ManagerHandle {
         back_buffer.length = final_length;
 
         // Atomically switch active buffer
-        self.core_buffer.generation.store(generation.wrapping_add(1), Ordering::Release);
+        self.core_buffer
+            .generation
+            .store(generation.wrapping_add(1), Ordering::Release);
     }
 
     #[allow(clippy::mut_from_ref)]
@@ -346,7 +371,9 @@ impl ManagerHandle {
 
     pub fn commit_modified_track(&self) {
         let generation = self.core_buffer.generation.load(Ordering::Acquire);
-        self.core_buffer.generation.store(generation.wrapping_add(1), Ordering::Release);
+        self.core_buffer
+            .generation
+            .store(generation.wrapping_add(1), Ordering::Release);
     }
 
     #[allow(clippy::mut_from_ref)]
@@ -358,7 +385,9 @@ impl ManagerHandle {
 
     pub fn commit_dormant_buffer(&self) {
         let generation = self.core_buffer.generation.load(Ordering::Acquire);
-        self.core_buffer.generation.store(generation.wrapping_add(1), Ordering::Release);
+        self.core_buffer
+            .generation
+            .store(generation.wrapping_add(1), Ordering::Release);
     }
 
     pub fn duplicate_active_to_inactive(&self) {
@@ -580,14 +609,20 @@ impl EmulatorHandle {
 
     /// Safely writes a GCR byte back to the disk buffer and flags it for background SD flush.
     #[inline(always)]
-    pub fn next_write_byte(&mut self, expected_identifier: TrackIdentifier, requested_sector: u8, _data: u8) {
+    pub fn next_write_byte(
+        &mut self,
+        expected_identifier: TrackIdentifier,
+        requested_sector: u8,
+        _data: u8,
+    ) {
         let active_idx = (self.core_buffer.generation.load(Ordering::Acquire) % 2) as usize;
 
         let buffer = unsafe { &mut (*self.core_buffer.buffers.get())[active_idx] };
 
         // FIXME! Write support is not yet implemented.
         // We only advance the index so the drive mechanics keep ticking correctly.
-        let _ = self.resolve_and_advance_index(buffer, expected_identifier, requested_sector, false);
+        let _ =
+            self.resolve_and_advance_index(buffer, expected_identifier, requested_sector, false);
     }
 
     /// Fetches the track layout to calculate bit-rates (Speed Zones).

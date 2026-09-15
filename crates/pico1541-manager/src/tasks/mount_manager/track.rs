@@ -1,20 +1,22 @@
+use super::{FileOpener, MountManagerTask};
 use crate::formats::DiskImage;
-use super::{MountManagerTask, FileOpener};
-use embedded_io_async::{Read, Seek};
 use core::sync::atomic::Ordering;
 use embassy_futures::select::select;
 use embassy_futures::select::Either;
+use embedded_io_async::{Read, Seek};
 use pico1541_common::track_buffer::TrackLayout;
 
 #[cfg(feature = "defmt")]
-use defmt::{info, debug, error};
+use defmt::{debug, error, info};
 #[cfg(not(feature = "defmt"))]
-use log::{info, debug, error};
+use log::{debug, error, info};
 
-impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver::RgbLedDriver> MountManagerTask<S, O, L> {
+impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver::RgbLedDriver>
+    MountManagerTask<S, O, L>
+{
     pub(super) async fn cache_adjacent_tracks(&mut self) -> Option<u8> {
         let current_ht = self.track_handle.get_head_half_track();
-        
+
         let desired_track = (current_ht as i16 + self.last_step_direction as i16) as u8;
         if desired_track == 0 || desired_track > 84 {
             return None;
@@ -29,10 +31,20 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
         let mut disk_opt = self.disk_image.as_mut();
         if let Some(disk) = disk_opt.as_mut() {
             let data = self.track_handle.start_track_load();
-            match select(disk.read_track(desired_track, data), crate::TRACK_SIGNAL.wait()).await {
+            match select(
+                disk.read_track(desired_track, data),
+                crate::TRACK_SIGNAL.wait(),
+            )
+            .await
+            {
                 Either::First(Ok(layout)) => {
                     self.pre_cached_ht = Some((desired_track, layout.0, layout.1, layout.2));
-                    debug!("Pre-cached Track {}.{} (HT: {}) into back buffer", (desired_track / 2) + 1, desired_track % 2, desired_track);
+                    debug!(
+                        "Pre-cached Track {}.{} (HT: {}) into back buffer",
+                        (desired_track / 2) + 1,
+                        desired_track % 2,
+                        desired_track
+                    );
                     return None;
                 }
                 Either::First(Err(_)) => {
@@ -54,7 +66,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
             if requested != target_ht {
                 target_ht = requested;
             }
-            
+
             // Update direction based on the previously active track
             let active_ht = self.track_handle.get_active_track_identifier().half_track();
             if active_ht != 0xFF {
@@ -63,24 +75,39 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
                     self.last_step_direction = if diff > 0 { 2 } else { -2 };
                 }
             }
-            
-            debug!("Manager loading Track {}.{} (HT: {})", (target_ht / 2) + 1, target_ht % 2, target_ht);
+
+            debug!(
+                "Manager loading Track {}.{} (HT: {})",
+                (target_ht / 2) + 1,
+                target_ht % 2,
+                target_ht
+            );
 
             // Check if it's already pre-cached in the back buffer!
             if let Some((ht, layout, length, speed_zone)) = self.pre_cached_ht {
                 if ht == target_ht {
                     // It's perfectly ready in the back buffer. Just commit it!
                     self.track_handle.commit_loaded_track(
-                        pico1541_common::track_buffer::TrackIdentifier::new(target_ht, speed_zone.unwrap_or_else(|| pico1541_common::track_buffer::default_speed_zone(target_ht))),
+                        pico1541_common::track_buffer::TrackIdentifier::new(
+                            target_ht,
+                            speed_zone.unwrap_or_else(|| {
+                                pico1541_common::track_buffer::default_speed_zone(target_ht)
+                            }),
+                        ),
                         layout,
-                        length
+                        length,
                     );
                     self.pre_cached_ht = None; // Used it!
-                    info!("Track {}.{} (HT: {}) load took 0 ms (PRE-CACHED)", (target_ht / 2) + 1, target_ht % 2, target_ht);
+                    info!(
+                        "Track {}.{} (HT: {}) load took 0 ms (PRE-CACHED)",
+                        (target_ht / 2) + 1,
+                        target_ht % 2,
+                        target_ht
+                    );
                     break;
                 }
             }
-            
+
             // Not cached, we will use the back buffer for the new read.
             let saved_pre_cache = self.pre_cached_ht.take();
 
@@ -91,25 +118,36 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
             let mut disk_opt = self.disk_image.as_mut();
             if let Some(disk) = disk_opt.as_mut() {
                 let data = self.track_handle.start_track_load();
-                
+
                 let start_time = embassy_time::Instant::now();
                 // Read track but CANCEL if the head steps again!
                 match select(disk.read_track(target_ht, data), crate::TRACK_SIGNAL.wait()).await {
                     Either::First(Ok(layout)) => {
-                        let speed_zone = layout.2.unwrap_or_else(|| pico1541_common::track_buffer::default_speed_zone(target_ht));
-                        let identifier = pico1541_common::track_buffer::TrackIdentifier::new(target_ht, speed_zone);
-                        
+                        let speed_zone = layout.2.unwrap_or_else(|| {
+                            pico1541_common::track_buffer::default_speed_zone(target_ht)
+                        });
+                        let identifier = pico1541_common::track_buffer::TrackIdentifier::new(
+                            target_ht, speed_zone,
+                        );
+
                         if layout.0 == TrackLayout::Void {
                             // If the track is completely empty, there's no need to commit the back-buffer
                             // (which swaps buffers and pads it with 0x55). We just update the active identifier!
                             self.track_handle.set_active_track_identifier(identifier);
                             self.pre_cached_ht = saved_pre_cache; // Restore it, the back buffer wasn't clobbered!
                         } else {
-                            self.track_handle.commit_loaded_track(identifier, layout.0, layout.1);
+                            self.track_handle
+                                .commit_loaded_track(identifier, layout.0, layout.1);
                         }
-                        
+
                         let elapsed = start_time.elapsed().as_millis();
-                        info!("Track {}.{} (HT: {}) load took {} ms (1)", (target_ht / 2) + 1, target_ht % 2, target_ht, elapsed);
+                        info!(
+                            "Track {}.{} (HT: {}) load took {} ms (1)",
+                            (target_ht / 2) + 1,
+                            target_ht % 2,
+                            target_ht,
+                            elapsed
+                        );
                         break; // Success, done loading the track!
                     }
                     Either::First(Err(e)) => {
@@ -125,7 +163,14 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
                     }
                 }
             } else {
-                self.track_handle.commit_loaded_track(pico1541_common::track_buffer::TrackIdentifier::new(target_ht, pico1541_common::track_buffer::default_speed_zone(target_ht)), TrackLayout::Void, 0);
+                self.track_handle.commit_loaded_track(
+                    pico1541_common::track_buffer::TrackIdentifier::new(
+                        target_ht,
+                        pico1541_common::track_buffer::default_speed_zone(target_ht),
+                    ),
+                    TrackLayout::Void,
+                    0,
+                );
                 info!("Half-Track {} is void...", target_ht);
                 break;
             }

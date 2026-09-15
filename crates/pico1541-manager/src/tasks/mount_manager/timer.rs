@@ -1,9 +1,11 @@
-use super::{MountManagerTask, FileOpener};
+use super::{FileOpener, MountManagerTask};
+use crate::storage::DirectorySource;
 use embedded_io_async::{Read, Seek};
 use pico1541_common::track_buffer::TrackLayout;
-use crate::storage::DirectorySource;
 
-impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver::RgbLedDriver> MountManagerTask<S, O, L> {
+impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver::RgbLedDriver>
+    MountManagerTask<S, O, L>
+{
     pub(super) async fn handle_timer_event(&mut self, motor_on: &mut bool) {
         // (first_missing_block, batch_count)
         let mut block_batch: Option<(usize, usize)> = None;
@@ -14,22 +16,27 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
                     // Periodic update of directory buffer only when motor is on
                     if *motor_on {
                         let current_idx = self.track_handle.get_current_byte_idx();
-                        
+
                         if vdir.file_storage.is_some() {
                             // Track 1: File streaming (StriddenWarp)
                             let data = self.track_handle.start_track_modification();
                             if vdir.update_dynamic_buffer(current_idx, data).await {
                                 self.track_handle.commit_modified_track();
                             }
-                        } else if !vdir.source.as_paged_mut().map(|p| p.is_exhausted()).unwrap_or(true) {
+                        } else if !vdir
+                            .source
+                            .as_paged_mut()
+                            .map(|p| p.is_exhausted())
+                            .unwrap_or(true)
+                        {
                             // Track 18: Directory Listing (Accurate(7142))
                             let s1 = vdir.sector1_idx;
                             let s2 = vdir.sector2_idx;
-                            
+
                             if s1 > 0 && s2 > 0 {
                                 let s2_end = s2 + 325;
                                 let s1_start = s1.saturating_sub(40);
-                                
+
                                 // Dead zone between Sector 2 and Sector 1
                                 if current_idx > s2_end && current_idx < s1_start {
                                     if vdir.next_sector_to_update == 2 {
@@ -37,7 +44,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
                                         let data = self.track_handle.start_track_modification();
                                         vdir.force_update_directory_sectors(data).await;
                                         self.track_handle.commit_modified_track();
-                                        
+
                                         // Prevent further swaps until we pass Sector 2 again
                                         vdir.next_sector_to_update = 1;
                                     }
@@ -83,7 +90,9 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
             }
         }
 
-        if false /* let Some((blocks_start, blocks_count)) = block_batch */ {
+        if false
+        /* let Some((blocks_start, blocks_count)) = block_batch */
+        {
             let (blocks_start, blocks_count) = block_batch.unwrap();
 
             // Mark active track as Void during background directory fetch to prevent Core 0 emu hang/timeouts.
@@ -100,15 +109,18 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
             let fetch_start = blocks_start * 16;
             let fetch_count = blocks_count * 16;
             let mut all_entries = heapless::Vec::<crate::storage::DirectoryEntry, 48>::new();
-            let fetch_res = self.opener.list_dir_range(
-                path.as_str(),
-                use_internal,
-                fetch_start,
-                fetch_count,
-                |entry| {
-                    let _ = all_entries.push(entry);
-                }
-            ).await;
+            let fetch_res = self
+                .opener
+                .list_dir_range(
+                    path.as_str(),
+                    use_internal,
+                    fetch_start,
+                    fetch_count,
+                    |entry| {
+                        let _ = all_entries.push(entry);
+                    },
+                )
+                .await;
 
             if fetch_res.is_ok() {
                 let mut disk_opt = self.disk_image.as_mut();
@@ -121,8 +133,9 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
                                 let slice_start = (b * 16).min(all_entries.len());
                                 let slice_end = (slice_start + 16).min(all_entries.len());
                                 let block_slice = &all_entries[slice_start..slice_end];
-                                
-                                let mut block_entries = heapless::Vec::<crate::storage::DirectoryEntry, 16>::new();
+
+                                let mut block_entries =
+                                    heapless::Vec::<crate::storage::DirectoryEntry, 16>::new();
                                 for e in block_slice {
                                     let _ = block_entries.push(*e);
                                 }

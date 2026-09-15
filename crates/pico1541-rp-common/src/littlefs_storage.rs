@@ -1,10 +1,10 @@
-use pico1541_manager::driver::{FileStorageDriver, FileInfo};
+use crate::flash_storage::ReadOnlyFlash;
+use embedded_io_async::{ErrorType, Read, Seek, SeekFrom};
+use heapless::String;
+use littlefs_rust::{Filesystem, OpenFlags};
+use pico1541_manager::driver::{FileInfo, FileStorageDriver};
 use pico1541_manager::formats::Error;
 use pico1541_manager::storage::Error as CommonError;
-use embedded_io_async::{Read, Seek, SeekFrom, ErrorType};
-use littlefs_rust::{Filesystem, OpenFlags};
-use crate::flash_storage::ReadOnlyFlash;
-use heapless::String;
 
 #[derive(Clone, Copy)]
 pub struct LittleFsStorage;
@@ -16,13 +16,17 @@ impl FileStorageDriver for LittleFsStorage {
         true
     }
 
-    async fn list_dir(&mut self, path: &str, mut callback: impl FnMut(FileInfo)) -> Result<(), Error> {
+    async fn list_dir(
+        &mut self,
+        path: &str,
+        mut callback: impl FnMut(FileInfo),
+    ) -> Result<(), Error> {
         let mut config = littlefs_rust::Config::new(4096, 128);
         config.read_size = 256;
         config.prog_size = 256;
         config.cache_size = 256;
         config.lookahead_size = 16;
-        
+
         let flash = ReadOnlyFlash::new();
         if let Ok(fs) = Filesystem::mount(flash, config) {
             if let Ok(dir) = fs.read_dir(path) {
@@ -66,7 +70,7 @@ impl FileStorageDriver for LittleFsStorage {
         config.prog_size = 256;
         config.cache_size = 256;
         config.lookahead_size = 16;
-        
+
         let flash = ReadOnlyFlash::new();
         if let Ok(fs) = Filesystem::mount(flash, config) {
             let allocated = fs.fs_size().unwrap_or(128);
@@ -95,7 +99,7 @@ impl Read for LittleFsFileHandle {
         config.prog_size = 256;
         config.cache_size = 256;
         config.lookahead_size = 16;
-        
+
         let flash = ReadOnlyFlash::new();
         if let Ok(fs) = Filesystem::mount(flash, config) {
             if let Ok(file) = fs.open(self.path.as_str(), OpenFlags::READ) {

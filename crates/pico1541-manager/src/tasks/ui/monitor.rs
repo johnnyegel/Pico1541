@@ -1,13 +1,14 @@
-use heapless::String;
-use portable_atomic::Ordering;
 use crate::driver::{DisplayDriver, FileStorageDriver};
-use pico1541_common::snooper::SnooperConfig;
 use crate::UiAction;
+use heapless::String;
+use pico1541_common::snooper::SnooperConfig;
+use portable_atomic::Ordering;
 
 pub async fn run_monitor_page<D, Internal>(
     display: &mut D,
     internal: &mut Internal,
     config: &SnooperConfig,
+    sys_clock_freq: u32,
 ) -> bool
 where
     D: DisplayDriver,
@@ -20,7 +21,7 @@ where
 
         let speed_hz = config.emu_speed_hz.load(Ordering::Relaxed);
         let c0_avg = config.core0_avg_raw.load(Ordering::Relaxed);
-        
+
         let c1_avg = config.core1_avg_raw.load(Ordering::Relaxed);
         let c1_max = config.core1_max_raw.load(Ordering::Relaxed);
 
@@ -28,13 +29,16 @@ where
         if speed_hz >= 1_000_000 {
             let mhz_int = speed_hz / 1_000_000;
             let mhz_frac = (speed_hz % 1_000_000) / 10_000;
-            let _ = core::fmt::write(&mut s_speed, format_args!("Emu clk : {}.{:02} MHz", mhz_int, mhz_frac));
+            let _ = core::fmt::write(
+                &mut s_speed,
+                format_args!("Emu clk : {}.{:02} MHz", mhz_int, mhz_frac),
+            );
         } else {
             let _ = core::fmt::write(&mut s_speed, format_args!("Emu clk : {} Hz", speed_hz));
         }
         display.print(1, &s_speed).await;
 
-        let max_syst_cycles = pico1541_common::SYSTEM_CLOCK_FREQ / 50;
+        let max_syst_cycles = sys_clock_freq / 50;
         let c0_load = ((c0_avg as u64 * 100) / max_syst_cycles as u64) as u32;
         let mut s_c0 = String::<32>::new();
         let _ = core::fmt::write(&mut s_c0, format_args!("Emu max : {}%", c0_load));
@@ -51,7 +55,10 @@ where
 
         if let Some(free_bytes) = free_flash {
             let mut s_flash = String::<32>::new();
-            let _ = core::fmt::write(&mut s_flash, format_args!("Flash free: {} KB", free_bytes / 1024));
+            let _ = core::fmt::write(
+                &mut s_flash,
+                format_args!("Flash free: {} KB", free_bytes / 1024),
+            );
             display.print(4, &s_flash).await;
         }
 
@@ -60,8 +67,10 @@ where
 
         match embassy_time::with_timeout(
             embassy_time::Duration::from_millis(200),
-            crate::ACTION_CHANNEL.receive()
-        ).await {
+            crate::ACTION_CHANNEL.receive(),
+        )
+        .await
+        {
             Ok(UiAction::Back) => return false,
             Ok(UiAction::Home) => return true,
             _ => {}

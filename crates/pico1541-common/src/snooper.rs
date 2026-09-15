@@ -1,7 +1,6 @@
 use crate::interface::DriveEvent;
 use core::fmt::{self, Display};
-use portable_atomic::{AtomicU8, Ordering, AtomicBool};
-
+use portable_atomic::{AtomicBool, AtomicU8, Ordering};
 
 /// Represents the bus state of the IEC bus lines
 /// Bit 0: DATA, Bit 1: CLK, Bit 2: ATN
@@ -37,7 +36,7 @@ impl IecBusState {
 
     #[inline(always)]
     pub fn set_clk(&mut self, asserted: bool) {
-         if asserted {
+        if asserted {
             self.0 |= Self::CLK_BIT;
         } else {
             self.0 &= !Self::CLK_BIT;
@@ -46,7 +45,7 @@ impl IecBusState {
 
     #[inline(always)]
     pub fn set_atn(&mut self, asserted: bool) {
-         if asserted {
+        if asserted {
             self.0 |= Self::ATN_BIT;
         } else {
             self.0 &= !Self::ATN_BIT;
@@ -66,11 +65,14 @@ impl IecBusState {
 
 impl Display for IecBusState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "IecBusState({:#02X}: ATN={}, CLK={}, DATA={})",
+        write!(
+            f,
+            "IecBusState({:#02X}: ATN={}, CLK={}, DATA={})",
             self.0,
             self.get_atn(),
             self.get_clk(),
-            self.get_data())
+            self.get_data()
+        )
     }
 }
 
@@ -123,8 +125,10 @@ impl SnooperConfig {
 
     pub fn update_device_id(&self, device_id: u8) {
         self.device_id.store(device_id, Ordering::Relaxed);
-        self.listen_addr.store(0x20 | (device_id & 0xF), Ordering::Relaxed);
-        self.talk_addr.store(0x40 | (device_id & 0xF), Ordering::Relaxed);
+        self.listen_addr
+            .store(0x20 | (device_id & 0xF), Ordering::Relaxed);
+        self.talk_addr
+            .store(0x40 | (device_id & 0xF), Ordering::Relaxed);
     }
 }
 
@@ -148,7 +152,7 @@ enum SnooperState {
     Idle,
     Receiving,
     WaitTurnaround,
-} 
+}
 
 /// Implements a snooper that monitors the IEC bus lines and decodes commands sent to the drive
 pub struct IecSnooper {
@@ -168,7 +172,6 @@ pub struct IecSnooper {
 }
 
 impl IecSnooper {
-
     pub fn new(device_id: u8) -> Self {
         Self {
             listen_addr: 0x20 | (device_id & 0xF),
@@ -203,14 +206,17 @@ impl IecSnooper {
                     dispatch(DriveEvent::IecBusIdleTimeout);
                 }
             }
-            return
+            return;
         }
 
         self.idle_cycles = 0;
         self.has_notified_idle = false;
 
         // Capture the edge information, and update the last known state
-        let edge = IecBusEdge { state: iec_state, delta };
+        let edge = IecBusEdge {
+            state: iec_state,
+            delta,
+        };
         self.last_iec = iec_state;
 
         // :? Is this an ATN edge?
@@ -235,11 +241,11 @@ impl IecSnooper {
                 // Talker pulls CLK low (True) to signal start of a byte transfer
                 if edge.is_clk(true) {
                     // NOTE! EOI detection requires timing (200us pause) or seeing drive lines.
-                    // Since we only see host lines and have no timer here, we rely on 
+                    // Since we only see host lines and have no timer here, we rely on
                     // ATN/UNLISTEN transitions to finalize commands.
-                    self.is_eoi = false; 
+                    self.is_eoi = false;
                     self.is_atn = iec_state.get_atn();
-                    
+
                     self.state = SnooperState::Receiving;
                     self.bit_count = 0;
                     self.current_byte = 0;
@@ -256,7 +262,12 @@ impl IecSnooper {
                     // :? Full byte received?
                     if self.bit_count == 8 {
                         // -> Yes, process the byte
-                        self.dispatch_byte(self.current_byte, self.is_atn, self.is_eoi, &mut dispatch);
+                        self.dispatch_byte(
+                            self.current_byte,
+                            self.is_atn,
+                            self.is_eoi,
+                            &mut dispatch,
+                        );
                         self.state = SnooperState::WaitTurnaround;
                     }
                 }
@@ -272,8 +283,19 @@ impl IecSnooper {
     }
 
     #[link_section = ".core1_text"]
-    fn dispatch_byte<F: FnMut(DriveEvent)>(&mut self, byte: u8, atn: bool, eoi: bool, dispatch: &mut F) {
-        log::debug!("[Snooper] Received byte 0x{:02X} (ATN={}, EOI={})", byte, atn, eoi);
+    fn dispatch_byte<F: FnMut(DriveEvent)>(
+        &mut self,
+        byte: u8,
+        atn: bool,
+        eoi: bool,
+        dispatch: &mut F,
+    ) {
+        log::debug!(
+            "[Snooper] Received byte 0x{:02X} (ATN={}, EOI={})",
+            byte,
+            atn,
+            eoi
+        );
         // :? Is this an ATN byte?
         if atn {
             // :? Is it a secondary address?
@@ -291,7 +313,8 @@ impl IecSnooper {
             } else if byte == self.listen_addr {
                 // -> No, but this byte is our listen address, so we should start listening
                 self.is_listening = true;
-            } else if byte == 0x3F { // UNLISTEN
+            } else if byte == 0x3F {
+                // UNLISTEN
                 if self.is_listening {
                     dispatch(DriveEvent::IecSnoopEndOfTransaction);
                 }
@@ -391,7 +414,10 @@ impl IecSnoopByteHandler {
                 let mut data = [0u8; 32];
                 let len = self.pos.min(32);
                 data[..len].copy_from_slice(&self.buffer[..len]);
-                dispatch(DriveEvent::IecCommand { data, len: len as u8 });
+                dispatch(DriveEvent::IecCommand {
+                    data,
+                    len: len as u8,
+                });
             }
             self.cmd_len = self.pos;
             self.pos = 0; // Clear for next command

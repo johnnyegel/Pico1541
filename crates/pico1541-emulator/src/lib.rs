@@ -3,15 +3,21 @@ extern crate alloc;
 
 #[allow(unused_macros)]
 #[cfg(all(not(feature = "logging"), not(feature = "defmt")))]
-macro_rules! emu_info { ($($arg:tt)*) => {} }
+macro_rules! emu_info {
+    ($($arg:tt)*) => {};
+}
 
 #[allow(unused_macros)]
 #[cfg(all(not(feature = "logging"), not(feature = "defmt")))]
-macro_rules! emu_warn { ($($arg:tt)*) => {} }
+macro_rules! emu_warn {
+    ($($arg:tt)*) => {};
+}
 
 #[allow(unused_macros)]
 #[cfg(all(not(feature = "logging"), not(feature = "defmt")))]
-macro_rules! emu_debug { ($($arg:tt)*) => {} }
+macro_rules! emu_debug {
+    ($($arg:tt)*) => {};
+}
 
 #[allow(unused_macros)]
 #[cfg(all(feature = "logging", not(feature = "defmt")))]
@@ -44,7 +50,6 @@ pub mod flight_recorder;
 pub mod hle;
 pub mod memory;
 
-
 pub fn init_core1_text() {
     unsafe {
         extern "C" {
@@ -66,13 +71,13 @@ pub mod systembus;
 pub mod time;
 pub mod via6522;
 
+pub use crate::drivemechanics::DriveMechanics;
 #[allow(unused_imports)]
 use pico1541_common::context::ViaHardware;
 use pico1541_common::interface::HostInterface;
 use pico1541_common::magnetic_surface::MagneticSurface;
 use racc6502v4::cpu::CPU;
 use systembus::SystemBus;
-pub use crate::drivemechanics::DriveMechanics;
 
 /// Trait for peeking and poking at memory/registers without side effects.
 #[cfg(feature = "debug")]
@@ -119,25 +124,25 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         self.cycles = self.cpu.cycles;
     }
 
-
     #[link_section = ".core1_text"]
     #[inline(always)]
     pub fn tick(&mut self, hw: &mut H) -> u32 {
-        
         #[cfg(feature = "flight-recorder")]
         unsafe {
-            crate::flight_recorder::FLIGHT_RECORDER.assume_init_mut().index = 0;
+            crate::flight_recorder::FLIGHT_RECORDER
+                .assume_init_mut()
+                .index = 0;
         }
 
         if self.systembus.has_irq() {
             self.cpu.pending_interrupt = Some(racc6502v4::cpu::Interrupt::Irq);
         }
-        
+
         let elapsed = self.cpu.step(&mut self.systembus, hw);
-        
+
         // Do all internal emulation math (timers, mechanics) while we have free time
         self.systembus.catch_up(self.cpu.cycles);
-        
+
         // Wait until physical real-time matches the simulated cpu.cycles
         self.systembus.time.sync_realtime(self.cpu.cycles, hw);
 
@@ -151,9 +156,10 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         // Flight recorder re-enabled, optimized to waste minimal cycles
         #[cfg(feature = "flight-recorder")]
         unsafe {
-            let ptr = core::ptr::addr_of_mut!(crate::flight_recorder::FLIGHT_RECORDER) as *mut crate::flight_recorder::FlightRecorder;
+            let ptr = core::ptr::addr_of_mut!(crate::flight_recorder::FLIGHT_RECORDER)
+                as *mut crate::flight_recorder::FlightRecorder;
             let current_via1 = self.systembus.via1.pb_in();
-            
+
             // Inline the check to avoid function call overhead and branch prediction misses for non-events
             if (*ptr).last_record.via1_pb != current_via1 {
                 let is_sync = (self.systembus.via2.pb_in() & 0x80) == 0;
@@ -192,12 +198,7 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
     }
 
     pub fn state(&self) -> (u8, u8, u8, u8) {
-        (
-            self.cpu.a,
-            self.cpu.x,
-            self.cpu.y,
-            self.cpu.s,
-        )
+        (self.cpu.a, self.cpu.x, self.cpu.y, self.cpu.s)
     }
 
     pub fn half_track(&self) -> u8 {
@@ -213,5 +214,4 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
     pub fn bus_mut(&mut self) -> &mut SystemBus<H, S> {
         &mut self.systembus
     }
-
 }

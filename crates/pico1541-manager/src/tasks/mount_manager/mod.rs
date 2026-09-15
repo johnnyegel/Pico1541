@@ -1,29 +1,40 @@
-use embedded_io_async::{Read, Seek};
 use crate::formats::AnyDiskImage;
-use pico1541_common::track_buffer::ManagerHandle;
 use core::sync::atomic::Ordering;
 use embassy_futures::select::{select3, Either3};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
+use embedded_io_async::{Read, Seek};
+use pico1541_common::track_buffer::ManagerHandle;
 
-mod file_opener;
-mod track;
-mod timer;
 mod cmd;
+mod file_opener;
+mod timer;
+mod track;
 
-pub use file_opener::{FileOpener, match_c64_filename};
+pub use file_opener::{match_c64_filename, FileOpener};
 
-pub struct MountManagerTask<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver::RgbLedDriver> {
+pub struct MountManagerTask<
+    S: Read + Seek + 'static,
+    O: FileOpener<FileStorage = S>,
+    L: crate::driver::RgbLedDriver,
+> {
     pub(super) disk_image: Option<AnyDiskImage<S, crate::storage::PagedDirectorySource<144>>>,
     pub(super) track_handle: ManagerHandle,
     pub(super) opener: O,
     pub(super) leds: L,
     pub(super) mounted_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
-    pub(super) pre_cached_ht: Option<(u8, pico1541_common::track_buffer::TrackLayout, usize, Option<u8>)>,
+    pub(super) pre_cached_ht: Option<(
+        u8,
+        pico1541_common::track_buffer::TrackLayout,
+        usize,
+        Option<u8>,
+    )>,
     pub(super) last_step_direction: i8,
 }
 
-impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver::RgbLedDriver> MountManagerTask<S, O, L> {
+impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver::RgbLedDriver>
+    MountManagerTask<S, O, L>
+{
     pub fn new(
         track_handle: ManagerHandle,
         opener: O,
@@ -57,7 +68,8 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
 
             match select3(track_fut, timer_fut, cmd_fut).await {
                 Either3::First(_) => {
-                    self.handle_track_event(crate::TRACK_REQUEST.load(Ordering::Relaxed)).await;
+                    self.handle_track_event(crate::TRACK_REQUEST.load(Ordering::Relaxed))
+                        .await;
                 }
                 Either3::Second(_) => {
                     self.handle_timer_event(&mut motor_on).await;

@@ -34,10 +34,10 @@ impl RgbLedDriver for StatusLeds {
 
     fn set_status(&mut self, mode: StatusLedMode) {
         let (r, g, b) = match mode {
-            StatusLedMode::Unmounted => (true, false, false),      // Red
-            StatusLedMode::VirtualDisk => (false, false, true),    // Blue
+            StatusLedMode::Unmounted => (true, false, false), // Red
+            StatusLedMode::VirtualDisk => (false, false, true), // Blue
             StatusLedMode::NonAccurateDisk => (false, true, false), // Green
-            StatusLedMode::AccurateDisk => (false, true, false),   // Green
+            StatusLedMode::AccurateDisk => (false, true, false), // Green
         };
         self.set_color(r, g, b);
     }
@@ -55,7 +55,9 @@ impl<M: embassy_sync::blocking_mutex::raw::RawMutex + 'static> Clone for StatusL
 
 impl<M: embassy_sync::blocking_mutex::raw::RawMutex + 'static> Copy for StatusLedsWrapper<M> {}
 
-impl<M: embassy_sync::blocking_mutex::raw::RawMutex + 'static> RgbLedDriver for StatusLedsWrapper<M> {
+impl<M: embassy_sync::blocking_mutex::raw::RawMutex + 'static> RgbLedDriver
+    for StatusLedsWrapper<M>
+{
     fn set_color(&mut self, red: bool, green: bool, blue: bool) {
         if let Ok(mut l) = self.0.try_lock() {
             l.set_color(red, green, blue);
@@ -68,4 +70,3 @@ impl<M: embassy_sync::blocking_mutex::raw::RawMutex + 'static> RgbLedDriver for 
         }
     }
 }
-

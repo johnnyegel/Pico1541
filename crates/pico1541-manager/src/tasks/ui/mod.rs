@@ -1,16 +1,16 @@
-use crate::driver::{DisplayDriver, RgbLedDriver, IndicatorDriver, FileStorageDriver};
+use crate::driver::{DisplayDriver, FileStorageDriver, IndicatorDriver, RgbLedDriver};
 // Removed HardwareTestTask
-use heapless::String;
+use core::str::FromStr;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
-use core::str::FromStr;
+use heapless::String;
 use pico1541_common::snooper::SnooperConfig;
 
-pub mod monitor;
 pub mod boot;
-pub mod home;
-pub mod settings;
 pub mod browser;
+pub mod home;
+pub mod monitor;
+pub mod settings;
 pub mod virtual_directory;
 
 pub struct UiContext<'a, D, L, Ind, S, Internal>
@@ -29,8 +29,8 @@ where
     pub usb_path: &'a mut String<128>,
     pub mounted_file_path: &'a mut Option<String<128>>,
     pub rom_name: &'a mut String<32>,
+    pub sys_clock_freq: u32,
 }
-
 
 pub enum PageState {
     BootScreen,
@@ -77,8 +77,7 @@ fn join_path(current: &str, sub: &str) -> String<128> {
 }
 
 #[allow(clippy::type_complexity)]
-pub struct MainMenuTask<D, L, Ind, S, Internal: crate::driver::FileStorageDriver>
-{
+pub struct MainMenuTask<D, L, Ind, S, Internal: crate::driver::FileStorageDriver> {
     display: D,
     leds: L,
     _indicator: Ind,
@@ -91,6 +90,7 @@ pub struct MainMenuTask<D, L, Ind, S, Internal: crate::driver::FileStorageDriver
     usb_path: String<128>,
     mounted_file_path: Option<String<128>>,
     rom_name: String<32>,
+    sys_clock_freq: u32,
 }
 
 #[allow(clippy::type_complexity)]
@@ -112,6 +112,7 @@ where
         viewed_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
         config: &'static SnooperConfig,
         rom_name: String<32>,
+        sys_clock_freq: u32,
     ) -> Self {
         Self {
             display,
@@ -126,10 +127,9 @@ where
             usb_path: String::from_str("/").unwrap(),
             mounted_file_path: None,
             rom_name,
+            sys_clock_freq,
         }
     }
-
-
 
     pub async fn run(&mut self) -> ! {
         let mut state = PageState::BootScreen;
@@ -138,13 +138,31 @@ where
             state = match state {
                 PageState::BootScreen => {
                     let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount);
-                    boot::run_boot_screen(&mut self.display, &mut self.leds, self.config, &self.rom_name).await
+                    boot::run_boot_screen(
+                        &mut self.display,
+                        &mut self.leds,
+                        self.config,
+                        &self.rom_name,
+                    )
+                    .await
                 }
                 PageState::MainMenu => {
-                    home::run_main_menu(&mut self.display, &mut self.storage, &mut self.internal, &mut self.sd_path).await
+                    home::run_main_menu(
+                        &mut self.display,
+                        &mut self.storage,
+                        &mut self.internal,
+                        &mut self.sd_path,
+                    )
+                    .await
                 }
                 PageState::Monitor => {
-                    let _ = monitor::run_monitor_page(&mut self.display, &mut self.internal, self.config).await;
+                    let _ = monitor::run_monitor_page(
+                        &mut self.display,
+                        &mut self.internal,
+                        self.config,
+                        self.sys_clock_freq,
+                    )
+                    .await;
                     PageState::MainMenu
                 }
                 PageState::SdCardMenu => {
@@ -161,6 +179,7 @@ where
                         usb_path: &mut self.usb_path,
                         mounted_file_path: &mut self.mounted_file_path,
                         rom_name: &mut self.rom_name,
+                        sys_clock_freq: self.sys_clock_freq,
                     };
                     browser::run_sd_card_menu(&mut ctx).await
                 }
@@ -178,20 +197,28 @@ where
                         usb_path: &mut self.usb_path,
                         mounted_file_path: &mut self.mounted_file_path,
                         rom_name: &mut self.rom_name,
+                        sys_clock_freq: self.sys_clock_freq,
                     };
                     browser::run_internal_menu(&mut ctx).await
                 }
                 PageState::Settings => {
-                    settings::run_settings_menu(&mut self.display, &mut self.internal, self.config).await
+                    settings::run_settings_menu(&mut self.display, &mut self.internal, self.config)
+                        .await
                 }
                 PageState::DeviceIdSelect => {
-                    settings::run_device_id_menu(&mut self.display, &mut self.internal, self.config).await
+                    settings::run_device_id_menu(&mut self.display, &mut self.internal, self.config)
+                        .await
                 }
                 PageState::BootRomSelect => {
-                    settings::run_select_boot_rom_menu(&mut self.display, &mut self.internal, self.config, &mut self.rom_name).await
+                    settings::run_select_boot_rom_menu(
+                        &mut self.display,
+                        &mut self.internal,
+                        self.config,
+                        &mut self.rom_name,
+                    )
+                    .await
                 }
             }
         }
     }
-
 }

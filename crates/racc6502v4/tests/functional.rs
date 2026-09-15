@@ -36,7 +36,6 @@ impl Bus for FunctionalBus {
 fn test_6502_functional() {
     let mut bus = FunctionalBus::new("tests/bin/6502_functional_test.bin");
     let mut cpu = CPU::new();
-    
 
     // The test starts at $0400
     cpu.pc = 0x0400;

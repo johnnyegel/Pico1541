@@ -5,12 +5,12 @@ use pico1541_common::magnetic_surface::MagneticSurface;
 /// Manages High-Level Emulation (HLE) interventions.
 ///
 /// This layer is responsible for patching the emulator's state (RAM, etc.)
-/// to perform operations that would normally be done by the DOS ROM, 
+/// to perform operations that would normally be done by the DOS ROM,
 /// but are intercepted for performance or functionality (e.g., hijacking "CD").
 pub struct HleManager;
 
 impl HleManager {
-    /// Intercepts and discards the current DOS command buffer, 
+    /// Intercepts and discards the current DOS command buffer,
     /// silencing any "SYNTAX ERROR" or other failure status that would
     /// normally result from a partially received or hijacked command.
     pub fn intercept_command<H: HostInterface, S: MagneticSurface>(bus: &mut SystemBus<H, S>) {

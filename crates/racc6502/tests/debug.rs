@@ -1,5 +1,3 @@
-
-
 #[cfg(feature = "debug")]
 struct DebugBus {
     memory: [u8; 65536],

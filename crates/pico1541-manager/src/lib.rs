@@ -5,17 +5,20 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 
 pub mod driver;
-pub mod tasks;
 pub mod formats;
 pub mod gcr;
 pub mod storage;
+pub mod tasks;
 
-pub use driver::{DisplayDriver, IndicatorDriver, InputDriver, RgbLedDriver, StatusLedMode, StorageDriver};
+pub use driver::{
+    DisplayDriver, IndicatorDriver, InputDriver, RgbLedDriver, StatusLedMode, StorageDriver,
+};
 
-pub use pico1541_common::interface::DriveEvent;
 pub use formats::{AnyDiskImage, D64Image, DiskImage, Error, G64Image};
-pub use storage::{MemoryStorage, VectorDirectorySource, PagedDirectorySource, PagedDirectorySourceTrait};
-
+pub use pico1541_common::interface::DriveEvent;
+pub use storage::{
+    MemoryStorage, PagedDirectorySource, PagedDirectorySourceTrait, VectorDirectorySource,
+};
 
 use embedded_io_async::{Read, Seek};
 use storage::DirectorySource;
@@ -56,7 +59,8 @@ pub enum InternalCommand {
 
 pub static CMD_CHANNEL: Channel<CriticalSectionRawMutex, InternalCommand, 128> = Channel::new();
 pub static TRACK_REQUEST: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
-pub static TRACK_SIGNAL: embassy_sync::signal::Signal<CriticalSectionRawMutex, ()> = embassy_sync::signal::Signal::new();
+pub static TRACK_SIGNAL: embassy_sync::signal::Signal<CriticalSectionRawMutex, ()> =
+    embassy_sync::signal::Signal::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -101,7 +105,11 @@ pub enum SettingsCommand {
     SaveDriveId(u8),
     SaveBootRom(heapless::String<32>),
     DeleteRom(heapless::String<32>),
-    InstallRomStart { filename: heapless::String<32>, size: u32, offset: u32 },
+    InstallRomStart {
+        filename: heapless::String<32>,
+        size: u32,
+        offset: u32,
+    },
     InstallRomChunk(heapless::Vec<u8, 256>),
     InstallRomFinish,
     LoadRomToMemory(heapless::String<32>),
@@ -110,8 +118,5 @@ pub static SETTINGS_CHANNEL: Channel<CriticalSectionRawMutex, SettingsCommand, 2
 pub static SETTINGS_SAVE_RESULT: portable_atomic::AtomicU8 = portable_atomic::AtomicU8::new(0);
 pub static SETTINGS_SAVE_REQUEST: portable_atomic::AtomicU8 = portable_atomic::AtomicU8::new(0);
 
-
 #[cfg(test)]
-mod test_imports {
-}
-
+mod test_imports {}

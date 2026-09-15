@@ -1,5 +1,5 @@
-use pico1541_common::track_buffer::{EmulatorHandle, TrackIdentifier, TrackBuffer};
-use pico1541_common::{magnetic_surface::MagneticSurface, interface::HostInterface};
+use pico1541_common::track_buffer::{EmulatorHandle, TrackBuffer, TrackIdentifier};
+use pico1541_common::{interface::HostInterface, magnetic_surface::MagneticSurface};
 
 pub struct ReadHeadSignals {
     pub byte_opt: Option<u8>,
@@ -10,7 +10,7 @@ pub struct ReadHeadSignals {
 use crate::via6522::Via6522;
 
 // The read head steps in half-track increments, so we represent the head position in half-tracks (0.5 track steps).
-// We also keep a half-track position for the head, where Half-track 0 corresponds to Track 0, 
+// We also keep a half-track position for the head, where Half-track 0 corresponds to Track 0,
 // Half-track -2 corresponds to Track 0, Half-track 0 corresponds to Track 1, and so on.
 // Track 18 (the directory track) then corresponds to Half-track 36 (2 * 18).
 // NOTE! Min track is -2, which represent a non-existing Track 0. This accomodates the fact that
@@ -18,8 +18,6 @@ use crate::via6522::Via6522;
 const MIN_HALF_TRACK: i8 = -2;
 const MAX_HALF_TRACK: i8 = 85; // Half-track 85 corresponds to Track 42.5, which is the maximum physical reach of the head on a 1541 drive.
 const INITIAL_HALF_TRACK: i8 = 34; // Start at track 18 (Half-track 34)
-
-
 
 // Masks for individual hardware state bits on VIA2 Port B
 const MASK_MOTOR: u8 = 0x04;
@@ -36,11 +34,11 @@ const SHIFT_SPEED_ZONE: u8 = 5;
 pub struct DriveMechanics<S: MagneticSurface> {
     /// The Track the head is positioned over (not necessarily the track being read)
     pub halftrack_head_pos: i8,
-    
+
     surface: S,
     pub track_handle: EmulatorHandle,
     pub current_identifier: TrackIdentifier,
-    
+
     last_requested_sector: u8,
     last_active_index: u8,
 }
@@ -77,11 +75,12 @@ impl<S: MagneticSurface> DriveMechanics<S> {
     pub fn force_evaluate_track_source(&mut self, master_clock: u32) {
         self.evaluate_track_source(master_clock);
     }
-    
+
     pub fn write_byte_at(&mut self, index: u32, data: u8) {
         self.track_handle.seek_to_byte(index);
         let expected_identifier = self.current_identifier;
-        self.track_handle.next_write_byte(expected_identifier, 0xFF, data);
+        self.track_handle
+            .next_write_byte(expected_identifier, 0xFF, data);
     }
 
     #[link_section = ".core1_text"]
@@ -147,7 +146,6 @@ impl<S: MagneticSurface> DriveMechanics<S> {
 
     // ========== Internal helper functions ==================================================
 
-    
     pub fn force_state_for_testing(&mut self, halftrack: u8, speed_zone: u8, master_clock: u32) {
         let new_track_identifier = TrackIdentifier::new(halftrack, speed_zone);
         self.halftrack_head_pos = halftrack as i8;
@@ -159,7 +157,13 @@ impl<S: MagneticSurface> DriveMechanics<S> {
     /// Updates the drive mechanics state, and issues events accordingly.
     #[link_section = ".core1_text"]
     #[inline(always)]
-    pub fn update_state<H: HostInterface>(&mut self, full_state: u8, last_state: u8, hardware: &mut H, master_clock: u32) {
+    pub fn update_state<H: HostInterface>(
+        &mut self,
+        full_state: u8,
+        last_state: u8,
+        hardware: &mut H,
+        master_clock: u32,
+    ) {
         // :: Update stepper, motor and speed zones
         let state_changes = full_state ^ last_state;
 
@@ -171,7 +175,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
             self.surface.set_speed_zone(speed_zone);
             self.evaluate_track_identifier(new_track_identifier, master_clock);
         }
-        
+
         // :? Did stepper motor phase change? (PB0, PB1)
         let is_track_step = state_changes & MASK_STEP != 0;
         if is_track_step {
@@ -179,7 +183,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
             let last_phase = last_state & MASK_STEP;
             let new_phase = full_state & MASK_STEP;
             let delta = (new_phase.wrapping_sub(last_phase) & MASK_STEP) as i8;
-            
+
             let last_half_track_pos = self.halftrack_head_pos;
             let step: i8 = match delta {
                 1 => 1,  // Step IN
@@ -188,15 +192,16 @@ impl<S: MagneticSurface> DriveMechanics<S> {
             };
 
             if step != 0 {
-                self.halftrack_head_pos = (last_half_track_pos + step)
-                        .clamp(MIN_HALF_TRACK, MAX_HALF_TRACK);
+                self.halftrack_head_pos =
+                    (last_half_track_pos + step).clamp(MIN_HALF_TRACK, MAX_HALF_TRACK);
 
                 if self.halftrack_head_pos >= 0 && self.halftrack_head_pos <= MAX_HALF_TRACK {
                     let current_half_track = self.halftrack_head_pos as u8;
-                    let new_track_identifier = self.current_identifier.with_half_track(current_half_track);
+                    let new_track_identifier =
+                        self.current_identifier.with_half_track(current_half_track);
                     self.track_handle.update_head_half_track(current_half_track);
                     self.evaluate_track_identifier(new_track_identifier, master_clock);
-                    
+
                     hardware.track_changed(current_half_track);
                 }
             }
@@ -210,7 +215,11 @@ impl<S: MagneticSurface> DriveMechanics<S> {
 
     #[link_section = ".core1_text"]
     #[inline(always)]
-    fn evaluate_track_identifier(&mut self, new_track_identifier: TrackIdentifier, master_clock: u32) {
+    fn evaluate_track_identifier(
+        &mut self,
+        new_track_identifier: TrackIdentifier,
+        master_clock: u32,
+    ) {
         // :? Has identifier changed?
         if self.current_identifier != new_track_identifier {
             // -> Yes, then we need to update the track source.
@@ -223,18 +232,19 @@ impl<S: MagneticSurface> DriveMechanics<S> {
     #[inline(always)]
     fn evaluate_track_source(&mut self, master_clock: u32) {
         let loaded_identifier = self.track_handle.get_active_track_identifier();
-        
+
         if self.current_identifier == loaded_identifier {
             let length = self.track_handle.get_active_track_length() as u32;
             if length > 0 {
                 let stream = self.track_handle.get_active_track_buffer();
                 self.surface.set_stream_source(stream, master_clock);
             } else {
-                self.surface.set_stream_source(TrackBuffer::noise(), master_clock);
+                self.surface
+                    .set_stream_source(TrackBuffer::noise(), master_clock);
             }
         } else {
-            self.surface.set_stream_source(TrackBuffer::noise(), master_clock);
+            self.surface
+                .set_stream_source(TrackBuffer::noise(), master_clock);
         }
     }
-
 }

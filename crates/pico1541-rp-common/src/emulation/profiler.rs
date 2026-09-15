@@ -7,17 +7,25 @@ pub fn configure_sram_contention_counters() {
     BUSCTRL.perfsel(0).write(|w| w.set_perfsel(14.into())); // SRAM0 contested
     BUSCTRL.perfsel(1).write(|w| w.set_perfsel(12.into())); // SRAM1 contested
     BUSCTRL.perfsel(2).write(|w| w.set_perfsel(10.into())); // SRAM2 contested
-    BUSCTRL.perfsel(3).write(|w| w.set_perfsel(8.into()));  // SRAM3 contested
+    BUSCTRL.perfsel(3).write(|w| w.set_perfsel(8.into())); // SRAM3 contested
 }
 
 /// Clears all 4 counters to 0, effectively starting the profiling.
 #[link_section = ".core1_text"]
 #[inline(always)]
 pub fn start_profiling() {
-    BUSCTRL.perfctr(0).write_value(embassy_rp::pac::busctrl::regs::Perfctr(0));
-    BUSCTRL.perfctr(1).write_value(embassy_rp::pac::busctrl::regs::Perfctr(0));
-    BUSCTRL.perfctr(2).write_value(embassy_rp::pac::busctrl::regs::Perfctr(0));
-    BUSCTRL.perfctr(3).write_value(embassy_rp::pac::busctrl::regs::Perfctr(0));
+    BUSCTRL
+        .perfctr(0)
+        .write_value(embassy_rp::pac::busctrl::regs::Perfctr(0));
+    BUSCTRL
+        .perfctr(1)
+        .write_value(embassy_rp::pac::busctrl::regs::Perfctr(0));
+    BUSCTRL
+        .perfctr(2)
+        .write_value(embassy_rp::pac::busctrl::regs::Perfctr(0));
+    BUSCTRL
+        .perfctr(3)
+        .write_value(embassy_rp::pac::busctrl::regs::Perfctr(0));
 }
 
 /// Reads the counters, and prints a micro-stall report to the RTT log if any collision occurred.
@@ -30,9 +38,15 @@ pub fn snapshot_profiling() {
     let collisions_3 = BUSCTRL.perfctr(3).read();
 
     let total_collisions = collisions_0.0 + collisions_1.0 + collisions_2.0 + collisions_3.0;
-    
+
     if total_collisions > 0 {
-        defmt::warn!("AHB Contention! Total: {} (SRAM0: {}, SRAM1: {}, SRAM2: {}, SRAM3: {})", 
-            total_collisions, collisions_0.0, collisions_1.0, collisions_2.0, collisions_3.0);
+        defmt::warn!(
+            "AHB Contention! Total: {} (SRAM0: {}, SRAM1: {}, SRAM2: {}, SRAM3: {})",
+            total_collisions,
+            collisions_0.0,
+            collisions_1.0,
+            collisions_2.0,
+            collisions_3.0
+        );
     }
 }

@@ -29,9 +29,9 @@ fn main() {
                 "-s",
                 "524288", // 512KB
                 "-p",
-                "256",    // FLASH_PAGE_SIZE
+                "256", // FLASH_PAGE_SIZE
                 "-b",
-                "4096",   // FLASH_SECTOR_SIZE
+                "4096", // FLASH_SECTOR_SIZE
                 fs_bin.to_str().unwrap(),
             ])
             .status()

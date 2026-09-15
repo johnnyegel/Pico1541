@@ -24,17 +24,17 @@ impl ButtonManager {
     pub fn update(&mut self, current_state: u8, mut callback: impl FnMut(ButtonEvent)) {
         let bounce_mask = current_state ^ self.last_raw_state;
         let stable_mask = !bounce_mask;
-        
+
         let new_debounced = (self.debounced_state & bounce_mask) | (current_state & stable_mask);
         let changes = self.debounced_state ^ new_debounced;
-        
+
         self.debounced_state = new_debounced;
         self.last_raw_state = current_state;
 
         for i in 0..4 {
             let changed = (changes >> i) & 1;
             let bit = (self.debounced_state >> i) & 1;
-            
+
             let button = match i {
                 0 => Button::Back,
                 1 => Button::Down,

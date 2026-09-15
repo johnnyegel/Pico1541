@@ -1,9 +1,9 @@
 use cortex_m::peripheral::SYST;
-use pico1541_common::SYSTEM_CLOCK_FREQ;
 
 pub struct TimeKeeper {
     pub base_time_24: u32,
     pub idle_counter: u32,
+    sys_clock_freq: u32,
 }
 
 impl TimeKeeper {
@@ -15,10 +15,11 @@ impl TimeKeeper {
         0x00FFFFFF - SYST::get_current()
     }
 
-    pub fn new() -> Self {
+    pub fn new(sys_clock_freq: u32) -> Self {
         Self {
             base_time_24: 0,
             idle_counter: 0,
+            sys_clock_freq,
         }
     }
 
@@ -38,8 +39,8 @@ impl TimeKeeper {
     #[link_section = ".core1_text"]
     #[inline(always)]
     pub fn update_base(&mut self, current_cycles: u32) {
-        // 1 cycle = 1 us. At Core frequency, 1us = (SYSTEM_CLOCK_FREQ / 1_000_000) ticks.
-        let current_ticks = current_cycles.wrapping_mul(SYSTEM_CLOCK_FREQ / 1_000_000);
+        // 1 cycle = 1 us. At Core frequency, 1us = (sys_clock_freq / 1_000_000) ticks.
+        let current_ticks = current_cycles.wrapping_mul(self.sys_clock_freq / 1_000_000);
         self.base_time_24 = Self::now_24().wrapping_sub(current_ticks) & 0x00FFFFFF;
     }
 
@@ -47,13 +48,13 @@ impl TimeKeeper {
     #[inline(always)]
     pub fn spin_until(&mut self, target_cycle: u32) -> bool {
         // Use u64 to prevent a discontinuity every 17.18 seconds when target_cycle * 250 overflows u32
-        let target_ticks = target_cycle * (SYSTEM_CLOCK_FREQ / 1_000_000);
+        let target_ticks = target_cycle * (self.sys_clock_freq / 1_000_000);
         let target_time = self.base_time_24.wrapping_add(target_ticks) & 0x00FFFFFF;
 
         let mut did_wait = false;
         if target_time.wrapping_sub(Self::now_24()) & 0x00FFFFFF < 0x800000 {
             did_wait = true;
-            
+
             while target_time.wrapping_sub(Self::now_24()) & 0x00FFFFFF < 0x800000 {
                 self.idle_counter = self.idle_counter.wrapping_add(1);
             }
@@ -65,13 +66,14 @@ impl TimeKeeper {
     #[inline(always)]
     pub fn spin_until_half(&mut self, target_cycle: u32) -> bool {
         // Wait for target_cycle + 0.5 cycles
-        let target_ticks = target_cycle * (SYSTEM_CLOCK_FREQ / 1_000_000) + (SYSTEM_CLOCK_FREQ / 1_000_000) / 2;
+        let target_ticks = target_cycle * (self.sys_clock_freq / 1_000_000)
+            + (self.sys_clock_freq / 1_000_000) / 2;
         let target_time = self.base_time_24.wrapping_add(target_ticks) & 0x00FFFFFF;
 
         let mut did_wait = false;
         if target_time.wrapping_sub(Self::now_24()) & 0x00FFFFFF < 0x800000 {
             did_wait = true;
-            
+
             while target_time.wrapping_sub(Self::now_24()) & 0x00FFFFFF < 0x800000 {
                 self.idle_counter = self.idle_counter.wrapping_add(1);
             }

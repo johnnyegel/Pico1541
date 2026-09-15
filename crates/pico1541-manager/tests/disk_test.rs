@@ -49,9 +49,11 @@ fn test_gcr_encoding() {
 
 #[test]
 fn test_get_status_mode() {
-    use pico1541_manager::{get_status_mode, StatusLedMode, AnyDiskImage, MemoryStorage, D64Image, G64Image};
     use pico1541_manager::formats::VirtualDiskImage;
     use pico1541_manager::storage::StaticDirectorySource;
+    use pico1541_manager::{
+        get_status_mode, AnyDiskImage, D64Image, G64Image, MemoryStorage, StatusLedMode,
+    };
 
     // 1. None (Unmounted)
     assert_eq!(
@@ -77,4 +79,3 @@ fn test_get_status_mode() {
     let disk: AnyDiskImage<MemoryStorage, StaticDirectorySource> = AnyDiskImage::G64(g64);
     assert_eq!(get_status_mode(Some(&disk)), StatusLedMode::AccurateDisk);
 }
-

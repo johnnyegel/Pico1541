@@ -13,7 +13,11 @@ impl EmulatorTime {
 
     #[link_section = ".core1_text"]
     #[inline(always)]
-    pub fn sync_realtime<H: pico1541_common::interface::HostInterface>(&self, current_cycle: u32, hw: &mut H) {
+    pub fn sync_realtime<H: pico1541_common::interface::HostInterface>(
+        &self,
+        current_cycle: u32,
+        hw: &mut H,
+    ) {
         hw.spin_until(current_cycle);
     }
 

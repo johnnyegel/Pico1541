@@ -1,9 +1,8 @@
-use embassy_rp::flash::{Flash, Blocking};
+use embassy_rp::flash::{Blocking, Flash};
 use embassy_rp::peripherals::FLASH;
-use littlefs_rust::Storage;
-use littlefs_rust::Error;
 use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
-
+use littlefs_rust::Error;
+use littlefs_rust::Storage;
 
 // The RP2040 has 2MB of flash. We reserved 512KB at the end of flash.
 pub const FS_OFFSET: usize = 1536 * 1024;
@@ -32,7 +31,9 @@ impl<'d> Storage for FlashStorage<'d> {
 
     fn erase(&mut self, block: u32) -> Result<(), Error> {
         let abs_addr = (FS_OFFSET as u32) + (block * (FLASH_SECTOR_SIZE as u32));
-        self.flash.erase(abs_addr, abs_addr + (FLASH_SECTOR_SIZE as u32)).map_err(|_| Error::Io)
+        self.flash
+            .erase(abs_addr, abs_addr + (FLASH_SECTOR_SIZE as u32))
+            .map_err(|_| Error::Io)
     }
 
     fn sync(&mut self) -> Result<(), Error> {
@@ -51,7 +52,8 @@ impl ReadOnlyFlash {
 
 impl Storage for ReadOnlyFlash {
     fn read(&mut self, block: u32, offset: u32, buf: &mut [u8]) -> Result<(), Error> {
-        let abs_addr = 0x10000000 + (FS_OFFSET as u32) + (block * (FLASH_SECTOR_SIZE as u32)) + offset;
+        let abs_addr =
+            0x10000000 + (FS_OFFSET as u32) + (block * (FLASH_SECTOR_SIZE as u32)) + offset;
         let slice = unsafe { core::slice::from_raw_parts(abs_addr as *const u8, buf.len()) };
         buf.copy_from_slice(slice);
         Ok(())

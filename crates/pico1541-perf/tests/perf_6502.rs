@@ -2,8 +2,8 @@
 #![no_main]
 
 use defmt_rtt as _;
-use panic_probe as _;
 use embassy_rp as _;
+use panic_probe as _;
 
 use cortex_m::peripheral::SYST;
 
@@ -27,16 +27,13 @@ macro_rules! measure_cycles {
 mod tests {
     use super::*;
 
-
     // A simple loop that will execute continuously
     // 0800: CA        DEX
     // 0801: D0 FD     BNE 0800
     // 0803: 88        DEY
     // 0804: D0 FA     BNE 0800
     // 0806: 4C 06 08  JMP 0806
-    const ROM: [u8; 9] = [
-        0xCA, 0xD0, 0xFD, 0x88, 0xD0, 0xFA, 0x4C, 0x06, 0x08
-    ];
+    const ROM: [u8; 9] = [0xCA, 0xD0, 0xFD, 0x88, 0xD0, 0xFA, 0x4C, 0x06, 0x08];
 
     #[init]
     fn init() -> () {
@@ -47,24 +44,30 @@ mod tests {
     }
 
     // racc6502
-    struct RaccBus { memory: [u8; 65536] }
+    struct RaccBus {
+        memory: [u8; 65536],
+    }
     impl racc6502::bus::Bus for RaccBus {
         type Ctx = ();
-        fn read(&mut self, addr: u16, _ctx: &mut ()) -> u8 { self.memory[addr as usize] }
-        fn write(&mut self, addr: u16, val: u8, _ctx: &mut ()) { self.memory[addr as usize] = val; }
+        fn read(&mut self, addr: u16, _ctx: &mut ()) -> u8 {
+            self.memory[addr as usize]
+        }
+        fn write(&mut self, addr: u16, val: u8, _ctx: &mut ()) {
+            self.memory[addr as usize] = val;
+        }
     }
 
     #[test]
     fn test_racc6502() {
         use racc6502::cpu::CPU;
         let mut bus = RaccBus { memory: [0; 65536] };
-        bus.memory[0x0800..0x0800+ROM.len()].copy_from_slice(&ROM);
+        bus.memory[0x0800..0x0800 + ROM.len()].copy_from_slice(&ROM);
         bus.memory[0xFFFC] = 0x00;
         bus.memory[0xFFFD] = 0x08;
-        
+
         let mut cpu = CPU::new();
         cpu.reset();
-        
+
         let cycles = measure_cycles!({
             // tick() does 1 CPU cycle. 1000 instructions is approx 3000 cycles.
             // But let's step exactly 3000 ticks.
@@ -74,29 +77,35 @@ mod tests {
             core::hint::black_box(&cpu);
             core::hint::black_box(&bus);
         });
-        
+
         defmt::info!("racc6502 3000 ticks took {} CPU cycles", cycles);
     }
 
     // racc6502v2
-    struct Racc2Bus { memory: [u8; 65536] }
+    struct Racc2Bus {
+        memory: [u8; 65536],
+    }
     impl racc6502v2::bus::Bus for Racc2Bus {
         type Ctx = ();
-        fn read(&mut self, addr: u16, _ctx: &mut ()) -> u8 { self.memory[addr as usize] }
-        fn write(&mut self, addr: u16, val: u8, _ctx: &mut ()) { self.memory[addr as usize] = val; }
+        fn read(&mut self, addr: u16, _ctx: &mut ()) -> u8 {
+            self.memory[addr as usize]
+        }
+        fn write(&mut self, addr: u16, val: u8, _ctx: &mut ()) {
+            self.memory[addr as usize] = val;
+        }
     }
 
     #[test]
     fn test_racc6502v2() {
         use racc6502v2::cpu::CPU;
         let mut bus = Racc2Bus { memory: [0; 65536] };
-        bus.memory[0x0800..0x0800+ROM.len()].copy_from_slice(&ROM);
+        bus.memory[0x0800..0x0800 + ROM.len()].copy_from_slice(&ROM);
         bus.memory[0xFFFC] = 0x00;
         bus.memory[0xFFFD] = 0x08;
-        
+
         let mut cpu = CPU::new();
         cpu.reset();
-        
+
         let cycles = measure_cycles!({
             for _ in 0..3000 {
                 cpu.tick(&mut bus, &mut ());
@@ -104,34 +113,40 @@ mod tests {
             core::hint::black_box(&cpu);
             core::hint::black_box(&bus);
         });
-        
+
         defmt::info!("racc6502v2 3000 ticks took {} CPU cycles", cycles);
     }
 
     // racc6502v3
-    struct Racc3Bus { memory: [u8; 65536] }
+    struct Racc3Bus {
+        memory: [u8; 65536],
+    }
     impl racc6502v3::bus::Bus for Racc3Bus {
         type Ctx = ();
         #[unsafe(link_section = ".core1_text")]
         #[inline(always)]
-        fn read(&mut self, addr: u16, _cycle: u32, _ctx: &mut ()) -> u8 { self.memory[addr as usize] }
+        fn read(&mut self, addr: u16, _cycle: u32, _ctx: &mut ()) -> u8 {
+            self.memory[addr as usize]
+        }
 
         #[unsafe(link_section = ".core1_text")]
         #[inline(always)]
-        fn write(&mut self, addr: u16, val: u8, _cycle: u32, _ctx: &mut ()) { self.memory[addr as usize] = val; }
+        fn write(&mut self, addr: u16, val: u8, _cycle: u32, _ctx: &mut ()) {
+            self.memory[addr as usize] = val;
+        }
     }
 
     #[test]
     fn test_racc6502v3() {
         use racc6502v3::cpu::CPU;
         let mut bus = Racc3Bus { memory: [0; 65536] };
-        bus.memory[0x0800..0x0800+ROM.len()].copy_from_slice(&ROM);
+        bus.memory[0x0800..0x0800 + ROM.len()].copy_from_slice(&ROM);
         bus.memory[0xFFFC] = 0x00;
         bus.memory[0xFFFD] = 0x08;
-        
+
         let mut cpu = CPU::new();
         cpu.reset(&mut bus, &mut ());
-        
+
         let cycles = measure_cycles!({
             for _ in 0..1000 {
                 cpu.step(&mut bus, &mut ());
@@ -139,30 +154,38 @@ mod tests {
             core::hint::black_box(&cpu);
             core::hint::black_box(&bus);
         });
-        
+
         defmt::info!("racc6502v3 1000 instructions took {} CPU cycles", cycles);
     }
 
     // racc6502v4
-    pub struct Racc4Bus { memory: [u8; 65536] }
+    pub struct Racc4Bus {
+        memory: [u8; 65536],
+    }
     impl racc6502v4::bus::Bus for Racc4Bus {
         type Ctx = ();
-        fn read(&mut self, _ctx: &mut (), addr: u16, _cycle: u32) -> u8 { self.memory[addr as usize] }
-        fn get_instruction_ptr(&self, addr: u16) -> *const u8 { unsafe { self.memory.as_ptr().add(addr as usize) } }
-        fn write(&mut self, _ctx: &mut (), addr: u16, val: u8, _cycle: u32) { self.memory[addr as usize] = val; }
+        fn read(&mut self, _ctx: &mut (), addr: u16, _cycle: u32) -> u8 {
+            self.memory[addr as usize]
+        }
+        fn get_instruction_ptr(&self, addr: u16) -> *const u8 {
+            unsafe { self.memory.as_ptr().add(addr as usize) }
+        }
+        fn write(&mut self, _ctx: &mut (), addr: u16, val: u8, _cycle: u32) {
+            self.memory[addr as usize] = val;
+        }
     }
 
     #[test]
     fn test_racc6502v4() {
         use racc6502v4::cpu::CPU;
         let mut bus = Racc4Bus { memory: [0; 65536] };
-        bus.memory[0x0800..0x0800+ROM.len()].copy_from_slice(&ROM);
+        bus.memory[0x0800..0x0800 + ROM.len()].copy_from_slice(&ROM);
         bus.memory[0xFFFC] = 0x00;
         bus.memory[0xFFFD] = 0x08;
-        
+
         let mut cpu = CPU::new();
         cpu.reset(&mut bus, &mut ());
-        
+
         let cycles = measure_cycles!({
             for _ in 0..1000 {
                 cpu.step(&mut bus, &mut ());
@@ -170,7 +193,7 @@ mod tests {
             core::hint::black_box(&cpu);
             core::hint::black_box(&bus);
         });
-        
+
         defmt::info!("racc6502v4 1000 instructions took {} CPU cycles", cycles);
     }
 }
@@ -181,4 +204,3 @@ mod tests {
 pub fn inspect_racc6502v4_step(cpu: &mut racc6502v4::cpu::CPU, bus: &mut tests::Racc4Bus) {
     cpu.step(bus, &mut ());
 }
-

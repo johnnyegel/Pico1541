@@ -1,7 +1,7 @@
 use crate::driver::DisplayDriver;
 use crate::UiAction;
-use heapless::Vec;
 use core::fmt::Display;
+use heapless::Vec;
 
 pub enum MenuEvent {
     Selected(usize),
@@ -26,14 +26,14 @@ pub struct Menu<T, const N: usize, Title = &'static str> {
 impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T, N, Title> {
     pub fn new(title: Title, items: Vec<T, N>) -> Self {
         let mut buffer = core::array::from_fn(|_| None);
-        
+
         let total_count = items.len();
         for (i, item) in items.iter().enumerate() {
             if i < N {
                 buffer[i] = Some(item.clone());
             }
         }
-        
+
         let total_blocks = total_count.div_ceil(16);
         Self {
             title,
@@ -75,7 +75,7 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
             let discovered_total = block_index * 16 + block_items.len();
             if discovered_total < self.total_count {
                 self.total_count = discovered_total;
-                
+
                 // Clamp selected_index if we discovered the end is earlier than we thought
                 if self.total_count > 0 && self.selected_index >= self.total_count {
                     self.selected_index = self.total_count - 1;
@@ -90,7 +90,7 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
                 }
             }
         }
-        
+
         if self.start_block == self.end_block {
             self.start_block = block_index;
             self.end_block = block_index + 1;
@@ -131,7 +131,9 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
             let b = idx / 16;
             if b >= self.start_block && b < self.end_block {
                 let slot = b % (N / 16);
-                self.items.get(slot * 16 + (idx % 16)).and_then(|opt| opt.as_ref())
+                self.items
+                    .get(slot * 16 + (idx % 16))
+                    .and_then(|opt| opt.as_ref())
             } else {
                 None
             }
@@ -150,7 +152,7 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
         } else if self.selected_index >= self.scroll_offset + 5 {
             self.scroll_offset = self.selected_index - 4;
         }
-        
+
         if self.total_count > N {
             let current_block = self.selected_index / 16;
             // Use end_block as a proxy for known total_blocks when total is not yet known.
@@ -177,7 +179,7 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
             } else {
                 self.total_count.div_ceil(16)
             };
-            
+
             for offset in 1..=2 {
                 let tb = current_block + offset;
                 if tb < known_blocks && (tb < self.start_block || tb >= self.end_block) {
@@ -284,9 +286,9 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
         } else {
             next
         };
-        
+
         self.selected_index = next;
-        
+
         let mut new_scroll = self.selected_index.saturating_sub(diff);
         if self.selected_index < new_scroll {
             new_scroll = self.selected_index;
@@ -314,10 +316,10 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
 
     pub async fn render<D: DisplayDriver>(&self, display: &mut D) {
         display.print(0, self.title.as_ref()).await;
-        
+
         let screen_selected_line = (self.selected_index - self.scroll_offset + 1) as u8;
         display.set_selected_line(screen_selected_line);
-        
+
         for i in 0..5 {
             let item_idx = self.scroll_offset + i;
             // Stop rendering past the known total; if total is unknown render up to loaded range.
@@ -328,7 +330,11 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
             if let Some(item) = self.get_item(item_idx) {
                 let item_str_full = item.as_ref();
                 let is_mounted = item_str_full.starts_with('*');
-                let item_str = if is_mounted { &item_str_full[1..] } else { item_str_full };
+                let item_str = if is_mounted {
+                    &item_str_full[1..]
+                } else {
+                    item_str_full
+                };
 
                 let mut prefix_buf = [b' ', b' '];
                 if item_idx == self.selected_index {
@@ -340,9 +346,9 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
 
                 let len = item_str.len().min(62);
                 line_buf[0..2].copy_from_slice(&prefix_buf);
-                line_buf[2..2+len].copy_from_slice(&item_str.as_bytes()[..len]);
-                
-                if let Ok(s) = core::str::from_utf8(&line_buf[..2+len]) {
+                line_buf[2..2 + len].copy_from_slice(&item_str.as_bytes()[..len]);
+
+                if let Ok(s) = core::str::from_utf8(&line_buf[..2 + len]) {
                     display.print((i + 1) as u8, s).await;
                 }
             } else {
@@ -376,37 +382,56 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
 
             let action = match crate::ACTION_CHANNEL.try_receive() {
                 Ok(a) => a,
-                Err(_) => match embassy_time::with_timeout(embassy_time::Duration::from_millis(500), crate::ACTION_CHANNEL.receive()).await {
+                Err(_) => match embassy_time::with_timeout(
+                    embassy_time::Duration::from_millis(500),
+                    crate::ACTION_CHANNEL.receive(),
+                )
+                .await
+                {
                     Ok(a) => a,
                     Err(_) => return MenuEvent::Timeout,
-                }
+                },
             };
 
             let mut process_action = |a: UiAction| -> Option<MenuEvent> {
                 match a {
                     UiAction::ScrollUp => {
-                        if let Some(block) = self.move_up() { return Some(MenuEvent::LoadBlock(block)); }
+                        if let Some(block) = self.move_up() {
+                            return Some(MenuEvent::LoadBlock(block));
+                        }
                     }
                     UiAction::ScrollDown => {
-                        if let Some(block) = self.move_down() { return Some(MenuEvent::LoadBlock(block)); }
+                        if let Some(block) = self.move_down() {
+                            return Some(MenuEvent::LoadBlock(block));
+                        }
                     }
                     UiAction::FastScrollUp => {
-                        if let Some(block) = self.skip_up(5) { return Some(MenuEvent::LoadBlock(block)); }
+                        if let Some(block) = self.skip_up(5) {
+                            return Some(MenuEvent::LoadBlock(block));
+                        }
                     }
                     UiAction::FastScrollDown => {
-                        if let Some(block) = self.skip_down(5) { return Some(MenuEvent::LoadBlock(block)); }
+                        if let Some(block) = self.skip_down(5) {
+                            return Some(MenuEvent::LoadBlock(block));
+                        }
                     }
                     UiAction::SkipUp => {
-                        if let Some(block) = self.skip_up(48) { return Some(MenuEvent::LoadBlock(block)); }
+                        if let Some(block) = self.skip_up(48) {
+                            return Some(MenuEvent::LoadBlock(block));
+                        }
                     }
                     UiAction::SkipDown => {
-                        if let Some(block) = self.skip_down(48) { return Some(MenuEvent::LoadBlock(block)); }
+                        if let Some(block) = self.skip_down(48) {
+                            return Some(MenuEvent::LoadBlock(block));
+                        }
                     }
                     UiAction::Select => return Some(MenuEvent::Selected(self.selected_index)),
                     UiAction::Back => return Some(MenuEvent::Back),
                     UiAction::Home => return Some(MenuEvent::Home),
                     UiAction::Monitor => return Some(MenuEvent::Monitor),
-                    UiAction::ContextAction => return Some(MenuEvent::ContextAction(self.selected_index)),
+                    UiAction::ContextAction => {
+                        return Some(MenuEvent::ContextAction(self.selected_index))
+                    }
                 }
                 None
             };
@@ -446,9 +471,16 @@ fn target_blocks(current_block: usize, total_blocks: usize) -> [Option<usize>; 3
     } else if current_block == 0 {
         [Some(0), Some(1), Some(2)]
     } else if current_block + 1 >= total_blocks {
-        [Some(total_blocks - 1), Some(total_blocks - 2), Some(total_blocks - 3)]
+        [
+            Some(total_blocks - 1),
+            Some(total_blocks - 2),
+            Some(total_blocks - 3),
+        ]
     } else {
-        [Some(current_block), Some(current_block + 1), Some(current_block - 1)]
+        [
+            Some(current_block),
+            Some(current_block + 1),
+            Some(current_block - 1),
+        ]
     }
 }
-

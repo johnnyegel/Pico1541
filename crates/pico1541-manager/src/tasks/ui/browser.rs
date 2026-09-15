@@ -1,10 +1,12 @@
-use crate::driver::{DisplayDriver, FileStorageDriver, FileInfo, RgbLedDriver, StatusLedMode, IndicatorDriver};
-use crate::tasks::menu::{Menu, MenuEvent};
-use heapless::{String, Vec};
-use core::str::FromStr;
-use super::{PageState, parent_dir, join_path, UiContext};
 use super::monitor;
+use super::{join_path, parent_dir, PageState, UiContext};
+use crate::driver::{
+    DisplayDriver, FileInfo, FileStorageDriver, IndicatorDriver, RgbLedDriver, StatusLedMode,
+};
+use crate::tasks::menu::{Menu, MenuEvent};
 use crate::tasks::ui::virtual_directory::VirtualDirectoryManager;
+use core::str::FromStr;
+use heapless::{String, Vec};
 
 pub async fn run_sd_card_menu<D, L, Ind, S, Internal>(
     ctx: &mut UiContext<'_, D, L, Ind, S, Internal>,
@@ -32,7 +34,11 @@ where
     run_file_browser_menu(ctx, "Internal", true).await
 }
 
-async fn run_file_browser_menu<D, L, Ind, S, Internal>(ctx: &mut UiContext<'_, D, L, Ind, S, Internal>, title: &str, use_internal: bool) -> PageState
+async fn run_file_browser_menu<D, L, Ind, S, Internal>(
+    ctx: &mut UiContext<'_, D, L, Ind, S, Internal>,
+    title: &str,
+    use_internal: bool,
+) -> PageState
 where
     D: DisplayDriver + Clone,
     L: RgbLedDriver,
@@ -113,7 +119,9 @@ where
         let mut files_found = 0;
         for block_idx in initial_start_block..initial_start_block + 4 {
             if let Ok(infos) = manager.ensure_block_loaded(block_idx).await {
-                if infos.is_empty() { break; }
+                if infos.is_empty() {
+                    break;
+                }
                 files_found += infos.len();
                 let mut block_strings = Vec::<String<64>, 16>::new();
                 for info in infos.iter() {
@@ -160,7 +168,14 @@ where
                     return PageState::MainMenu;
                 }
                 MenuEvent::Monitor => {
-                    if monitor::run_monitor_page(ctx.display, manager.internal, ctx.config).await {
+                    if monitor::run_monitor_page(
+                        ctx.display,
+                        manager.internal,
+                        ctx.config,
+                        ctx.sys_clock_freq,
+                    )
+                    .await
+                    {
                         let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount);
                         ctx.leds.set_status(StatusLedMode::Unmounted);
                         return PageState::MainMenu;
@@ -180,7 +195,9 @@ where
         // Ensure exact cursor block is loaded
         while let Some(tb) = menu.set_cursor(cursor) {
             if let Ok(infos) = manager.ensure_block_loaded(tb).await {
-                if infos.is_empty() { break; }
+                if infos.is_empty() {
+                    break;
+                }
                 let mut block_strings = Vec::<String<64>, 16>::new();
                 for info in infos.iter() {
                     let mut s = String::<64>::new();
@@ -235,7 +252,8 @@ where
                                 let mut s = String::<64>::new();
                                 let name_str = core::str::from_utf8(&info.name).unwrap_or("???");
                                 let name_trimmed = name_str.trim_matches('\0');
-                                let file_path = join_path(manager.current_path.as_str(), name_trimmed);
+                                let file_path =
+                                    join_path(manager.current_path.as_str(), name_trimmed);
                                 if Some(file_path) == *ctx.mounted_file_path {
                                     let _ = s.push('*');
                                 }
@@ -269,35 +287,45 @@ where
             MenuEvent::Selected(idx) => {
                 let mut selected_infos = Vec::<FileInfo, 1>::new();
                 let fetch_res = if manager.use_internal {
-                    manager.internal.list_dir_range(manager.current_path.as_str(), idx, 1, |info| {
-                        let _ = selected_infos.push(info);
-                    }).await
+                    manager
+                        .internal
+                        .list_dir_range(manager.current_path.as_str(), idx, 1, |info| {
+                            let _ = selected_infos.push(info);
+                        })
+                        .await
                 } else {
-                    manager.storage.list_dir_range(manager.current_path.as_str(), idx, 1, |info| {
-                        let _ = selected_infos.push(info);
-                    }).await
+                    manager
+                        .storage
+                        .list_dir_range(manager.current_path.as_str(), idx, 1, |info| {
+                            let _ = selected_infos.push(info);
+                        })
+                        .await
                 };
-                
+
                 if fetch_res.is_err() || selected_infos.is_empty() {
                     log::error!("Failed to fetch selected item at index {}", idx);
                     cursor = 0;
                     continue;
                 }
-                
+
                 let selected = selected_infos[0];
                 if selected.is_dir {
                     *ctx.mounted_file_path = None;
-                    let dirname = core::str::from_utf8(&selected.name).unwrap_or("???").trim_matches('\0');
+                    let dirname = core::str::from_utf8(&selected.name)
+                        .unwrap_or("???")
+                        .trim_matches('\0');
                     let new_path = join_path(manager.current_path.as_str(), dirname);
                     *manager.current_path = new_path;
                     let _ = cursor_stack.push((cursor, menu.scroll_offset()));
                     cursor = 0;
                     scroll_offset = 0;
                 } else {
-                    let filename = core::str::from_utf8(&selected.name).unwrap_or("???").trim_matches('\0');
+                    let filename = core::str::from_utf8(&selected.name)
+                        .unwrap_or("???")
+                        .trim_matches('\0');
                     let mut full_path = String::<128>::new();
                     let current_path_val = manager.current_path.as_str();
-                    
+
                     if current_path_val == "/" {
                         let _ = full_path.push_str("/");
                         let _ = full_path.push_str(filename);
@@ -323,10 +351,20 @@ where
                     let is_g64 = filename.ends_with(".g64") || filename.ends_with(".G64");
 
                     if is_d64 {
-                        let _ = crate::CMD_CHANNEL.send(crate::InternalCommand::Mount(crate::MountPayload::D64(full_path.clone(), manager.use_internal))).await;
+                        let _ = crate::CMD_CHANNEL
+                            .send(crate::InternalCommand::Mount(crate::MountPayload::D64(
+                                full_path.clone(),
+                                manager.use_internal,
+                            )))
+                            .await;
                         *ctx.mounted_file_path = Some(full_path);
                     } else if is_g64 {
-                        let _ = crate::CMD_CHANNEL.send(crate::InternalCommand::Mount(crate::MountPayload::G64(full_path.clone(), manager.use_internal))).await;
+                        let _ = crate::CMD_CHANNEL
+                            .send(crate::InternalCommand::Mount(crate::MountPayload::G64(
+                                full_path.clone(),
+                                manager.use_internal,
+                            )))
+                            .await;
                         *ctx.mounted_file_path = Some(full_path);
                     } else {
                         // PRG or unsupported, do nothing for now
@@ -337,17 +375,24 @@ where
                 if manager.current_path.as_str() == "/" {
                     return PageState::MainMenu;
                 }
-                
+
                 let parent = parent_dir(manager.current_path.as_str());
                 *manager.current_path = String::from_str(parent).unwrap();
-                
+
                 let state = cursor_stack.pop().unwrap_or((0, 0));
                 cursor = state.0;
                 scroll_offset = state.1;
                 *ctx.mounted_file_path = None;
             }
             MenuEvent::Monitor => {
-                if monitor::run_monitor_page(ctx.display, manager.internal, ctx.config).await {
+                if monitor::run_monitor_page(
+                    ctx.display,
+                    manager.internal,
+                    ctx.config,
+                    ctx.sys_clock_freq,
+                )
+                .await
+                {
                     let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount);
                     ctx.leds.set_status(StatusLedMode::Unmounted);
                     return PageState::MainMenu;

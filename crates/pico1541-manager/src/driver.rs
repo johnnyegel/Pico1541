@@ -45,9 +45,11 @@ pub trait FileStorageDriver {
                 callback(info);
             }
             idx += 1;
-        }).await
+        })
+        .await
     }
-}/// Driver for the OLED/LCD display.
+}
+/// Driver for the OLED/LCD display.
 pub trait DisplayDriver {
     async fn clear(&mut self);
     async fn print(&mut self, line: u8, text: &str);

@@ -1,5 +1,5 @@
 use core::cmp;
-use embedded_io_async::{Read, Seek, SeekFrom, ErrorType};
+use embedded_io_async::{ErrorType, Read, Seek, SeekFrom};
 
 pub struct MemoryStorage<'a> {
     data: &'a [u8],
@@ -26,7 +26,7 @@ pub fn mangle_filename(name: &[u8]) -> [u8; 16] {
     let mut petscii = [0xA0; 16];
     let actual_len = name.iter().position(|&c| c == 0).unwrap_or(name.len());
     let actual_name = &name[..actual_len];
-    
+
     if actual_name.len() <= 16 {
         for (i, &b) in actual_name.iter().enumerate() {
             petscii[i] = ascii_to_petscii(b);
@@ -37,7 +37,7 @@ pub fn mangle_filename(name: &[u8]) -> [u8; 16] {
             petscii[i] = ascii_to_petscii(actual_name[i]);
         }
         petscii[13] = b'-'; // 0x2D is universally supported in PETSCII
-        
+
         if actual_len >= 2 {
             petscii[14] = ascii_to_petscii(actual_name[actual_len - 2]);
             petscii[15] = ascii_to_petscii(actual_name[actual_len - 1]);
@@ -84,13 +84,13 @@ impl DirectoryEntry {
 
     pub fn from_file_info(name: &[u8], is_dir: bool, size: u32) -> Self {
         let filename = mangle_filename(name);
-        
+
         let file_type = if is_dir {
             0x83 // USR for directories
         } else {
             0x82 // PRG
         };
-        
+
         Self {
             file_type,
             filename,
@@ -130,7 +130,12 @@ pub trait DirectorySource {
                 }
             }
             if match_found {
-                for &e_byte in entry.filename.iter().skip(filename.len()).take(16 - filename.len()) {
+                for &e_byte in entry
+                    .filename
+                    .iter()
+                    .skip(filename.len())
+                    .take(16 - filename.len())
+                {
                     if e_byte != 0xA0 {
                         match_found = false;
                         break;
@@ -357,7 +362,6 @@ impl<const N: usize> DirectorySource for PagedDirectorySource<N> {
         Some(self)
     }
 }
-
 
 pub trait FileStorage: Read + Seek {}
 impl<T: Read + Seek> FileStorage for T {}

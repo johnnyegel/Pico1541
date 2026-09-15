@@ -82,7 +82,8 @@ fn test_iec_send_byte() {
             let count = *self.1.borrow();
             if count == 0 {
                 false // Ready to receive (DATA released)
-            } else if count >= 1 + 8 { // 1 for ATN, 8 for data bits
+            } else if count >= 1 + 8 {
+                // 1 for ATN, 8 for data bits
                 true // Acknowledge byte (DATA pulled low)
             } else {
                 false

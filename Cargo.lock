@@ -407,6 +407,16 @@ dependencies = [
 
 [[package]]
 name = "defmt-rtt"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6eca0aae8aa2cf8333200ecbd236274697bc0a394765c858b3d9372eb1abcfa"
+dependencies = [
+ "critical-section",
+ "defmt 0.3.100",
+]
+
+[[package]]
+name = "defmt-rtt"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c0f73a4a4a91609e977ae3b7bd831ffa292edfd42ad140a3244a61d805b0e05e"
@@ -1537,7 +1547,7 @@ dependencies = [
  "cortex-m",
  "cortex-m-rt",
  "defmt 1.1.0",
- "defmt-rtt",
+ "defmt-rtt 1.2.0",
  "defmt-test",
  "embassy-rp",
  "embassy-time",
@@ -1549,6 +1559,42 @@ dependencies = [
  "racc6502v2",
  "racc6502v3",
  "racc6502v4",
+]
+
+[[package]]
+name = "pico1541-rp-common"
+version = "0.1.0"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
+ "critical-section",
+ "defmt 1.1.0",
+ "display-interface",
+ "display-interface-i2c",
+ "embassy-executor",
+ "embassy-futures",
+ "embassy-rp",
+ "embassy-sync",
+ "embassy-time",
+ "embedded-graphics",
+ "embedded-hal 1.0.0",
+ "embedded-hal-async",
+ "embedded-hal-bus",
+ "embedded-io",
+ "embedded-io-async",
+ "embedded-storage",
+ "embedded-timers",
+ "fatfs",
+ "heapless 0.9.3",
+ "littlefs-rust",
+ "pico1541-common",
+ "pico1541-emulator",
+ "pico1541-manager",
+ "pio",
+ "pio-proc",
+ "portable-atomic",
+ "ssd1306",
+ "static_cell",
 ]
 
 [[package]]
@@ -1586,11 +1632,56 @@ dependencies = [
  "pico1541-common",
  "pico1541-emulator",
  "pico1541-manager",
+ "pico1541-rp-common",
  "pio",
  "pio-proc",
  "portable-atomic",
  "rp-pac",
  "rp2040-boot2",
+ "ssd1306",
+ "static_cell",
+]
+
+[[package]]
+name = "pico1541-rp2350"
+version = "0.1.0"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
+ "critical-section",
+ "defmt 1.1.0",
+ "defmt-rtt 0.4.2",
+ "defmt-test",
+ "display-interface",
+ "display-interface-i2c",
+ "embassy-executor",
+ "embassy-futures",
+ "embassy-rp",
+ "embassy-sync",
+ "embassy-time",
+ "embassy-usb",
+ "embedded-alloc 0.7.0",
+ "embedded-graphics",
+ "embedded-hal 1.0.0",
+ "embedded-hal-async",
+ "embedded-hal-bus",
+ "embedded-io",
+ "embedded-io-async",
+ "embedded-storage",
+ "embedded-timers",
+ "fatfs",
+ "heapless 0.9.3",
+ "littlefs-rust",
+ "panic-halt",
+ "panic-probe",
+ "pico1541-common",
+ "pico1541-emulator",
+ "pico1541-manager",
+ "pico1541-rp-common",
+ "pio",
+ "pio-proc",
+ "portable-atomic",
+ "rp-pac",
  "ssd1306",
  "static_cell",
 ]

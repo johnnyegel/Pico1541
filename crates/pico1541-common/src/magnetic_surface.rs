@@ -4,7 +4,9 @@ pub trait MagneticSurface {
     /// Returns whether a SYNC mark is currently active.
     /// Default implementation returns `false` — PIO-based surfaces communicate
     /// sync state exclusively through try_read_byte() sentinel values.
-    fn is_sync_active(&self) -> bool { false }
+    fn is_sync_active(&self) -> bool {
+        false
+    }
     fn try_read_byte(&mut self, delta_cycles: u32) -> Option<u8>;
     fn get_absolute_head_position(&self, master_clock: u32) -> u32;
     fn set_motor_running(&mut self, is_running: bool, master_clock: u32);
@@ -27,7 +29,7 @@ pub struct SoftwareMagneticSurface {
 
 impl SoftwareMagneticSurface {
     pub fn new() -> Self {
-        Self { 
+        Self {
             stream: Some(TrackBuffer::noise()),
             stream_idx: 0,
             is_sync: false,
@@ -55,7 +57,7 @@ impl MagneticSurface for SoftwareMagneticSurface {
         self.cycle_counter -= self.cycle_limit;
 
         let mut assembled_byte = None;
-        
+
         for _ in 0..8 {
             if self.pending_bit_count == 0 {
                 let byte = if let Some(stream) = self.stream {
@@ -72,16 +74,16 @@ impl MagneticSurface for SoftwareMagneticSurface {
                 self.pending_bits = byte as u16;
                 self.pending_bit_count = 8;
             }
-            
+
             self.pending_bit_count -= 1;
             let bit = ((self.pending_bits >> self.pending_bit_count) & 1) as u8;
-            
+
             if bit == 1 {
                 self.sync_counter += 1;
             } else {
                 self.sync_counter = 0;
             }
-            
+
             if self.sync_counter >= 10 {
                 self.is_sync = true;
                 self.bits_in_reg = 0;
@@ -90,11 +92,11 @@ impl MagneticSurface for SoftwareMagneticSurface {
                     self.is_sync = false;
                     self.bits_in_reg = 0;
                 }
-                
+
                 if !self.is_sync {
                     self.bit_shift_reg = (self.bit_shift_reg << 1) | bit;
                     self.bits_in_reg += 1;
-                    
+
                     if self.bits_in_reg == 8 {
                         assembled_byte = Some(self.bit_shift_reg);
                         self.bits_in_reg = 0;
@@ -102,7 +104,7 @@ impl MagneticSurface for SoftwareMagneticSurface {
                 }
             }
         }
-        
+
         assembled_byte
     }
 
@@ -122,7 +124,7 @@ impl MagneticSurface for SoftwareMagneticSurface {
             _ => 32, // CYCLES_ZONE_0
         };
     }
-    
+
     fn set_stream_source(&mut self, stream: &'static TrackBuffer, _master_clock: u32) {
         self.stream = Some(stream);
         self.stream_idx = 0;
@@ -147,21 +149,25 @@ mod tests {
         active_buf[2] = 0xFE; // 11111110 (7 ones, then a 0)
         active_buf[3] = 0x55; // 01010101
         active_buf[4] = 0x55;
-        manager.commit_loaded_track(crate::track_buffer::TrackIdentifier(0), crate::track_buffer::TrackLayout::Accurate, 5);
+        manager.commit_loaded_track(
+            crate::track_buffer::TrackIdentifier(0),
+            crate::track_buffer::TrackLayout::Accurate,
+            5,
+        );
 
         let mut surface = SoftwareMagneticSurface::new();
         let stream = emulator.get_active_track_buffer();
         surface.set_stream_source(stream, 0);
         surface.set_motor_running(true, 0);
-        
-        let out0 = surface.try_read_byte(32); 
+
+        let out0 = surface.try_read_byte(32);
         assert_eq!(out0, Some(0x7F)); // The first byte is pushed normally
         assert!(!surface.is_sync_active());
 
         let out1 = surface.try_read_byte(32);
         assert_eq!(out1, None); // Now just None, sync_active goes true immediately!
         assert!(surface.is_sync_active());
-        
+
         // Next bytes should read out normal bytes
         let out2 = surface.try_read_byte(32); // Reading 0xFE. At the end, hits 0, exits sync!
         assert!(!surface.is_sync_active());

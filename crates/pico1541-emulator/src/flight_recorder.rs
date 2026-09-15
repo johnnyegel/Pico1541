@@ -32,4 +32,5 @@ impl FlightRecorder {
     }
 }
 
-pub static mut FLIGHT_RECORDER: core::mem::MaybeUninit<FlightRecorder> = core::mem::MaybeUninit::zeroed();
+pub static mut FLIGHT_RECORDER: core::mem::MaybeUninit<FlightRecorder> =
+    core::mem::MaybeUninit::zeroed();
