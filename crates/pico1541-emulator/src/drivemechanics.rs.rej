@@ -1,0 +1,10 @@
+--- drivemechanics.rs
++++ drivemechanics.rs
+@@ -166,6 +166,7 @@
+             let last_phase = last_state & pico1541_common::context::via::VIA2_MASK_STEP;
+             let new_phase = full_state & pico1541_common::context::via::VIA2_MASK_STEP;
+             let delta = (new_phase.wrapping_sub(last_phase) & pico1541_common::context::via::VIA2_MASK_STEP) as i8;
++            log::info!("STEP phase change: {} -> {} (delta {}), master_clock: {}", last_phase, new_phase, delta, master_clock);
+ 
+             let last_half_track_pos = self.halftrack_head_pos;
+             let step: i8 = match delta {

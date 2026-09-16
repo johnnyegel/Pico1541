@@ -9,7 +9,9 @@ build = "build.rs"
 pico1541-rp-common = { path = "../pico1541-rp-common", features = ["rp2040"] }
 pico1541-common = { path = "../pico1541-common" }
 pico1541-manager = { path = "../pico1541-manager" }
-pico1541-emulator = { path = "../pico1541-emulator", features = ["defmt"] }
+# uncomment to enable emulator logging
+# pico1541-emulator = { path = "../pico1541-emulator", features = ["defmt"] }
+pico1541-emulator = { path = "../pico1541-emulator" }
 
 #[profile.release]
 #opt-level = 3

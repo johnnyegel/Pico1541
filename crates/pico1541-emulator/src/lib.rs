@@ -20,6 +20,13 @@ macro_rules! emu_debug {
     ($($arg:tt)*) => {};
 }
 
+#[macro_export]
+#[allow(unused_macros)]
+#[cfg(all(not(feature = "logging"), not(feature = "defmt")))]
+macro_rules! emu_trace {
+    ($($arg:tt)*) => {};
+}
+
 #[allow(unused_macros)]
 #[cfg(all(feature = "logging", not(feature = "defmt")))]
 #[macro_export]
@@ -33,6 +40,11 @@ macro_rules! emu_warn { ($($arg:tt)*) => { log::warn!($($arg)*) } }
 #[cfg(all(feature = "logging", not(feature = "defmt")))]
 macro_rules! emu_debug { ($($arg:tt)*) => { log::debug!($($arg)*) } }
 
+#[macro_export]
+#[allow(unused_macros)]
+#[cfg(all(feature = "logging", not(feature = "defmt")))]
+macro_rules! emu_trace { ($($arg:tt)*) => { log::trace!($($arg)*) } }
+
 #[allow(unused_macros)]
 #[cfg(feature = "defmt")]
 #[macro_export]
@@ -45,6 +57,11 @@ macro_rules! emu_warn { ($($arg:tt)*) => { defmt::warn!($($arg)*) } }
 #[allow(unused_macros)]
 #[cfg(feature = "defmt")]
 macro_rules! emu_debug { ($($arg:tt)*) => { defmt::debug!($($arg)*) } }
+
+#[macro_export]
+#[allow(unused_macros)]
+#[cfg(feature = "defmt")]
+macro_rules! emu_trace { ($($arg:tt)*) => { defmt::trace!($($arg)*) } }
 
 pub mod drivemechanics;
 #[cfg(feature = "flight-recorder")]

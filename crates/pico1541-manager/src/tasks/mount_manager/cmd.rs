@@ -6,9 +6,9 @@ use embedded_io_async::{Read, Seek};
 use pico1541_common::track_buffer::TrackLayout;
 
 #[cfg(feature = "defmt")]
-use defmt::{error, info, warn};
+use defmt::{error, info, warn, debug, trace};
 #[cfg(not(feature = "defmt"))]
-use log::{error, info, warn};
+use log::{error, info, warn, debug, trace};
 
 impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver::RgbLedDriver>
     MountManagerTask<S, O, L>
@@ -100,23 +100,23 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
 
                 // 1. Unmount sequence (in case a disk was already there)
                 self.track_handle.set_active_layout(TrackLayout::Void);
-                info!("DISK SWAP: set_write_protected(true) -> LOW (sliding out)");
+                debug!("DISK SWAP: set_write_protected(true) -> LOW (sliding out)");
                 self.track_handle.set_write_protected(true); // LOW (sliding out)
                 embassy_time::Timer::after_millis(50).await;
-                info!("DISK SWAP: set_write_protected(false) -> HIGH (no disk)");
+                debug!("DISK SWAP: set_write_protected(false) -> HIGH (no disk)");
                 self.track_handle.set_write_protected(false); // HIGH (no disk)
 
                 let mut disk_opt = self.disk_image.as_mut();
                 if !disk_opt.is_none() {
                     embassy_time::Timer::after_millis(400).await;
-                    info!("DISK SWAP: set_write_protected(true) -> LOW (sliding in)");
+                    debug!("DISK SWAP: set_write_protected(true) -> LOW (sliding in)");
                     self.track_handle.set_write_protected(true); // LOW (sliding in)
                     embassy_time::Timer::after_millis(50).await;
-                    info!("DISK SWAP: set_write_protected(true) -> LOW (configured: always write protected)");
+                    debug!("DISK SWAP: set_write_protected(true) -> LOW (configured: always write protected)");
                     self.track_handle.set_write_protected(true); // LOW (configured: always write protected)
 
                     // Set force disk change flag
-                    info!("DISK SWAP: Setting force_disk_change flag");
+                    debug!("DISK SWAP: Setting force_disk_change flag");
                     self.track_handle.set_force_disk_change(true);
 
                     let half_track = self.track_handle.get_head_half_track();
@@ -218,10 +218,10 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
                 self.leds
                     .set_status(crate::driver::StatusLedMode::Unmounted);
                 self.track_handle.set_active_layout(TrackLayout::Void);
-                info!("DISK SWAP: set_write_protected(true) -> LOW (sliding out)");
+                debug!("DISK SWAP: set_write_protected(true) -> LOW (sliding out)");
                 self.track_handle.set_write_protected(true); // LOW (sliding out)
                 embassy_time::Timer::after_millis(50).await;
-                info!("DISK SWAP: set_write_protected(false) -> HIGH (no disk)");
+                debug!("DISK SWAP: set_write_protected(false) -> HIGH (no disk)");
                 self.track_handle.set_write_protected(false); // HIGH (no disk)
 
                 // Wait a bit for the C64 DOS to process the WP change before logging the final state
