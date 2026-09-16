@@ -7,6 +7,7 @@ use pico1541_common::snooper::{IecSnooper, SnooperConfig};
 use pico1541_common::util::bit_align_u32;
 use pico1541_common::DriveEvent;
 use pico1541_manager::{InternalCommand, CMD_CHANNEL, EVENT_CHANNEL, TRACK_REQUEST, TRACK_SIGNAL};
+use crate::driver::gpio::Gpio;
 
 use super::config::*;
 
@@ -36,6 +37,8 @@ pub struct HardwareBridge {
     _pins_iec: IecPins,
     _pins_led: LedPins,
     _pins_debug: DebugPins,
+    led_gpio: Gpio,
+    iec_reset_gpio: Gpio,
 }
 
 impl HardwareBridge {
@@ -55,6 +58,8 @@ impl HardwareBridge {
             _pins_iec: pins_iec,
             _pins_led: pins_led,
             _pins_debug: pins_debug,
+            led_gpio: Gpio::new(GPIO_LED_MASK_GREEN | GPIO_LED_MASK_RED),
+            iec_reset_gpio: Gpio::new(GPIO_IEC_MASK_RESET),
         };
         bridge
     }
@@ -144,16 +149,10 @@ impl ViaHardware for HardwareBridge {
     fn set_reset_state(&mut self, asserted: bool) {
         if asserted {
             // Turn off LEDs when reset is asserted, to indicate the drive is in reset state.
-            embassy_rp::pac::SIO
-                .gpio_out(0)
-                .value_clr()
-                .write_value(GPIO_LED_MASK_GREEN | GPIO_LED_MASK_RED);
+            self.led_gpio.write(0);
         } else {
             // Turn on the RED LED when reset is de-asserted, to indicate the drive is ready.
-            embassy_rp::pac::SIO
-                .gpio_out(0)
-                .value_set()
-                .write_value(GPIO_LED_MASK_RED);
+            self.led_gpio.write(GPIO_LED_MASK_RED);
         }
     }
 
@@ -161,7 +160,7 @@ impl ViaHardware for HardwareBridge {
     #[inline(always)]
     fn read_iec_port(&mut self) -> u8 {
         // Sample GPIO inputs
-        let pins = embassy_rp::pac::SIO.gpio_in(0).read();
+        let pins = Gpio::read_all();
 
         // Align the bits to match the VIA1 input register layout
         let data = bit_align_u32(
@@ -216,17 +215,7 @@ impl ViaHardware for HardwareBridge {
             set_mask = GPIO_LED_MASK_GREEN;
         }
 
-        let clr_mask = (GPIO_LED_MASK_RED | GPIO_LED_MASK_GREEN) & !set_mask;
-
-        // Clear before set
-        embassy_rp::pac::SIO
-            .gpio_out(0)
-            .value_clr()
-            .write_value(clr_mask);
-        embassy_rp::pac::SIO
-            .gpio_out(0)
-            .value_set()
-            .write_value(set_mask);
+        self.led_gpio.write(set_mask);
 
         if motor_on != self.motor_on {
             self.motor_on = motor_on;
@@ -254,7 +243,7 @@ impl ViaHardware for HardwareBridge {
     #[link_section = ".core1_text"]
     #[inline(always)]
     fn is_reset_line_asserted(&self) -> bool {
-        (embassy_rp::pac::SIO.gpio_in(0).read() & GPIO_IEC_MASK_RESET != 0)
+        (self.iec_reset_gpio.read() != 0)
             || self.check_halt_requested()
     }
 }
