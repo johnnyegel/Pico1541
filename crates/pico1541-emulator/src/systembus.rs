@@ -81,9 +81,9 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         self.mechanics.reset();
         self.device_id_pb_bits = (self.device_id & 0x03) << 5;
         self.via1.set_pb_in(0xFF);
-        self.last_via2_out = 0xFF;
-        self.mechanics
-            .update_state(self.via2.get_pb_out(), self.last_via2_out, hardware, 0);
+        // Initialize last_via2_out to the ACTUAL reset state of the VIA to prevent
+        // artificial phase changes triggering spurious track steps on boot.
+        self.last_via2_out = self.via2.get_pb_out();
 
         // Force the track manager to load the reset track
         hardware.track_changed(self.mechanics.half_track());
@@ -115,6 +115,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 
             if self.mechanics.pop_force_disk_change() {
                 self.mechanics.force_evaluate_track_source(current_cycle);
+                crate::emu_info!("DISK SWAP: Core 0 handled force_disk_change! RAM 0x001C flag is currently: {:02X}", self.memory.read(0x001C));
             }
         }
     }

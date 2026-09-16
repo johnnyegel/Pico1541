@@ -173,7 +173,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
                 & pico1541_common::context::via::VIA2_MASK_STEP) as i8;
 
             let last_half_track_pos = self.halftrack_head_pos;
-            log::info!("STEP phase change: {} -> {} (delta {}), master_clock: {}", last_phase, new_phase, delta, master_clock);
+            crate::emu_info!("RAW STEP EVENT: phase change: {} -> {} (delta {}), master_clock: {}", last_phase, new_phase, delta, master_clock);
             let step: i8 = match delta {
                 1 => 1,  // Step IN
                 3 => -1, // Step OUT
@@ -183,7 +183,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
             if step != 0 {
                 self.halftrack_head_pos =
                     (last_half_track_pos + step).clamp(MIN_HALF_TRACK, MAX_HALF_TRACK);
-                log::info!("STEP! Last: {}, Step: {}, New: {}", last_half_track_pos, step, self.halftrack_head_pos);
+                crate::emu_info!("PHYSICAL STEP: Last HT: {}, Step: {}, New HT: {}", last_half_track_pos, step, self.halftrack_head_pos);
 
                 if self.halftrack_head_pos >= 0 && self.halftrack_head_pos <= MAX_HALF_TRACK {
                     let current_half_track = self.halftrack_head_pos as u8;

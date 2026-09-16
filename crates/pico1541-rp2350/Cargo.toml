@@ -9,7 +9,7 @@ build = "build.rs"
 pico1541-rp-common = { path = "../pico1541-rp-common", features = ["rp235xa"] }
 pico1541-common = { path = "../pico1541-common" }
 pico1541-manager = { path = "../pico1541-manager" }
-pico1541-emulator = { path = "../pico1541-emulator" }
+pico1541-emulator = { path = "../pico1541-emulator", features = ["defmt"] }
 
 #[profile.release]
 #opt-level = 3

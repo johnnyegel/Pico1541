@@ -3,6 +3,7 @@ extern crate alloc;
 
 #[allow(unused_macros)]
 #[cfg(all(not(feature = "logging"), not(feature = "defmt")))]
+#[macro_export]
 macro_rules! emu_info {
     ($($arg:tt)*) => {};
 }
@@ -21,6 +22,7 @@ macro_rules! emu_debug {
 
 #[allow(unused_macros)]
 #[cfg(all(feature = "logging", not(feature = "defmt")))]
+#[macro_export]
 macro_rules! emu_info { ($($arg:tt)*) => { log::info!($($arg)*) } }
 
 #[allow(unused_macros)]
@@ -33,6 +35,7 @@ macro_rules! emu_debug { ($($arg:tt)*) => { log::debug!($($arg)*) } }
 
 #[allow(unused_macros)]
 #[cfg(feature = "defmt")]
+#[macro_export]
 macro_rules! emu_info { ($($arg:tt)*) => { defmt::info!($($arg)*) } }
 
 #[allow(unused_macros)]
