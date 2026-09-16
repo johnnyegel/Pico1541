@@ -5121,11 +5121,22 @@ pub fn op_cb<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
     let mut offset: u32 = 1;
     let mut page_cross = false;
 
-    {
+    let imm = {
         let v = cpu.read_pc(bus, ctx);
         offset += 1;
         v
     };
+    
+    let ax = cpu.a & cpu.x;
+    let result = ax.wrapping_sub(imm);
+    cpu.x = result;
+    cpu.set_zn(cpu.x);
+    if ax >= imm {
+        cpu.p |= FLAG_C;
+    } else {
+        cpu.p &= !FLAG_C;
+    }
+    
     2
 }
 
