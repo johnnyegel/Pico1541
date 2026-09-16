@@ -3843,7 +3843,7 @@ pub fn op_97<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
         offset += 1;
         v
     }
-    .wrapping_add(cpu.x) as u16;
+    .wrapping_add(cpu.y) as u16;
     {
         cpu.write(bus, ctx, offset, addr, cpu.a & cpu.x);
         offset += 1;
@@ -4597,7 +4597,7 @@ pub fn op_b7<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
         offset += 1;
         v
     }
-    .wrapping_add(cpu.x) as u16;
+    .wrapping_add(cpu.y) as u16;
     let val = {
         let v = cpu.read(bus, ctx, offset, addr);
         offset += 1;
@@ -4797,7 +4797,7 @@ pub fn op_bf<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
             offset += 2;
             v
         };
-        let a = base.wrapping_add(cpu.x as u16);
+        let a = base.wrapping_add(cpu.y as u16);
         page_cross = (a & 0xFF00) != (base & 0xFF00);
         a
     };
