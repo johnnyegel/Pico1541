@@ -1,27 +1,33 @@
-pub trait ViaHardware {
+pub mod via {
     // VIA1 constants for IEC bus
-    const VIA1_IEC_BIT_DATA_RX: usize = 0; // PB0
-    const VIA1_IEC_BIT_DATA_TX: usize = 1; // PB1
-    const VIA1_IEC_BIT_CLK_RX: usize = 2; // PB2
-    const VIA1_IEC_BIT_CLK_TX: usize = 3; // PB3
-    const VIA1_IEC_BIT_ATN_ACK: usize = 4; // PB4
-    const VIA1_IEC_BIT_ATN_RX: usize = 7; // PB7
+    pub const VIA1_IEC_BIT_DATA_RX: usize = 0; // PB0
+    pub const VIA1_IEC_BIT_DATA_TX: usize = 1; // PB1
+    pub const VIA1_IEC_BIT_CLK_RX: usize = 2; // PB2
+    pub const VIA1_IEC_BIT_CLK_TX: usize = 3; // PB3
+    pub const VIA1_IEC_BIT_ATN_ACK: usize = 4; // PB4
+    pub const VIA1_IEC_BIT_ATN_RX: usize = 7; // PB7
 
-    const VIA1_IEC_MASK_DATA_RX: u8 = 1 << Self::VIA1_IEC_BIT_DATA_RX; // PB0
-    const VIA1_IEC_MASK_DATA_TX: u8 = 1 << Self::VIA1_IEC_BIT_DATA_TX; // PB1
-    const VIA1_IEC_MASK_CLK_RX: u8 = 1 << Self::VIA1_IEC_BIT_CLK_RX; // PB2
-    const VIA1_IEC_MASK_CLK_TX: u8 = 1 << Self::VIA1_IEC_BIT_CLK_TX; // PB3
-    const VIA1_IEC_MASK_ATN_ACK: u8 = 1 << Self::VIA1_IEC_BIT_ATN_ACK; // PB4
-    const VIA1_IEC_MASK_ATN_RX: u8 = 1 << Self::VIA1_IEC_BIT_ATN_RX; // PB7
+    pub const VIA1_IEC_MASK_DATA_RX: u8 = 1 << VIA1_IEC_BIT_DATA_RX; // PB0
+    pub const VIA1_IEC_MASK_DATA_TX: u8 = 1 << VIA1_IEC_BIT_DATA_TX; // PB1
+    pub const VIA1_IEC_MASK_CLK_RX: u8 = 1 << VIA1_IEC_BIT_CLK_RX; // PB2
+    pub const VIA1_IEC_MASK_CLK_TX: u8 = 1 << VIA1_IEC_BIT_CLK_TX; // PB3
+    pub const VIA1_IEC_MASK_ATN_ACK: u8 = 1 << VIA1_IEC_BIT_ATN_ACK; // PB4
+    pub const VIA1_IEC_MASK_ATN_RX: u8 = 1 << VIA1_IEC_BIT_ATN_RX; // PB7
 
     // VIA2 constants for motor and LED control
-    const VIA2_BIT_MOTOR: usize = 2; // PB2
-    const VIA2_BIT_ACTLED: usize = 3; // PB3
+    pub const VIA2_BIT_MOTOR: usize = 2; // PB2
+    pub const VIA2_BIT_ACTLED: usize = 3; // PB3
 
-    const VIA2_MASK_MOTOR: u8 = 1 << Self::VIA2_BIT_MOTOR; // PB2
-    const VIA2_MASK_ACTLED: u8 = 1 << Self::VIA2_BIT_ACTLED; // PB3
-    const VIA2_MASK_LED_MOTOR: u8 = Self::VIA2_MASK_MOTOR | Self::VIA2_MASK_ACTLED;
+    pub const VIA2_MASK_MOTOR: u8 = 1 << VIA2_BIT_MOTOR; // PB2
+    pub const VIA2_MASK_ACTLED: u8 = 1 << VIA2_BIT_ACTLED; // PB3
+    pub const VIA2_MASK_LED_MOTOR: u8 = VIA2_MASK_MOTOR | VIA2_MASK_ACTLED;
 
+    pub const VIA2_MASK_STEP: u8 = 0x03; // PB0, PB1
+    pub const VIA2_MASK_SPEED_ZONE: u8 = 0x60; // PB5, PB6
+    pub const VIA2_SHIFT_SPEED_ZONE: u8 = 5; // Shift right by 5 to get the speed zone value (0-3)
+}
+
+pub trait ViaHardware {
     // Hardware interface methods (HAL)
 
     /// Sets the reset state of the drive, so the hardware can configure LEDs or other indicators accordingly.

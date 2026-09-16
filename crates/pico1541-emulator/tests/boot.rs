@@ -160,7 +160,7 @@ fn test_dir_listing_virtual() {
     {
         let manager = bridge.buffer.split().0;
         let inactive = manager.get_dormant_buffer_mut();
-        inactive.data.copy_from_slice(&gcr_data);
+        unsafe { (*inactive.data).copy_from_slice(&gcr_data); }
         inactive.layout = layout.0;
         inactive.length = layout.1;
         inactive.identifier = pico1541_common::track_buffer::TrackIdentifier::new(
@@ -405,7 +405,7 @@ fn test_dir_listing_stable() {
     {
         let manager = bridge.buffer.split().0;
         let inactive = manager.get_dormant_buffer_mut();
-        inactive.data.copy_from_slice(&gcr_data);
+        unsafe { (*inactive.data).copy_from_slice(&gcr_data); }
         inactive.layout = layout.0;
         inactive.length = layout.1;
         inactive.identifier = pico1541_common::track_buffer::TrackIdentifier::new(
@@ -525,7 +525,7 @@ fn test_dir_listing_stable() {
     {
         let manager = bridge.buffer.split().0;
         let inactive = manager.get_dormant_buffer_mut();
-        inactive.data.copy_from_slice(&gcr_data);
+        unsafe { (*inactive.data).copy_from_slice(&gcr_data); }
         inactive.layout = layout2.0;
         inactive.length = layout2.1;
         inactive.identifier = pico1541_common::track_buffer::TrackIdentifier::new(

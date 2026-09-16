@@ -18,7 +18,7 @@ static DUMMY_ROM: [u8; 16384] = [0; 16384];
 #[test]
 fn test_bvc_so_timing() {
     let mut hw = MockHardware;
-    let hw_buffer = Box::leak(Box::new(DualCoreTrackBuffer::new()));
+    let hw_buffer = Box::leak(Box::new(DualCoreTrackBuffer::new(std::ptr::null_mut())));
     let (manager, emulator) = hw_buffer.split();
     let surface = SoftwareMagneticSurface::new();
 

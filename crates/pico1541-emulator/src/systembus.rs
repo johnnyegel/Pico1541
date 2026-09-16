@@ -99,23 +99,22 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         if self.is_motor_on() {
             // -> Yes, then poll the drive mechanics for motor-on behavior
             self.poll_mechanics_motor_on(elapsed, current_cycle);
-        } else {
-            // -> No, then handle device ID and write-protect state changes
-            // NOTE! While these can change when motor is ON, it is not actually a prime use case!
-            if (current_cycle ^ current_cycle.wrapping_sub(elapsed)) & !0x3FF != 0 {
-                self.device_id = hardware.get_device_id();
-                self.device_id_pb_bits = (self.device_id & 0x03) << 5;
+        }
 
-                let wp = self.mechanics.is_write_protected();
-                if wp {
-                    self.via2.set_pb_in(self.via2.pb_in() & !0x10);
-                } else {
-                    self.via2.set_pb_in(self.via2.pb_in() | 0x10);
-                }
+        // Handle device ID and write-protect state changes
+        if (current_cycle ^ current_cycle.wrapping_sub(elapsed)) & !0x3FF != 0 {
+            self.device_id = hardware.get_device_id();
+            self.device_id_pb_bits = (self.device_id & 0x03) << 5;
 
-                if self.mechanics.pop_force_disk_change() {
-                    self.mechanics.force_evaluate_track_source(current_cycle);
-                }
+            let wp = self.mechanics.is_write_protected();
+            if wp {
+                self.via2.set_pb_in(self.via2.pb_in() & !0x10);
+            } else {
+                self.via2.set_pb_in(self.via2.pb_in() | 0x10);
+            }
+
+            if self.mechanics.pop_force_disk_change() {
+                self.mechanics.force_evaluate_track_source(current_cycle);
             }
         }
     }
@@ -125,7 +124,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
     pub fn sync_iec_bus(&mut self, hardware: &mut H, _current_cycle: u32) {
         // :: Handle IEC via inputs and VIA1 CA1 edge detection
         let iec_in = hardware.read_iec_port() | self.device_id_pb_bits;
-        let curr_atn = iec_in & H::VIA1_IEC_MASK_ATN_RX != 0;
+        let curr_atn = iec_in & pico1541_common::context::via::VIA1_IEC_MASK_ATN_RX != 0;
         self.via1.set_pb_in(iec_in);
         self.via1.set_ca1(curr_atn);
 

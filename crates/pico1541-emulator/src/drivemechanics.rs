@@ -6,7 +6,6 @@ pub struct ReadHeadSignals {
     pub is_sync: bool,
 }
 
-#[cfg(feature = "debug")]
 use crate::via6522::Via6522;
 
 // The read head steps in half-track increments, so we represent the head position in half-tracks (0.5 track steps).
@@ -18,17 +17,6 @@ use crate::via6522::Via6522;
 const MIN_HALF_TRACK: i8 = -2;
 const MAX_HALF_TRACK: i8 = 85; // Half-track 85 corresponds to Track 42.5, which is the maximum physical reach of the head on a 1541 drive.
 const INITIAL_HALF_TRACK: i8 = 34; // Start at track 18 (Half-track 34)
-
-// Masks for individual hardware state bits on VIA2 Port B
-const MASK_MOTOR: u8 = 0x04;
-const MASK_STEP: u8 = 0x03;
-#[cfg(feature = "debug")]
-const MASK_LED: u8 = 0x08;
-
-// Mask used to determine the last state of stepper motor phases (PB0, PB1), MOTOR bit and ACT LED and (PB2, PB3)
-const MASK_SPEED_ZONE: u8 = 0x60;
-
-const SHIFT_SPEED_ZONE: u8 = 5;
 
 /// DriveMechanics struct to represent the state of the drive's mechanical components, such as the head position and motor state.
 pub struct DriveMechanics<S: MagneticSurface> {
@@ -96,18 +84,16 @@ impl<S: MagneticSurface> DriveMechanics<S> {
         self.surface.get_absolute_head_position(0) as usize
     }
 
-    #[cfg(feature = "debug")]
     #[link_section = ".core1_text"]
     #[inline(always)]
     pub fn led_on(&self, via2: &Via6522) -> bool {
-        (via2.get_pb_out() & MASK_LED) != 0
+        (via2.get_pb_out() & pico1541_common::context::via::VIA2_MASK_ACTLED) != 0
     }
 
-    #[cfg(feature = "debug")]
     #[link_section = ".core1_text"]
     #[inline(always)]
     pub fn motor_on(&self, via2: &Via6522) -> bool {
-        (via2.get_pb_out() & MASK_MOTOR) != 0
+        (via2.get_pb_out() & pico1541_common::context::via::VIA2_MASK_MOTOR) != 0
     }
 
     #[link_section = ".core1_text"]
@@ -168,23 +154,26 @@ impl<S: MagneticSurface> DriveMechanics<S> {
         let state_changes = full_state ^ last_state;
 
         // :? Did speed-zone change? (PB5, PB6)
-        if (state_changes & MASK_SPEED_ZONE) != 0 {
+        if (state_changes & pico1541_common::context::via::VIA2_MASK_SPEED_ZONE) != 0 {
             // -> Yes, then update the speed zone and evaluate the track identifier.
-            let speed_zone = (full_state & MASK_SPEED_ZONE) >> SHIFT_SPEED_ZONE;
+            let speed_zone = (full_state & pico1541_common::context::via::VIA2_MASK_SPEED_ZONE)
+                >> pico1541_common::context::via::VIA2_SHIFT_SPEED_ZONE;
             let new_track_identifier = self.current_identifier.with_speed_zone(speed_zone);
             self.surface.set_speed_zone(speed_zone);
             self.evaluate_track_identifier(new_track_identifier, master_clock);
         }
 
         // :? Did stepper motor phase change? (PB0, PB1)
-        let is_track_step = state_changes & MASK_STEP != 0;
+        let is_track_step = state_changes & pico1541_common::context::via::VIA2_MASK_STEP != 0;
         if is_track_step {
             // -> Yes, then determine the direction and the next track position.
-            let last_phase = last_state & MASK_STEP;
-            let new_phase = full_state & MASK_STEP;
-            let delta = (new_phase.wrapping_sub(last_phase) & MASK_STEP) as i8;
+            let last_phase = last_state & pico1541_common::context::via::VIA2_MASK_STEP;
+            let new_phase = full_state & pico1541_common::context::via::VIA2_MASK_STEP;
+            let delta = (new_phase.wrapping_sub(last_phase)
+                & pico1541_common::context::via::VIA2_MASK_STEP) as i8;
 
             let last_half_track_pos = self.halftrack_head_pos;
+            log::info!("STEP phase change: {} -> {} (delta {}), master_clock: {}", last_phase, new_phase, delta, master_clock);
             let step: i8 = match delta {
                 1 => 1,  // Step IN
                 3 => -1, // Step OUT
@@ -194,6 +183,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
             if step != 0 {
                 self.halftrack_head_pos =
                     (last_half_track_pos + step).clamp(MIN_HALF_TRACK, MAX_HALF_TRACK);
+                log::info!("STEP! Last: {}, Step: {}, New: {}", last_half_track_pos, step, self.halftrack_head_pos);
 
                 if self.halftrack_head_pos >= 0 && self.halftrack_head_pos <= MAX_HALF_TRACK {
                     let current_half_track = self.halftrack_head_pos as u8;
@@ -207,8 +197,8 @@ impl<S: MagneticSurface> DriveMechanics<S> {
             }
         }
 
-        if (state_changes & MASK_MOTOR) != 0 {
-            let motor_on = (full_state & MASK_MOTOR) != 0;
+        if (state_changes & pico1541_common::context::via::VIA2_MASK_MOTOR) != 0 {
+            let motor_on = (full_state & pico1541_common::context::via::VIA2_MASK_MOTOR) != 0;
             self.surface.set_motor_running(motor_on, master_clock);
         }
     }

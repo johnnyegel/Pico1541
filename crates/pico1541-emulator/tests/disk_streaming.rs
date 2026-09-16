@@ -50,7 +50,7 @@ use pico1541_common::track_buffer::TrackLayout;
 fn test_disk_streaming_data() {
     let track_bytes = 8000;
     let buffer = Box::leak(Box::new(
-        pico1541_common::track_buffer::DualCoreTrackBuffer::new(),
+        pico1541_common::track_buffer::DualCoreTrackBuffer::new(Box::into_raw(Box::new([[0u8; 8192]; 2]))),
     ));
     let (manager, emulator) = buffer.split();
     let mut hardware = TestBridge::new(8, buffer);
@@ -107,7 +107,7 @@ fn test_disk_streaming_data() {
 #[test]
 fn test_disk_streaming_sync() {
     let buffer = Box::leak(Box::new(
-        pico1541_common::track_buffer::DualCoreTrackBuffer::new(),
+        pico1541_common::track_buffer::DualCoreTrackBuffer::new(Box::into_raw(Box::new([[0u8; 8192]; 2]))),
     ));
     let (manager, emulator) = buffer.split();
     let mut hardware = TestBridge::new(8, buffer);
@@ -205,7 +205,7 @@ fn test_disk_streaming_sync() {
 fn test_disk_bitrate_zones() {
     let track_bytes = 8000;
     let buffer = Box::leak(Box::new(
-        pico1541_common::track_buffer::DualCoreTrackBuffer::new(),
+        pico1541_common::track_buffer::DualCoreTrackBuffer::new(Box::into_raw(Box::new([[0u8; 8192]; 2]))),
     ));
     let (manager, emulator) = buffer.split();
     let mut hardware = TestBridge::new(8, buffer);

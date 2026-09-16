@@ -30,7 +30,7 @@ pub fn setup_drive(
         .try_init();
 
     let buffer = Box::leak(Box::new(
-        pico1541_common::track_buffer::DualCoreTrackBuffer::new(),
+        pico1541_common::track_buffer::DualCoreTrackBuffer::new(Box::into_raw(Box::new([[0u8; 8192]; 2]))),
     ));
     let (_manager, emulator) = buffer.split();
 
@@ -109,7 +109,7 @@ where
             manager.duplicate_active_to_inactive();
             let inactive = manager.get_dormant_buffer_mut();
 
-            let layout = block_on(self.image.read_track(track_ht, &mut inactive.data)).unwrap_or((
+            let layout = block_on(self.image.read_track(track_ht, unsafe { &mut *inactive.data })).unwrap_or((
                 TrackLayout::Void,
                 0,
                 None,
@@ -281,20 +281,20 @@ impl ViaHardware for TestBridge {
         }
 
         if combined.get_data() {
-            val |= Self::VIA1_IEC_MASK_DATA_RX;
+            val |= pico1541_common::context::via::VIA1_IEC_MASK_DATA_RX;
         } // 1 = asserted
         if combined.get_clk() {
-            val |= Self::VIA1_IEC_MASK_CLK_RX;
+            val |= pico1541_common::context::via::VIA1_IEC_MASK_CLK_RX;
         } // 1 = asserted
         if combined.get_atn() {
-            val |= Self::VIA1_IEC_MASK_ATN_RX;
+            val |= pico1541_common::context::via::VIA1_IEC_MASK_ATN_RX;
         } // 1 = asserted
         val
     }
 
     fn write_iec_port(&mut self, via_port_b: u8) {
-        let assert_data = (via_port_b & Self::VIA1_IEC_MASK_DATA_TX) != 0;
-        let assert_clk = (via_port_b & Self::VIA1_IEC_MASK_CLK_TX) != 0;
+        let assert_data = (via_port_b & pico1541_common::context::via::VIA1_IEC_MASK_DATA_TX) != 0;
+        let assert_clk = (via_port_b & pico1541_common::context::via::VIA1_IEC_MASK_CLK_TX) != 0;
         self.drive_iec.set_data(assert_data);
         self.drive_iec.set_clk(assert_clk);
     }

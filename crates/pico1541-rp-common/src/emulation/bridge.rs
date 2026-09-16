@@ -166,17 +166,17 @@ impl ViaHardware for HardwareBridge {
         let data = bit_align_u32(
             pins & GPIO_IEC_MASK_DATA_RX,
             GPIO_IEC_BIT_DATA_RX,
-            Self::VIA1_IEC_BIT_DATA_RX,
+            pico1541_common::context::via::VIA1_IEC_BIT_DATA_RX,
         ) as u8;
         let clk = bit_align_u32(
             pins & GPIO_IEC_MASK_CLK_RX,
             GPIO_IEC_BIT_CLK_RX,
-            Self::VIA1_IEC_BIT_CLK_RX,
+            pico1541_common::context::via::VIA1_IEC_BIT_CLK_RX,
         ) as u8;
         let atn = bit_align_u32(
             pins & GPIO_IEC_MASK_ATN_RX,
             GPIO_IEC_BIT_ATN_RX,
-            Self::VIA1_IEC_BIT_ATN_RX,
+            pico1541_common::context::via::VIA1_IEC_BIT_ATN_RX,
         ) as u8;
 
         // Return the combined value in the VIA1 input register format
@@ -192,9 +192,9 @@ impl ViaHardware for HardwareBridge {
         // Bit 2: PB4 (ATNA)
 
         // NOTE! We align and mask the bits to their target positions in the PIO command format
-        let clk_out = (via_port_b >> Self::VIA1_IEC_BIT_CLK_TX) & 1;
-        let pb1 = (via_port_b >> (Self::VIA1_IEC_BIT_DATA_TX - 1)) & 2;
-        let pb4 = (via_port_b >> (Self::VIA1_IEC_BIT_ATN_ACK - 2)) & 4;
+        let clk_out = (via_port_b >> pico1541_common::context::via::VIA1_IEC_BIT_CLK_TX) & 1;
+        let pb1 = (via_port_b >> (pico1541_common::context::via::VIA1_IEC_BIT_DATA_TX - 1)) & 2;
+        let pb4 = (via_port_b >> (pico1541_common::context::via::VIA1_IEC_BIT_ATN_ACK - 2)) & 4;
 
         // Combine the bits into a single command for the PIO state machine
         let pio_cmd = clk_out | pb1 | pb4;
@@ -205,8 +205,8 @@ impl ViaHardware for HardwareBridge {
     #[link_section = ".core1_text"]
     #[inline(always)]
     fn write_mechanics_port(&mut self, via_port_b: u8) {
-        let motor_on = (via_port_b & Self::VIA2_MASK_MOTOR) != 0;
-        let act_on = (via_port_b & Self::VIA2_MASK_ACTLED) != 0;
+        let motor_on = (via_port_b & pico1541_common::context::via::VIA2_MASK_MOTOR) != 0;
+        let act_on = (via_port_b & pico1541_common::context::via::VIA2_MASK_ACTLED) != 0;
 
         let mut set_mask = 0;
         if act_on {

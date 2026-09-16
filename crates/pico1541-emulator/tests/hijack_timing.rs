@@ -25,7 +25,7 @@ fn test_hijack_latency() {
     };
     static DRIVE_ROM: [u8; 16384] = [0u8; 16384];
     let handle = Box::leak(Box::new(
-        pico1541_common::track_buffer::DualCoreTrackBuffer::new(),
+        pico1541_common::track_buffer::DualCoreTrackBuffer::new(std::ptr::null_mut()),
     ))
     .split()
     .1;

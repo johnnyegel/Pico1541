@@ -16,7 +16,7 @@ impl HostInterface for MockHardware {
 fn test_hle_intercept_command_patches_ram() {
     static ROM: [u8; 0x4000] = [0; 0x4000];
     let handle = Box::leak(Box::new(
-        pico1541_common::track_buffer::DualCoreTrackBuffer::new(),
+        pico1541_common::track_buffer::DualCoreTrackBuffer::new(std::ptr::null_mut()),
     ))
     .split()
     .1;

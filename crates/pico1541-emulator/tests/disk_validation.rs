@@ -40,7 +40,7 @@ impl HostInterface for MockHardware {
 
 #[test]
 fn test_g64_track_reading_low_level() {
-    let hw_buffer = Box::leak(Box::new(DualCoreTrackBuffer::new()));
+    let hw_buffer = Box::leak(Box::new(DualCoreTrackBuffer::new(std::ptr::null_mut())));
     let handle = hw_buffer.split().1;
     let surface = SoftwareMagneticSurface::new();
     let mut bus = get_system_bus(surface, handle);
