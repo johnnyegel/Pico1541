@@ -1,6 +1,8 @@
 use core::cmp::min;
+
 use embedded_hal::digital::OutputPin;
 use embedded_hal::spi::SpiBus;
+use pico1541_manager::driver::ResettableBlockDevice;
 
 #[derive(Debug, defmt::Format)]
 pub enum SdError {
@@ -483,5 +485,16 @@ where
 
     fn flush(&mut self) -> Result<(), Self::Error> {
         Ok(())
+    }
+}
+
+impl<Spi, Cs, Delay> ResettableBlockDevice for SdBlockIo<Spi, Cs, Delay>
+where
+    Spi: SpiBus + SpiFreq + 'static,
+    Cs: OutputPin + 'static,
+    Delay: embedded_hal::delay::DelayNs + 'static,
+{
+    fn reset(&mut self) {
+        SdBlockIo::reset(self);
     }
 }

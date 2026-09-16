@@ -4,11 +4,13 @@ import sys
 import os
 import struct
 
+CHIP = "rp235x"
+
 ELF_PATHS = [
-    "target/thumbv6m-none-eabi/release/pico1541-rp2040-main",
-    "target/thumbv6m-none-eabi/debug/pico1541-rp2040-main",
-    "target/thumbv6m-none-eabi/release/pico1541-rp2040",
-    "target/thumbv6m-none-eabi/debug/pico1541-rp2040"
+    f"target/thumbv8m.main-none-eabihf/release/pico1541-rp2350",
+    f"target/thumbv8m.main-none-eabihf/debug/pico1541-rp2350",
+    f"target/thumbv6m-none-eabi/release/pico1541-rp2040",
+    f"target/thumbv6m-none-eabi/debug/pico1541-rp2040"
 ]
 
 def get_ram_pointer_address(nm_path):
@@ -24,7 +26,7 @@ def get_ram_pointer_address(nm_path):
     return None
 
 def read_memory_binary(addr, size, filename):
-    cmd = ["probe-rs", "read", "b8", str(addr), str(size), "--output", filename, "-f", "binary", "--chip", "RP2040"]
+    cmd = ["probe-rs", "read", "b8", str(addr), str(size), "--output", filename, "-f", "binary", "--chip", CHIP]
     result = subprocess.run(cmd)
     if result.returncode != 0:
         print(f"Error running probe-rs", file=sys.stderr)
@@ -33,6 +35,8 @@ def read_memory_binary(addr, size, filename):
         return f.read()
 
 def main():
+    print(f"Target CHIP is {CHIP}")
+
     if len(sys.argv) > 1:
         addr = int(sys.argv[1], 0)
         print(f"Using provided RAM_POINTER address: {hex(addr)}")

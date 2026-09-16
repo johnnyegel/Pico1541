@@ -1,4 +1,5 @@
 use super::timekeeper::TimeKeeper;
+use crate::driver::gpio::Gpio;
 use core::sync::atomic::Ordering;
 use embassy_rp::gpio::{Input, Output};
 use pico1541_common::context::ViaHardware;
@@ -7,7 +8,6 @@ use pico1541_common::snooper::{IecSnooper, SnooperConfig};
 use pico1541_common::util::bit_align_u32;
 use pico1541_common::DriveEvent;
 use pico1541_manager::{InternalCommand, CMD_CHANNEL, EVENT_CHANNEL, TRACK_REQUEST, TRACK_SIGNAL};
-use crate::driver::gpio::Gpio;
 
 use super::config::*;
 
@@ -243,8 +243,7 @@ impl ViaHardware for HardwareBridge {
     #[link_section = ".core1_text"]
     #[inline(always)]
     fn is_reset_line_asserted(&self) -> bool {
-        (self.iec_reset_gpio.read() != 0)
-            || self.check_halt_requested()
+        (self.iec_reset_gpio.read() != 0) || self.check_halt_requested()
     }
 }
 

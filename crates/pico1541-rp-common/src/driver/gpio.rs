@@ -35,7 +35,6 @@ impl Gpio {
         Self::toggle_masked(self.pin_mask, self.pin_mask);
     }
 
-
     /// Read raw states of the specified mask without requiring an instance
     #[inline(always)]
     pub fn read_masked(pin_mask: u32) -> u32 {
@@ -53,7 +52,7 @@ impl Gpio {
     pub fn write_masked(pin_states: u32, pin_mask: u32) {
         let set_mask = pin_states & pin_mask;
         let clr_mask = !pin_states & pin_mask;
-        
+
         embassy_rp::pac::SIO
             .gpio_out(0)
             .value_clr()

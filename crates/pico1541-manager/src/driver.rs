@@ -8,6 +8,20 @@ pub trait StorageDriver {
     async fn write_block(&mut self, track: u8, sector: u8, buf: &[u8]) -> Result<(), Error>;
 }
 
+pub trait ResettableBlockDevice {
+    fn reset(&mut self) {}
+}
+
+pub trait SettingsDriver {
+    async fn save_drive_id(&mut self, id: u8);
+    async fn save_boot_rom(&mut self, name: &str);
+    async fn delete_rom(&mut self, name: &str);
+    async fn install_rom_start(&mut self, name: &str, size: u32, offset: u32);
+    async fn install_rom_chunk(&mut self, data: &[u8]);
+    async fn install_rom_finish(&mut self);
+    async fn load_rom_to_memory(&mut self, name: &str);
+}
+
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FileInfo {
