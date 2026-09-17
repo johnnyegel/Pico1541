@@ -2770,15 +2770,33 @@ pub fn op_6a<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u
 #[link_section = ".core1_text"]
 #[inline(always)]
 pub fn op_6b<B: Bus>(cpu: &mut CPU, bus: &mut B, ctx: &mut <B as Bus>::Ctx) -> u32 {
-    let mut cycles: u32 = 0;
     let mut offset: u32 = 1;
-    let mut page_cross = false;
 
-    {
-        let v = cpu.read_pc(bus, ctx);
-        offset += 1;
-        v
-    };
+    let imm = cpu.read_pc(bus, ctx);
+    offset += 1;
+
+    let temp = cpu.a & imm;
+    let c_in = if cpu.p & FLAG_C != 0 { 0x80 } else { 0 };
+    
+    // In decimal mode, ARR has completely different behavior, but we assume it's disabled.
+    // The standard behavior:
+    cpu.a = (temp >> 1) | c_in;
+    cpu.set_zn(cpu.a);
+
+    if (cpu.a & 0x40) != 0 {
+        cpu.p |= FLAG_C;
+    } else {
+        cpu.p &= !FLAG_C;
+    }
+
+    let bit6 = (cpu.a >> 6) & 1;
+    let bit5 = (cpu.a >> 5) & 1;
+    if (bit6 ^ bit5) != 0 {
+        cpu.p |= FLAG_V;
+    } else {
+        cpu.p &= !FLAG_V;
+    }
+
     2
 }
 
