@@ -194,3 +194,84 @@ fn test_bne_not_taken() {
     assert_eq!(cpu.pc, 0x102);
     assert_eq!(cycles, 2);
 }
+
+#[test]
+fn test_illegal_dcp_zp() {
+    let mut cpu = CPU::new();
+    let mut bus = TestBus { mem: [0; 65536] };
+    cpu.pc = 0x8000;
+    cpu.a = 0x04;
+    
+    // DCP $10
+    bus.mem[0x8000] = 0xC7;
+    bus.mem[0x8001] = 0x10;
+    
+    bus.mem[0x0010] = 0x05;
+    
+    let cycles = cpu.step(&mut bus, &mut ());
+    
+    assert_eq!(bus.mem[0x0010], 0x04);
+    assert_eq!(cpu.a, 0x04);
+    assert_eq!(cpu.p & 0x02, 0x02, "Z flag not set");
+    assert_eq!(cpu.p & 0x01, 0x01, "C flag not set");
+    assert_eq!(cycles, 5);
+}
+
+#[test]
+fn test_illegal_slo_zp() {
+    let mut cpu = CPU::new();
+    let mut bus = TestBus { mem: [0; 65536] };
+    cpu.pc = 0x8000;
+    cpu.a = 0x01;
+    
+    // SLO $10
+    bus.mem[0x8000] = 0x07;
+    bus.mem[0x8001] = 0x10;
+    
+    bus.mem[0x0010] = 0x80;
+    
+    let cycles = cpu.step(&mut bus, &mut ());
+    
+    assert_eq!(bus.mem[0x0010], 0x00, "Memory not shifted");
+    assert_eq!(cpu.a, 0x01, "A not updated correctly");
+    assert_eq!(cpu.p & 0x01, 0x01, "C flag not set by ASL");
+    assert_eq!(cycles, 5);
+}
+
+#[test]
+fn test_illegal_arr_imm() {
+    let mut cpu = CPU::new();
+    let mut bus = TestBus { mem: [0; 65536] };
+    cpu.pc = 0x8000;
+    cpu.a = 0xFF;
+    cpu.p |= 0x01; // Set C flag
+    
+    // ARR #$F0
+    bus.mem[0x8000] = 0x6B;
+    bus.mem[0x8001] = 0xF0;
+    
+    let cycles = cpu.step(&mut bus, &mut ());
+    
+    assert_eq!(cpu.a, 0xF8, "ARR A calculation wrong");
+    assert_eq!(cpu.p & 0x01, 0x01, "ARR C flag wrong");
+    assert_eq!(cpu.p & 0x40, 0x00, "ARR V flag wrong");
+    assert_eq!(cycles, 2);
+}
+
+#[test]
+fn test_illegal_alr_imm() {
+    let mut cpu = CPU::new();
+    let mut bus = TestBus { mem: [0; 65536] };
+    cpu.pc = 0x8000;
+    cpu.a = 0xFF;
+    
+    // ALR #$FE
+    bus.mem[0x8000] = 0x4B;
+    bus.mem[0x8001] = 0xFE;
+    
+    let cycles = cpu.step(&mut bus, &mut ());
+    
+    assert_eq!(cpu.a, 0x7F, "ALR A calculation wrong");
+    assert_eq!(cpu.p & 0x01, 0x00, "ALR C flag wrong");
+    assert_eq!(cycles, 2);
+}
