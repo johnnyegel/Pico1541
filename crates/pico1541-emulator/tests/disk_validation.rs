@@ -40,7 +40,8 @@ impl HostInterface for MockHardware {
 
 #[test]
 fn test_g64_track_reading_low_level() {
-    let hw_buffer = Box::leak(Box::new(DualCoreTrackBuffer::new(std::ptr::null_mut())));
+    let track_data_buf = Box::leak(Box::new([[0u8; 8192]; 2]));
+    let hw_buffer = Box::leak(Box::new(DualCoreTrackBuffer::new(track_data_buf)));
     let handle = hw_buffer.split().1;
     let surface = SoftwareMagneticSurface::new();
     let mut bus = get_system_bus(surface, handle);
@@ -59,7 +60,7 @@ fn test_g64_track_reading_low_level() {
     {
         let manager = hw_buffer.split().0;
         let inactive = manager.get_dormant_buffer_mut();
-        inactive.data.copy_from_slice(&track_data);
+        unsafe { (*inactive.data).copy_from_slice(&track_data); }
         manager.commit_loaded_track(
             pico1541_common::track_buffer::TrackIdentifier::new(
                 2,

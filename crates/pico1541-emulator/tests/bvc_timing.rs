@@ -18,7 +18,8 @@ static DUMMY_ROM: [u8; 16384] = [0; 16384];
 #[test]
 fn test_bvc_so_timing() {
     let mut hw = MockHardware;
-    let hw_buffer = Box::leak(Box::new(DualCoreTrackBuffer::new(std::ptr::null_mut())));
+    let track_data = Box::leak(Box::new([[0u8; 8192]; 2]));
+    let hw_buffer = Box::leak(Box::new(DualCoreTrackBuffer::new(track_data)));
     let (manager, emulator) = hw_buffer.split();
     let surface = SoftwareMagneticSurface::new();
 
@@ -28,11 +29,13 @@ fn test_bvc_so_timing() {
     // Setup a GCR track with a single byte for testing
     {
         let inactive = manager.get_dormant_buffer_mut();
-        inactive.data[0] = 0x55;
-        inactive.data[1] = 0xAA;
-        inactive.data[2] = 0x55;
-        inactive.data[3] = 0xAA;
-        inactive.data[4] = 0x55;
+        unsafe {
+            (*inactive.data)[0] = 0x55;
+            (*inactive.data)[1] = 0xAA;
+            (*inactive.data)[2] = 0x55;
+            (*inactive.data)[3] = 0xAA;
+            (*inactive.data)[4] = 0x55;
+        }
     }
     manager.commit_loaded_track(
         pico1541_common::track_buffer::TrackIdentifier::new(

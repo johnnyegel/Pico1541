@@ -57,10 +57,12 @@ fn test_disk_streaming_data() {
 
     {
         let inactive = manager.get_dormant_buffer_mut();
-        inactive.data[0] = 0xAA;
-        inactive.data[1] = 0x55;
-        inactive.data[2] = 0x01;
-        inactive.data[3] = 0xFE;
+        unsafe {
+            (*inactive.data)[0] = 0xAA;
+            (*inactive.data)[1] = 0x55;
+            (*inactive.data)[2] = 0x01;
+            (*inactive.data)[3] = 0xFE;
+        }
     }
     manager.commit_loaded_track(
         pico1541_common::track_buffer::TrackIdentifier::new(
@@ -212,7 +214,7 @@ fn test_disk_bitrate_zones() {
 
     {
         let inactive = manager.get_dormant_buffer_mut();
-        inactive.data.fill(0x55); // Use data, not SYNC
+        unsafe { (*inactive.data).fill(0x55); } // Use data, not SYNC
     }
     manager.commit_loaded_track(
         pico1541_common::track_buffer::TrackIdentifier::new(

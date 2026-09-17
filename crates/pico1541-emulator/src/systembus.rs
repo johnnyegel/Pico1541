@@ -339,7 +339,7 @@ mod tests {
     fn test_ram_read_write() {
         static ROM: [u8; 16384] = [0; 16384];
         let handle = Box::leak(Box::new(
-            pico1541_common::track_buffer::DualCoreTrackBuffer::new(),
+            pico1541_common::track_buffer::DualCoreTrackBuffer::new(Box::leak(Box::new([[0u8; 8192]; 2]))),
         ))
         .split()
         .1;
