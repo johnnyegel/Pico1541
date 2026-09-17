@@ -53,7 +53,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
                         } else {
                             self.opener.open_sd_file(p.as_str())
                         };
-                        let d64 = crate::formats::D64Image::new(file);
+                        let d64 = crate::formats::D64Image::new(file).await;
                         self.disk_image = Some(crate::formats::AnyDiskImage::D64(d64));
                         (
                             p,

@@ -55,6 +55,11 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
     pub async fn run(&mut self) {
         let mut motor_on = false;
         loop {
+            // Process all pending UI commands first to avoid starvation from runaway stepper motors
+            while let Ok(cmd) = crate::CMD_CHANNEL.try_receive() {
+                self.handle_cmd_event(cmd, &mut motor_on).await;
+            }
+
             if crate::TRACK_SIGNAL.signaled() {
                 let half_track = crate::TRACK_REQUEST.load(Ordering::Relaxed);
                 crate::TRACK_SIGNAL.reset();

@@ -11,7 +11,7 @@ pub struct D64Image<S: Read + Seek> {
 }
 
 impl<S: Read + Seek> D64Image<S> {
-    pub fn new(storage: S) -> Self {
+    pub async fn new(mut storage: S) -> Self {
         let mut lookup_table = TrackLookupTable::new();
         for half_track in 0..=84 {
             if half_track % 2 == 0 {
@@ -20,9 +20,19 @@ impl<S: Read + Seek> D64Image<S> {
             }
         }
 
+        let mut id = [0x31, 0x31];
+        let offset = Self::get_track_offset(18);
+        if storage.seek(embedded_io_async::SeekFrom::Start(offset as u64)).await.is_ok() {
+            let mut sector_data = [0u8; 256];
+            if storage.read_exact(&mut sector_data).await.is_ok() {
+                id[0] = sector_data[162];
+                id[1] = sector_data[163];
+            }
+        }
+
         Self {
             storage,
-            id: [0x31, 0x31],
+            id,
             lookup_table,
         }
     }
