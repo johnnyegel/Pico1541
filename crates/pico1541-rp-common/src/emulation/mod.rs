@@ -86,11 +86,11 @@ pub fn spawn_core1(
     );
 
     embassy_rp::multicore::spawn_core1(core1, stack, move || {
-        #[link_section = ".scratch_x"]
+        #[link_section = ".core1_fast_bss"]
         static mut EMULATOR: core::mem::MaybeUninit<Emulator<HardwareBridge, PioMagneticSurface>> =
             core::mem::MaybeUninit::uninit();
 
-        #[link_section = ".sram3"]
+        #[link_section = ".core1_uninit"]
         static mut SYS_MEMORY: [u8; 32768] = [0; 32768];
 
         defmt::info!("Core 1 spawned! Initializing emulator...");

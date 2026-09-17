@@ -54,10 +54,10 @@ use pico1541_common::track_buffer::{DualCoreTrackBuffer, ManagerHandle};
 
 use static_cell::StaticCell;
 
-#[link_section = ".dual_core_data"]
+#[link_section = ".shared_uninit"]
 static DUAL_CORE_DATA: pico1541_common::track_buffer::DualCoreTrackData =
     pico1541_common::track_buffer::DualCoreTrackData::new();
-#[link_section = ".dual_core_buffer"]
+#[link_section = ".shared_uninit"]
 static DUAL_CORE_BUFFER: DualCoreTrackBuffer =
     DualCoreTrackBuffer::new(DUAL_CORE_DATA.buffers.get());
 
@@ -100,7 +100,7 @@ unsafe fn TIMER_IRQ_3() {
 static mut CORE1_STACK: core::mem::MaybeUninit<Stack<1024>> = core::mem::MaybeUninit::uninit();
 
 // ROM Buffer for dynamic loading
-#[link_section = ".sram3"]
+#[link_section = ".core1_uninit"]
 static mut ROM_BUFFER: [u8; 16384] = [0; 16384];
 
 #[embassy_executor::main]

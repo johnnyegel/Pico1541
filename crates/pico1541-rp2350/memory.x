@@ -2,8 +2,7 @@ MEMORY {
     FLASH : ORIGIN = 0x10000000, LENGTH = 1536K
     FS    : ORIGIN = 0x10180000, LENGTH = 512K
     RAM   : ORIGIN = 0x20000000, LENGTH = 256K
-    SRAM2 : ORIGIN = 0x20040000, LENGTH = 64K
-    SRAM3 : ORIGIN = 0x20050000, LENGTH = 64K
+    CORE1_RAM : ORIGIN = 0x20040000, LENGTH = 256K
     SCRATCH_X : ORIGIN = 0x20080000, LENGTH = 4K
     SCRATCH_Y : ORIGIN = 0x20081000, LENGTH = 4K
 }
@@ -27,21 +26,15 @@ SECTIONS {
         KEEP(*(.fs))
     } > FS
 
-    .sram3 (NOLOAD) : ALIGN(4) {
-        *(.sram3 .sram3.*);
-        *(.dual_core_buffer);
+    .core1_uninit (NOLOAD) : ALIGN(4) {
+        *(.core1_uninit .core1_uninit.*);
         . = ALIGN(4);
-    } > SRAM3
+    } > CORE1_RAM
 
-    .scratch_x (NOLOAD) : ALIGN(4) {
-        *(.scratch_x);
+    .core1_fast_bss (NOLOAD) : ALIGN(4) {
+        *(.core1_fast_bss .core1_fast_bss.*);
         . = ALIGN(4);
     } > SCRATCH_X
-
-    .scratch_y (NOLOAD) : ALIGN(4) {
-        *(.scratch_y);
-        . = ALIGN(4);
-    } > SCRATCH_Y
 
     .core1_stack (NOLOAD) : ALIGN(4) {
         *(.core1_stack .core1_stack.*);
@@ -53,7 +46,7 @@ SECTIONS {
         *(.core1_text .core1_text.*);
         . = ALIGN(4);
         __ecore1_text = .;
-    } > SRAM2 AT > FLASH
+    } > CORE1_RAM AT > FLASH
     __sicore1_text = LOADADDR(.core1_text);
 
 
@@ -69,8 +62,8 @@ SECTIONS {
 INSERT AFTER .data;
 
 SECTIONS {
-    .dual_core_data (NOLOAD) : ALIGN(8192) {
-        *(.dual_core_data .dual_core_data.*);
+    .shared_uninit (NOLOAD) : ALIGN(8192) {
+        *(.shared_uninit .shared_uninit.*);
     } > RAM
 }
 INSERT AFTER .uninit;
