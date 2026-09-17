@@ -293,7 +293,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
     ) -> Result<(TrackLayout, usize, Option<u8>), Error> {
         log::info!("Reading VirtualDisk track {}", half_track);
 
-        if !half_track.is_multiple_of(2) || half_track == 0 || half_track > 84 {
+        if !half_track.is_multiple_of(2) || half_track > 84 {
             return Ok((TrackLayout::Void, 0, None));
         }
 

@@ -123,11 +123,6 @@ impl HostInterface for HardwareBridge {
         self.timekeeper.spin_until(target_cycle)
     }
 
-    #[link_section = ".core1_text"]
-    #[inline(always)]
-    fn spin_until_half(&mut self, target_cycle: u32) -> bool {
-        self.timekeeper.spin_until_half(target_cycle)
-    }
 
     #[link_section = ".core1_text"]
     #[inline(always)]

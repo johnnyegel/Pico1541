@@ -191,9 +191,9 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         let result = if (addr & 0x0400) == 0 {
             let reg = (addr & 0x0F) as usize;
             if reg == 0x00 || reg == 0x0F {
-                // For reads, waiting 0.5 cycles aligns precisely with the Phase 2 falling edge
-                // where the 6522 actually latches the input pins.
-                ctx.spin_until_half(cycle);
+                // Emulate the 6522 VIA's Phase 2 falling-edge latch.
+                // The physical pins are latched exactly at the end of the cycle (trailing edge).
+                ctx.spin_until(cycle + 1);
                 self.sync_iec_bus(ctx, cycle);
             }
 
@@ -215,8 +215,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             self.via1.write(addr, val);
             if reg == 0x00 || reg == 0x02 || reg == 0x0F {
                 // Emulate the 6522 VIA's Phase 2 falling-edge latch.
-                // The physical output pins transition exactly in the middle of the cycle.
-                ctx.spin_until_half(cycle);
+                // The physical output pins transition exactly at the end of the cycle (trailing edge).
+                ctx.spin_until(cycle + 1);
                 self.sync_iec_bus(ctx, cycle);
             }
         } else {

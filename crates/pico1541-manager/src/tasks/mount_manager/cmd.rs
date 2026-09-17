@@ -6,7 +6,7 @@ use embedded_io_async::{Read, Seek};
 use pico1541_common::track_buffer::TrackLayout;
 
 #[cfg(feature = "defmt")]
-use defmt::{error, info, warn, debug, trace};
+use defmt::{error, info, warn, debug};
 #[cfg(not(feature = "defmt"))]
 use log::{error, info, warn, debug};
 
