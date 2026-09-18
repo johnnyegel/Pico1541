@@ -410,12 +410,12 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
                         }
                     }
                     UiAction::FastScrollUp => {
-                        if let Some(block) = self.skip_up(5) {
+                        if let Some(block) = self.skip_up(2) {
                             return Some(MenuEvent::LoadBlock(block));
                         }
                     }
                     UiAction::FastScrollDown => {
-                        if let Some(block) = self.skip_down(5) {
+                        if let Some(block) = self.skip_down(2) {
                             return Some(MenuEvent::LoadBlock(block));
                         }
                     }
