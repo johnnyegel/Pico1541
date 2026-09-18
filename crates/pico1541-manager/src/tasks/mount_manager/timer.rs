@@ -1,15 +1,12 @@
-use super::{FileOpener, MountManagerTask};
+use super::{FileOpener, TrackCacheTask};
 use crate::storage::DirectorySource;
 use embedded_io_async::{Read, Seek};
 use pico1541_common::track_buffer::TrackLayout;
 
-impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver::RgbLedDriver>
-    MountManagerTask<S, O, L>
+impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: pico1541_common::interface::TrackHandoff>
+    TrackCacheTask<S, O, H>
 {
-    pub(super) async fn handle_timer_event(&mut self, motor_on: &mut bool) {
-        #[cfg(feature = "defmt")]
-        defmt::info!("handle_timer_event: start");
-
+    pub(super) async fn handle_timer_event(&mut self, motor_on: bool) {
         // (first_missing_block, batch_count)
         let mut block_batch: Option<(usize, usize)> = None;
         {
@@ -17,7 +14,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
             if let Some(disk) = disk_opt.as_mut() {
                 if let Some(vdir) = disk.as_virtual_disk_mut() {
                     // Periodic update of directory buffer only when motor is on
-                    if *motor_on {
+                    if motor_on {
                         let current_idx = self.track_handle.get_current_byte_idx();
 
                         if vdir.file_storage.is_some() {
@@ -93,10 +90,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
             }
         }
 
-        if false
-        /* let Some((blocks_start, blocks_count)) = block_batch */
-        {
-            let (blocks_start, blocks_count) = block_batch.unwrap();
+        if let Some((blocks_start, blocks_count)) = block_batch {
 
             // Mark active track as Void during background directory fetch to prevent Core 0 emu hang/timeouts.
             let old_layout = self.track_handle.get_active_layout();
@@ -167,10 +161,8 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
 
         if let Some(new_ht) = self.cache_adjacent_tracks().await {
             #[cfg(feature = "defmt")]
-            defmt::info!("handle_timer_event: calling handle_track_event for new_ht={}", new_ht);
+            defmt::trace!("handle_timer_event: calling handle_track_event for new_ht={}", new_ht);
             self.handle_track_event(new_ht).await;
         }
-        #[cfg(feature = "defmt")]
-        defmt::info!("handle_timer_event: end");
     }
 }
