@@ -7,6 +7,9 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
     MountManagerTask<S, O, L>
 {
     pub(super) async fn handle_timer_event(&mut self, motor_on: &mut bool) {
+        #[cfg(feature = "defmt")]
+        defmt::info!("handle_timer_event: start");
+
         // (first_missing_block, batch_count)
         let mut block_batch: Option<(usize, usize)> = None;
         {
@@ -163,7 +166,11 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
         }
 
         if let Some(new_ht) = self.cache_adjacent_tracks().await {
+            #[cfg(feature = "defmt")]
+            defmt::info!("handle_timer_event: calling handle_track_event for new_ht={}", new_ht);
             self.handle_track_event(new_ht).await;
         }
+        #[cfg(feature = "defmt")]
+        defmt::info!("handle_timer_event: end");
     }
 }

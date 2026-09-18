@@ -14,6 +14,8 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
     MountManagerTask<S, O, L>
 {
     pub(super) async fn handle_cmd_event(&mut self, cmd: InternalCommand, motor_on: &mut bool) {
+        #[cfg(feature = "defmt")]
+        defmt::info!("handle_cmd_event called!");
         match cmd {
             InternalCommand::MotorState(active) => {
                 if active && !*motor_on {

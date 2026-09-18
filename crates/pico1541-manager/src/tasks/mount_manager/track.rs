@@ -61,7 +61,13 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
     pub(super) async fn handle_track_event(&mut self, half_track: u8) {
         let mut target_ht = half_track;
 
+        let mut loop_cnt = 0;
         loop {
+            loop_cnt += 1;
+            if loop_cnt > 10 {
+                #[cfg(feature = "defmt")]
+                defmt::error!("handle_track_event stuck in infinite loop!");
+            }
             let requested = crate::TRACK_REQUEST.load(Ordering::Relaxed);
             if requested != target_ht {
                 target_ht = requested;

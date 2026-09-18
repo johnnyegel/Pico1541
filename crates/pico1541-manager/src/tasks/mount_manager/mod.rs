@@ -54,15 +54,26 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
 
     pub async fn run(&mut self) {
         let mut motor_on = false;
+        let mut heartbeat: u32 = 0;
         loop {
+            heartbeat = heartbeat.wrapping_add(1);
+            if heartbeat % 50 == 0 {
+                #[cfg(feature = "defmt")]
+                defmt::info!("MountManager heartbeat (loop={})", heartbeat);
+            }
+
             // Process all pending UI commands first to avoid starvation from runaway stepper motors
             while let Ok(cmd) = crate::CMD_CHANNEL.try_receive() {
+                #[cfg(feature = "defmt")]
+                defmt::info!("CMD_CHANNEL try_receive popped a command!");
                 self.handle_cmd_event(cmd, &mut motor_on).await;
             }
 
             if crate::TRACK_SIGNAL.signaled() {
                 let half_track = crate::TRACK_REQUEST.load(Ordering::Relaxed);
                 crate::TRACK_SIGNAL.reset();
+                #[cfg(feature = "defmt")]
+                if heartbeat % 50 == 0 { defmt::info!("TRACK_SIGNAL was already signaled!"); }
                 self.handle_track_event(half_track).await;
                 continue;
             }
@@ -71,18 +82,28 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
             let timer_fut = embassy_time::Timer::after_millis(20);
             let cmd_fut = crate::CMD_CHANNEL.receive();
 
+            #[cfg(feature = "defmt")]
+            if heartbeat % 50 == 0 { defmt::info!("Entering select3 (loop={})", heartbeat); }
+
             match select3(track_fut, timer_fut, cmd_fut).await {
                 Either3::First(_) => {
                     self.handle_track_event(crate::TRACK_REQUEST.load(Ordering::Relaxed))
                         .await;
                 }
                 Either3::Second(_) => {
+                    #[cfg(feature = "defmt")]
+                    if heartbeat % 50 == 0 { defmt::info!("select3 woke up from TIMER"); }
                     self.handle_timer_event(&mut motor_on).await;
                 }
                 Either3::Third(cmd) => {
+                    #[cfg(feature = "defmt")]
+                    defmt::info!("select3 woke up from CMD_CHANNEL!");
                     self.handle_cmd_event(cmd, &mut motor_on).await;
                 }
             }
+
+            #[cfg(feature = "defmt")]
+            if heartbeat % 50 == 0 { defmt::info!("Finished select3 dispatch (loop={})", heartbeat); }
         }
     }
 }

@@ -149,7 +149,12 @@ where
             match empty_menu.run(ctx.display).await {
                 MenuEvent::Back => {
                     if manager.current_path.as_str() == "/" {
-                        let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount);
+                        
+if crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount).is_err() {
+    #[cfg(feature = "defmt")]
+    defmt::error!("CMD_CHANNEL is FULL for Unmount!");
+}
+
                         ctx.leds.set_status(StatusLedMode::Unmounted);
                         return PageState::MainMenu;
                     } else {
@@ -163,7 +168,12 @@ where
                     }
                 }
                 MenuEvent::Home => {
-                    let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount);
+                    
+if crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount).is_err() {
+    #[cfg(feature = "defmt")]
+    defmt::error!("CMD_CHANNEL is FULL for Unmount!");
+}
+
                     ctx.leds.set_status(StatusLedMode::Unmounted);
                     return PageState::MainMenu;
                 }
@@ -176,7 +186,12 @@ where
                     )
                     .await
                     {
-                        let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount);
+                        
+if crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount).is_err() {
+    #[cfg(feature = "defmt")]
+    defmt::error!("CMD_CHANNEL is FULL for Unmount!");
+}
+
                         ctx.leds.set_status(StatusLedMode::Unmounted);
                         return PageState::MainMenu;
                     }
@@ -186,7 +201,12 @@ where
                 _ => {}
             }
             if !use_internal {
-                let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount);
+                
+if crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount).is_err() {
+    #[cfg(feature = "defmt")]
+    defmt::error!("CMD_CHANNEL is FULL for Unmount!");
+}
+
                 ctx.leds.set_status(StatusLedMode::Unmounted);
             }
             return PageState::MainMenu;
@@ -277,7 +297,12 @@ where
         match event {
             MenuEvent::LoadBlock(_) => {}
             MenuEvent::Timeout => {
-                let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount);
+                
+if crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount).is_err() {
+    #[cfg(feature = "defmt")]
+    defmt::error!("CMD_CHANNEL is FULL for Unmount!");
+}
+
                 ctx.leds.set_status(StatusLedMode::Unmounted);
                 if !use_internal && title == "SD Card" {
                     *manager.current_path = String::from_str("/").unwrap();
@@ -304,11 +329,15 @@ where
 
                 if fetch_res.is_err() || selected_infos.is_empty() {
                     log::error!("Failed to fetch selected item at index {}", idx);
+                    #[cfg(feature = "defmt")]
+                    defmt::error!("Failed to fetch selected item at index {}", idx);
                     cursor = 0;
                     continue;
                 }
 
                 let selected = selected_infos[0];
+                #[cfg(feature = "defmt")]
+                defmt::info!("Selected file: {:?}", core::str::from_utf8(&selected.name).unwrap_or("???"));
                 if selected.is_dir {
                     *ctx.mounted_file_path = None;
                     let dirname = core::str::from_utf8(&selected.name)
@@ -336,11 +365,19 @@ where
                     }
 
                     if Some(full_path.clone()) == *ctx.mounted_file_path {
-                        let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount);
+                        
+if crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount).is_err() {
+    #[cfg(feature = "defmt")]
+    defmt::error!("CMD_CHANNEL is FULL for Unmount!");
+}
+
                         ctx.leds.set_status(StatusLedMode::Unmounted);
                         *ctx.mounted_file_path = None;
                         continue;
                     }
+
+                    #[cfg(feature = "defmt")]
+                    defmt::info!("Mounting {} (was {})", full_path.as_str(), ctx.mounted_file_path.as_ref().map(|s| s.as_str()).unwrap_or("None"));
 
                     log::info!("Selected file: {:?}", selected);
                     ctx.display.clear().await;
@@ -351,7 +388,9 @@ where
                     let is_g64 = filename.ends_with(".g64") || filename.ends_with(".G64");
 
                     if is_d64 {
-                        let _ = crate::CMD_CHANNEL
+                        #[cfg(feature = "defmt")]
+                    defmt::info!("Sending Mount for D64...");
+                    let _ = crate::CMD_CHANNEL
                             .send(crate::InternalCommand::Mount(crate::MountPayload::D64(
                                 full_path.clone(),
                                 manager.use_internal,
@@ -359,7 +398,9 @@ where
                             .await;
                         *ctx.mounted_file_path = Some(full_path);
                     } else if is_g64 {
-                        let _ = crate::CMD_CHANNEL
+                        #[cfg(feature = "defmt")]
+                    defmt::info!("Sending Mount for D64...");
+                    let _ = crate::CMD_CHANNEL
                             .send(crate::InternalCommand::Mount(crate::MountPayload::G64(
                                 full_path.clone(),
                                 manager.use_internal,
@@ -393,7 +434,12 @@ where
                 )
                 .await
                 {
-                    let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount);
+                    
+if crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount).is_err() {
+    #[cfg(feature = "defmt")]
+    defmt::error!("CMD_CHANNEL is FULL for Unmount!");
+}
+
                     ctx.leds.set_status(StatusLedMode::Unmounted);
                     return PageState::MainMenu;
                 }
