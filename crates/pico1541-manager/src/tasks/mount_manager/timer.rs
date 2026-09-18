@@ -160,14 +160,5 @@ impl<
 
             self.track_handle.set_active_layout(old_layout);
         }
-
-        if let Some(new_ht) = self.cache_adjacent_tracks().await {
-            #[cfg(feature = "defmt")]
-            defmt::trace!(
-                "handle_timer_event: calling handle_track_event for new_ht={}",
-                new_ht
-            );
-            self.handle_track_event(new_ht).await;
-        }
     }
 }
