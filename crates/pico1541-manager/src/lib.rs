@@ -35,12 +35,6 @@ pub fn get_status_mode<S: Read + Seek, D: DirectorySource>(
     }
 }
 
-/// Inter-core communication channel for events from Emulator to Manager.
-pub static EVENT_CHANNEL: Channel<CriticalSectionRawMutex, DriveEvent, 64> = Channel::new();
-
-/// Channel for high-level events (LEDs, Motor, Decoded Commands) handled by the Manager.
-pub static ACTIVITY_CHANNEL: Channel<CriticalSectionRawMutex, DriveEvent, 16> = Channel::new();
-
 #[derive(Clone, Debug)]
 pub enum MountPayload {
     VirtualDirectory(heapless::String<128>, bool),
@@ -51,16 +45,11 @@ pub enum MountPayload {
 #[derive(Clone, Debug)]
 pub enum InternalCommand {
     MotorState(bool),
-    LoadFile([u8; 16]),
-    CloseChannel(u8),
     Mount(MountPayload),
     Unmount,
 }
 
 pub static CMD_CHANNEL: Channel<CriticalSectionRawMutex, InternalCommand, 128> = Channel::new();
-pub static TRACK_REQUEST: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
-pub static TRACK_SIGNAL: embassy_sync::signal::Signal<CriticalSectionRawMutex, ()> =
-    embassy_sync::signal::Signal::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

@@ -29,8 +29,9 @@ use embassy_sync::mutex::Mutex;
 use pico1541_common::snooper::SnooperConfig;
 
 pub const SYSTEM_CLOCK_FREQ: u32 = 250_000_000;
+use pico1541_rp_common::emulation::bridge::RpTrackHandoff;
 use pico1541_manager::tasks::{
-    ActionTask, DisplayTask, KeyboardTask, MainMenuTask, MountManagerTask,
+    ActionTask, DisplayTask, KeyboardTask, MainMenuTask, TrackCacheTask, MountControllerTask,
     
 };
 
@@ -385,12 +386,19 @@ async fn main(spawner: Spawner) {
     .await;
 }
 #[embassy_executor::task]
-async fn vdisk_run(
-    mut task: MountManagerTask<
+async fn track_cache_run(
+    mut task: TrackCacheTask<
         MyStorage,
         PlatformStorageManager,
-        StatusLedsWrapper<CriticalSectionRawMutex>,
+        RpTrackHandoff,
     >,
+) {
+    task.run().await;
+}
+
+#[embassy_executor::task]
+async fn controller_run(
+    mut task: MountControllerTask<StatusLedsWrapper<CriticalSectionRawMutex>>,
 ) {
     task.run().await;
 }
@@ -552,12 +560,17 @@ async fn core0_init_task(
     let display_task = DisplayTask::new(display_wrapper.clone());
 
 
-    let vdisk_task = MountManagerTask::new(
+    let track_cache_task = TrackCacheTask::new(
         manager_handle,
         PlatformStorageManager {
             storage: StorageWrapper(sd_mutex),
             mounted_dir: &MOUNTED_DIR,
         },
+        RpTrackHandoff::new(),
+        &MOUNTED_DIR,
+    );
+
+    let mount_controller_task = MountControllerTask::new(
         StatusLedsWrapper(status_leds_mutex),
         &MOUNTED_DIR,
     );
@@ -586,7 +599,8 @@ async fn core0_init_task(
     embassy_rp::interrupt::TIMER_IRQ_3.set_priority(Priority::P2);
     EXECUTOR_HIGH.start(embassy_rp::interrupt::TIMER_IRQ_3);
     let spawner_high = EXECUTOR_HIGH.spawner();
-    spawner_high.spawn(vdisk_run(vdisk_task).unwrap());
+    spawner_high.spawn(track_cache_run(track_cache_task).unwrap());
+    spawner.spawn(controller_run(mount_controller_task).unwrap());
     spawner.spawn(blinky(pins.pin25).unwrap());
     let load_task = pico1541_manager::tasks::Core1LoadTask::new(config);
     spawner.spawn(core1_load_run(load_task).unwrap());

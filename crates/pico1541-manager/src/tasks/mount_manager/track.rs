@@ -1,6 +1,5 @@
-use super::{FileOpener, MountManagerTask};
+use super::{FileOpener, TrackCacheTask};
 use crate::formats::DiskImage;
-use core::sync::atomic::Ordering;
 use embassy_futures::select::select;
 use embassy_futures::select::Either;
 use embedded_io_async::{Read, Seek};
@@ -11,8 +10,11 @@ use defmt::{debug, error, info};
 #[cfg(not(feature = "defmt"))]
 use log::{debug, error, info};
 
-impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver::RgbLedDriver>
-    MountManagerTask<S, O, L>
+impl<
+        S: Read + Seek + 'static,
+        O: FileOpener<FileStorage = S>,
+        H: pico1541_common::interface::TrackHandoff,
+    > TrackCacheTask<S, O, H>
 {
     pub(super) async fn cache_adjacent_tracks(&mut self) -> Option<u8> {
         let current_ht = self.track_handle.get_head_half_track();
@@ -33,7 +35,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
             let data = self.track_handle.start_track_load();
             match select(
                 disk.read_track(desired_track, data),
-                crate::TRACK_SIGNAL.wait(),
+                self.handoff.wait_for_change(), // wait for track change instead of pending
             )
             .await
             {
@@ -50,8 +52,8 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
                 Either::First(Err(_)) => {
                     return None;
                 }
-                Either::Second(_) => {
-                    return Some(crate::TRACK_REQUEST.load(Ordering::Relaxed));
+                Either::Second(new_ht) => {
+                    return Some(new_ht); // crate::TRACK_REQUEST.load(Ordering::Relaxed));
                 }
             }
         }
@@ -68,7 +70,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
                 #[cfg(feature = "defmt")]
                 defmt::error!("handle_track_event stuck in infinite loop!");
             }
-            let requested = crate::TRACK_REQUEST.load(Ordering::Relaxed);
+            let requested = self.handoff.current_track();
             if requested != target_ht {
                 target_ht = requested;
             }
@@ -127,7 +129,12 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
 
                 let start_time = embassy_time::Instant::now();
                 // Read track but CANCEL if the head steps again!
-                match select(disk.read_track(target_ht, data), crate::TRACK_SIGNAL.wait()).await {
+                match select(
+                    disk.read_track(target_ht, data),
+                    self.handoff.wait_for_change(),
+                )
+                .await
+                {
                     Either::First(Ok(layout)) => {
                         let speed_zone = layout.2.unwrap_or_else(|| {
                             pico1541_common::track_buffer::default_speed_zone(target_ht)
@@ -164,7 +171,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, L: crate::driver:
                     Either::Second(_) => {
                         // The head stepped WHILE we were reading from the SD card!
                         // The read is aborted. We loop around to start reading the NEW track!
-                        target_ht = crate::TRACK_REQUEST.load(Ordering::Relaxed);
+                        target_ht = self.handoff.current_track();
                         continue;
                     }
                 }

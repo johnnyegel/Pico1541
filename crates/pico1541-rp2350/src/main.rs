@@ -39,9 +39,9 @@ pub static IMAGE_DEF: Block<3> = Block::new([
 ]);
 
 pub const SYSTEM_CLOCK_FREQ: u32 = 250_000_000;
+use pico1541_rp_common::emulation::bridge::RpTrackHandoff;
 use pico1541_manager::tasks::{
-    ActionTask, DisplayTask, DriveActivityTask, KeyboardTask, MainMenuTask, MountManagerTask,
-    SnooperTask,
+    ActionTask, DisplayTask, KeyboardTask, MainMenuTask, TrackCacheTask, MountControllerTask,
 };
 
 #[cfg(has_mklittlefs)]
@@ -397,28 +397,27 @@ async fn main(spawner: Spawner) {
     .await;
 }
 
-#[embassy_executor::task]
-async fn activity_run(mut task: DriveActivityTask<IndicatorWrapper<CriticalSectionRawMutex>>) {
-    task.run().await;
-}
 
 #[embassy_executor::task]
 async fn core0_perf_task(mut task: pico1541_manager::tasks::Core0PerfTask) {
     task.run().await;
 }
 
+
 #[embassy_executor::task]
-async fn snooper_run(mut task: SnooperTask) {
+async fn track_cache_run(
+    mut task: TrackCacheTask<
+        MyStorage,
+        PlatformStorageManager,
+        RpTrackHandoff,
+    >,
+) {
     task.run().await;
 }
 
 #[embassy_executor::task]
-async fn vdisk_run(
-    mut task: MountManagerTask<
-        MyStorage,
-        PlatformStorageManager,
-        StatusLedsWrapper<CriticalSectionRawMutex>,
-    >,
+async fn controller_run(
+    mut task: MountControllerTask<StatusLedsWrapper<CriticalSectionRawMutex>>,
 ) {
     task.run().await;
 }
@@ -539,7 +538,6 @@ async fn core0_init_task(
     static INDICATOR: StaticCell<Mutex<CriticalSectionRawMutex, ActivityIndicator>> =
         StaticCell::new();
     let indicator_mutex = INDICATOR.init(Mutex::new(indicator));
-    let activity_task = DriveActivityTask::new(IndicatorWrapper(indicator_mutex));
 
     // 3. RGB Status LEDs (Used in Hardware Test via Main Menu)
     let status_leds_obj = StatusLeds::new(pins.rgb_red, pins.rgb_green, pins.rgb_blue);
@@ -575,15 +573,18 @@ async fn core0_init_task(
 
     let display_task = DisplayTask::new(display_wrapper.clone());
 
-    // 7. Snooper Task
-    let snooper_task = SnooperTask::new(8);
 
-    let vdisk_task = MountManagerTask::new(
+    let track_cache_task = TrackCacheTask::new(
         manager_handle,
         PlatformStorageManager {
             storage: StorageWrapper(sd_mutex),
             mounted_dir: &MOUNTED_DIR,
         },
+        RpTrackHandoff::new(),
+        &MOUNTED_DIR,
+    );
+
+    let mount_controller_task = MountControllerTask::new(
         StatusLedsWrapper(status_leds_mutex),
         &MOUNTED_DIR,
     );
@@ -601,7 +602,6 @@ async fn core0_init_task(
     );
 
     spawner.spawn(menu_run(main_menu_task).unwrap());
-    spawner.spawn(activity_run(activity_task).unwrap());
     spawner.spawn(keyboard_run(keyboard_task).unwrap());
     let action_task = ActionTask::new();
     spawner.spawn(action_run(action_task).unwrap());
@@ -609,12 +609,12 @@ async fn core0_init_task(
     let perf_task = pico1541_manager::tasks::Core0PerfTask::new(&SNOOPER_CONFIG);
     spawner.spawn(core0_perf_task(perf_task).unwrap());
     spawner.spawn(display_run(display_task).unwrap());
-    spawner.spawn(snooper_run(snooper_task).unwrap());
     use embassy_rp::interrupt::{InterruptExt, Priority};
     embassy_rp::interrupt::TIMER0_IRQ_3.set_priority(Priority::P2);
     EXECUTOR_HIGH.start(embassy_rp::interrupt::TIMER0_IRQ_3);
     let spawner_high = EXECUTOR_HIGH.spawner();
-    spawner_high.spawn(vdisk_run(vdisk_task).unwrap());
+    spawner_high.spawn(track_cache_run(track_cache_task).unwrap());
+    spawner.spawn(controller_run(mount_controller_task).unwrap());
     spawner.spawn(blinky(pins.pin25).unwrap());
     let load_task = pico1541_manager::tasks::Core1LoadTask::new(config);
     spawner.spawn(core1_load_run(load_task).unwrap());

@@ -22,7 +22,11 @@ impl<S: Read + Seek> D64Image<S> {
 
         let mut id = [0x31, 0x31];
         let offset = Self::get_track_offset(18);
-        if storage.seek(embedded_io_async::SeekFrom::Start(offset as u64)).await.is_ok() {
+        if storage
+            .seek(embedded_io_async::SeekFrom::Start(offset as u64))
+            .await
+            .is_ok()
+        {
             let mut sector_data = [0u8; 256];
             if storage.read_exact(&mut sector_data).await.is_ok() {
                 id[0] = sector_data[162];

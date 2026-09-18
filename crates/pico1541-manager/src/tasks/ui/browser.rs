@@ -149,11 +149,13 @@ where
             match empty_menu.run(ctx.display).await {
                 MenuEvent::Back => {
                     if manager.current_path.as_str() == "/" {
-                        
-if crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount).is_err() {
-    #[cfg(feature = "defmt")]
-    defmt::error!("CMD_CHANNEL is FULL for Unmount!");
-}
+                        if crate::CMD_CHANNEL
+                            .try_send(crate::InternalCommand::Unmount)
+                            .is_err()
+                        {
+                            #[cfg(feature = "defmt")]
+                            defmt::error!("CMD_CHANNEL is FULL for Unmount!");
+                        }
 
                         ctx.leds.set_status(StatusLedMode::Unmounted);
                         return PageState::MainMenu;
@@ -168,11 +170,13 @@ if crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount).is_err() {
                     }
                 }
                 MenuEvent::Home => {
-                    
-if crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount).is_err() {
-    #[cfg(feature = "defmt")]
-    defmt::error!("CMD_CHANNEL is FULL for Unmount!");
-}
+                    if crate::CMD_CHANNEL
+                        .try_send(crate::InternalCommand::Unmount)
+                        .is_err()
+                    {
+                        #[cfg(feature = "defmt")]
+                        defmt::error!("CMD_CHANNEL is FULL for Unmount!");
+                    }
 
                     ctx.leds.set_status(StatusLedMode::Unmounted);
                     return PageState::MainMenu;
@@ -186,11 +190,13 @@ if crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount).is_err() {
                     )
                     .await
                     {
-                        
-if crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount).is_err() {
-    #[cfg(feature = "defmt")]
-    defmt::error!("CMD_CHANNEL is FULL for Unmount!");
-}
+                        if crate::CMD_CHANNEL
+                            .try_send(crate::InternalCommand::Unmount)
+                            .is_err()
+                        {
+                            #[cfg(feature = "defmt")]
+                            defmt::error!("CMD_CHANNEL is FULL for Unmount!");
+                        }
 
                         ctx.leds.set_status(StatusLedMode::Unmounted);
                         return PageState::MainMenu;
@@ -201,11 +207,13 @@ if crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount).is_err() {
                 _ => {}
             }
             if !use_internal {
-                
-if crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount).is_err() {
-    #[cfg(feature = "defmt")]
-    defmt::error!("CMD_CHANNEL is FULL for Unmount!");
-}
+                if crate::CMD_CHANNEL
+                    .try_send(crate::InternalCommand::Unmount)
+                    .is_err()
+                {
+                    #[cfg(feature = "defmt")]
+                    defmt::error!("CMD_CHANNEL is FULL for Unmount!");
+                }
 
                 ctx.leds.set_status(StatusLedMode::Unmounted);
             }
@@ -297,11 +305,13 @@ if crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount).is_err() {
         match event {
             MenuEvent::LoadBlock(_) => {}
             MenuEvent::Timeout => {
-                
-if crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount).is_err() {
-    #[cfg(feature = "defmt")]
-    defmt::error!("CMD_CHANNEL is FULL for Unmount!");
-}
+                if crate::CMD_CHANNEL
+                    .try_send(crate::InternalCommand::Unmount)
+                    .is_err()
+                {
+                    #[cfg(feature = "defmt")]
+                    defmt::error!("CMD_CHANNEL is FULL for Unmount!");
+                }
 
                 ctx.leds.set_status(StatusLedMode::Unmounted);
                 if !use_internal && title == "SD Card" {
@@ -337,7 +347,10 @@ if crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount).is_err() {
 
                 let selected = selected_infos[0];
                 #[cfg(feature = "defmt")]
-                defmt::info!("Selected file: {:?}", core::str::from_utf8(&selected.name).unwrap_or("???"));
+                defmt::info!(
+                    "Selected file: {:?}",
+                    core::str::from_utf8(&selected.name).unwrap_or("???")
+                );
                 if selected.is_dir {
                     *ctx.mounted_file_path = None;
                     let dirname = core::str::from_utf8(&selected.name)
@@ -365,11 +378,13 @@ if crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount).is_err() {
                     }
 
                     if Some(full_path.clone()) == *ctx.mounted_file_path {
-                        
-if crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount).is_err() {
-    #[cfg(feature = "defmt")]
-    defmt::error!("CMD_CHANNEL is FULL for Unmount!");
-}
+                        if crate::CMD_CHANNEL
+                            .try_send(crate::InternalCommand::Unmount)
+                            .is_err()
+                        {
+                            #[cfg(feature = "defmt")]
+                            defmt::error!("CMD_CHANNEL is FULL for Unmount!");
+                        }
 
                         ctx.leds.set_status(StatusLedMode::Unmounted);
                         *ctx.mounted_file_path = None;
@@ -377,7 +392,14 @@ if crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount).is_err() {
                     }
 
                     #[cfg(feature = "defmt")]
-                    defmt::info!("Mounting {} (was {})", full_path.as_str(), ctx.mounted_file_path.as_ref().map(|s| s.as_str()).unwrap_or("None"));
+                    defmt::info!(
+                        "Mounting {} (was {})",
+                        full_path.as_str(),
+                        ctx.mounted_file_path
+                            .as_ref()
+                            .map(|s| s.as_str())
+                            .unwrap_or("None")
+                    );
 
                     log::info!("Selected file: {:?}", selected);
                     ctx.display.clear().await;
@@ -389,8 +411,8 @@ if crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount).is_err() {
 
                     if is_d64 {
                         #[cfg(feature = "defmt")]
-                    defmt::info!("Sending Mount for D64...");
-                    let _ = crate::CMD_CHANNEL
+                        defmt::info!("Sending Mount for D64...");
+                        let _ = crate::CMD_CHANNEL
                             .send(crate::InternalCommand::Mount(crate::MountPayload::D64(
                                 full_path.clone(),
                                 manager.use_internal,
@@ -399,8 +421,8 @@ if crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount).is_err() {
                         *ctx.mounted_file_path = Some(full_path);
                     } else if is_g64 {
                         #[cfg(feature = "defmt")]
-                    defmt::info!("Sending Mount for D64...");
-                    let _ = crate::CMD_CHANNEL
+                        defmt::info!("Sending Mount for D64...");
+                        let _ = crate::CMD_CHANNEL
                             .send(crate::InternalCommand::Mount(crate::MountPayload::G64(
                                 full_path.clone(),
                                 manager.use_internal,
@@ -434,11 +456,13 @@ if crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount).is_err() {
                 )
                 .await
                 {
-                    
-if crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount).is_err() {
-    #[cfg(feature = "defmt")]
-    defmt::error!("CMD_CHANNEL is FULL for Unmount!");
-}
+                    if crate::CMD_CHANNEL
+                        .try_send(crate::InternalCommand::Unmount)
+                        .is_err()
+                    {
+                        #[cfg(feature = "defmt")]
+                        defmt::error!("CMD_CHANNEL is FULL for Unmount!");
+                    }
 
                     ctx.leds.set_status(StatusLedMode::Unmounted);
                     return PageState::MainMenu;

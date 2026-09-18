@@ -3,8 +3,11 @@ use crate::storage::DirectorySource;
 use embedded_io_async::{Read, Seek};
 use pico1541_common::track_buffer::TrackLayout;
 
-impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: pico1541_common::interface::TrackHandoff>
-    TrackCacheTask<S, O, H>
+impl<
+        S: Read + Seek + 'static,
+        O: FileOpener<FileStorage = S>,
+        H: pico1541_common::interface::TrackHandoff,
+    > TrackCacheTask<S, O, H>
 {
     pub(super) async fn handle_timer_event(&mut self, motor_on: bool) {
         // (first_missing_block, batch_count)
@@ -91,7 +94,6 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: pico1541_commo
         }
 
         if let Some((blocks_start, blocks_count)) = block_batch {
-
             // Mark active track as Void during background directory fetch to prevent Core 0 emu hang/timeouts.
             let old_layout = self.track_handle.get_active_layout();
             self.track_handle.set_active_layout(TrackLayout::Void);
@@ -161,7 +163,10 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: pico1541_commo
 
         if let Some(new_ht) = self.cache_adjacent_tracks().await {
             #[cfg(feature = "defmt")]
-            defmt::trace!("handle_timer_event: calling handle_track_event for new_ht={}", new_ht);
+            defmt::trace!(
+                "handle_timer_event: calling handle_track_event for new_ht={}",
+                new_ht
+            );
             self.handle_track_event(new_ht).await;
         }
     }
