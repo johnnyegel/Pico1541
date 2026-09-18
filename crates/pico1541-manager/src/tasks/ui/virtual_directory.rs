@@ -11,6 +11,7 @@ where
     pub storage: &'a mut S,
     pub internal: &'a mut Internal,
     pub current_path: &'a mut String<128>,
+    pub context: &'a crate::tasks::ui::UiContext,
 }
 
 impl<'a, S, Internal> VirtualDirectoryManager<'a, S, Internal>
@@ -21,7 +22,7 @@ where
     pub async fn mount_virtual_directory(&mut self, dir_name: &str) {
         let mut path: heapless::String<128> = heapless::String::new();
         let _ = path.push_str(dir_name);
-        let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::Mount(
+        let _ = self.context.cmd_tx.try_send(crate::InternalCommand::Mount(
             crate::MountPayload::VirtualDirectory(path, self.use_internal),
         ));
     }

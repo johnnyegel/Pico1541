@@ -362,7 +362,11 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
         display.request_redraw();
     }
 
-    pub async fn run<D: DisplayDriver>(&mut self, display: &mut D) -> MenuEvent {
+    pub async fn run<D: DisplayDriver>(
+        &mut self,
+        display: &mut D,
+        action_rx: &embassy_sync::channel::Receiver<'static, embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex, crate::UiAction, 16>,
+    ) -> MenuEvent {
         loop {
             for i in 0..5 {
                 let item_idx = self.scroll_offset + i;
@@ -375,16 +379,16 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
                 }
             }
 
-            if crate::ACTION_CHANNEL.is_empty() {
+            if action_rx.is_empty() {
                 display.clear().await;
                 self.render(display).await;
             }
 
-            let action = match crate::ACTION_CHANNEL.try_receive() {
+            let action = match action_rx.try_receive() {
                 Ok(a) => a,
                 Err(_) => match embassy_time::with_timeout(
                     embassy_time::Duration::from_millis(500),
-                    crate::ACTION_CHANNEL.receive(),
+                    action_rx.receive(),
                 )
                 .await
                 {
@@ -441,7 +445,7 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
             }
 
             // Drain any pending actions in the queue to avoid redraw lag stacking
-            while let Ok(pending_action) = crate::ACTION_CHANNEL.try_receive() {
+            while let Ok(pending_action) = action_rx.try_receive() {
                 if let Some(event) = process_action(pending_action) {
                     return event;
                 }

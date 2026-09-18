@@ -580,6 +580,12 @@ async fn core0_init_task(
         pico1541_manager::CMD_CHANNEL.receiver(),
     );
 
+    let ui_context = pico1541_manager::tasks::ui::UiContext {
+        action_rx: pico1541_manager::ACTION_CHANNEL.receiver(),
+        cmd_tx: pico1541_manager::CMD_CHANNEL.sender(),
+        settings_tx: pico1541_manager::SETTINGS_CHANNEL.sender(),
+    };
+
     let main_menu_task = MainMenuTask::new(
         display_wrapper,
         StatusLedsWrapper(status_leds_mutex),
@@ -590,6 +596,7 @@ async fn core0_init_task(
         config,
         rom_name,
         SYSTEM_CLOCK_FREQ,
+        ui_context,
     );
 
     spawner.spawn(menu_run(main_menu_task).unwrap());

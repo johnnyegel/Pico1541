@@ -9,6 +9,7 @@ pub async fn run_main_menu<D, S, Internal>(
     storage: &mut S,
     internal: &mut Internal,
     sd_path: &mut String<128>,
+    context: &crate::tasks::ui::UiContext,
 ) -> PageState
 where
     D: DisplayDriver,
@@ -41,7 +42,7 @@ where
         let mut main_menu = Menu::new("--- Main Menu ---", main_items);
         main_menu.set_cursor(cursor);
 
-        match main_menu.run(display).await {
+        match main_menu.run(display, &context.action_rx).await {
             MenuEvent::Selected(idx) => {
                 cursor = idx;
                 match idx {

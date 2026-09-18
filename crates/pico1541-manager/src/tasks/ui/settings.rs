@@ -12,6 +12,7 @@ pub async fn run_settings_menu<D, Internal>(
     display: &mut D,
     _internal: &mut Internal,
     config: &SnooperConfig,
+    context: &crate::tasks::ui::UiContext,
 ) -> PageState
 where
     D: DisplayDriver,
@@ -35,7 +36,7 @@ where
         let mut menu = Menu::new("--- Settings ---", items);
         menu.set_cursor(cursor);
 
-        match menu.run(display).await {
+        match menu.run(display, &context.action_rx).await {
             MenuEvent::Selected(idx) => {
                 cursor = idx;
                 match idx {
@@ -69,6 +70,7 @@ pub async fn run_device_id_menu<D, Internal>(
     display: &mut D,
     _internal: &mut Internal,
     config: &SnooperConfig,
+    context: &crate::tasks::ui::UiContext,
 ) -> PageState
 where
     D: DisplayDriver,
@@ -91,12 +93,12 @@ where
         let mut menu = Menu::new("--- Drive ID ---", items);
         menu.set_cursor(cursor);
 
-        match menu.run(display).await {
+        match menu.run(display, &context.action_rx).await {
             MenuEvent::Selected(idx) => {
                 let new_id = (idx + 8) as u8;
                 config.update_device_id(new_id);
                 let _ =
-                    crate::SETTINGS_CHANNEL.try_send(crate::SettingsCommand::SaveDriveId(new_id));
+                    context.settings_tx.try_send(crate::SettingsCommand::SaveDriveId(new_id));
                 display.clear().await;
                 display.print(2, "   Drive ID Saved!").await;
                 display.request_redraw();
@@ -122,6 +124,7 @@ pub async fn run_select_boot_rom_menu<D, Internal>(
     internal: &mut Internal,
     _config: &SnooperConfig,
     rom_name: &mut String<32>,
+    context: &crate::tasks::ui::UiContext,
 ) -> PageState
 where
     D: DisplayDriver,
@@ -167,7 +170,7 @@ where
         let mut menu = Menu::new("--- Boot ROM ---", items);
         menu.set_cursor(cursor);
 
-        match menu.run(display).await {
+        match menu.run(display, &context.action_rx).await {
             MenuEvent::Selected(idx) => {
                 if roms_added == 0 {
                     return PageState::Settings;
@@ -179,9 +182,9 @@ where
                     name_with_star.as_str()
                 };
                 *rom_name = String::from_str(name).unwrap();
-                let _ = crate::SETTINGS_CHANNEL
+                let _ = context.settings_tx
                     .try_send(crate::SettingsCommand::SaveBootRom(rom_name.clone()));
-                let _ = crate::SETTINGS_CHANNEL
+                let _ = context.settings_tx
                     .try_send(crate::SettingsCommand::LoadRomToMemory(rom_name.clone()));
                 cursor = idx;
             }

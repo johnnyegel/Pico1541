@@ -9,6 +9,7 @@ pub async fn run_monitor_page<D, Internal>(
     internal: &mut Internal,
     config: &SnooperConfig,
     sys_clock_freq: u32,
+    context: &crate::tasks::ui::UiContext,
 ) -> bool
 where
     D: DisplayDriver,
@@ -67,7 +68,7 @@ where
 
         match embassy_time::with_timeout(
             embassy_time::Duration::from_millis(200),
-            crate::ACTION_CHANNEL.receive(),
+            context.action_rx.receive(),
         )
         .await
         {

@@ -6,6 +6,8 @@ use embassy_sync::mutex::Mutex;
 use heapless::String;
 use pico1541_common::snooper::SnooperConfig;
 
+use embassy_sync::channel::{Receiver, Sender};
+
 pub mod boot;
 pub mod browser;
 pub mod home;
@@ -13,7 +15,14 @@ pub mod monitor;
 pub mod settings;
 pub mod virtual_directory;
 
-pub struct UiContext<'a, D, L, Ind, S, Internal>
+#[derive(Clone, Copy)]
+pub struct UiContext {
+    pub action_rx: Receiver<'static, CriticalSectionRawMutex, crate::UiAction, 16>,
+    pub cmd_tx: Sender<'static, CriticalSectionRawMutex, crate::InternalCommand, 128>,
+    pub settings_tx: Sender<'static, CriticalSectionRawMutex, crate::SettingsCommand, 2>,
+}
+
+pub struct MenuContext<'a, D, L, Ind, S, Internal>
 where
     Internal: crate::driver::FileStorageDriver,
 {
@@ -30,6 +39,7 @@ where
     pub mounted_file_path: &'a mut Option<String<128>>,
     pub rom_name: &'a mut String<32>,
     pub sys_clock_freq: u32,
+    pub context: UiContext,
 }
 
 pub enum PageState {
@@ -91,6 +101,7 @@ pub struct MainMenuTask<D, L, Ind, S, Internal: crate::driver::FileStorageDriver
     mounted_file_path: Option<String<128>>,
     rom_name: String<32>,
     sys_clock_freq: u32,
+    context: UiContext,
 }
 
 #[allow(clippy::type_complexity)]
@@ -113,6 +124,7 @@ where
         config: &'static SnooperConfig,
         rom_name: String<32>,
         sys_clock_freq: u32,
+        context: UiContext,
     ) -> Self {
         Self {
             display,
@@ -128,6 +140,7 @@ where
             mounted_file_path: None,
             rom_name,
             sys_clock_freq,
+            context,
         }
     }
 
@@ -137,7 +150,7 @@ where
         loop {
             state = match state {
                 PageState::BootScreen => {
-                    let _ = crate::CMD_CHANNEL.try_send(crate::InternalCommand::Unmount);
+                    let _ = self.context.cmd_tx.try_send(crate::InternalCommand::Unmount);
                     boot::run_boot_screen(
                         &mut self.display,
                         &mut self.leds,
@@ -152,6 +165,7 @@ where
                         &mut self.storage,
                         &mut self.internal,
                         &mut self.sd_path,
+                        &self.context,
                     )
                     .await
                 }
@@ -161,12 +175,13 @@ where
                         &mut self.internal,
                         self.config,
                         self.sys_clock_freq,
+                        &self.context,
                     )
                     .await;
                     PageState::MainMenu
                 }
                 PageState::SdCardMenu => {
-                    let mut ctx = UiContext {
+                    let mut ctx = MenuContext {
                         display: &mut self.display,
                         leds: &mut self.leds,
                         _indicator: &mut self._indicator,
@@ -180,11 +195,12 @@ where
                         mounted_file_path: &mut self.mounted_file_path,
                         rom_name: &mut self.rom_name,
                         sys_clock_freq: self.sys_clock_freq,
+                        context: self.context,
                     };
                     browser::run_sd_card_menu(&mut ctx).await
                 }
                 PageState::InternalMenu => {
-                    let mut ctx = UiContext {
+                    let mut ctx = MenuContext {
                         display: &mut self.display,
                         leds: &mut self.leds,
                         _indicator: &mut self._indicator,
@@ -198,15 +214,16 @@ where
                         mounted_file_path: &mut self.mounted_file_path,
                         rom_name: &mut self.rom_name,
                         sys_clock_freq: self.sys_clock_freq,
+                        context: self.context,
                     };
                     browser::run_internal_menu(&mut ctx).await
                 }
                 PageState::Settings => {
-                    settings::run_settings_menu(&mut self.display, &mut self.internal, self.config)
+                    settings::run_settings_menu(&mut self.display, &mut self.internal, self.config, &self.context)
                         .await
                 }
                 PageState::DeviceIdSelect => {
-                    settings::run_device_id_menu(&mut self.display, &mut self.internal, self.config)
+                    settings::run_device_id_menu(&mut self.display, &mut self.internal, self.config, &self.context)
                         .await
                 }
                 PageState::BootRomSelect => {
@@ -215,6 +232,7 @@ where
                         &mut self.internal,
                         self.config,
                         &mut self.rom_name,
+                        &self.context,
                     )
                     .await
                 }

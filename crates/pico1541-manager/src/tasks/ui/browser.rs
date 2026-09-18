@@ -1,5 +1,5 @@
 use super::monitor;
-use super::{join_path, parent_dir, PageState, UiContext};
+use super::{join_path, parent_dir, PageState, MenuContext};
 use crate::driver::{
     DisplayDriver, FileInfo, FileStorageDriver, IndicatorDriver, RgbLedDriver, StatusLedMode,
 };
@@ -9,7 +9,7 @@ use core::str::FromStr;
 use heapless::{String, Vec};
 
 pub async fn run_sd_card_menu<D, L, Ind, S, Internal>(
-    ctx: &mut UiContext<'_, D, L, Ind, S, Internal>,
+    ctx: &mut MenuContext<'_, D, L, Ind, S, Internal>,
 ) -> PageState
 where
     D: DisplayDriver + Clone,
@@ -22,7 +22,7 @@ where
 }
 
 pub async fn run_internal_menu<D, L, Ind, S, Internal>(
-    ctx: &mut UiContext<'_, D, L, Ind, S, Internal>,
+    ctx: &mut MenuContext<'_, D, L, Ind, S, Internal>,
 ) -> PageState
 where
     D: DisplayDriver + Clone,
@@ -35,7 +35,7 @@ where
 }
 
 async fn run_file_browser_menu<D, L, Ind, S, Internal>(
-    ctx: &mut UiContext<'_, D, L, Ind, S, Internal>,
+    ctx: &mut MenuContext<'_, D, L, Ind, S, Internal>,
     title: &str,
     use_internal: bool,
 ) -> PageState
@@ -95,6 +95,7 @@ where
             storage: ctx.storage,
             internal: ctx.internal,
             current_path: current_path_ptr,
+            context: &ctx.context,
         };
 
         // If not mounted, mount it
@@ -146,15 +147,15 @@ where
             let mut empty_items = Vec::<&'static str, 1>::new();
             let _ = empty_items.push("No files found");
             let mut empty_menu = Menu::new(menu_title, empty_items);
-            match empty_menu.run(ctx.display).await {
+            match empty_menu.run(ctx.display, &ctx.context.action_rx).await {
                 MenuEvent::Back => {
                     if manager.current_path.as_str() == "/" {
-                        if crate::CMD_CHANNEL
+                        if ctx.context.cmd_tx
                             .try_send(crate::InternalCommand::Unmount)
                             .is_err()
                         {
                             #[cfg(feature = "defmt")]
-                            defmt::error!("CMD_CHANNEL is FULL for Unmount!");
+                            defmt::error!("cmd_tx is FULL for Unmount!");
                         }
 
                         ctx.leds.set_status(StatusLedMode::Unmounted);
@@ -170,12 +171,12 @@ where
                     }
                 }
                 MenuEvent::Home => {
-                    if crate::CMD_CHANNEL
+                    if ctx.context.cmd_tx
                         .try_send(crate::InternalCommand::Unmount)
                         .is_err()
                     {
                         #[cfg(feature = "defmt")]
-                        defmt::error!("CMD_CHANNEL is FULL for Unmount!");
+                        defmt::error!("cmd_tx is FULL for Unmount!");
                     }
 
                     ctx.leds.set_status(StatusLedMode::Unmounted);
@@ -187,15 +188,16 @@ where
                         manager.internal,
                         ctx.config,
                         ctx.sys_clock_freq,
+                        &ctx.context,
                     )
                     .await
                     {
-                        if crate::CMD_CHANNEL
+                        if ctx.context.cmd_tx
                             .try_send(crate::InternalCommand::Unmount)
                             .is_err()
                         {
                             #[cfg(feature = "defmt")]
-                            defmt::error!("CMD_CHANNEL is FULL for Unmount!");
+                            defmt::error!("cmd_tx is FULL for Unmount!");
                         }
 
                         ctx.leds.set_status(StatusLedMode::Unmounted);
@@ -207,12 +209,12 @@ where
                 _ => {}
             }
             if !use_internal {
-                if crate::CMD_CHANNEL
+                if ctx.context.cmd_tx
                     .try_send(crate::InternalCommand::Unmount)
                     .is_err()
                 {
                     #[cfg(feature = "defmt")]
-                    defmt::error!("CMD_CHANNEL is FULL for Unmount!");
+                    defmt::error!("cmd_tx is FULL for Unmount!");
                 }
 
                 ctx.leds.set_status(StatusLedMode::Unmounted);
@@ -248,7 +250,7 @@ where
         }
 
         let event = loop {
-            match menu.run(ctx.display).await {
+            match menu.run(ctx.display, &ctx.context.action_rx).await {
                 MenuEvent::LoadBlock(tb) => {
                     if let Ok(infos) = manager.ensure_block_loaded(tb).await {
                         let mut block_strings = Vec::<String<64>, 16>::new();
@@ -305,12 +307,12 @@ where
         match event {
             MenuEvent::LoadBlock(_) => {}
             MenuEvent::Timeout => {
-                if crate::CMD_CHANNEL
+                if ctx.context.cmd_tx
                     .try_send(crate::InternalCommand::Unmount)
                     .is_err()
                 {
                     #[cfg(feature = "defmt")]
-                    defmt::error!("CMD_CHANNEL is FULL for Unmount!");
+                    defmt::error!("cmd_tx is FULL for Unmount!");
                 }
 
                 ctx.leds.set_status(StatusLedMode::Unmounted);
@@ -378,12 +380,12 @@ where
                     }
 
                     if Some(full_path.clone()) == *ctx.mounted_file_path {
-                        if crate::CMD_CHANNEL
+                        if ctx.context.cmd_tx
                             .try_send(crate::InternalCommand::Unmount)
                             .is_err()
                         {
                             #[cfg(feature = "defmt")]
-                            defmt::error!("CMD_CHANNEL is FULL for Unmount!");
+                            defmt::error!("cmd_tx is FULL for Unmount!");
                         }
 
                         ctx.leds.set_status(StatusLedMode::Unmounted);
@@ -412,7 +414,7 @@ where
                     if is_d64 {
                         #[cfg(feature = "defmt")]
                         defmt::info!("Sending Mount for D64...");
-                        let _ = crate::CMD_CHANNEL
+                        let _ = ctx.context.cmd_tx
                             .send(crate::InternalCommand::Mount(crate::MountPayload::D64(
                                 full_path.clone(),
                                 manager.use_internal,
@@ -422,7 +424,7 @@ where
                     } else if is_g64 {
                         #[cfg(feature = "defmt")]
                         defmt::info!("Sending Mount for D64...");
-                        let _ = crate::CMD_CHANNEL
+                        let _ = ctx.context.cmd_tx
                             .send(crate::InternalCommand::Mount(crate::MountPayload::G64(
                                 full_path.clone(),
                                 manager.use_internal,
@@ -453,15 +455,16 @@ where
                     manager.internal,
                     ctx.config,
                     ctx.sys_clock_freq,
+                    &ctx.context,
                 )
                 .await
                 {
-                    if crate::CMD_CHANNEL
+                    if ctx.context.cmd_tx
                         .try_send(crate::InternalCommand::Unmount)
                         .is_err()
                     {
                         #[cfg(feature = "defmt")]
-                        defmt::error!("CMD_CHANNEL is FULL for Unmount!");
+                        defmt::error!("cmd_tx is FULL for Unmount!");
                     }
 
                     ctx.leds.set_status(StatusLedMode::Unmounted);
