@@ -30,8 +30,8 @@ use pico1541_common::snooper::SnooperConfig;
 
 pub const SYSTEM_CLOCK_FREQ: u32 = 250_000_000;
 use pico1541_manager::tasks::{
-    ActionTask, DisplayTask, DriveActivityTask, KeyboardTask, MainMenuTask, MountManagerTask,
-    SnooperTask,
+    ActionTask, DisplayTask, KeyboardTask, MainMenuTask, MountManagerTask,
+    
 };
 
 #[cfg(has_mklittlefs)]
@@ -384,17 +384,6 @@ async fn main(spawner: Spawner) {
     )
     .await;
 }
-
-#[embassy_executor::task]
-async fn activity_run(mut task: DriveActivityTask<IndicatorWrapper<CriticalSectionRawMutex>>) {
-    task.run().await;
-}
-
-#[embassy_executor::task]
-async fn snooper_run(mut task: SnooperTask) {
-    task.run().await;
-}
-
 #[embassy_executor::task]
 async fn vdisk_run(
     mut task: MountManagerTask<
@@ -527,7 +516,6 @@ async fn core0_init_task(
     static INDICATOR: StaticCell<Mutex<CriticalSectionRawMutex, ActivityIndicator>> =
         StaticCell::new();
     let indicator_mutex = INDICATOR.init(Mutex::new(indicator));
-    let activity_task = DriveActivityTask::new(IndicatorWrapper(indicator_mutex));
 
     // 3. RGB Status LEDs (Used in Hardware Test via Main Menu)
     let status_leds_obj = StatusLeds::new(pins.rgb_red, pins.rgb_green, pins.rgb_blue);
@@ -563,8 +551,6 @@ async fn core0_init_task(
 
     let display_task = DisplayTask::new(display_wrapper.clone());
 
-    // 7. Snooper Task
-    let snooper_task = SnooperTask::new(8);
 
     let vdisk_task = MountManagerTask::new(
         manager_handle,
@@ -589,7 +575,6 @@ async fn core0_init_task(
     );
 
     spawner.spawn(menu_run(main_menu_task).unwrap());
-    spawner.spawn(activity_run(activity_task).unwrap());
     spawner.spawn(keyboard_run(keyboard_task).unwrap());
     let action_task = ActionTask::new();
     spawner.spawn(action_run(action_task).unwrap());
@@ -597,7 +582,6 @@ async fn core0_init_task(
     let perf_task = pico1541_manager::tasks::Core0PerfTask::new(&SNOOPER_CONFIG);
     spawner.spawn(core0_perf_task(perf_task).unwrap());
     spawner.spawn(display_run(display_task).unwrap());
-    spawner.spawn(snooper_run(snooper_task).unwrap());
     use embassy_rp::interrupt::{InterruptExt, Priority};
     embassy_rp::interrupt::TIMER_IRQ_3.set_priority(Priority::P2);
     EXECUTOR_HIGH.start(embassy_rp::interrupt::TIMER_IRQ_3);

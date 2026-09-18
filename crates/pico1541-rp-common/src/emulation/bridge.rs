@@ -7,7 +7,7 @@ use pico1541_common::interface::HostInterface;
 use pico1541_common::snooper::{IecSnooper, SnooperConfig};
 use pico1541_common::util::bit_align_u32;
 use pico1541_common::DriveEvent;
-use pico1541_manager::{InternalCommand, CMD_CHANNEL, EVENT_CHANNEL, TRACK_REQUEST, TRACK_SIGNAL};
+use pico1541_manager::{InternalCommand, CMD_CHANNEL};
 
 use super::config::*;
 
@@ -68,9 +68,7 @@ impl HardwareBridge {
 impl HostInterface for HardwareBridge {
     #[link_section = ".core1_text"]
     #[inline(always)]
-    fn send_event(&mut self, event: DriveEvent) {
-        // try_send is non-blocking and safe for Core 0.
-        let _ = EVENT_CHANNEL.try_send(event);
+    fn send_event(&mut self, _event: DriveEvent) {
     }
 
     #[link_section = ".core1_text"]
@@ -95,20 +93,7 @@ impl HostInterface for HardwareBridge {
     #[link_section = ".core1_text"]
     #[inline(always)]
     fn track_changed(&mut self, half_track: u8) {
-        // We notify the TRACK_SIGNAL directly instead of using DriveEvent
-        // since we want to avoid flooding the queue if the head moves very fast!
-        TRACK_REQUEST.store(half_track, core::sync::atomic::Ordering::Relaxed);
-        TRACK_SIGNAL.signal(());
-
-        // Pend TIMER_IRQ_3 on Core 0 to wake up the DiskTask!
-        #[cfg(feature = "rp2040")]
-        embassy_rp::pac::TIMER
-            .intf()
-            .write(|w| w.set_alarm(3, true));
-        #[cfg(feature = "rp235xa")]
-        embassy_rp::pac::TIMER0
-            .intf()
-            .write(|w| w.set_alarm(3, true));
+        RpTrackHandoff::new().notify_track_change(half_track);
     }
 
     #[link_section = ".core1_text"]
@@ -327,4 +312,46 @@ pub fn init_iec_pio(mut pio1: embassy_rp::pio::Pio<'static, embassy_rp::peripher
     core::mem::forget(atn_pin);
     core::mem::forget(iec_loaded);
     core::mem::forget(pio1); // DO NOT DROP PIO1, otherwise Drop will disable the state machine!
+}
+
+use pico1541_common::interface::TrackHandoff;
+use core::sync::atomic::{AtomicU8};
+use embassy_sync::signal::Signal;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+
+static TRACK_REQUEST: AtomicU8 = AtomicU8::new(36);
+static TRACK_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+
+pub struct RpTrackHandoff;
+
+impl RpTrackHandoff {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+impl TrackHandoff for RpTrackHandoff {
+    fn notify_track_change(&mut self, half_track: u8) {
+        TRACK_REQUEST.store(half_track, Ordering::Relaxed);
+        TRACK_SIGNAL.signal(());
+        
+        #[cfg(feature = "rp235xa")]
+        embassy_rp::pac::TIMER0
+            .intf()
+            .write(|w| w.set_alarm(3, true));
+
+        #[cfg(feature = "rp2040")]
+        embassy_rp::pac::TIMER
+            .intf()
+            .write(|w| w.set_alarm(3, true));
+    }
+
+    fn current_track(&self) -> u8 {
+        TRACK_REQUEST.load(Ordering::Relaxed)
+    }
+
+    async fn wait_for_change(&mut self) -> u8 {
+        TRACK_SIGNAL.wait().await;
+        self.current_track()
+    }
 }
