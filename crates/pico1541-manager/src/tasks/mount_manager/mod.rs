@@ -141,7 +141,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
         let is_g64 = p_str.ends_with(".g64") || p_str.ends_with(".G64");
 
         let ht1 = self.track_handle.get_head_half_track();
-        let mut ht2 = ht1;
+        let mut _ht2 = ht1;
 
         if is_d64 {
             let file = if use_internal {
@@ -162,7 +162,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
             } else {
                 self.disk_image = None;
             }
-            ht2 = self.track_handle.get_head_half_track();
+            _ht2 = self.track_handle.get_head_half_track();
         } else {
             let dir_source = crate::storage::PagedDirectorySource::<144>::new(path.as_bytes());
             let vdisk = crate::formats::VirtualDiskImage::new(dir_source, path.as_bytes());

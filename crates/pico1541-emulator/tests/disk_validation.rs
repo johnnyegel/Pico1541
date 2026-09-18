@@ -175,7 +175,7 @@ fn test_compare_d64_g64_track_18() {
     // 2. Load D64 Track 18 (HT 36)
     let d64_data = fs::read("tests/data/test.d64").expect("Failed to read D64");
     let mut storage_d64 = MemoryStorage::new(&d64_data);
-    let mut d64 = D64Image::new(&mut storage_d64);
+    let mut d64 = block_on(D64Image::new(&mut storage_d64));
 
     let mut d64_track_data = [0u8; 8192];
     let d64_layout =
