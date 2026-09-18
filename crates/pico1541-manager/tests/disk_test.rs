@@ -10,7 +10,7 @@ fn test_d64_load_track() {
     d64_data[1] = 0x10;
 
     let storage = MemoryStorage::new(&d64_data);
-    let mut image = D64Image::new(storage);
+    let mut image = block_on(D64Image::new(storage));
 
     use pico1541_common::track_buffer::TrackLayout;
     let mut buffer = [0u8; 10000];
@@ -69,7 +69,7 @@ fn test_get_status_mode() {
 
     // 3. D64 (Non-accurate)
     let d64_data = [0u8; 174848];
-    let d64 = D64Image::new(MemoryStorage::new(&d64_data));
+    let d64 = block_on(D64Image::new(MemoryStorage::new(&d64_data)));
     let disk: AnyDiskImage<MemoryStorage, StaticDirectorySource> = AnyDiskImage::D64(d64);
     assert_eq!(get_status_mode(Some(&disk)), StatusLedMode::NonAccurateDisk);
 

@@ -13,7 +13,7 @@ fn test_d64_image_read_track() {
     }
 
     let storage = MemoryStorage::new(&data);
-    let mut img = D64Image::new(storage);
+    let mut img = block_on(D64Image::new(storage));
     let mut dest = vec![0u8; 8000];
 
     // Track 1.0 is half_track 2
