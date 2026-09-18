@@ -1,6 +1,8 @@
 use crate::flash_storage::FlashStorage;
 use littlefs_rust::{Config, Filesystem, OpenFlags};
-use pico1541_manager::{SettingsCommand, SETTINGS_CHANNEL};
+use pico1541_manager::SettingsCommand;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Receiver;
 
 #[derive(Clone, Copy)]
 pub struct RomBufferPtr(pub *mut [u8; 16384]);
@@ -11,9 +13,10 @@ pub async fn settings_save_task(
     mut flash_storage: FlashStorage<'static>,
     rom_buffer: RomBufferPtr,
     snooper_config: &'static pico1541_common::snooper::SnooperConfig,
+    rx: Receiver<'static, CriticalSectionRawMutex, SettingsCommand, 2>,
 ) {
     loop {
-        let cmd = SETTINGS_CHANNEL.receive().await;
+        let cmd = rx.receive().await;
 
         let mut config = Config::new(4096, 128);
         config.read_size = 256;
@@ -92,7 +95,7 @@ pub async fn settings_save_task(
                         ) {
                             defmt::info!("Opened {} for writing", full_path.as_str());
                             loop {
-                                let inner_cmd = SETTINGS_CHANNEL.receive().await;
+                                let inner_cmd = rx.receive().await;
                                 match inner_cmd {
                                     SettingsCommand::InstallRomChunk(data) => {
                                         let _ = file.write(&data);

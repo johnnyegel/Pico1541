@@ -1,18 +1,21 @@
 use crate::driver::SettingsDriver;
-use crate::{SettingsCommand, SETTINGS_CHANNEL};
+use crate::SettingsCommand;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Receiver;
 
 pub struct SettingsSaveTask<D: SettingsDriver> {
     driver: D,
+    rx: Receiver<'static, CriticalSectionRawMutex, SettingsCommand, 2>,
 }
 
 impl<D: SettingsDriver> SettingsSaveTask<D> {
-    pub fn new(driver: D) -> Self {
-        Self { driver }
+    pub fn new(driver: D, rx: Receiver<'static, CriticalSectionRawMutex, SettingsCommand, 2>) -> Self {
+        Self { driver, rx }
     }
 
     pub async fn run(&mut self) {
         loop {
-            let cmd = SETTINGS_CHANNEL.receive().await;
+            let cmd = self.rx.receive().await;
 
             match cmd {
                 SettingsCommand::SaveDriveId(id) => {
@@ -34,7 +37,7 @@ impl<D: SettingsDriver> SettingsSaveTask<D> {
                         .await;
 
                     loop {
-                        let inner_cmd = SETTINGS_CHANNEL.receive().await;
+                        let inner_cmd = self.rx.receive().await;
                         match inner_cmd {
                             SettingsCommand::InstallRomChunk(data) => {
                                 self.driver.install_rom_chunk(&data).await;

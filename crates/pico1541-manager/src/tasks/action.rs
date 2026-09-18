@@ -1,4 +1,6 @@
-use crate::{Button, ButtonEvent, UiAction, ACTION_CHANNEL, KEYBOARD_CHANNEL};
+use crate::{Button, ButtonEvent, UiAction};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::{Receiver, Sender};
 
 pub struct ActionTask {
     back_held: bool,
@@ -6,28 +8,29 @@ pub struct ActionTask {
     back_used_for_chord: bool,
     action_fired_on_hold: bool,
     scroll_hold_count: usize,
-}
-
-impl Default for ActionTask {
-    fn default() -> Self {
-        Self::new()
-    }
+    event_rx: Receiver<'static, CriticalSectionRawMutex, ButtonEvent, 16>,
+    action_tx: Sender<'static, CriticalSectionRawMutex, UiAction, 16>,
 }
 
 impl ActionTask {
-    pub const fn new() -> Self {
+    pub fn new(
+        event_rx: Receiver<'static, CriticalSectionRawMutex, ButtonEvent, 16>,
+        action_tx: Sender<'static, CriticalSectionRawMutex, UiAction, 16>,
+    ) -> Self {
         Self {
             back_held: false,
             select_held: false,
             back_used_for_chord: false,
             action_fired_on_hold: false,
             scroll_hold_count: 0,
+            event_rx,
+            action_tx,
         }
     }
 
     pub async fn run(&mut self) -> ! {
         loop {
-            let event = KEYBOARD_CHANNEL.receive().await;
+            let event = self.event_rx.receive().await;
 
             if self.action_fired_on_hold {
                 match event {
@@ -63,68 +66,68 @@ impl ActionTask {
                     self.scroll_hold_count = 0;
                     if self.back_held {
                         self.back_used_for_chord = true;
-                        let _ = ACTION_CHANNEL.try_send(UiAction::SkipUp);
+                        let _ = self.action_tx.send(UiAction::SkipUp).await;
                     } else {
-                        let _ = ACTION_CHANNEL.try_send(UiAction::ScrollUp);
+                        let _ = self.action_tx.send(UiAction::ScrollUp).await;
                     }
                 }
                 ButtonEvent::Hold(Button::Up) => {
                     self.scroll_hold_count = self.scroll_hold_count.saturating_add(1);
                     if self.back_held {
                         self.back_used_for_chord = true;
-                        let _ = ACTION_CHANNEL.try_send(UiAction::SkipUp);
+                        let _ = self.action_tx.send(UiAction::SkipUp).await;
                     } else if self.scroll_hold_count > 15 {
-                        let _ = ACTION_CHANNEL.try_send(UiAction::FastScrollUp);
+                        let _ = self.action_tx.send(UiAction::FastScrollUp).await;
                     } else {
-                        let _ = ACTION_CHANNEL.try_send(UiAction::ScrollUp);
+                        let _ = self.action_tx.send(UiAction::ScrollUp).await;
                     }
                 }
                 ButtonEvent::Pressed(Button::Down) => {
                     self.scroll_hold_count = 0;
                     if self.back_held {
                         self.back_used_for_chord = true;
-                        let _ = ACTION_CHANNEL.try_send(UiAction::SkipDown);
+                        let _ = self.action_tx.send(UiAction::SkipDown).await;
                     } else {
-                        let _ = ACTION_CHANNEL.try_send(UiAction::ScrollDown);
+                        let _ = self.action_tx.send(UiAction::ScrollDown).await;
                     }
                 }
                 ButtonEvent::Hold(Button::Down) => {
                     self.scroll_hold_count = self.scroll_hold_count.saturating_add(1);
                     if self.back_held {
                         self.back_used_for_chord = true;
-                        let _ = ACTION_CHANNEL.try_send(UiAction::SkipDown);
+                        let _ = self.action_tx.send(UiAction::SkipDown).await;
                     } else if self.scroll_hold_count > 15 {
-                        let _ = ACTION_CHANNEL.try_send(UiAction::FastScrollDown);
+                        let _ = self.action_tx.send(UiAction::FastScrollDown).await;
                     } else {
-                        let _ = ACTION_CHANNEL.try_send(UiAction::ScrollDown);
+                        let _ = self.action_tx.send(UiAction::ScrollDown).await;
                     }
                 }
                 ButtonEvent::Hold(Button::Back) => {
                     if self.select_held {
-                        let _ = ACTION_CHANNEL.try_send(UiAction::Monitor);
+                        let _ = self.action_tx.send(UiAction::Monitor).await;
                     } else {
-                        let _ = ACTION_CHANNEL.try_send(UiAction::Home);
+                        let _ = self.action_tx.send(UiAction::Home).await;
                     }
                     self.action_fired_on_hold = true;
                 }
                 ButtonEvent::Hold(Button::Select) => {
                     if self.back_held {
-                        let _ = ACTION_CHANNEL.try_send(UiAction::Monitor);
+                        let _ = self.action_tx.send(UiAction::Monitor).await;
                     } else {
-                        let _ = ACTION_CHANNEL.try_send(UiAction::ContextAction);
+                        let _ = self.action_tx.send(UiAction::ContextAction).await;
                     }
                     self.action_fired_on_hold = true;
                 }
                 ButtonEvent::Released(Button::Back) => {
                     if self.back_held && !self.back_used_for_chord && !self.select_held {
-                        let _ = ACTION_CHANNEL.try_send(UiAction::Back);
+                        let _ = self.action_tx.send(UiAction::Back).await;
                     }
                     self.back_held = false;
                     self.back_used_for_chord = false;
                 }
                 ButtonEvent::Released(Button::Select) => {
                     if self.select_held && !self.back_held {
-                        let _ = ACTION_CHANNEL.try_send(UiAction::Select);
+                        let _ = self.action_tx.send(UiAction::Select).await;
                     }
                     self.select_held = false;
                 }

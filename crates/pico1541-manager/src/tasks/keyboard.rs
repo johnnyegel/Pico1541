@@ -1,14 +1,17 @@
 use crate::driver::InputDriver;
-use crate::{Button, ButtonEvent, KEYBOARD_CHANNEL};
+use crate::{Button, ButtonEvent};
 use embassy_time::{Duration, Timer};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Sender;
 
 pub struct KeyboardTask<I: InputDriver> {
     input: I,
+    event_tx: Sender<'static, CriticalSectionRawMutex, ButtonEvent, 16>,
 }
 
 impl<I: InputDriver> KeyboardTask<I> {
-    pub fn new(input: I) -> Self {
-        Self { input }
+    pub fn new(input: I, event_tx: Sender<'static, CriticalSectionRawMutex, ButtonEvent, 16>) -> Self {
+        Self { input, event_tx }
     }
 
     pub async fn run(&mut self) -> ! {
@@ -49,10 +52,10 @@ impl<I: InputDriver> KeyboardTask<I> {
 
                             if (current_sample >> i) & 1 == 1 {
                                 log::info!("KEYBOARD: Button {:?} PRESSED", button);
-                                let _ = KEYBOARD_CHANNEL.try_send(ButtonEvent::Pressed(button));
+                                let _ = self.event_tx.send(ButtonEvent::Pressed(button)).await;
                             } else {
                                 log::info!("KEYBOARD: Button {:?} RELEASED", button);
-                                let _ = KEYBOARD_CHANNEL.try_send(ButtonEvent::Released(button));
+                                let _ = self.event_tx.send(ButtonEvent::Released(button)).await;
                             }
                         }
                     }
@@ -77,7 +80,7 @@ impl<I: InputDriver> KeyboardTask<I> {
                                 _ => unreachable!(),
                             };
                             log::info!("KEYBOARD: Button {:?} HELD", button);
-                            let _ = KEYBOARD_CHANNEL.try_send(ButtonEvent::Hold(button));
+                            let _ = self.event_tx.send(ButtonEvent::Hold(button)).await;
                         }
                     }
                     hold_time = Duration::from_millis(30); // Repeat hold timer

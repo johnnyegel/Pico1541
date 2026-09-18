@@ -84,6 +84,7 @@ static CURRENT_DIR: Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)
     Mutex::new((heapless::String::new(), false));
 static MOUNTED_DIR: Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)> =
     Mutex::new((heapless::String::new(), false));
+static MOTOR_STATE: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 
 static EXECUTOR_HIGH: embassy_executor::InterruptExecutor =
     embassy_executor::InterruptExecutor::new();
@@ -373,6 +374,7 @@ async fn main(spawner: Spawner) {
             fs_storage_inst,
             pico1541_rp_common::tasks::RomBufferPtr(core::ptr::addr_of_mut!(ROM_BUFFER)),
             &SNOOPER_CONFIG,
+            pico1541_manager::SETTINGS_CHANNEL.receiver(),
         )
         .unwrap(),
     );
@@ -555,7 +557,7 @@ async fn core0_init_task(
 
     // 5. Keyboard Matrix
     let keyboard = KeyboardInput::new(pins.kbd_row1, pins.kbd_row2, pins.kbd_col1, pins.kbd_col2);
-    let keyboard_task = KeyboardTask::new(keyboard);
+    let keyboard_task = KeyboardTask::new(keyboard, pico1541_manager::KEYBOARD_CHANNEL.sender());
 
     let display_task = DisplayTask::new(display_wrapper.clone());
 
@@ -568,11 +570,14 @@ async fn core0_init_task(
         },
         RpTrackHandoff::new(),
         &MOUNTED_DIR,
+        &MOTOR_STATE,
     );
 
     let mount_controller_task = MountControllerTask::new(
         StatusLedsWrapper(status_leds_mutex),
         &MOUNTED_DIR,
+        &MOTOR_STATE,
+        pico1541_manager::CMD_CHANNEL.receiver(),
     );
 
     let main_menu_task = MainMenuTask::new(
@@ -589,7 +594,10 @@ async fn core0_init_task(
 
     spawner.spawn(menu_run(main_menu_task).unwrap());
     spawner.spawn(keyboard_run(keyboard_task).unwrap());
-    let action_task = ActionTask::new();
+    let action_task = ActionTask::new(
+        pico1541_manager::KEYBOARD_CHANNEL.receiver(),
+        pico1541_manager::ACTION_CHANNEL.sender(),
+    );
     spawner.spawn(action_run(action_task).unwrap());
 
     let perf_task = pico1541_manager::tasks::Core0PerfTask::new(&SNOOPER_CONFIG);

@@ -16,8 +16,6 @@ mod track;
 pub use file_opener::{match_c64_filename, FileOpener};
 pub mod file_opener;
 
-pub static MOTOR_STATE: AtomicBool = AtomicBool::new(false);
-
 pub struct TrackCacheTask<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
 {
     pub(super) disk_image: Option<AnyDiskImage<S, crate::storage::PagedDirectorySource<144>>>,
@@ -34,6 +32,7 @@ pub struct TrackCacheTask<S: Read + Seek + 'static, O: FileOpener<FileStorage = 
     pub(super) last_step_direction: i8,
     last_mounted_path: heapless::String<128>,
     last_motor_state: bool,
+    motor_state: &'static AtomicBool,
 }
 
 impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
@@ -44,6 +43,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
         opener: O,
         handoff: H,
         mounted_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
+        motor_state: &'static AtomicBool,
     ) -> Self {
         Self {
             disk_image: None,
@@ -55,6 +55,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
             last_step_direction: 2,
             last_mounted_path: heapless::String::new(),
             last_motor_state: false,
+            motor_state,
         }
     }
 
@@ -68,7 +69,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
             }
 
             // Check motor state
-            let current_motor_state = MOTOR_STATE.load(Ordering::Relaxed);
+            let current_motor_state = self.motor_state.load(Ordering::Relaxed);
             if current_motor_state && !self.last_motor_state {
                 // Motor turned on
                 let mut disk_opt = self.disk_image.as_mut();
@@ -230,25 +231,31 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
     }
 }
 
+use embassy_sync::channel::Receiver;
+
 pub struct MountControllerTask<L: LedsDriver> {
     leds: L,
     mounted_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
+    motor_state: &'static AtomicBool,
+    cmd_rx: Receiver<'static, CriticalSectionRawMutex, crate::InternalCommand, 128>,
 }
 
 impl<L: LedsDriver> MountControllerTask<L> {
     pub fn new(
         leds: L,
         mounted_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
+        motor_state: &'static AtomicBool,
+        cmd_rx: Receiver<'static, CriticalSectionRawMutex, crate::InternalCommand, 128>,
     ) -> Self {
-        Self { leds, mounted_dir }
+        Self { leds, mounted_dir, motor_state, cmd_rx }
     }
 
     pub async fn run(&mut self) {
         loop {
-            let cmd = crate::CMD_CHANNEL.receive().await;
+            let cmd = self.cmd_rx.receive().await;
             match cmd {
                 crate::InternalCommand::MotorState(active) => {
-                    MOTOR_STATE.store(active, Ordering::Relaxed);
+                    self.motor_state.store(active, Ordering::Relaxed);
                 }
                 crate::InternalCommand::Mount(payload) => {
                     let (path, use_internal, led_mode) = match payload {

@@ -15,7 +15,6 @@ pub use driver::{
 };
 
 pub use formats::{AnyDiskImage, D64Image, DiskImage, Error, G64Image};
-pub use pico1541_common::interface::DriveEvent;
 pub use storage::{
     MemoryStorage, PagedDirectorySource, PagedDirectorySourceTrait, VectorDirectorySource,
 };
@@ -104,8 +103,6 @@ pub enum SettingsCommand {
     LoadRomToMemory(heapless::String<32>),
 }
 pub static SETTINGS_CHANNEL: Channel<CriticalSectionRawMutex, SettingsCommand, 2> = Channel::new();
-pub static SETTINGS_SAVE_RESULT: portable_atomic::AtomicU8 = portable_atomic::AtomicU8::new(0);
-pub static SETTINGS_SAVE_REQUEST: portable_atomic::AtomicU8 = portable_atomic::AtomicU8::new(0);
 
 #[cfg(test)]
 mod test_imports {}
