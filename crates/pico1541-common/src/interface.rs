@@ -65,3 +65,14 @@ pub trait HostInterface: crate::context::ViaHardware {
     }
     fn report_performance_counters(&mut self, _ticks: u32, _idles: u32) {}
 }
+
+/// Decouples cross-core track change notifications via a hardware doorbell.
+pub trait TrackHandoff {
+    /// Notify the manager that the head has moved to a new half-track.
+    fn notify_track_change(&mut self, half_track: u8);
+    /// Get the current half-track.
+    fn current_track(&self) -> u8;
+    /// Wait until a new track is requested.
+    #[allow(async_fn_in_trait)] // We only use this internally and do not need Send bounds
+    async fn wait_for_change(&mut self) -> u8;
+}
