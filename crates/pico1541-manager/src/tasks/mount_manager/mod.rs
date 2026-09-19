@@ -135,38 +135,29 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
         let ht1 = self.track_handle.get_head_half_track();
         let mut ht2 = ht1;
 
-        if is_d64 {
+        if is_d64 || is_g64 || is_nib {
             let file = if use_internal {
                 self.opener.open_internal_file(p_str)
             } else {
                 self.opener.open_sd_file(p_str)
             };
-            let d64 = crate::formats::D64Image::new(file).await;
-            self.disk_image = Some(crate::formats::AnyDiskImage::D64(d64));
-        } else if is_g64 {
-            let file = if use_internal {
-                self.opener.open_internal_file(p_str)
-            } else {
-                self.opener.open_sd_file(p_str)
-            };
-            if let Ok(g64) = crate::formats::G64Image::from_storage(file).await {
-                self.disk_image = Some(crate::formats::AnyDiskImage::G64(g64));
-            } else {
-                self.disk_image = None;
+
+            if is_d64 {
+                let d64 = crate::formats::D64Image::new(file).await;
+                self.disk_image = Some(crate::formats::AnyDiskImage::D64(d64));
+            } else if is_g64 {
+                self.disk_image = crate::formats::G64Image::from_storage(file)
+                    .await
+                    .ok()
+                    .map(crate::formats::AnyDiskImage::G64);
+                ht2 = self.track_handle.get_head_half_track();
+            } else if is_nib {
+                self.disk_image = crate::formats::NibImage::from_storage(file)
+                    .await
+                    .ok()
+                    .map(crate::formats::AnyDiskImage::Nib);
+                ht2 = self.track_handle.get_head_half_track();
             }
-            ht2 = self.track_handle.get_head_half_track();
-        } else if is_nib {
-            let file = if use_internal {
-                self.opener.open_internal_file(p_str)
-            } else {
-                self.opener.open_sd_file(p_str)
-            };
-            if let Ok(nib) = crate::formats::NibImage::from_storage(file).await {
-                self.disk_image = Some(crate::formats::AnyDiskImage::Nib(nib));
-            } else {
-                self.disk_image = None;
-            }
-            ht2 = self.track_handle.get_head_half_track();
         } else {
             let mut name_bytes = b"SD CARD".as_slice();
             if p_str == "/" || p_str.is_empty() {
@@ -255,20 +246,7 @@ impl<L: LedsDriver> MountControllerTask<L> {
                     self.motor_state.store(active, Ordering::Relaxed);
                 }
                 crate::InternalCommand::Mount(payload) => {
-                    let (path, use_internal, led_mode) = match payload {
-                        crate::MountPayload::VirtualDirectory(p, i) => {
-                            (p, i, crate::driver::StatusLedMode::VirtualDisk)
-                        }
-                        crate::MountPayload::D64(p, i) => {
-                            (p, i, crate::driver::StatusLedMode::NonAccurateDisk)
-                        }
-                        crate::MountPayload::G64(p, i) => {
-                            (p, i, crate::driver::StatusLedMode::AccurateDisk)
-                        }
-                        crate::MountPayload::Nib(p, i) => {
-                            (p, i, crate::driver::StatusLedMode::AccurateDisk)
-                        }
-                    };
+                    let (path, use_internal, led_mode) = payload.into_parts();
 
                     {
                         let mut guard = self.mounted_dir.lock().await;

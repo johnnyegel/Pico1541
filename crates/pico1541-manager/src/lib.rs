@@ -42,6 +42,44 @@ pub enum MountPayload {
     Nib(heapless::String<128>, bool),
 }
 
+impl MountPayload {
+    pub fn path(&self) -> &str {
+        match self {
+            Self::VirtualDirectory(p, _)
+            | Self::D64(p, _)
+            | Self::G64(p, _)
+            | Self::Nib(p, _) => p.as_str(),
+        }
+    }
+
+    pub fn use_internal(&self) -> bool {
+        match self {
+            Self::VirtualDirectory(_, i)
+            | Self::D64(_, i)
+            | Self::G64(_, i)
+            | Self::Nib(_, i) => *i,
+        }
+    }
+
+    pub fn status_led_mode(&self) -> StatusLedMode {
+        match self {
+            Self::VirtualDirectory(..) => StatusLedMode::VirtualDisk,
+            Self::D64(..) => StatusLedMode::NonAccurateDisk,
+            Self::G64(..) | Self::Nib(..) => StatusLedMode::AccurateDisk,
+        }
+    }
+
+    pub fn into_parts(self) -> (heapless::String<128>, bool, StatusLedMode) {
+        let mode = self.status_led_mode();
+        match self {
+            Self::VirtualDirectory(p, i)
+            | Self::D64(p, i)
+            | Self::G64(p, i)
+            | Self::Nib(p, i) => (p, i, mode),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum InternalCommand {
     MotorState(bool),

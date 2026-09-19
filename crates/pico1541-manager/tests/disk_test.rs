@@ -87,3 +87,34 @@ fn test_get_status_mode() {
     let disk: AnyDiskImage<MemoryStorage, StaticDirectorySource> = AnyDiskImage::Nib(nib);
     assert_eq!(get_status_mode(Some(&disk)), StatusLedMode::AccurateDisk);
 }
+
+#[test]
+fn test_mount_payload_nib() {
+    use core::str::FromStr;
+    use pico1541_manager::{MountPayload, StatusLedMode};
+
+    let path = heapless::String::<128>::from_str("/games/test.nib").unwrap();
+
+    // 1. Nib on internal storage
+    let payload_internal = MountPayload::Nib(path.clone(), true);
+    assert_eq!(payload_internal.path(), "/games/test.nib");
+    assert_eq!(payload_internal.use_internal(), true);
+    assert_eq!(payload_internal.status_led_mode(), StatusLedMode::AccurateDisk);
+
+    let (p, internal, mode) = payload_internal.into_parts();
+    assert_eq!(p.as_str(), "/games/test.nib");
+    assert_eq!(internal, true);
+    assert_eq!(mode, StatusLedMode::AccurateDisk);
+
+    // 2. Nib on SD storage
+    let payload_sd = MountPayload::Nib(path.clone(), false);
+    assert_eq!(payload_sd.path(), "/games/test.nib");
+    assert_eq!(payload_sd.use_internal(), false);
+    assert_eq!(payload_sd.status_led_mode(), StatusLedMode::AccurateDisk);
+
+    let (p, internal, mode) = payload_sd.into_parts();
+    assert_eq!(p.as_str(), "/games/test.nib");
+    assert_eq!(internal, false);
+    assert_eq!(mode, StatusLedMode::AccurateDisk);
+}
+
