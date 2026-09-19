@@ -30,7 +30,7 @@ impl<S: Read + Seek> NibImage<S> {
         // Parse track table starting at 0x10
         let mut h_index = 0x10;
         let mut t_index = 0;
-        while h_index < 0x100 && header[h_index] != 0 {
+        while h_index + 1 < 0x100 && header[h_index] != 0 && t_index < 84 {
             let track_num = header[h_index];
             let density = header[h_index + 1];
 

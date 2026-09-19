@@ -188,4 +188,76 @@ fn test_any_disk_image_nib() {
     assert!(any_disk.as_virtual_disk_mut().is_none());
 }
 
+#[test]
+fn test_nib_image_multi_track() {
+    let mut data = vec![0u8; 0x100 + 8192 * 2];
+    // Header magic
+    data[0..13].copy_from_slice(b"MNIB-1541-RAW");
+    data[13] = 2; // version
+
+    // Track entry 0 at 0x10: Track 1.0 (track_num = 2), density = 3 (speed zone 3)
+    data[0x10] = 2;
+    data[0x11] = 0x03;
+
+    // Track entry 1 at 0x12: Track 18.0 (track_num = 36), density = 1 (speed zone 1)
+    data[0x12] = 36;
+    data[0x13] = 0x01;
+
+    // Track 1 payload at 0x100 (t_index = 0)
+    for i in 0..8192 {
+        data[0x100 + i] = 0x11;
+    }
+
+    // Track 18 payload at 0x2100 (t_index = 1)
+    for i in 0..8192 {
+        data[0x2100 + i] = 0x22;
+    }
+
+    let storage = MemoryStorage::new(&data);
+    let mut nib = block_on(NibImage::from_storage(storage)).expect("failed to load NIB");
+
+    let mut dest = vec![0u8; 8192];
+
+    // Read Track 1.0 (half_track = 0)
+    let (layout, len, speed) = block_on(nib.read_track(0, &mut dest)).expect("read track 0 failed");
+    assert_eq!(layout, TrackLayout::Accurate);
+    assert_eq!(len, 8192);
+    assert_eq!(speed, Some(3));
+    assert!(dest.iter().all(|&b| b == 0x11));
+
+    // Read Track 18.0 (half_track = 34)
+    let (layout, len, speed) = block_on(nib.read_track(34, &mut dest)).expect("read track 34 failed");
+    assert_eq!(layout, TrackLayout::Accurate);
+    assert_eq!(len, 8192);
+    assert_eq!(speed, Some(1));
+    assert!(dest.iter().all(|&b| b == 0x22));
+
+    // Read unmapped Track 2.0 (half_track = 2)
+    let (layout, len, speed) = block_on(nib.read_track(2, &mut dest)).expect("read unmapped failed");
+    assert_eq!(layout, TrackLayout::Void);
+    assert_eq!(len, 0);
+    assert_eq!(speed, None);
+}
+
+#[test]
+fn test_nib_image_metadata_in_header_ignored() {
+    let mut data = vec![0u8; 0x100 + 8192];
+    data[0..13].copy_from_slice(b"MNIB-1541-RAW");
+    // One track at 0x10
+    data[0x10] = 2; // track 1.0 -> half_track 0
+    data[0x11] = 0;
+    // Non-zero metadata in bytes 0xB8..0xFF (fill with 0xFF)
+    for b in &mut data[0xB8..0x100] {
+        *b = 0xFF;
+    }
+    let storage = MemoryStorage::new(&data);
+    let mut nib = block_on(NibImage::from_storage(storage)).expect("failed to load NIB");
+    let mut dest = vec![0u8; 8192];
+    let (layout, len, _) = block_on(nib.read_track(0, &mut dest)).expect("read track 0 failed");
+    assert_eq!(layout, TrackLayout::Accurate);
+    assert_eq!(len, 8192);
+}
+
+
+
 
