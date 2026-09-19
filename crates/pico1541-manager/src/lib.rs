@@ -14,7 +14,7 @@ pub use driver::{
     DisplayDriver, IndicatorDriver, InputDriver, RgbLedDriver, StatusLedMode, StorageDriver,
 };
 
-pub use formats::{AnyDiskImage, D64Image, DiskImage, Error, G64Image};
+pub use formats::{AnyDiskImage, D64Image, DiskImage, Error, G64Image, NibImage};
 pub use storage::{
     MemoryStorage, PagedDirectorySource, PagedDirectorySourceTrait, VectorDirectorySource,
 };
@@ -30,7 +30,7 @@ pub fn get_status_mode<S: Read + Seek, D: DirectorySource>(
         None => StatusLedMode::Unmounted,
         Some(AnyDiskImage::VirtualDisk(_)) => StatusLedMode::VirtualDisk,
         Some(AnyDiskImage::D64(_)) => StatusLedMode::NonAccurateDisk,
-        Some(AnyDiskImage::G64(_)) => StatusLedMode::AccurateDisk,
+        Some(AnyDiskImage::G64(_)) | Some(AnyDiskImage::Nib(_)) => StatusLedMode::AccurateDisk,
     }
 }
 

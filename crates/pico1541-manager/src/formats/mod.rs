@@ -1,9 +1,11 @@
 pub mod d64;
 pub mod g64;
+pub mod nib;
 pub mod virtual_disk;
 
 pub use d64::D64Image;
 pub use g64::G64Image;
+pub use nib::NibImage;
 pub use virtual_disk::VirtualDiskImage;
 
 use crate::storage::DirectorySource;
@@ -15,6 +17,7 @@ use pico1541_common::track_buffer::TrackLayout;
 pub enum Error {
     Io,
     InvalidFormat,
+    Corrupted,
     InvalidTrack,
     TrackTooLarge,
     FileNotFound,
@@ -66,6 +69,7 @@ pub const fn sectors_per_track(track: u8) -> u8 {
 pub enum AnyDiskImage<S: Read + Seek, D: DirectorySource> {
     D64(D64Image<S>),
     G64(G64Image<S>),
+    Nib(NibImage<S>),
     VirtualDisk(VirtualDiskImage<S, D>),
 }
 
@@ -88,6 +92,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for AnyDiskImage<S, D> {
         match self {
             Self::D64(img) => img.read_track(half_track, dest).await,
             Self::G64(img) => img.read_track(half_track, dest).await,
+            Self::Nib(img) => img.read_track(half_track, dest).await,
             Self::VirtualDisk(img) => img.read_track(half_track, dest).await,
         }
     }

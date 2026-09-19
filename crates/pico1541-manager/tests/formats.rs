@@ -1,5 +1,5 @@
 use pico1541_common::track_buffer::TrackLayout;
-use pico1541_manager::formats::{D64Image, DiskImage, G64Image, VirtualDiskImage};
+use pico1541_manager::formats::{D64Image, DiskImage, G64Image, NibImage, VirtualDiskImage};
 use pico1541_manager::storage::{DirectoryEntry, DirectorySource, MemoryStorage};
 use pollster::block_on;
 
@@ -89,3 +89,103 @@ fn test_virtual_disk_image() {
     assert!(len > 7000);
     assert!(dest.iter().any(|&b| b != 0));
 }
+
+#[test]
+fn test_nib_image_read_track() {
+    let mut data = vec![0u8; 0x100 + 8192];
+    // Header magic
+    data[0..13].copy_from_slice(b"MNIB-1541-RAW");
+    data[13] = 2; // version
+    // Track entry 0 at 0x10: Track 18.0 (track_num = 36), density = 2 (speed zone 2)
+    data[0x10] = 36;
+    data[0x11] = 0x02;
+    // Track payload at 0x100
+    for i in 0..8192 {
+        data[0x100 + i] = (i % 256) as u8;
+    }
+
+    let storage = MemoryStorage::new(&data);
+    let mut nib = block_on(NibImage::from_storage(storage)).expect("failed to load NIB");
+
+    let mut dest = vec![0u8; 8192];
+    // Track 18.0 corresponds to half_track 34 in Pico1541
+    let (layout, len, speed) = block_on(nib.read_track(34, &mut dest)).expect("read_track failed");
+    assert_eq!(layout, TrackLayout::Accurate);
+    assert_eq!(len, 8192);
+    assert_eq!(speed, Some(2));
+    assert_eq!(&dest[0..10], &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+
+    // Unmapped track should return Void
+    let (layout, len, speed) = block_on(nib.read_track(0, &mut dest)).expect("unmapped failed");
+    assert_eq!(layout, TrackLayout::Void);
+    assert_eq!(len, 0);
+    assert_eq!(speed, None);
+}
+
+#[test]
+fn test_nib_image_1571_magic() {
+    let mut data = vec![0u8; 0x100];
+    data[0..13].copy_from_slice(b"MNIB-1571-RAW");
+    let storage = MemoryStorage::new(&data);
+    let nib = block_on(NibImage::from_storage(storage));
+    assert!(nib.is_ok());
+}
+
+#[test]
+fn test_nib_image_invalid_magic() {
+    let mut data = vec![0u8; 0x100];
+    data[0..13].copy_from_slice(b"BAD-MAGIC-RAW");
+    let storage = MemoryStorage::new(&data);
+    let nib = block_on(NibImage::from_storage(storage));
+    assert!(nib.is_err());
+}
+
+#[test]
+fn test_nib_image_dest_too_small() {
+    let mut data = vec![0u8; 0x100 + 8192];
+    data[0..13].copy_from_slice(b"MNIB-1541-RAW");
+    data[0x10] = 36;
+    data[0x11] = 0x02;
+    let storage = MemoryStorage::new(&data);
+    let mut nib = block_on(NibImage::from_storage(storage)).unwrap();
+    let mut small_dest = vec![0u8; 4096];
+    let res = block_on(nib.read_track(34, &mut small_dest));
+    assert!(matches!(res, Err(pico1541_manager::formats::Error::TrackTooLarge)));
+}
+
+#[test]
+fn test_any_disk_image_nib() {
+    let mut data = vec![0u8; 0x100 + 8192];
+    data[0..13].copy_from_slice(b"MNIB-1541-RAW");
+    data[0x10] = 36;
+    data[0x11] = 0x02;
+    for i in 0..8192 {
+        data[0x100 + i] = 0x42;
+    }
+
+    struct DummyDir;
+    impl DirectorySource for DummyDir {
+        fn name(&self) -> &[u8; 16] {
+            b"                "
+        }
+        fn next_entry(&mut self) -> Option<DirectoryEntry> {
+            None
+        }
+        fn rewind(&mut self) {}
+    }
+
+    let storage = MemoryStorage::new(&data);
+    let nib = block_on(NibImage::from_storage(storage)).unwrap();
+    let mut any_disk: pico1541_manager::formats::AnyDiskImage<MemoryStorage, DummyDir> =
+        pico1541_manager::formats::AnyDiskImage::Nib(nib);
+
+    let mut dest = vec![0u8; 8192];
+    let (layout, len, speed) = block_on(any_disk.read_track(34, &mut dest)).unwrap();
+    assert_eq!(layout, TrackLayout::Accurate);
+    assert_eq!(len, 8192);
+    assert_eq!(speed, Some(2));
+    assert_eq!(dest[0], 0x42);
+    assert!(any_disk.as_virtual_disk_mut().is_none());
+}
+
+
