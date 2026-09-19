@@ -212,7 +212,7 @@ impl DualCoreTrackBuffer {
             is_write_protected: AtomicBool::new(false),
             force_disk_change: AtomicBool::new(false),
             current_byte_idx: core::sync::atomic::AtomicUsize::new(0),
-            current_head_half_track: core::sync::atomic::AtomicU8::new(0),
+            current_head_half_track: core::sync::atomic::AtomicU8::new(34),
         }
     }
 

@@ -156,6 +156,16 @@ impl<
                         }
                     }
                 }
+            } else {
+                let mut disk_opt = self.disk_image.as_mut();
+                if let Some(disk) = disk_opt.as_mut() {
+                    if let Some(vdir) = disk.as_virtual_disk_mut() {
+                        if let Some(paged) = vdir.source.as_paged_mut() {
+                            let current_blocks = paged.loaded_range().1;
+                            paged.set_total_count(current_blocks * 16);
+                        }
+                    }
+                }
             }
 
             self.track_handle.set_active_layout(old_layout);

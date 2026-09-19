@@ -19,9 +19,9 @@ where
     S: FileStorageDriver,
     Internal: FileStorageDriver,
 {
-    pub async fn mount_virtual_directory(&mut self, dir_name: &str) {
+    pub async fn mount_virtual_directory(&mut self) {
         let mut path: heapless::String<128> = heapless::String::new();
-        let _ = path.push_str(dir_name);
+        let _ = path.push_str(self.current_path.as_str());
         let _ = self.context.cmd_tx.try_send(crate::InternalCommand::Mount(
             crate::MountPayload::VirtualDirectory(path, self.use_internal),
         ));

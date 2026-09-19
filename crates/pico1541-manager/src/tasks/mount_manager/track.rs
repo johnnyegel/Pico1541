@@ -72,7 +72,7 @@ impl<
 
                         let elapsed = start_time.elapsed().as_millis();
                         info!(
-                            "Track {}.{} (HT: {}) load took {} ms (1)",
+                            "Track {}.{} (HT: {}) load took {} ms",
                             (target_ht / 2) + 1,
                             target_ht % 2,
                             target_ht,

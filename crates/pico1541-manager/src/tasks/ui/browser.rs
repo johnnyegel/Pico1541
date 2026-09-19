@@ -100,7 +100,7 @@ where
 
         // If not mounted, mount it
         if ctx.mounted_file_path.is_none() {
-            manager.mount_virtual_directory(dir_name.as_str()).await;
+            manager.mount_virtual_directory().await;
             ctx.leds.set_status(StatusLedMode::Unmounted);
         }
 
@@ -348,25 +348,21 @@ where
                 }
 
                 let selected = selected_infos[0];
+                let selected_name = core::str::from_utf8(&selected.name)
+                    .unwrap_or("???")
+                    .trim_matches('\0');
                 #[cfg(feature = "defmt")]
-                defmt::info!(
-                    "Selected file: {:?}",
-                    core::str::from_utf8(&selected.name).unwrap_or("???")
-                );
+                defmt::info!("Selected file: \"{}\"", selected_name);
                 if selected.is_dir {
                     *ctx.mounted_file_path = None;
-                    let dirname = core::str::from_utf8(&selected.name)
-                        .unwrap_or("???")
-                        .trim_matches('\0');
+                    let dirname = selected_name;
                     let new_path = join_path(manager.current_path.as_str(), dirname);
                     *manager.current_path = new_path;
                     let _ = cursor_stack.push((cursor, menu.scroll_offset()));
                     cursor = 0;
                     scroll_offset = 0;
                 } else {
-                    let filename = core::str::from_utf8(&selected.name)
-                        .unwrap_or("???")
-                        .trim_matches('\0');
+                    let filename = selected_name;
                     let mut full_path = String::<128>::new();
                     let current_path_val = manager.current_path.as_str();
 
@@ -423,7 +419,7 @@ where
                         *ctx.mounted_file_path = Some(full_path);
                     } else if is_g64 {
                         #[cfg(feature = "defmt")]
-                        defmt::info!("Sending Mount for D64...");
+                        defmt::info!("Sending Mount for G64...");
                         let _ = ctx.context.cmd_tx
                             .send(crate::InternalCommand::Mount(crate::MountPayload::G64(
                                 full_path.clone(),

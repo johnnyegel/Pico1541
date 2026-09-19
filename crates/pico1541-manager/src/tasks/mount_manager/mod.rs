@@ -1,6 +1,5 @@
 use crate::driver::RgbLedDriver as LedsDriver;
 use crate::formats::AnyDiskImage;
-use crate::formats::DiskImage;
 use crate::storage::DirectorySource;
 use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_futures::select::{select, Either};
@@ -156,8 +155,21 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
             }
             ht2 = self.track_handle.get_head_half_track();
         } else {
-            let dir_source = crate::storage::PagedDirectorySource::<144>::new(path.as_bytes());
-            let vdisk = crate::formats::VirtualDiskImage::new(dir_source, path.as_bytes());
+            let mut name_bytes = b"SD CARD".as_slice();
+            if p_str == "/" || p_str.is_empty() {
+                if use_internal {
+                    name_bytes = b"INTERNAL".as_slice();
+                } else {
+                    name_bytes = b"SD CARD".as_slice();
+                }
+            } else if let Some(idx) = p_str.rfind('/') {
+                name_bytes = p_str[idx + 1..].as_bytes();
+            } else {
+                name_bytes = p_str.as_bytes();
+            }
+
+            let dir_source = crate::storage::PagedDirectorySource::<144>::new(name_bytes);
+            let vdisk = crate::formats::VirtualDiskImage::new(dir_source, name_bytes);
             self.disk_image = Some(crate::formats::AnyDiskImage::VirtualDisk(vdisk));
         }
 
@@ -198,27 +210,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
             }
             drop(disk_opt);
 
-            let mut disk_opt = self.disk_image.as_mut();
-            if let Some(disk) = disk_opt.as_mut() {
-                let data = self.track_handle.start_track_load();
-                match disk.read_track(half_track, data).await {
-                    Ok(layout) => {
-                        self.track_handle.commit_loaded_track(
-                            pico1541_common::track_buffer::TrackIdentifier::new(
-                                half_track,
-                                layout.2.unwrap_or_else(|| {
-                                    pico1541_common::track_buffer::default_speed_zone(half_track)
-                                }),
-                            ),
-                            layout.0,
-                            layout.1,
-                        );
-                    }
-                    Err(_) => {
-                        self.track_handle.set_active_layout(TrackLayout::Void);
-                    }
-                }
-            }
+            self.handle_track_event(half_track).await;
         }
     }
 }

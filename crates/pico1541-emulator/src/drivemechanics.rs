@@ -33,6 +33,7 @@ pub struct DriveMechanics<S: MagneticSurface> {
 
 impl<S: MagneticSurface> DriveMechanics<S> {
     pub fn new(surface: S, track_handle: EmulatorHandle) -> Self {
+        track_handle.update_head_half_track(INITIAL_HALF_TRACK as u8);
         Self {
             halftrack_head_pos: INITIAL_HALF_TRACK,
             surface,

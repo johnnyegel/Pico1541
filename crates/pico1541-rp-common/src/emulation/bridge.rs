@@ -319,7 +319,7 @@ use core::sync::atomic::{AtomicU8};
 use embassy_sync::signal::Signal;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
-static TRACK_REQUEST: AtomicU8 = AtomicU8::new(36);
+static TRACK_REQUEST: AtomicU8 = AtomicU8::new(34);
 static TRACK_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 pub struct RpTrackHandoff;
