@@ -1,0 +1,7 @@
+[package]
+name = "nbz2nib"
+version = "0.1.0"
+edition = "2021"
+description = "Decompresses Commodore 64 .nbz files to .nib images"
+
+[dependencies]
