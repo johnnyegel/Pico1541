@@ -3,11 +3,16 @@
 use std::error::Error;
 use std::fmt;
 
+/// Maximum allowable decompressed size (16 MB) to protect against decompression bombs.
+pub const MAX_DECOMPRESSED_SIZE: usize = 16 * 1024 * 1024;
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum DecompressError {
     EmptyInput,
     UnexpectedEof,
     InvalidReference { offset: usize, current_pos: usize },
+    VarIntOverflow,
+    OutputLimitExceeded,
 }
 
 impl fmt::Display for DecompressError {
@@ -25,6 +30,8 @@ impl fmt::Display for DecompressError {
                     offset, current_pos
                 )
             }
+            Self::VarIntOverflow => write!(f, "variable-length integer overflow"),
+            Self::OutputLimitExceeded => write!(f, "decompressed output size limit exceeded"),
         }
     }
 }
@@ -39,7 +46,11 @@ fn read_var_size(buf: &[u8], pos: &mut usize) -> Result<usize, DecompressError> 
         }
         let b = buf[*pos];
         *pos += 1;
-        val = (val << 7) | ((b & 0x7F) as usize);
+        let shifted = val
+            .checked_shl(7)
+            .filter(|&v| (v >> 7) == val)
+            .ok_or(DecompressError::VarIntOverflow)?;
+        val = shifted | ((b & 0x7F) as usize);
         if (b & 0x80) == 0 {
             break;
         }
@@ -67,6 +78,9 @@ pub fn decompress(input: &[u8]) -> Result<Vec<u8>, DecompressError> {
             let next_byte = input[inpos];
             if next_byte == 0 {
                 inpos += 1;
+                if output.len() >= MAX_DECOMPRESSED_SIZE {
+                    return Err(DecompressError::OutputLimitExceeded);
+                }
                 output.push(marker);
             } else {
                 let length = read_var_size(input, &mut inpos)?;
@@ -79,12 +93,19 @@ pub fn decompress(input: &[u8]) -> Result<Vec<u8>, DecompressError> {
                     });
                 }
 
+                if output.len().saturating_add(length) > MAX_DECOMPRESSED_SIZE {
+                    return Err(DecompressError::OutputLimitExceeded);
+                }
+
                 for _ in 0..length {
                     let b = output[output.len() - offset];
                     output.push(b);
                 }
             }
         } else {
+            if output.len() >= MAX_DECOMPRESSED_SIZE {
+                return Err(DecompressError::OutputLimitExceeded);
+            }
             output.push(symbol);
         }
     }
@@ -176,5 +197,28 @@ mod tests {
         let decompressed = decompress(&input).expect("decompress failed");
         assert_eq!(decompressed.len(), 301);
         assert!(decompressed.iter().all(|&b| b == b'Z'));
+    }
+
+    #[test]
+    fn test_varint_overflow() {
+        // 12 bytes with continuation bit set (overflows 64-bit int)
+        let mut input = vec![0xFF, b'A', 0xFF];
+        input.extend([0xFF; 12]);
+        input.push(0x01); // offset
+        assert_eq!(decompress(&input), Err(DecompressError::VarIntOverflow));
+    }
+
+    #[test]
+    fn test_output_limit_exceeded() {
+        // Length 17 MB = 17 * 1024 * 1024 = 17,825,792
+        // In 7-bit varint:
+        // 17825792 in base 128:
+        // 17825792 = 8 * 128^3 + 64 * 128^2 + 0 * 128 + 0
+        // bytes: 0x88, 0xC0, 0x80, 0x00
+        let input = vec![0x00, b'A', 0x00, 0x88, 0xC0, 0x80, 0x00, 0x01];
+        assert_eq!(
+            decompress(&input),
+            Err(DecompressError::OutputLimitExceeded)
+        );
     }
 }
