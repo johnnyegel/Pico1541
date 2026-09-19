@@ -28,22 +28,81 @@ fn convert_file(input_path: &Path, output_path: &Path) -> Result<(), Box<dyn Err
         .into());
     }
 
+    let track_count = decompressed[0x10..0x100]
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .filter(|pair| pair[0] != 0)
+        .count();
+
+    println!(
+        "Decompressed {} bytes, {} tracks",
+        decompressed.len(),
+        track_count
+    );
+
     fs::write(output_path, decompressed)?;
     println!("Successfully wrote {}", output_path.display());
     Ok(())
 }
 
+fn print_usage() {
+    eprintln!("Usage: nbz2nib <input.nbz> [-o <output.nib> | <output.nib>]");
+    eprintln!("       nbz2nib <directory_with_nbz_files>");
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        eprintln!("Usage: nbz2nib <input.nbz> [output.nib]");
-        eprintln!("       nbz2nib <directory_with_nbz_files>");
+        print_usage();
         process::exit(1);
     }
 
-    let input_path = Path::new(&args[1]);
+    let mut input: Option<PathBuf> = None;
+    let mut output: Option<PathBuf> = None;
+
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-h" | "--help" => {
+                print_usage();
+                process::exit(0);
+            }
+            "-o" | "--output" => {
+                i += 1;
+                if i >= args.len() {
+                    eprintln!("Error: missing argument for -o");
+                    print_usage();
+                    process::exit(1);
+                }
+                output = Some(PathBuf::from(&args[i]));
+            }
+            arg => {
+                if input.is_none() {
+                    input = Some(PathBuf::from(arg));
+                } else if output.is_none() {
+                    output = Some(PathBuf::from(arg));
+                } else {
+                    eprintln!("Error: unexpected argument '{}'", arg);
+                    print_usage();
+                    process::exit(1);
+                }
+            }
+        }
+        i += 1;
+    }
+
+    let Some(input_path) = input else {
+        print_usage();
+        process::exit(1);
+    };
+
     if input_path.is_dir() {
-        for entry in fs::read_dir(input_path)? {
+        if output.is_some() {
+            eprintln!("Error: -o / output path cannot be specified when converting a directory");
+            process::exit(1);
+        }
+        for entry in fs::read_dir(&input_path)? {
             let entry = entry?;
             let path = entry.path();
             if path.is_file() {
@@ -58,12 +117,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
     } else {
-        let output_path = if args.len() >= 3 {
-            PathBuf::from(&args[2])
-        } else {
-            input_path.with_extension("nib")
-        };
-        convert_file(input_path, &output_path)?;
+        let output_path = output.unwrap_or_else(|| input_path.with_extension("nib"));
+        convert_file(&input_path, &output_path)?;
     }
 
     Ok(())
