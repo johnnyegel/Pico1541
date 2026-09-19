@@ -39,6 +39,7 @@ pub enum MountPayload {
     VirtualDirectory(heapless::String<128>, bool),
     D64(heapless::String<128>, bool),
     G64(heapless::String<128>, bool),
+    Nib(heapless::String<128>, bool),
 }
 
 #[derive(Clone, Debug)]

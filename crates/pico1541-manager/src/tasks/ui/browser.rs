@@ -406,6 +406,7 @@ where
 
                     let is_d64 = filename.ends_with(".d64") || filename.ends_with(".D64");
                     let is_g64 = filename.ends_with(".g64") || filename.ends_with(".G64");
+                    let is_nib = filename.ends_with(".nib") || filename.ends_with(".NIB");
 
                     if is_d64 {
                         #[cfg(feature = "defmt")]
@@ -422,6 +423,16 @@ where
                         defmt::info!("Sending Mount for G64...");
                         let _ = ctx.context.cmd_tx
                             .send(crate::InternalCommand::Mount(crate::MountPayload::G64(
+                                full_path.clone(),
+                                manager.use_internal,
+                            )))
+                            .await;
+                        *ctx.mounted_file_path = Some(full_path);
+                    } else if is_nib {
+                        #[cfg(feature = "defmt")]
+                        defmt::info!("Sending Mount for NIB...");
+                        let _ = ctx.context.cmd_tx
+                            .send(crate::InternalCommand::Mount(crate::MountPayload::Nib(
                                 full_path.clone(),
                                 manager.use_internal,
                             )))

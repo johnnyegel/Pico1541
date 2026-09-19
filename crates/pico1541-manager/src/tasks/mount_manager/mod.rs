@@ -130,6 +130,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
 
         let is_d64 = p_str.ends_with(".d64") || p_str.ends_with(".D64");
         let is_g64 = p_str.ends_with(".g64") || p_str.ends_with(".G64");
+        let is_nib = p_str.ends_with(".nib") || p_str.ends_with(".NIB");
 
         let ht1 = self.track_handle.get_head_half_track();
         let mut ht2 = ht1;
@@ -150,6 +151,18 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
             };
             if let Ok(g64) = crate::formats::G64Image::from_storage(file).await {
                 self.disk_image = Some(crate::formats::AnyDiskImage::G64(g64));
+            } else {
+                self.disk_image = None;
+            }
+            ht2 = self.track_handle.get_head_half_track();
+        } else if is_nib {
+            let file = if use_internal {
+                self.opener.open_internal_file(p_str)
+            } else {
+                self.opener.open_sd_file(p_str)
+            };
+            if let Ok(nib) = crate::formats::NibImage::from_storage(file).await {
+                self.disk_image = Some(crate::formats::AnyDiskImage::Nib(nib));
             } else {
                 self.disk_image = None;
             }
@@ -250,6 +263,9 @@ impl<L: LedsDriver> MountControllerTask<L> {
                             (p, i, crate::driver::StatusLedMode::NonAccurateDisk)
                         }
                         crate::MountPayload::G64(p, i) => {
+                            (p, i, crate::driver::StatusLedMode::AccurateDisk)
+                        }
+                        crate::MountPayload::Nib(p, i) => {
                             (p, i, crate::driver::StatusLedMode::AccurateDisk)
                         }
                     };

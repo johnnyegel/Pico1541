@@ -52,7 +52,7 @@ fn test_get_status_mode() {
     use pico1541_manager::formats::VirtualDiskImage;
     use pico1541_manager::storage::StaticDirectorySource;
     use pico1541_manager::{
-        get_status_mode, AnyDiskImage, D64Image, G64Image, MemoryStorage, StatusLedMode,
+        get_status_mode, AnyDiskImage, D64Image, G64Image, MemoryStorage, NibImage, StatusLedMode,
     };
 
     // 1. None (Unmounted)
@@ -77,5 +77,13 @@ fn test_get_status_mode() {
     let g64_data = [0u8; 1000];
     let g64 = block_on(G64Image::from_storage(MemoryStorage::new(&g64_data))).unwrap();
     let disk: AnyDiskImage<MemoryStorage, StaticDirectorySource> = AnyDiskImage::G64(g64);
+    assert_eq!(get_status_mode(Some(&disk)), StatusLedMode::AccurateDisk);
+
+    // 5. Nib (Accurate)
+    let mut nib_data = [0u8; 332800];
+    nib_data[..13].copy_from_slice(b"MNIB-1541-RAW");
+    nib_data[13] = 2; // version
+    let nib = block_on(NibImage::from_storage(MemoryStorage::new(&nib_data))).unwrap();
+    let disk: AnyDiskImage<MemoryStorage, StaticDirectorySource> = AnyDiskImage::Nib(nib);
     assert_eq!(get_status_mode(Some(&disk)), StatusLedMode::AccurateDisk);
 }
