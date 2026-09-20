@@ -24,6 +24,8 @@ pub struct SystemBus<H: HostInterface, S: MagneticSurface> {
     pub time: crate::time::EmulatorTime,
     so_pulsed: bool,
     last_via2_out: u8,
+    pub last_atn: bool,
+    pub current_pc: u16,
     _phantom: PhantomData<H>,
 }
 
@@ -47,6 +49,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             time: crate::time::EmulatorTime::new(),
             so_pulsed: false,
             last_via2_out: 0xFF,
+            last_atn: false,
+            current_pc: 0,
             _phantom: PhantomData,
         };
 
@@ -84,6 +88,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         // Initialize last_via2_out to the ACTUAL reset state of the VIA to prevent
         // artificial phase changes triggering spurious track steps on boot.
         self.last_via2_out = self.via2.get_pb_out();
+        self.last_atn = false;
+        self.current_pc = 0;
 
         // Force the track manager to load the reset track
         hardware.track_changed(self.mechanics.half_track());
@@ -91,9 +97,10 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 
     #[link_section = ".core1_text"]
     #[inline(always)]
-    pub fn poll_io(&mut self, hardware: &mut H, elapsed: u32, current_cycle: u32) {
+    pub fn poll_io(&mut self, hardware: &mut H, elapsed: u32, current_cycle: u32, current_pc: u16) {
+        self.current_pc = current_pc;
         // :: Ensure the IEC bus is synchronized with the VIA1 outputs and inputs
-        self.sync_iec_bus(hardware, current_cycle);
+        self.sync_iec_bus(hardware, current_cycle, current_pc);
 
         // :? Is the motor running?
         if self.is_motor_on() {
@@ -122,16 +129,91 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
 
     #[link_section = ".core1_text"]
     #[inline(always)]
-    pub fn sync_iec_bus(&mut self, hardware: &mut H, _current_cycle: u32) {
+    pub fn sync_iec_bus(&mut self, hardware: &mut H, _current_cycle: u32, current_pc: u16) {
         // :: Handle IEC via inputs and VIA1 CA1 edge detection
         let iec_in = hardware.read_iec_port() | self.device_id_pb_bits;
-        let curr_atn = iec_in & pico1541_common::context::via::VIA1_IEC_MASK_ATN_RX != 0;
+        let curr_atn = (iec_in & pico1541_common::context::via::VIA1_IEC_MASK_ATN_RX) != 0;
         self.via1.set_pb_in(iec_in);
         self.via1.set_ca1(curr_atn);
+
+        // Falling edge on ATN_RX (Host released ATN):
+        // Inverter 7405 inverts bus, so true=Asserted (low on bus), false=Released (high on bus).
+        // Transition true -> false means ATN was released by host at end of transaction!
+        if self.last_atn && !curr_atn {
+            self.check_sd2iec_command(hardware, current_pc);
+        }
+        self.last_atn = curr_atn;
 
         // :: Handle VIA1 outputs to IEC bus
         let via1_pb_out = self.via1.get_pb_out();
         hardware.write_iec_port(via1_pb_out);
+    }
+
+    #[link_section = ".core1_text"]
+    pub fn check_sd2iec_command(&mut self, hardware: &mut H, pc: u16) {
+        // Fastloader guard: standard DOS only runs when PC is in ROM ($C000-$FFFF)
+        if pc != 0 && pc < 0xC000 {
+            return;
+        }
+
+        let b0 = self.memory.read(0x0200);
+        let b1 = self.memory.read(0x0201);
+        let b2 = self.memory.read(0x0202);
+
+        // Check for CD: (b"CD:"), CD/ (b"CD/"), or CD<- (b"CD\x1F")
+        let is_cd = (b0 == b'C' || b0 == b'c')
+            && (b1 == b'D' || b1 == b'd')
+            && (b2 == b':' || b2 == b'/' || b2 == 0x1F || b2 == b'_');
+        if !is_cd {
+            return;
+        }
+
+        // Extract command string from $0200..=$0228 up to 0 or \r
+        let mut buf = [0u8; 48];
+        let mut len = 0;
+        for addr in 0x0200..=0x0228 {
+            let ch = self.memory.read(addr);
+            if ch == 0 || ch == b'\r' {
+                break;
+            }
+            buf[len] = ch;
+            len += 1;
+        }
+
+        if let Ok(cmd_str) = core::str::from_utf8(&buf[..len]) {
+            crate::emu_info!("SD2IEC CD intercepted: {}", cmd_str);
+            hardware.intercept_cd_command(cmd_str);
+        } else {
+            let mut ascii_buf = [0u8; 48];
+            for i in 0..len {
+                ascii_buf[i] = buf[i] & 0x7F;
+            }
+            if let Ok(cmd_str) = core::str::from_utf8(&ascii_buf[..len]) {
+                crate::emu_info!("SD2IEC CD intercepted: {}", cmd_str);
+                hardware.intercept_cd_command(cmd_str);
+            }
+        }
+
+        // Suppress 1541 DOS syntax error
+        self.memory.write(0x0200, 0); // nullify cmdbuf
+        self.memory.write(0x0255, 0); // cmdwat = 0
+        self.memory.write(0x026C, 0); // erword = 0
+
+        // Write "00, OK,00,00\r" into errbuf at $02D5
+        let ok_str = b"00, OK,00,00\r";
+        for (i, &b) in ok_str.iter().enumerate() {
+            self.memory.write(0x02D5 + i as u16, b);
+        }
+
+        // Clear status pointers
+        self.memory.write(0x006E, 0);
+        self.memory.write(0x006F, 0);
+
+        // Update 1541 DOS error channel state
+        self.memory.write(0x0243, b'0'); // chndat[errchn] = first char
+        self.memory.write(0x00A5, 0xD6); // cb+2 = errbuf + 1 ($02D6)
+        self.memory.write(0x00A6, 0x02); // cb+3 = $02
+        self.memory.write(0x0249, (0x02D5 + ok_str.len() - 1) as u8); // lstchr[errchn] = $02E1
     }
 
     #[link_section = ".core1_text"]
@@ -194,7 +276,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
                 // Emulate the 6522 VIA's Phase 2 falling-edge latch.
                 // The physical pins are latched exactly at the end of the cycle (trailing edge).
                 ctx.spin_until(cycle + 1);
-                self.sync_iec_bus(ctx, cycle);
+                self.sync_iec_bus(ctx, cycle, self.current_pc);
             }
 
             self.via1.read(addr)
@@ -217,7 +299,7 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
                 // Emulate the 6522 VIA's Phase 2 falling-edge latch.
                 // The physical output pins transition exactly at the end of the cycle (trailing edge).
                 ctx.spin_until(cycle + 1);
-                self.sync_iec_bus(ctx, cycle);
+                self.sync_iec_bus(ctx, cycle, self.current_pc);
             }
         } else {
             let reg = (addr & 0x0F) as usize;

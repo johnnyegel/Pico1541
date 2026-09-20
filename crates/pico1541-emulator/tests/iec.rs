@@ -212,3 +212,47 @@ fn test_iec_load_command() {
     })
     .unwrap();
 }
+
+#[test]
+fn test_sd2iec_cd_command_interception() {
+    let (mut drive, mut bridge) = common::setup_drive(true, 8);
+
+    // 1. Send "CD:GAMES" on channel 15
+    pollster::block_on(async {
+        let mut bus = common::IecTestBridge {
+            drive: &mut drive,
+            bridge: &mut bridge,
+        };
+        pico1541_common::iec_com::IecCommander::new(&mut bus)
+            .open(8, 15)
+            .send(b"CD:GAMES")
+            .execute()
+            .await
+            .unwrap();
+    });
+
+    // Verify command was intercepted
+    assert_eq!(bridge.intercepted_cds.len(), 1, "Expected 1 intercepted CD command, found {:?}", bridge.intercepted_cds);
+    assert_eq!(bridge.intercepted_cds[0], "CD:GAMES");
+
+    // 2. Read channel 15 status - must return 00, OK,00,00
+    let mut status_vec = Vec::new();
+    pollster::block_on(async {
+        let mut bus = common::IecTestBridge {
+            drive: &mut drive,
+            bridge: &mut bridge,
+        };
+        pico1541_common::iec_com::IecCommander::new(&mut bus)
+            .open(8, 15)
+            .receive(|b| status_vec.push(b))
+            .await
+            .unwrap();
+    });
+    let status = String::from_utf8_lossy(&status_vec);
+    assert!(
+        status.starts_with("00, OK"),
+        "Expected status '00, OK...', got: {:?}",
+        status
+    );
+}
+

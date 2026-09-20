@@ -142,11 +142,14 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         self.cpu.reset(&mut self.systembus, hw);
         self.systembus.reset(hw);
         self.cycles = self.cpu.cycles;
+        self.systembus.current_pc = self.cpu.pc;
     }
 
     #[link_section = ".core1_text"]
     #[inline(always)]
     pub fn tick(&mut self, hw: &mut H) -> u32 {
+        self.systembus.current_pc = self.cpu.pc;
+
         #[cfg(feature = "flight-recorder")]
         unsafe {
             crate::flight_recorder::FLIGHT_RECORDER
@@ -167,7 +170,7 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         self.systembus.time.sync_realtime(self.cpu.cycles, hw);
 
         // Now that we are perfectly synchronized in time, sample physical pins!
-        self.systembus.poll_io(hw, elapsed, self.cpu.cycles);
+        self.systembus.poll_io(hw, elapsed, self.cpu.cycles, self.cpu.pc);
 
         if self.systembus.so_pending() {
             self.cpu.pending_so = true;
