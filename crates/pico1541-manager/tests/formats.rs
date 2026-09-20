@@ -268,6 +268,17 @@ fn test_nib_image_metadata_in_header_ignored() {
     assert_eq!(len, 6250);
 }
 
+#[test]
+fn test_directory_entry_file_type_is_dir() {
+    let dir_entry = pico1541_manager::storage::DirectoryEntry::from_file_info(b"GAMES", true, 0);
+    assert_eq!(
+        dir_entry.file_type, 0x86,
+        "Directory entries must have file type 0x86 (DIR) for SD2IEC / fb compatibility"
+    );
 
-
-
+    let prg_entry = pico1541_manager::storage::DirectoryEntry::from_file_info(b"GAME.D64", false, 174848);
+    assert_eq!(
+        prg_entry.file_type, 0x82,
+        "File entries must have file type 0x82 (PRG)"
+    );
+}

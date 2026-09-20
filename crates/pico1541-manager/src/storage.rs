@@ -86,7 +86,7 @@ impl DirectoryEntry {
         let filename = mangle_filename(name);
 
         let file_type = if is_dir {
-            0x83 // USR for directories
+            0x86 // DIR (Commodore 1581 / SD2IEC directory type)
         } else {
             0x82 // PRG
         };
