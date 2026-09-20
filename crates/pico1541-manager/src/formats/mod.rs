@@ -37,6 +37,7 @@ pub trait DiskImage {
 #[derive(Clone, Debug)]
 pub struct TrackLookupTable {
     pub offsets: [Option<u32>; 86],
+    pub lengths: [Option<u16>; 86],
     pub speed_zones: [Option<u8>; 86],
 }
 
@@ -44,6 +45,7 @@ impl TrackLookupTable {
     pub fn new() -> Self {
         Self {
             offsets: [None; 86],
+            lengths: [None; 86],
             speed_zones: [None; 86],
         }
     }

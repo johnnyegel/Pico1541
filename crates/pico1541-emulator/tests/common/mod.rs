@@ -264,6 +264,23 @@ impl TestBridge {
             runner.sync(buffer);
         }));
     }
+
+    pub fn mount_nib(&mut self, path: &str) {
+        use pico1541_manager::formats::NibImage;
+        use pico1541_manager::storage::{DummySource, MemoryStorage};
+        use std::fs;
+        let data = fs::read(path).expect("Failed to read NIB");
+        let data_ref: &'static [u8] = Box::leak(data.into_boxed_slice());
+        let img = futures::executor::block_on(NibImage::from_storage(MemoryStorage::new(data_ref)))
+            .unwrap();
+        let mut runner = DiskRunner {
+            image: AnyDiskImage::<MemoryStorage<'static>, DummySource>::Nib(img),
+            last_half_track: 255,
+        };
+        self.sync_hook = Some(Box::new(move |buffer| {
+            runner.sync(buffer);
+        }));
+    }
 }
 
 impl ViaHardware for TestBridge {

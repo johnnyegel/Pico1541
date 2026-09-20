@@ -101,8 +101,16 @@ fn test_nib_image_read_track() {
     data[0x11] = 0x02;
     // Track payload at 0x100
     for i in 0..8192 {
-        data[0x100 + i] = (i % 256) as u8;
+        data[0x100 + i] = 0x55;
     }
+    // Place a repeating header at 50 and 50 + 7132 = 7182
+    data[0x100 + 50..0x100 + 52].copy_from_slice(&[0xFF, 0xFF]);
+    data[0x100 + 52] = 0x52;
+    data[0x100 + 53..0x100 + 62].copy_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8, 9]);
+
+    data[0x100 + 7182..0x100 + 7184].copy_from_slice(&[0xFF, 0xFF]);
+    data[0x100 + 7184] = 0x52;
+    data[0x100 + 7185..0x100 + 7194].copy_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8, 9]);
 
     let storage = MemoryStorage::new(&data);
     let mut nib = block_on(NibImage::from_storage(storage)).expect("failed to load NIB");
@@ -111,9 +119,9 @@ fn test_nib_image_read_track() {
     // Track 18.0 corresponds to half_track 34 in Pico1541
     let (layout, len, speed) = block_on(nib.read_track(34, &mut dest)).expect("read_track failed");
     assert_eq!(layout, TrackLayout::Accurate);
-    assert_eq!(len, 8192);
+    assert_eq!(len, 7132);
     assert_eq!(speed, Some(2));
-    assert_eq!(&dest[0..10], &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    assert_eq!(&dest[50..53], &[0xFF, 0xFF, 0x52]);
 
     // Unmapped track should return Void
     let (layout, len, speed) = block_on(nib.read_track(0, &mut dest)).expect("unmapped failed");
@@ -182,7 +190,8 @@ fn test_any_disk_image_nib() {
     let mut dest = vec![0u8; 8192];
     let (layout, len, speed) = block_on(any_disk.read_track(34, &mut dest)).unwrap();
     assert_eq!(layout, TrackLayout::Accurate);
-    assert_eq!(len, 8192);
+    // Unformatted dummy data falls back to nominal capacity for Zone 2 (7142)
+    assert_eq!(len, 7142);
     assert_eq!(speed, Some(2));
     assert_eq!(dest[0], 0x42);
     assert!(any_disk.as_virtual_disk_mut().is_none());
@@ -218,19 +227,19 @@ fn test_nib_image_multi_track() {
 
     let mut dest = vec![0u8; 8192];
 
-    // Read Track 1.0 (half_track = 0)
+    // Read Track 1.0 (half_track = 0) - fallback to nominal capacity for Zone 3 (7692)
     let (layout, len, speed) = block_on(nib.read_track(0, &mut dest)).expect("read track 0 failed");
     assert_eq!(layout, TrackLayout::Accurate);
-    assert_eq!(len, 8192);
+    assert_eq!(len, 7692);
     assert_eq!(speed, Some(3));
-    assert!(dest.iter().all(|&b| b == 0x11));
+    assert!(dest[..len].iter().all(|&b| b == 0x11));
 
-    // Read Track 18.0 (half_track = 34)
+    // Read Track 18.0 (half_track = 34) - fallback to nominal capacity for Zone 1 (6666)
     let (layout, len, speed) = block_on(nib.read_track(34, &mut dest)).expect("read track 34 failed");
     assert_eq!(layout, TrackLayout::Accurate);
-    assert_eq!(len, 8192);
+    assert_eq!(len, 6666);
     assert_eq!(speed, Some(1));
-    assert!(dest.iter().all(|&b| b == 0x22));
+    assert!(dest[..len].iter().all(|&b| b == 0x22));
 
     // Read unmapped Track 2.0 (half_track = 2)
     let (layout, len, speed) = block_on(nib.read_track(2, &mut dest)).expect("read unmapped failed");
@@ -245,7 +254,7 @@ fn test_nib_image_metadata_in_header_ignored() {
     data[0..13].copy_from_slice(b"MNIB-1541-RAW");
     // One track at 0x10
     data[0x10] = 2; // track 1.0 -> half_track 0
-    data[0x11] = 0;
+    data[0x11] = 0; // speed zone 0
     // Non-zero metadata in bytes 0xB8..0xFF (fill with 0xFF)
     for b in &mut data[0xB8..0x100] {
         *b = 0xFF;
@@ -255,7 +264,8 @@ fn test_nib_image_metadata_in_header_ignored() {
     let mut dest = vec![0u8; 8192];
     let (layout, len, _) = block_on(nib.read_track(0, &mut dest)).expect("read track 0 failed");
     assert_eq!(layout, TrackLayout::Accurate);
-    assert_eq!(len, 8192);
+    // Zone 0 nominal capacity is 6250
+    assert_eq!(len, 6250);
 }
 
 
