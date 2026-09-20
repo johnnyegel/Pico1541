@@ -85,6 +85,7 @@ pub enum InternalCommand {
     MotorState(bool),
     Mount(MountPayload),
     Unmount,
+    Cd(heapless::String<64>),
 }
 
 pub static CMD_CHANNEL: Channel<CriticalSectionRawMutex, InternalCommand, 128> = Channel::new();

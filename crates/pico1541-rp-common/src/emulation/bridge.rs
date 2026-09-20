@@ -108,6 +108,14 @@ impl HostInterface for HardwareBridge {
         self.timekeeper.spin_until(target_cycle)
     }
 
+    #[link_section = ".core1_text"]
+    #[inline(always)]
+    fn intercept_cd_command(&mut self, path: &str) {
+        let mut s = heapless::String::<64>::new();
+        let _ = s.push_str(path);
+        let _ = pico1541_manager::CMD_CHANNEL.try_send(pico1541_manager::InternalCommand::Cd(s));
+    }
+
 
     #[link_section = ".core1_text"]
     #[inline(always)]

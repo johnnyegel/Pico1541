@@ -145,6 +145,7 @@ pub struct TestBridge {
     pub drive_iec: IecBusState,
     pub sync_hook:
         Option<Box<dyn FnMut(&'static pico1541_common::track_buffer::DualCoreTrackBuffer)>>,
+    pub intercepted_cds: Vec<String>,
 }
 
 impl TestBridge {
@@ -163,6 +164,7 @@ impl TestBridge {
             host_iec: IecBusState::default(),
             drive_iec: IecBusState::default(),
             sync_hook: None,
+            intercepted_cds: Vec::new(),
         }
     }
 
@@ -221,6 +223,7 @@ impl TestBridge {
         self.discard_request = false;
         self.total_cycles = 0;
         self.sync_hook = None;
+        self.intercepted_cds.clear();
     }
 
     pub fn cycles(&self) -> u32 {
@@ -346,6 +349,9 @@ impl HostInterface for TestBridge {
     }
     fn update_iec_addresses(&mut self, listen: u8, _talk: u8) {
         self.snooper.set_listen_addr(listen);
+    }
+    fn intercept_cd_command(&mut self, path: &str) {
+        self.intercepted_cds.push(path.to_string());
     }
 }
 

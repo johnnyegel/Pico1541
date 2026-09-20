@@ -59,6 +59,9 @@ pub trait HostInterface: crate::context::ViaHardware {
         false
     }
 
+    /// Called when an SD2IEC "CD" command is intercepted from channel 15
+    fn intercept_cd_command(&mut self, _path: &str) {}
+
     // Execution control
     fn check_halt_requested(&self) -> bool {
         false

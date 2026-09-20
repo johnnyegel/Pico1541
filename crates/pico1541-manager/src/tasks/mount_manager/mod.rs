@@ -264,6 +264,7 @@ impl<L: LedsDriver> MountControllerTask<L> {
                     self.leds
                         .set_status(crate::driver::StatusLedMode::Unmounted);
                 }
+                crate::InternalCommand::Cd(_) => {}
             }
         }
     }
