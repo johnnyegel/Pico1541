@@ -13,7 +13,7 @@ pub use display::DisplayTask;
 
 pub use action::ActionTask;
 pub use keyboard::KeyboardTask;
-pub use mount_manager::{MountControllerTask, TrackCacheTask};
+pub use mount_manager::{resolve_cd_path, MountControllerTask, TrackCacheTask};
 pub use performance::{Core0PerfTask, Core1LoadTask};
 pub use sd_monitor::SdMonitorTask;
 pub use settings_save::SettingsSaveTask;

@@ -9,8 +9,11 @@ use embedded_io_async::{Read, Seek};
 use pico1541_common::interface::TrackHandoff;
 use pico1541_common::track_buffer::{ManagerHandle, TrackLayout};
 
+mod cd_handler;
 mod timer;
 mod track;
+
+pub use cd_handler::resolve_cd_path;
 
 pub use file_opener::{match_c64_filename, FileOpener};
 pub mod file_opener;
@@ -264,7 +267,35 @@ impl<L: LedsDriver> MountControllerTask<L> {
                     self.leds
                         .set_status(crate::driver::StatusLedMode::Unmounted);
                 }
-                crate::InternalCommand::Cd(_) => {}
+                crate::InternalCommand::Cd(cd_str) => {
+                    let current = {
+                        let guard = self.mounted_dir.lock().await;
+                        guard.0.clone()
+                    };
+                    if let Some(new_path) =
+                        cd_handler::resolve_cd_path(current.as_str(), cd_str.as_str())
+                    {
+                        let is_image = new_path.ends_with(".d64")
+                            || new_path.ends_with(".D64")
+                            || new_path.ends_with(".g64")
+                            || new_path.ends_with(".G64")
+                            || new_path.ends_with(".nib")
+                            || new_path.ends_with(".NIB");
+
+                        let led_mode = if is_image {
+                            crate::driver::StatusLedMode::NonAccurateDisk
+                        } else {
+                            crate::driver::StatusLedMode::VirtualDisk
+                        };
+
+                        {
+                            let mut guard = self.mounted_dir.lock().await;
+                            guard.0 = new_path;
+                            guard.1 = false; // always SD card for SD2IEC nav
+                        }
+                        self.leds.set_status(led_mode);
+                    }
+                }
             }
         }
     }
