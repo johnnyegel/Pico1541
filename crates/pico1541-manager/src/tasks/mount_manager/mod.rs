@@ -178,6 +178,33 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
             let dir_source = crate::storage::PagedDirectorySource::<144>::new(name_bytes);
             let vdisk = crate::formats::VirtualDiskImage::new(dir_source, name_bytes);
             self.disk_image = Some(crate::formats::AnyDiskImage::VirtualDisk(vdisk));
+
+            // Synchronous initial fetch: populate block 0 before Track 18 GCR is first
+            // generated. Without this the drive would stream an empty directory to the C64
+            // because the timer-driven prefetcher fires 20 ms too late.
+            let mut initial_entries =
+                heapless::Vec::<crate::storage::DirectoryEntry, 16>::new();
+            let _ = self
+                .opener
+                .list_dir_range(p_str, use_internal, 0, 16, |entry| {
+                    let _ = initial_entries.push(entry);
+                })
+                .await;
+
+            #[cfg(feature = "defmt")]
+            defmt::info!(
+                "Initial dir fetch: {} entries for \"{}\"",
+                initial_entries.len(),
+                p_str
+            );
+
+            if let Some(disk) = self.disk_image.as_mut() {
+                if let Some(vdir) = disk.as_virtual_disk_mut() {
+                    if let Some(paged) = vdir.source.as_paged_mut() {
+                        paged.set_block(0, &initial_entries);
+                    }
+                }
+            }
         }
 
         #[cfg(feature = "defmt")]
@@ -210,9 +237,9 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
                     vdir.set_shortcut_entry(None);
                     vdir.file_storage = None;
                     vdir.source.rewind();
-                    if let Some(paged) = vdir.source.as_paged_mut() {
-                        paged.invalidate();
-                    }
+                    // NOTE: do NOT call paged.invalidate() here.
+                    // mount_sequence always creates a fresh PagedDirectorySource,
+                    // so invalidating it would wipe the initial prefetch we just loaded.
                 }
             }
             drop(disk_opt);
