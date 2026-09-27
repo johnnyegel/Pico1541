@@ -401,8 +401,8 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                 self.force_update_directory_sectors(dest).await;
             }
 
-            log::info!("VirtualDiskImage: Returning StriddenWarp for track 1");
-            return Ok((TrackLayout::Warped(366), 10000, None));
+            log::info!("VirtualDiskImage: Returning Accurate track 1 ({} bytes)", write_ptr);
+            return Ok((TrackLayout::Accurate, write_ptr, None));
         }
 
         // FIXME! Why is this needed?
