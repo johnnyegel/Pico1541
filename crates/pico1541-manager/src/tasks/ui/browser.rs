@@ -439,7 +439,18 @@ where
                             .await;
                         *ctx.mounted_file_path = Some(full_path);
                     } else {
-                        // PRG or unsupported, do nothing for now
+                        // Non-image file (PRG, SEQ, …) — mount as single-file virtual disk.
+                        #[cfg(feature = "defmt")]
+                        defmt::info!("Sending Mount for PRG/single-file...");
+                        let _ = ctx
+                            .context
+                            .cmd_tx
+                            .send(crate::InternalCommand::Mount(crate::MountPayload::Prg(
+                                full_path.clone(),
+                                manager.use_internal,
+                            )))
+                            .await;
+                        *ctx.mounted_file_path = Some(full_path);
                     }
                 }
             }

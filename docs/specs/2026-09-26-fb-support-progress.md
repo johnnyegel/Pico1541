@@ -10,7 +10,7 @@
 | T2 | `InternalCommand::Cd` + `HostInterface::intercept_cd_command` | ✅ Done | `f2853c6` |
 | T3 | Emulator ATN falling-edge CD: interception + 00,OK status | ✅ Done | `8858a01` |
 | T4 | `MountControllerTask` Cd handling + `resolve_cd_path` | ✅ Done | `366d194` |
-| **A** | **Fix empty directory listing (initial sync prefetch)** | 🔄 In Progress | — |
+| **A** | **Fix empty directory listing (initial sync prefetch)** | ✅ Done | `b2c3b1a` |
 | B | Root listing: `[INTERNAL]` and `[SD CARD]` entries | ⏳ Planned | — |
 | C | File/image loading via track/sector encoding | ⏳ Planned | — |
 

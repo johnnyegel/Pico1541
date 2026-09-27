@@ -161,7 +161,41 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
                     .map(crate::formats::AnyDiskImage::Nib);
                 ht2 = self.track_handle.get_head_half_track();
             }
+        } else if is_single_file(p_str) {
+            // ── Single non-image file (PRG, SEQ, …) ──────────────────────────────
+            // Build a VirtualDisk with one shortcut directory entry (track=1,
+            // sector=1) and attach the opened file as file_storage.  The track-1
+            // treadmill in update_dynamic_buffer then streams the file data to the
+            // 1541 DOS as the disk rotates.
+
+            let name_bytes = last_segment(p_str).as_bytes();
+
+            let dir_source = crate::storage::PagedDirectorySource::<144>::new(name_bytes);
+            let mut vdisk = crate::formats::VirtualDiskImage::new(dir_source, name_bytes);
+
+            // Single directory entry: filename + first_track=1, first_sector=1.
+            let entry = crate::storage::DirectoryEntry::from_file_info(name_bytes, false, 0);
+            vdisk.set_shortcut_entry(Some(entry));
+
+            self.disk_image = Some(crate::formats::AnyDiskImage::VirtualDisk(vdisk));
+
+            // Open the file and attach it as the treadmill data source.
+            let file = if use_internal {
+                self.opener.open_internal_file(p_str)
+            } else {
+                self.opener.open_sd_file(p_str)
+            };
+
+            if let Some(disk) = self.disk_image.as_mut() {
+                if let Some(vdir) = disk.as_virtual_disk_mut() {
+                    vdir.file_storage = Some(file);
+                }
+            }
+
+            #[cfg(feature = "defmt")]
+            defmt::info!("PRG mount: \"{}\"", p_str);
         } else {
+            // ── Virtual directory listing ─────────────────────────────────────────
             let mut name_bytes = b"SD CARD".as_slice();
             if p_str == "/" || p_str.is_empty() {
                 if use_internal {
@@ -249,7 +283,33 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
     }
 }
 
+// ── Path helpers ──────────────────────────────────────────────────────────────
+
+/// Returns `true` when `path` has a file extension that is **not** one of the
+/// recognised disk-image formats (.d64 / .g64 / .nib).  Directories (no `.`
+/// after the last `/`) and image files both return `false`.
+fn is_single_file(path: &str) -> bool {
+    let seg = last_segment(path);
+    if let Some(dot) = seg.rfind('.') {
+        let ext = &seg[dot..];
+        !ext.eq_ignore_ascii_case(".d64")
+            && !ext.eq_ignore_ascii_case(".g64")
+            && !ext.eq_ignore_ascii_case(".nib")
+    } else {
+        false
+    }
+}
+
+/// Returns the last path segment (filename) without a leading slash.
+fn last_segment(path: &str) -> &str {
+    match path.rfind('/') {
+        Some(idx) => &path[idx + 1..],
+        None => path,
+    }
+}
+
 use embassy_sync::channel::Receiver;
+
 
 pub struct MountControllerTask<L: LedsDriver> {
     leds: L,

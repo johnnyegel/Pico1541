@@ -393,6 +393,14 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                 write_ptr += 1;
             }
 
+            // Pre-populate sectors 1 and 2 with the first two 254-byte blocks of
+            // file data so the 1541 DOS never sees zeros / end-of-file on the
+            // first disk rotation.  The treadmill in update_dynamic_buffer will
+            // continue streaming from where we left off.
+            if self.file_storage.is_some() {
+                self.force_update_directory_sectors(dest).await;
+            }
+
             log::info!("VirtualDiskImage: Returning StriddenWarp for track 1");
             return Ok((TrackLayout::Warped(366), 10000, None));
         }
