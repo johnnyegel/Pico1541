@@ -349,17 +349,29 @@ impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H,
         if (addr & 0x9800) == 0x1800 {
             self.write_io(addr, val, cycle, ctx);
         } else {
-            if addr <= 0x0005 && val >= 0x80 {
+            // Monitor 1541 DOS Job Queue writes ($0000..=$0005).
+            // Valid job commands have bit 7 set and lower nibble zero:
+            // $80 (Read), $90 (Write), $A0 (Verify), $B0 (Seek), $C0 (Bump), $D0 (Jump), $E0 (Exec).
+            // Guard against boot-time zero-page RAM test ($00..$FF sweep) by checking:
+            // 1. (val & 0x8F) == 0x80
+            // 2. DOS initialized ($001C != 0)
+            // 3. Valid target track (1..=40)
+            if addr <= 0x0005
+                && (val & 0x8F) == 0x80
+                && self.memory.read(0x001C) != 0
+            {
                 let buf = addr as usize;
                 let _track = self.memory.read(0x06 + (buf * 2) as u16);
                 let _sector = self.memory.read(0x07 + (buf * 2) as u16);
-                crate::emu_info!(
-                    "[JOB QUEUE] Buffer {} Job 0x{:02X}: Track {} Sector {}",
-                    buf,
-                    val,
-                    _track,
-                    _sector
-                );
+                if (1..=40).contains(&_track) {
+                    crate::emu_info!(
+                        "[JOB QUEUE] Buffer {} Job 0x{:02X}: Track {} Sector {}",
+                        buf,
+                        val,
+                        _track,
+                        _sector
+                    );
+                }
             }
             if self.memory.write(addr, val) {
                 let (addr77, addr78) = self.memory.get_iec_addresses();
