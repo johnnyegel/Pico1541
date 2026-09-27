@@ -94,8 +94,8 @@ impl DirectoryEntry {
         Self {
             file_type,
             filename,
-            first_track: 1,
-            first_sector: 1,
+            first_track: if is_dir { 1 } else { 17 },
+            first_sector: 0,
             block_size: if is_dir { 0 } else { size.div_ceil(254) as u16 },
         }
     }

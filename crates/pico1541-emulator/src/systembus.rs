@@ -348,9 +348,23 @@ impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H,
     fn write(&mut self, ctx: &mut Self::Ctx, addr: u16, val: u8, cycle: u32) {
         if (addr & 0x9800) == 0x1800 {
             self.write_io(addr, val, cycle, ctx);
-        } else if self.memory.write(addr, val) {
-            let (addr77, addr78) = self.memory.get_iec_addresses();
-            ctx.update_iec_addresses(addr77, addr78);
+        } else {
+            if addr <= 0x0005 && val >= 0x80 {
+                let buf = addr as usize;
+                let _track = self.memory.read(0x06 + (buf * 2) as u16);
+                let _sector = self.memory.read(0x07 + (buf * 2) as u16);
+                crate::emu_info!(
+                    "[JOB QUEUE] Buffer {} Job 0x{:02X}: Track {} Sector {}",
+                    buf,
+                    val,
+                    _track,
+                    _sector
+                );
+            }
+            if self.memory.write(addr, val) {
+                let (addr77, addr78) = self.memory.get_iec_addresses();
+                ctx.update_iec_addresses(addr77, addr78);
+            }
         }
     }
 

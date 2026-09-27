@@ -173,24 +173,25 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
             let dir_source = crate::storage::PagedDirectorySource::<144>::new(name_bytes);
             let mut vdisk = crate::formats::VirtualDiskImage::new(dir_source, name_bytes);
 
-            // Single directory entry: filename + first_track=1, first_sector=1.
-            let entry = crate::storage::DirectoryEntry::from_file_info(name_bytes, false, 0);
-            vdisk.set_shortcut_entry(Some(entry));
-
-            self.disk_image = Some(crate::formats::AnyDiskImage::VirtualDisk(vdisk));
-
-            // Open the file and attach it as the treadmill data source.
-            let file = if use_internal {
+            // Open the file and attach it as the file storage.
+            let mut file = if use_internal {
                 self.opener.open_internal_file(p_str)
             } else {
                 self.opener.open_sd_file(p_str)
             };
 
-            if let Some(disk) = self.disk_image.as_mut() {
-                if let Some(vdir) = disk.as_virtual_disk_mut() {
-                    vdir.file_storage = Some(file);
-                }
-            }
+            // Query file size so directory entry shows accurate block count
+            let file_size = embedded_io_async::Seek::seek(&mut file, embedded_io_async::SeekFrom::End(0))
+                .await
+                .unwrap_or(0);
+            let _ = embedded_io_async::Seek::seek(&mut file, embedded_io_async::SeekFrom::Start(0)).await;
+
+            // Single directory entry: filename + first_track=17, first_sector=0.
+            let entry = crate::storage::DirectoryEntry::from_file_info(name_bytes, false, file_size as u32);
+            vdisk.set_shortcut_entry(Some(entry));
+            vdisk.file_storage = Some(file);
+
+            self.disk_image = Some(crate::formats::AnyDiskImage::VirtualDisk(vdisk));
 
             #[cfg(feature = "defmt")]
             defmt::info!("PRG mount: \"{}\"", p_str);

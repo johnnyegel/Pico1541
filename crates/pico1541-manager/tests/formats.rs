@@ -281,4 +281,41 @@ fn test_directory_entry_file_type_is_dir() {
         prg_entry.file_type, 0x82,
         "File entries must have file type 0x82 (PRG)"
     );
+    assert_eq!(prg_entry.first_track, 17);
+    assert_eq!(prg_entry.first_sector, 0);
+}
+
+#[test]
+fn test_virtual_disk_prg_multitrack() {
+    use pico1541_manager::formats::VirtualDiskImage;
+    use pico1541_manager::storage::DummySource;
+    use pico1541_manager::DiskImage;
+
+    // Create 6000 bytes of mock PRG data (spans Track 17 and Track 16)
+    let prg_data = vec![0x42u8; 6000];
+    let storage = MemoryStorage::new(&prg_data);
+
+    let mut vdisk = VirtualDiskImage::new(DummySource, b"MYGAME.PRG");
+    vdisk.set_id([0x31, 0x31]);
+
+    let entry = pico1541_manager::storage::DirectoryEntry::from_file_info(b"MYGAME.PRG", false, 6000);
+    vdisk.set_shortcut_entry(Some(entry));
+    vdisk.file_storage = Some(storage);
+
+    let mut dest = vec![0u8; 10000];
+
+    // Track 18 (directory)
+    let (layout, len, _) = block_on(vdisk.read_track(34, &mut dest)).expect("read track 18 failed");
+    assert_eq!(layout, TrackLayout::Accurate);
+    assert!(len > 7000);
+
+    // Track 17 (first PRG track)
+    let (layout, len, _) = block_on(vdisk.read_track(32, &mut dest)).expect("read track 17 failed");
+    assert_eq!(layout, TrackLayout::Accurate);
+    assert!(len > 7000);
+
+    // Track 16 (second PRG track)
+    let (layout, len, _) = block_on(vdisk.read_track(30, &mut dest)).expect("read track 16 failed");
+    assert_eq!(layout, TrackLayout::Accurate);
+    assert!(len > 7000);
 }

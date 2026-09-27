@@ -20,24 +20,12 @@ impl<
                     if motor_on {
                         let current_idx = self.track_handle.get_current_byte_idx();
 
-                        if vdir.file_storage.is_some() {
-                            // File streaming treadmill on track 1.
-                            // Guard: only update the GCR when the head is on track 1
-                            // (half-tracks 0 or 1).  Both track 1 and track 18 now
-                            // use Accurate layout, so we can't distinguish by layout —
-                            // we must check the physical head position instead.
-                            let ht = self.track_handle.get_head_half_track();
-                            if ht <= 1 {
-                                let data = self.track_handle.start_track_modification();
-                                if vdir.update_dynamic_buffer(current_idx, data).await {
-                                    self.track_handle.commit_modified_track();
-                                }
-                            }
-                        } else if !vdir
-                            .source
-                            .as_paged_mut()
-                            .map(|p| p.is_exhausted())
-                            .unwrap_or(true)
+                        if vdir.file_storage.is_none()
+                            && !vdir
+                                .source
+                                .as_paged_mut()
+                                .map(|p| p.is_exhausted())
+                                .unwrap_or(true)
                         {
                             // Track 18: Directory Listing (Accurate(7142))
                             let s1 = vdir.sector1_idx;

@@ -299,15 +299,14 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
 
         let track = half_track / 2 + 1;
 
-        if track == 1 {
-            // Track 1: Infinite File Track
+        if track <= 17 && self.file_storage.is_some() {
+            // PRG File Tracks: Lay out the PRG data across tracks 17 down to 1.
+            // Track 17 holds blocks 0..20, Track 16 holds blocks 21..41, etc.
             let sectors = 21;
-            let speed_zone = pico1541_common::track_buffer::default_speed_zone(
-                pico1541_common::track_buffer::track_to_half_track(1),
-            );
+            let speed_zone = pico1541_common::track_buffer::default_speed_zone(half_track);
             let speed_zone_len: usize =
                 pico1541_common::track_buffer::speed_zone_capacity(speed_zone);
-            let base_sector_len = 10 + 10 + 9 + 10 + 325; // 364
+            let base_sector_len = 5 + 10 + 9 + 5 + 325; // 354
             let total_base_len = sectors as usize * base_sector_len;
             let remaining_gap = speed_zone_len.saturating_sub(total_base_len);
             let gap_per_sector = remaining_gap / sectors as usize;
@@ -321,20 +320,72 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                 }
             }
 
-            if let Some(storage) = &mut self.file_storage {
-                let _ = storage.seek(embedded_io_async::SeekFrom::Start(0)).await;
-            }
+            // Track index starting from 17 downwards:
+            // Track 17 -> 0, Track 16 -> 1, Track 15 -> 2, etc.
+            let t_idx = (17 - track) as u64;
+            let track_byte_offset = t_idx * 21 * 254;
 
             for physical_sector in 0..sectors {
                 let sector = physical_sector as u8;
-                let sector_data = [0u8; 256];
 
-                if sector == 1 {
-                    self.sector1_idx = write_ptr + 29;
-                } else if sector == 2 {
-                    self.sector2_idx = write_ptr + 29;
+                // Chain step for standard interleave 10: (sector * 19) % 21
+                let step = (physical_sector as usize * 19) % 21;
+                let file_pos = track_byte_offset + (step as u64 * 254);
+
+                let mut sector_data = [0u8; 256];
+                if let Some(storage) = &mut self.file_storage {
+                    if storage
+                        .seek(embedded_io_async::SeekFrom::Start(file_pos))
+                        .await
+                        .is_ok()
+                    {
+                        let mut file_buf = [0u8; 254];
+                        let mut bytes_read = 0;
+                        loop {
+                            let n = storage.read(&mut file_buf[bytes_read..]).await.unwrap_or(0);
+                            if n == 0 {
+                                break;
+                            }
+                            bytes_read += n;
+                            if bytes_read == 254 {
+                                break;
+                            }
+                        }
+
+                        if bytes_read > 0 {
+                            sector_data[2..2 + bytes_read].copy_from_slice(&file_buf[..bytes_read]);
+
+                            if bytes_read == 254 {
+                                // Check if there is more file data after this block
+                                let mut peek = [0u8; 1];
+                                let has_more = storage.read(&mut peek).await.unwrap_or(0) > 0;
+
+                                if has_more {
+                                    if step + 1 < 21 {
+                                        sector_data[0] = track;
+                                        sector_data[1] = (((step + 1) * 10) % 21) as u8;
+                                    } else if track > 1 {
+                                        sector_data[0] = track - 1;
+                                        sector_data[1] = 0;
+                                    } else {
+                                        sector_data[0] = 0;
+                                        sector_data[1] = 255;
+                                    }
+                                } else {
+                                    // Exactly 254 bytes on the last block
+                                    sector_data[0] = 0;
+                                    sector_data[1] = 255;
+                                }
+                            } else {
+                                // End of file (short block)
+                                sector_data[0] = 0;
+                                sector_data[1] = (bytes_read + 1) as u8;
+                            }
+                        }
+                    }
                 }
 
+                // Header SYNC (5 bytes)
                 for _ in 0..5 {
                     if write_ptr < dest.len() {
                         dest[write_ptr] = 0xFF;
@@ -353,18 +404,21 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                         write_ptr += 5;
                     }
                 }
+                // Header-to-Data Gap (9 bytes)
                 for _ in 0..9 {
                     if write_ptr < dest.len() {
                         dest[write_ptr] = 0x55;
                         write_ptr += 1;
                     }
                 }
+                // Data SYNC (5 bytes)
                 for _ in 0..5 {
                     if write_ptr < dest.len() {
                         dest[write_ptr] = 0xFF;
                         write_ptr += 1;
                     }
                 }
+                // Data Block (260 bytes GCR)
                 let mut data_checksum = 0u8;
                 for b in sector_data.iter() {
                     data_checksum ^= b;
@@ -381,6 +435,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                         write_ptr += 5;
                     }
                 }
+                // Inter-sector gap
                 for _ in 0..gap_per_sector {
                     if write_ptr < dest.len() {
                         dest[write_ptr] = 0x55;
@@ -388,20 +443,17 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                     }
                 }
             }
+
             while write_ptr < speed_zone_len && write_ptr < dest.len() {
                 dest[write_ptr] = 0x55;
                 write_ptr += 1;
             }
 
-            // Pre-populate sectors 1 and 2 with the first two 254-byte blocks of
-            // file data so the 1541 DOS never sees zeros / end-of-file on the
-            // first disk rotation.  The treadmill in update_dynamic_buffer will
-            // continue streaming from where we left off.
-            if self.file_storage.is_some() {
-                self.force_update_directory_sectors(dest).await;
-            }
-
-            log::info!("VirtualDiskImage: Returning Accurate track 1 ({} bytes)", write_ptr);
+            log::info!(
+                "VirtualDiskImage: Generated PRG track {} ({} bytes)",
+                track,
+                write_ptr
+            );
             return Ok((TrackLayout::Accurate, write_ptr, None));
         }
 
@@ -445,8 +497,41 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                     sector_data[0] = 18;
                     sector_data[1] = 1;
                     sector_data[2] = 0x41;
-                    for b in sector_data.iter_mut().take(144).skip(4) {
-                        *b = 0;
+                    sector_data[3] = 0x00;
+                    // Format BAM entries for tracks 1..35
+                    for t in 1..=35u8 {
+                        let base = 4 + (t as usize - 1) * 4;
+                        if t == 18 {
+                            sector_data[base] = 0;
+                            sector_data[base + 1] = 0;
+                            sector_data[base + 2] = 0;
+                            sector_data[base + 3] = 0;
+                        } else {
+                            let secs = sectors_per_track(t);
+                            sector_data[base] = secs;
+                            match secs {
+                                21 => {
+                                    sector_data[base + 1] = 0xFF;
+                                    sector_data[base + 2] = 0xFF;
+                                    sector_data[base + 3] = 0x1F;
+                                }
+                                19 => {
+                                    sector_data[base + 1] = 0xFF;
+                                    sector_data[base + 2] = 0xFF;
+                                    sector_data[base + 3] = 0x07;
+                                }
+                                18 => {
+                                    sector_data[base + 1] = 0xFF;
+                                    sector_data[base + 2] = 0xFF;
+                                    sector_data[base + 3] = 0x03;
+                                }
+                                _ => {
+                                    sector_data[base + 1] = 0xFF;
+                                    sector_data[base + 2] = 0xFF;
+                                    sector_data[base + 3] = 0x01;
+                                }
+                            }
+                        }
                     }
                     log::info!("BAM NAME: {:?}", self.source.name());
                     sector_data[144..160].copy_from_slice(self.source.name());
@@ -501,7 +586,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                     }
                 }
 
-                for _ in 0..10 {
+                for _ in 0..5 {
                     if write_ptr < dest.len() {
                         dest[write_ptr] = 0xFF;
                         write_ptr += 1;
@@ -525,7 +610,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                         write_ptr += 1;
                     }
                 }
-                for _ in 0..10 {
+                for _ in 0..5 {
                     if write_ptr < dest.len() {
                         dest[write_ptr] = 0xFF;
                         write_ptr += 1;
@@ -594,7 +679,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
 
         for sector in 0..sectors {
             // Header SYNC
-            for _ in 0..10 {
+            for _ in 0..5 {
                 if write_ptr < dest.len() {
                     dest[write_ptr] = 0xFF;
                     write_ptr += 1;
@@ -620,7 +705,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                 }
             }
             // Data SYNC
-            for _ in 0..10 {
+            for _ in 0..5 {
                 if write_ptr < dest.len() {
                     dest[write_ptr] = 0xFF;
                     write_ptr += 1;
