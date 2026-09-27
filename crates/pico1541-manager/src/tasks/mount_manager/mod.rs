@@ -268,12 +268,11 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
 
             if let Some(disk) = disk_opt.as_mut() {
                 if let Some(vdir) = disk.as_virtual_disk_mut() {
-                    vdir.set_shortcut_entry(None);
-                    vdir.file_storage = None;
+                    // NOTE: do NOT clear shortcut_entry or file_storage here.
+                    // mount_sequence always creates a fresh VirtualDiskImage, so these
+                    // fields are exactly what we just configured (PRG mount or empty).
+                    // Clearing them would destroy the shortcut entry and file handle.
                     vdir.source.rewind();
-                    // NOTE: do NOT call paged.invalidate() here.
-                    // mount_sequence always creates a fresh PagedDirectorySource,
-                    // so invalidating it would wipe the initial prefetch we just loaded.
                 }
             }
             drop(disk_opt);
