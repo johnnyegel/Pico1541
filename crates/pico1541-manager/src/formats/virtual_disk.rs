@@ -559,8 +559,16 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                 write_ptr += 1;
             }
 
-            self.source.rewind();
-            self.force_update_directory_sectors(dest).await;
+            // In PRG (single-file / shortcut) mode the directory entry was already
+            // encoded in the sector loop above.  Do NOT call force_update here:
+            // file_storage is set, so update_dynamic_buffer would overwrite sector 1
+            // with raw file bytes and destroy the GCR sync marks → 21,READ ERROR.
+            // The treadmill is only needed for large paged directory listings.
+            if self.shortcut_entry.is_none() {
+                self.source.rewind();
+                self.force_update_directory_sectors(dest).await;
+            }
+
             return Ok((TrackLayout::Accurate, write_ptr, None));
         }
 

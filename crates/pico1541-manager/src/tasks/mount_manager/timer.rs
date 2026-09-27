@@ -21,10 +21,17 @@ impl<
                         let current_idx = self.track_handle.get_current_byte_idx();
 
                         if vdir.file_storage.is_some() {
-                            // Track 1: File streaming (StriddenWarp)
-                            let data = self.track_handle.start_track_modification();
-                            if vdir.update_dynamic_buffer(current_idx, data).await {
-                                self.track_handle.commit_modified_track();
+                            // File streaming (StriddenWarp on track 1).
+                            // Guard: only modify the buffer when the active layout is
+                            // Warped.  If the head is on track 18 (Accurate layout)
+                            // we must NOT write file bytes into the directory GCR —
+                            // that would corrupt the sync marks and cause a 21,READ ERROR.
+                            let active_layout = self.track_handle.get_active_layout();
+                            if matches!(active_layout, TrackLayout::Warped(_)) {
+                                let data = self.track_handle.start_track_modification();
+                                if vdir.update_dynamic_buffer(current_idx, data).await {
+                                    self.track_handle.commit_modified_track();
+                                }
                             }
                         } else if !vdir
                             .source
