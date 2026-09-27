@@ -483,14 +483,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
             self.source.rewind();
 
             for physical_sector in 0..sectors {
-                let interleave = if track == 18 {
-                    3
-                } else if sectors == 18 {
-                    11
-                } else {
-                    10
-                };
-                let sector = ((physical_sector * interleave) % sectors) as u8;
+                let sector = physical_sector as u8;
                 let mut sector_data = [0u8; 256];
 
                 if sector == 0 {

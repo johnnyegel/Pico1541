@@ -319,3 +319,89 @@ fn test_virtual_disk_prg_multitrack() {
     assert_eq!(layout, TrackLayout::Accurate);
     assert!(len > 7000);
 }
+
+#[test]
+fn test_virtual_disk_prg_byte_exact() {
+    use pico1541_manager::formats::VirtualDiskImage;
+    use pico1541_manager::storage::DummySource;
+    use pico1541_manager::DiskImage;
+    use pico1541_manager::gcr::decode_gcr_block;
+
+    let original_bytes = include_bytes!("../../../flash-fs/files/fb.prg").to_vec();
+    let storage = MemoryStorage::new(&original_bytes);
+
+    let mut vdisk = VirtualDiskImage::new(DummySource, b"FB.PRG");
+    vdisk.set_id([0x31, 0x31]);
+
+    let entry = pico1541_manager::storage::DirectoryEntry::from_file_info(b"FB.PRG", false, original_bytes.len() as u32);
+    vdisk.set_shortcut_entry(Some(entry));
+    vdisk.file_storage = Some(storage);
+
+    let mut dest = vec![0u8; 10000];
+    let (layout, len, _) = block_on(vdisk.read_track(32, &mut dest)).expect("read track 17 failed");
+    assert_eq!(layout, TrackLayout::Accurate);
+
+    // Decode all sectors from the generated GCR track
+    let mut sector_data_map = std::collections::HashMap::new();
+
+    let mut pos = 0;
+    while pos + 5 <= len {
+        // Find 5 sync bytes
+        if dest[pos..pos + 5] == [0xFF, 0xFF, 0xFF, 0xFF, 0xFF] {
+            // Header is 10 GCR bytes (2 blocks of 5)
+            let mut header_raw = [0u8; 8];
+            decode_gcr_block((&dest[pos + 5..pos + 10]).try_into().unwrap(), (&mut header_raw[0..4]).try_into().unwrap());
+            decode_gcr_block((&dest[pos + 10..pos + 15]).try_into().unwrap(), (&mut header_raw[4..8]).try_into().unwrap());
+
+            if header_raw[0] == 0x08 {
+                let sector = header_raw[2];
+                // Advance past header: 5 sync + 10 gcr + 9 gap + 5 data sync = 29 bytes
+                let data_gcr_pos = pos + 5 + 10 + 9 + 5;
+                if data_gcr_pos + 325 <= len {
+                    let mut data_raw = [0u8; 260];
+                    for chunk_idx in 0..65 {
+                        let src_slice = &dest[data_gcr_pos + chunk_idx * 5..data_gcr_pos + chunk_idx * 5 + 5];
+                        let dst_slice = &mut data_raw[chunk_idx * 4..chunk_idx * 4 + 4];
+                        decode_gcr_block(src_slice.try_into().unwrap(), dst_slice.try_into().unwrap());
+                    }
+                    assert_eq!(data_raw[0], 0x07, "Data block mark must be 0x07");
+                    let mut sector_buf = [0u8; 256];
+                    sector_buf.copy_from_slice(&data_raw[1..257]);
+                    sector_data_map.insert(sector, sector_buf);
+                    pos = data_gcr_pos + 325;
+                    continue;
+                }
+            }
+        }
+        pos += 1;
+    }
+
+    assert_eq!(sector_data_map.len(), 21, "Must have decoded all 21 sectors");
+
+    // Follow sector chain starting at sector 0
+    let mut current_track = 17;
+    let mut current_sector = 0;
+    let mut reconstructed = Vec::new();
+
+    loop {
+        assert_eq!(current_track, 17, "All blocks for fb.prg must be on track 17");
+        let sector_buf = sector_data_map.get(&current_sector).expect("sector missing");
+        let next_track = sector_buf[0];
+        let next_sector = sector_buf[1];
+
+        if next_track == 0 {
+            // Last block: next_sector is the last valid byte offset + 1
+            let valid_len = (next_sector as usize).saturating_sub(1);
+            reconstructed.extend_from_slice(&sector_buf[2..2 + valid_len]);
+            break;
+        } else {
+            // Full block: 254 bytes
+            reconstructed.extend_from_slice(&sector_buf[2..256]);
+            current_track = next_track;
+            current_sector = next_sector;
+        }
+    }
+
+    assert_eq!(reconstructed.len(), original_bytes.len(), "Reconstructed length must match");
+    assert_eq!(reconstructed, original_bytes, "Reconstructed bytes must be byte-for-byte identical to fb.prg");
+}
