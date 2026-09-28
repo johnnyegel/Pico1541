@@ -28,6 +28,7 @@ pub struct TrackCacheTask<S: Read + Seek + 'static, O: FileOpener<FileStorage = 
     last_mounted_path: heapless::String<128>,
     last_motor_state: bool,
     motor_state: &'static AtomicBool,
+    pub(super) just_selected: bool,
 }
 
 impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
@@ -49,6 +50,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
             last_mounted_path: heapless::String::new(),
             last_motor_state: false,
             motor_state,
+            just_selected: false,
         }
     }
 
@@ -417,6 +419,10 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
 
         if let Some(disk) = self.disk_image.as_mut() {
             if let Some(vdir) = disk.as_virtual_disk_mut() {
+                if vdir.file_storage.is_some() {
+                    return;
+                }
+
                 let entry_opt = if let Some(paged) = vdir.source.as_paged_mut() {
                     paged.entry_at_slot(slot)
                 } else {
@@ -430,6 +436,13 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
                             #[cfg(feature = "defmt")]
                             defmt::info!("Mounted virtual file for slot {}", slot);
                             log::info!("Mounted virtual file for slot {}", slot);
+
+                            let ht = self.track_handle.get_head_half_track();
+                            if ht <= 34 {
+                                self.just_selected = true;
+                                self.handle_track_event(ht).await;
+                                self.just_selected = false;
+                            }
                         }
                     }
                 }

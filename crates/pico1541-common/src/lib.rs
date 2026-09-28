@@ -11,3 +11,4 @@ pub mod util;
 
 pub use iec_com::{IecComHostBus, IecCommander, IecError, IecTransaction};
 pub use interface::{DriveEvent, HostInterface};
+pub use track_buffer::{slot_to_track_sector, track_sector_to_slot};

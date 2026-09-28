@@ -349,12 +349,11 @@ impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H,
         if (addr & 0x9800) == 0x1800 {
             self.write_io(addr, val, cycle, ctx);
         } else {
-            if addr <= 0x0005 && (val & 0x8F) == 0x80 && self.memory.read(0x001C) != 0 {
+            if addr <= 0x0005 && (val & 0xF0) == 0x80 && self.memory.read(0x001C) != 0 {
                 let buf = addr as usize;
                 let track = self.memory.read(0x06 + (buf * 2) as u16);
                 let sector = self.memory.read(0x07 + (buf * 2) as u16);
-                if (11..=17).contains(&track) && sector < 21 {
-                    let slot = (17 - track) as usize * 21 + sector as usize;
+                if let Some(slot) = pico1541_common::track_buffer::track_sector_to_slot(track, sector) {
                     ctx.select_virtual_file(slot);
                 }
             }

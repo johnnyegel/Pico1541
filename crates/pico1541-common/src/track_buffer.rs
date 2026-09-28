@@ -37,6 +37,26 @@ pub const fn half_track_to_track(half_track: u8) -> u8 {
     half_track / 2 + 1
 }
 
+/// Maps a virtual directory slot index to its CBM track and sector.
+/// Tracks run from 17 down to 11 (clamped so underflow is impossible), each with 21 sectors.
+#[inline(always)]
+pub fn slot_to_track_sector(slot: usize) -> (u8, u8) {
+    let track = (17 - (slot / 21).min(6)) as u8;
+    let sector = (slot % 21) as u8;
+    (track, sector)
+}
+
+/// Maps a CBM track and sector to its virtual directory slot index.
+/// Returns Some(slot) if track is in 11..=17 and sector < 21, otherwise None.
+#[inline(always)]
+pub fn track_sector_to_slot(track: u8, sector: u8) -> Option<usize> {
+    if track >= 11 && track <= 17 && sector < 21 {
+        Some((17 - track) as usize * 21 + sector as usize)
+    } else {
+        None
+    }
+}
+
 #[inline(always)]
 pub const fn default_speed_zone(half_track: u8) -> u8 {
     let track = half_track_to_track(half_track);
@@ -641,5 +661,33 @@ impl EmulatorHandle {
         } else {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_slot_to_track_sector_and_inverse() {
+        assert_eq!(slot_to_track_sector(0), (17, 0));
+        assert_eq!(slot_to_track_sector(20), (17, 20));
+        assert_eq!(slot_to_track_sector(21), (16, 0));
+        assert_eq!(slot_to_track_sector(146), (11, 20));
+
+        // Overflow clamp test
+        assert_eq!(slot_to_track_sector(200), (11, 11));
+
+        for slot in 0..(7 * 21) {
+            let (track, sector) = slot_to_track_sector(slot);
+            assert!(track >= 11 && track <= 17);
+            assert!(sector < 21);
+            assert_eq!(track_sector_to_slot(track, sector), Some(slot));
+        }
+
+        // Invalid track/sector inputs
+        assert_eq!(track_sector_to_slot(18, 0), None);
+        assert_eq!(track_sector_to_slot(10, 0), None);
+        assert_eq!(track_sector_to_slot(17, 21), None);
     }
 }

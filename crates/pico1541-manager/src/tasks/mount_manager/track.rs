@@ -42,6 +42,14 @@ impl<
 
             let mut disk_opt = self.disk_image.as_mut();
             if let Some(disk) = disk_opt.as_mut() {
+                if let Some(vdir) = disk.as_virtual_disk_mut() {
+                    if (target_ht == 34 || target_ht == 35)
+                        && !self.just_selected
+                        && vdir.shortcut_entry.is_none()
+                    {
+                        vdir.file_storage = None;
+                    }
+                }
                 let data = self.track_handle.start_track_load();
 
                 let start_time = embassy_time::Instant::now();

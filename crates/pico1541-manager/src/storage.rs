@@ -249,22 +249,7 @@ impl<const N: usize> DirectorySource for VectorDirectorySource<N> {
 
 pub const PAGE_CAPACITY: usize = 142;
 
-#[inline(always)]
-pub fn slot_to_track_sector(slot: usize) -> (u8, u8) {
-    let t_offset = (slot / 21).min(6) as u8; // clamp to 0..6 (tracks 17..11)
-    let track = 17 - t_offset;
-    let sector = (slot % 21) as u8;
-    (track, sector)
-}
-
-#[inline(always)]
-pub fn track_sector_to_slot(track: u8, sector: u8) -> Option<usize> {
-    if (11..=17).contains(&track) && sector < 21 {
-        Some((17 - track) as usize * 21 + sector as usize)
-    } else {
-        None
-    }
-}
+pub use pico1541_common::track_buffer::{slot_to_track_sector, track_sector_to_slot};
 
 pub struct PagedDirectorySource<const N: usize = 144> {
     name: [u8; 16],

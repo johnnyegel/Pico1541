@@ -148,3 +148,16 @@ fn test_paged_directory_entry_at_slot() {
     assert_eq!(&prev.filename[..12], b"<<< PREV <<<");
 }
 
+#[test]
+fn test_slot_to_track_sector_reexport() {
+    use pico1541_manager::storage::{slot_to_track_sector, track_sector_to_slot};
+
+    let (t, s) = slot_to_track_sector(0);
+    assert_eq!((t, s), (17, 0));
+    assert_eq!(track_sector_to_slot(17, 0), Some(0));
+
+    // Clamping to avoid underflow
+    let (t_overflow, _) = slot_to_track_sector(1000);
+    assert_eq!(t_overflow, 11);
+}
+

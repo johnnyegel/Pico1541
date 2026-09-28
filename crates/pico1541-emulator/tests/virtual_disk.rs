@@ -270,5 +270,16 @@ fn test_job_queue_snoop_select_virtual_file() {
     drive.bus_mut().memory.write(0x0007, 2);
     drive.bus_mut().write(&mut bridge, 0x0000, 0x01, 0);
     assert_eq!(bridge.selected_virtual_files, vec![2, 26]);
+
+    // Test that jobs like 0x90 (Write), 0xA0 (Verify), 0xB0 (Seek), 0xC0 (Bump), etc. do NOT trigger select_virtual_file
+    for non_read_job in [0x90, 0xA0, 0xB0, 0xC0, 0xD0, 0xE0, 0xF0] {
+        drive.bus_mut().write(&mut bridge, 0x0000, non_read_job, 0);
+        assert_eq!(
+            bridge.selected_virtual_files,
+            vec![2, 26],
+            "Job 0x{:02X} should NOT trigger select_virtual_file",
+            non_read_job
+        );
+    }
 }
 
