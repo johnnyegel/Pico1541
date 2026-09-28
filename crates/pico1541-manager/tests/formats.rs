@@ -327,13 +327,13 @@ fn test_virtual_disk_prg_byte_exact() {
     use pico1541_manager::DiskImage;
     use pico1541_manager::gcr::decode_gcr_block;
 
-    let original_bytes = include_bytes!("../../../flash-fs/files/fb.prg").to_vec();
+    let original_bytes = include_bytes!("../../../flash-fs/files/fb64").to_vec();
     let storage = MemoryStorage::new(&original_bytes);
 
-    let mut vdisk = VirtualDiskImage::new(DummySource, b"FB.PRG");
+    let mut vdisk = VirtualDiskImage::new(DummySource, b"FB64");
     vdisk.set_id([0x31, 0x31]);
 
-    let entry = pico1541_manager::storage::DirectoryEntry::from_file_info(b"FB.PRG", false, original_bytes.len() as u32);
+    let entry = pico1541_manager::storage::DirectoryEntry::from_file_info(b"FB64", false, original_bytes.len() as u32);
     vdisk.set_shortcut_entry(Some(entry));
     vdisk.file_storage = Some(storage);
 

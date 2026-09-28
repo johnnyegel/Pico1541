@@ -229,8 +229,9 @@ fn test_job_queue_snoop_select_virtual_file() {
     use racc6502v4::bus::Bus;
 
     let (mut drive, mut bridge) = setup_drive(false, 8);
-    // Simulate 1541 DOS initialized:
-    drive.bus_mut().memory.write(0x001C, 1);
+    // Simulate 1541 DOS initialized (IEC listen/talk addresses configured):
+    drive.bus_mut().memory.write(0x0077, 0x28);
+    drive.bus_mut().memory.write(0x0078, 0x48);
 
     // Set buffer 0 target track = 17, sector = 2
     drive.bus_mut().memory.write(0x0006, 17);
@@ -249,11 +250,11 @@ fn test_job_queue_snoop_select_virtual_file() {
     drive.bus_mut().write(&mut bridge, 0x0001, 0x80, 0);
     assert_eq!(bridge.selected_virtual_files, vec![2, 26]);
 
-    // Test ignore when DOS not initialized (0x001C == 0)
-    drive.bus_mut().memory.write(0x001C, 0);
+    // Test ignore when DOS not initialized (0x0077 == 0 || 0x0078 == 0)
+    drive.bus_mut().memory.write(0x0077, 0);
     drive.bus_mut().write(&mut bridge, 0x0000, 0x80, 0);
     assert_eq!(bridge.selected_virtual_files, vec![2, 26]);
-    drive.bus_mut().memory.write(0x001C, 1);
+    drive.bus_mut().memory.write(0x0077, 0x28);
 
     // Test ignore when track outside 11..=17 (e.g. track 18 or 10)
     drive.bus_mut().memory.write(0x0006, 18);

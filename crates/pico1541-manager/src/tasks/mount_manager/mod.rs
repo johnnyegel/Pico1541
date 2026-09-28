@@ -413,10 +413,6 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
     }
 
     pub async fn select_virtual_file(&mut self, slot: usize) {
-        #[cfg(feature = "defmt")]
-        defmt::info!("Mounting virtual file from slot {}", slot);
-        log::info!("Mounting virtual file from slot {}", slot);
-
         if let Some(disk) = self.disk_image.as_mut() {
             if let Some(vdir) = disk.as_virtual_disk_mut() {
                 if vdir.file_storage.is_some() {
@@ -430,7 +426,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
                 };
 
                 if let Some(entry) = entry_opt {
-                    if !entry.is_dir() {
+                    if !entry.is_dir() && entry.filename[0] != 0 {
                         if let Ok(file) = self.opener.open_file(&entry.filename).await {
                             vdir.set_prg_start(entry.first_track, entry.first_sector);
                             vdir.file_storage = Some(file);
@@ -439,10 +435,8 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
                             log::info!("Mounted virtual file for slot {}", slot);
 
                             let ht = self.track_handle.get_head_half_track();
-                            if ht <= 34 {
-                                self.just_selected = true;
+                            if ht < 34 {
                                 self.handle_track_event(ht).await;
-                                self.just_selected = false;
                             }
                         }
                     }
@@ -587,8 +581,8 @@ impl<L: LedsDriver> MountControllerTask<L> {
                 }
                 crate::InternalCommand::SelectVirtualFile(slot) => {
                     #[cfg(feature = "defmt")]
-                    defmt::info!("SelectVirtualFile received for slot {}", slot);
-                    log::info!("SelectVirtualFile received for slot {}", slot);
+                    defmt::debug!("SelectVirtualFile received for slot {}", slot);
+                    log::debug!("SelectVirtualFile received for slot {}", slot);
                     SELECTED_SLOT.store(slot, Ordering::Release);
                     SLOT_SELECTED.store(true, Ordering::Release);
                 }
