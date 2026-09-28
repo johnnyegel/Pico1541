@@ -9,9 +9,7 @@ pub struct VirtualDiskImage<S, D: DirectorySource> {
     pub source: D,
     pub file_storage: Option<S>,
     id: [u8; 2],
-    pub next_sector_to_update: u8,
     pub shortcut_entry: Option<crate::storage::DirectoryEntry>,
-    pub treadmill_spinup_delay: u16,
 }
 
 impl<S: Read + Seek, D: DirectorySource> VirtualDiskImage<S, D> {
@@ -33,9 +31,7 @@ impl<S: Read + Seek, D: DirectorySource> VirtualDiskImage<S, D> {
             source,
             file_storage: None,
             id: [id_high, id_low],
-            next_sector_to_update: 1,
             shortcut_entry: None,
-            treadmill_spinup_delay: 0,
         }
     }
 
@@ -92,33 +88,6 @@ impl<S: Read + Seek, D: DirectorySource> VirtualDiskImage<S, D> {
             }
         }
         dest.copy_from_slice(&raw);
-    }
-
-    pub fn encode_directory_sector_gcr(
-        &self,
-        entries: &[crate::storage::DirectoryEntry],
-        next_track: u8,
-        next_sector: u8,
-        dest_gcr: &mut [u8],
-    ) {
-        let mut raw = [0u8; 256];
-        self.encode_directory_sector(entries, next_track, next_sector, &mut raw);
-
-        let mut data_checksum = 0u8;
-        for b in raw.iter() {
-            data_checksum ^= b;
-        }
-        let mut data_raw = [0u8; 260];
-        data_raw[0] = 0x07;
-        data_raw[1..257].copy_from_slice(&raw);
-        data_raw[257] = data_checksum;
-
-        for (i, chunk) in data_raw.chunks_exact(4).enumerate() {
-            crate::gcr::encode_gcr_block(
-                chunk.try_into().unwrap(),
-                (&mut dest_gcr[i * 5..(i + 1) * 5]).try_into().unwrap(),
-            );
-        }
     }
 
     pub async fn force_update_directory_sectors(&mut self, gcr_data: &mut [u8]) {

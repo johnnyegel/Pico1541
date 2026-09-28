@@ -602,5 +602,11 @@ fn test_virtual_disk_static_track_18_all_sectors() {
     let s4 = sector_data_map.get(&4).unwrap();
     assert_eq!(s4[0], 0);
     assert_eq!(s4[1], 0xFF);
+
+    for s in 5..=18 {
+        let sec = sector_data_map.get(&s).unwrap();
+        assert_eq!(sec[0], 0, "Empty sector {} must point to track 0", s);
+        assert_eq!(sec[1], 0xFF, "Empty sector {} must point to sector 0xFF", s);
+    }
 }
 

@@ -69,11 +69,9 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
                 if let Some(disk) = disk_opt.as_mut() {
                     if let Some(vdir) = disk.as_virtual_disk_mut() {
                         vdir.source.rewind();
-                        vdir.next_sector_to_update = 1;
                         let data = self.track_handle.start_track_modification();
                         vdir.force_update_directory_sectors(data).await;
                         self.track_handle.commit_modified_track();
-                        vdir.treadmill_spinup_delay = 10;
                     }
                 }
             }
