@@ -408,35 +408,63 @@ fn test_virtual_disk_prg_byte_exact() {
 
 #[test]
 fn test_paged_directory_navigation_entries() {
-    use pico1541_manager::storage::{DirectorySource, PagedDirectorySource};
+    use pico1541_manager::storage::{
+        DirectoryEntry, DirectorySource, PagedDirectorySource, PAGE_CAPACITY,
+    };
 
     let mut source = PagedDirectorySource::<144>::new(b"TEST DIR");
     source.set_total_count(200); // More than 1 page
 
-    // Page 0: No previous entry, ends with ">>> MORE >>>"
+    for i in 0..144 {
+        let name = format!("FILE_{}", i);
+        source.entries[i] = DirectoryEntry::new(name.as_bytes(), 17, 0, 10);
+    }
+
+    // Page 0: No previous entry, 142 real entries + 1 MORE entry at index 142
     source.set_page(0);
     let mut page0_entries = Vec::new();
     while let Some(entry) = source.next_entry() {
         page0_entries.push(entry);
     }
-    assert_eq!(page0_entries.len(), 144);
+    assert_eq!(page0_entries.len(), PAGE_CAPACITY + 1); // 143 entries
     assert_ne!(&page0_entries[0].filename[..12], b"<<< PREV <<<");
-    assert_eq!(&page0_entries[143].filename[..12], b">>> MORE >>>");
-    assert_eq!(page0_entries[143].file_type, 0x86); // DIR
+    assert_eq!(&page0_entries[0].filename[..6], b"FILE_0");
+    assert_eq!(&page0_entries[1].filename[..6], b"FILE_1");
+    assert_eq!(&page0_entries[PAGE_CAPACITY].filename[..12], b">>> MORE >>>");
+    assert_eq!(page0_entries[PAGE_CAPACITY].file_type, 0x86); // DIR
 
-    // Page 1: Starts with "<<< PREV <<<", ends with real entries
+    // Page 1: Starts with "<<< PREV <<<", ends with real entries starting at FILE_0
     source.set_page(1);
     let mut page1_entries = Vec::new();
     while let Some(entry) = source.next_entry() {
         page1_entries.push(entry);
     }
+    // Total count is 200: Page 0 has 142 real entries, Page 1 has 200 - 142 = 58 real entries + 1 PREV = 59 entries
+    assert_eq!(page1_entries.len(), 59);
     assert_eq!(&page1_entries[0].filename[..12], b"<<< PREV <<<");
     assert_eq!(page1_entries[0].file_type, 0x86); // DIR
+    // Assert that page1_entries[1].filename matches FILE_0 (verifying no off-by-one skipping real_slot 0)
+    assert_eq!(&page1_entries[1].filename[..6], b"FILE_0");
+    assert_eq!(&page1_entries[2].filename[..6], b"FILE_1");
+    assert_eq!(&page1_entries[58].filename[..7], b"FILE_57");
+
+    // Page 1 with > 284 entries: should have PREV at 0, 142 real entries, and MORE at 143
+    source.set_total_count(300);
+    source.set_page(1);
+    let mut page1_more_entries = Vec::new();
+    while let Some(entry) = source.next_entry() {
+        page1_more_entries.push(entry);
+    }
+    assert_eq!(page1_more_entries.len(), 144);
+    assert_eq!(&page1_more_entries[0].filename[..12], b"<<< PREV <<<");
+    assert_eq!(&page1_more_entries[1].filename[..6], b"FILE_0");
+    assert_eq!(&page1_more_entries[143].filename[..12], b">>> MORE >>>");
+    assert_eq!(page1_more_entries[143].file_type, 0x86);
 }
 
 #[test]
 fn test_directory_entry_unique_track_sector_mapping() {
-    use pico1541_manager::storage::slot_to_track_sector;
+    use pico1541_manager::storage::{slot_to_track_sector, track_sector_to_slot};
 
     // Slot 0 -> Track 17, Sector 0
     assert_eq!(slot_to_track_sector(0), (17, 0));
@@ -446,4 +474,33 @@ fn test_directory_entry_unique_track_sector_mapping() {
     assert_eq!(slot_to_track_sector(21), (16, 0));
     // Slot 143 -> Track 11, Sector 17
     assert_eq!(slot_to_track_sector(143), (11, 17));
+    // Slot 146 -> Track 11, Sector 20
+    assert_eq!(slot_to_track_sector(146), (11, 20));
+
+    // Underflow protection: slot >= 147 clamps to track 11
+    assert_eq!(slot_to_track_sector(147), (11, 0));
+    assert_eq!(slot_to_track_sector(200), (11, 200 % 21));
+    assert_eq!(
+        slot_to_track_sector(usize::MAX),
+        (11, (usize::MAX % 21) as u8)
+    );
+
+    // Roundtrip bijection track_sector_to_slot(slot_to_track_sector(s)) for all valid slots 0..146
+    for s in 0..=146 {
+        let (track, sector) = slot_to_track_sector(s);
+        assert!(
+            (11..=17).contains(&track),
+            "Track {} out of bounds for slot {}",
+            track,
+            s
+        );
+        assert!(
+            sector < 21,
+            "Sector {} out of bounds for slot {}",
+            sector,
+            s
+        );
+        let mapped = track_sector_to_slot(track, sector);
+        assert_eq!(mapped, Some(s), "Bijection failed for slot {}", s);
+    }
 }

@@ -238,9 +238,12 @@ impl<const N: usize> DirectorySource for VectorDirectorySource<N> {
     }
 }
 
+pub const PAGE_CAPACITY: usize = 142;
+
 #[inline(always)]
 pub fn slot_to_track_sector(slot: usize) -> (u8, u8) {
-    let track = 17 - (slot / 21) as u8;
+    let t_offset = (slot / 21).min(6) as u8; // clamp to 0..6 (tracks 17..11)
+    let track = 17 - t_offset;
     let sector = (slot % 21) as u8;
     (track, sector)
 }
@@ -256,7 +259,7 @@ pub fn track_sector_to_slot(track: u8, sector: u8) -> Option<usize> {
 
 pub struct PagedDirectorySource<const N: usize = 144> {
     name: [u8; 16],
-    entries: [DirectoryEntry; N],
+    pub entries: [DirectoryEntry; N],
     start_block: usize,
     end_block: usize,
     current_read_index: usize,
@@ -393,34 +396,42 @@ impl<const N: usize> DirectorySource for PagedDirectorySource<N> {
             return None;
         }
 
+        let page_capacity = PAGE_CAPACITY.min(N.saturating_sub(2));
+        let nav_prefix = if self.page > 0 { 1 } else { 0 };
         let has_more = self.total_count != usize::MAX
-            && self.total_count > (self.page + 1) * (N - 1);
+            && self.total_count > (self.page + 1) * page_capacity;
 
         if self.page > 0 && slot == 0 {
             self.current_read_index += 1;
             return Some(DirectoryEntry::from_file_info(b"<<< PREV <<<", true, 0));
         }
 
-        if has_more && slot == N - 1 {
+        if has_more && slot == nav_prefix + page_capacity {
             self.current_read_index += 1;
             return Some(DirectoryEntry::from_file_info(b">>> MORE >>>", true, 0));
         }
 
+        let real_slot = slot.saturating_sub(nav_prefix);
+
         if self.total_count != usize::MAX {
-            let entries_before_page = self.page * (N - 1);
+            let entries_before_page = self.page * page_capacity;
             let remaining_entries = self.total_count.saturating_sub(entries_before_page);
-            let nav_prefix = if self.page > 0 { 1 } else { 0 };
-            let real_slot = slot.saturating_sub(nav_prefix);
-            if !has_more && real_slot >= remaining_entries {
+            if real_slot >= remaining_entries || real_slot >= page_capacity {
                 return None;
             }
+        } else if real_slot >= page_capacity {
+            return None;
         }
 
-        let b = slot / 16;
+        if real_slot >= N {
+            return None;
+        }
+
+        let b = real_slot / 16;
         let mut entry = if self.start_block == self.end_block {
-            self.entries[slot]
+            self.entries[real_slot]
         } else if b >= self.start_block && b < self.end_block {
-            self.entries[(b % (N / 16)) * 16 + (slot % 16)]
+            self.entries[(b % (N / 16)) * 16 + (real_slot % 16)]
         } else {
             return None;
         };
