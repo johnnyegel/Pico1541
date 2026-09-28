@@ -504,3 +504,103 @@ fn test_directory_entry_unique_track_sector_mapping() {
         assert_eq!(mapped, Some(s), "Bijection failed for slot {}", s);
     }
 }
+
+#[test]
+fn test_virtual_disk_static_track_18_all_sectors() {
+    use pico1541_manager::formats::VirtualDiskImage;
+    use pico1541_manager::storage::{DirectoryEntry, VectorDirectorySource};
+    use pico1541_manager::DiskImage;
+    use pico1541_manager::gcr::decode_gcr_block;
+    use pollster::block_on;
+
+    // Create 30 entries (fills Sector 1, 2, 3, and part of 4)
+    let mut entries = heapless::Vec::<DirectoryEntry, 144>::new();
+    for i in 0..30 {
+        let mut name = [b' '; 16];
+        let s = format!("FILE{}", i);
+        name[..s.len()].copy_from_slice(s.as_bytes());
+        let _ = entries.push(DirectoryEntry::new(&name, 17, 0, 10));
+    }
+    let source = VectorDirectorySource::new(b"TEST DISK", entries);
+    let mut vdisk =
+        VirtualDiskImage::<pico1541_manager::storage::MemoryStorage<'static>, _>::new(
+            source,
+            b"TEST DISK",
+        );
+
+    let mut dest = vec![0u8; 10000];
+    let (layout, len, _) = block_on(vdisk.read_track(34, &mut dest)).unwrap();
+    assert_eq!(layout, pico1541_common::track_buffer::TrackLayout::Accurate);
+
+    // Decode all sectors and verify all 19 sectors (0..18) are present
+    let mut sector_data_map = std::collections::HashMap::new();
+    let mut pos = 0;
+    while pos + 5 <= len {
+        if dest[pos..pos + 5] == [0xFF, 0xFF, 0xFF, 0xFF, 0xFF] {
+            let mut header_raw = [0u8; 8];
+            decode_gcr_block(
+                (&dest[pos + 5..pos + 10]).try_into().unwrap(),
+                (&mut header_raw[0..4]).try_into().unwrap(),
+            );
+            decode_gcr_block(
+                (&dest[pos + 10..pos + 15]).try_into().unwrap(),
+                (&mut header_raw[4..8]).try_into().unwrap(),
+            );
+
+            if header_raw[0] == 0x08 {
+                let sector = header_raw[2];
+                let data_gcr_pos = pos + 5 + 10 + 9 + 5;
+                if data_gcr_pos + 325 <= len {
+                    let mut data_raw = [0u8; 260];
+                    for chunk_idx in 0..65 {
+                        let src_slice =
+                            &dest[data_gcr_pos + chunk_idx * 5..data_gcr_pos + chunk_idx * 5 + 5];
+                        let dst_slice = &mut data_raw[chunk_idx * 4..chunk_idx * 4 + 4];
+                        decode_gcr_block(
+                            src_slice.try_into().unwrap(),
+                            dst_slice.try_into().unwrap(),
+                        );
+                    }
+                    let mut sector_buf = [0u8; 256];
+                    sector_buf.copy_from_slice(&data_raw[1..257]);
+                    sector_data_map.insert(sector, sector_buf);
+                    pos = data_gcr_pos + 325;
+                    continue;
+                }
+            }
+        }
+        pos += 1;
+    }
+
+    assert_eq!(
+        sector_data_map.len(),
+        19,
+        "All 19 sectors must be present on Track 18"
+    );
+
+    // Sector 0 BAM points to (18, 1)
+    let s0 = sector_data_map.get(&0).unwrap();
+    assert_eq!(s0[0], 18);
+    assert_eq!(s0[1], 1);
+
+    // Sector 1 has 8 entries, points to (18, 2)
+    let s1 = sector_data_map.get(&1).unwrap();
+    assert_eq!(s1[0], 18);
+    assert_eq!(s1[1], 2);
+
+    // Sector 2 has 8 entries, points to (18, 3)
+    let s2 = sector_data_map.get(&2).unwrap();
+    assert_eq!(s2[0], 18);
+    assert_eq!(s2[1], 3);
+
+    // Sector 3 has 8 entries, points to (18, 4)
+    let s3 = sector_data_map.get(&3).unwrap();
+    assert_eq!(s3[0], 18);
+    assert_eq!(s3[1], 4);
+
+    // Sector 4 has 6 entries (30 - 24 = 6), points to (0, 0xFF)
+    let s4 = sector_data_map.get(&4).unwrap();
+    assert_eq!(s4[0], 0);
+    assert_eq!(s4[1], 0xFF);
+}
+

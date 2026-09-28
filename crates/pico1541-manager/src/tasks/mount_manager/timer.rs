@@ -1,4 +1,5 @@
 use super::{FileOpener, TrackCacheTask};
+use crate::formats::DiskImage;
 use crate::storage::DirectorySource;
 use embedded_io_async::{Read, Seek};
 use pico1541_common::track_buffer::TrackLayout;
@@ -9,51 +10,13 @@ impl<
         H: pico1541_common::interface::TrackHandoff,
     > TrackCacheTask<S, O, H>
 {
-    pub(super) async fn handle_timer_event(&mut self, motor_on: bool) {
+    pub(super) async fn handle_timer_event(&mut self, _motor_on: bool) {
         // (first_missing_block, batch_count)
         let mut block_batch: Option<(usize, usize)> = None;
         {
             let mut disk_opt = self.disk_image.as_mut();
             if let Some(disk) = disk_opt.as_mut() {
                 if let Some(vdir) = disk.as_virtual_disk_mut() {
-                    // Periodic update of directory buffer only when motor is on
-                    if motor_on {
-                        let current_idx = self.track_handle.get_current_byte_idx();
-
-                        if vdir.file_storage.is_none()
-                            && !vdir
-                                .source
-                                .as_paged_mut()
-                                .map(|p| p.is_exhausted())
-                                .unwrap_or(true)
-                        {
-                            // Track 18: Directory Listing (Accurate(7142))
-                            let s1 = vdir.sector1_idx;
-                            let s2 = vdir.sector2_idx;
-
-                            if s1 > 0 && s2 > 0 {
-                                let s2_end = s2 + 325;
-                                let s1_start = s1.saturating_sub(40);
-
-                                // Dead zone between Sector 2 and Sector 1
-                                if current_idx > s2_end && current_idx < s1_start {
-                                    if vdir.next_sector_to_update == 2 {
-                                        // Head has passed Sector 2. Swap to the next batch!
-                                        let data = self.track_handle.start_track_modification();
-                                        vdir.force_update_directory_sectors(data).await;
-                                        self.track_handle.commit_modified_track();
-
-                                        // Prevent further swaps until we pass Sector 2 again
-                                        vdir.next_sector_to_update = 1;
-                                    }
-                                } else if current_idx < s2 {
-                                    // Reset the trigger flag when head loops around before Sector 2
-                                    vdir.next_sector_to_update = 2;
-                                }
-                            }
-                        }
-                    }
-
                     // Background prefetching for paged directory source
                     if let Some(paged) = vdir.source.as_paged_mut() {
                         // Stop prefetching once the directory end has been discovered.
@@ -142,11 +105,9 @@ impl<
                             // We fetched new blocks. If the active track is 18, we must regenerate the GCR data!
                             let active_ht = self.track_handle.get_head_half_track();
                             if active_ht == 34 || active_ht == 35 {
-                                vdir.next_sector_to_update = 1;
                                 let data = self.track_handle.start_track_modification();
-                                vdir.force_update_directory_sectors(data).await;
+                                let _ = vdir.read_track(active_ht, data).await;
                                 self.track_handle.commit_modified_track();
-                                vdir.treadmill_spinup_delay = 10;
                             }
                         }
                     }

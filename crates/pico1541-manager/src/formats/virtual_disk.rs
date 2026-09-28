@@ -9,8 +9,6 @@ pub struct VirtualDiskImage<S, D: DirectorySource> {
     pub source: D,
     pub file_storage: Option<S>,
     id: [u8; 2],
-    pub sector1_idx: usize,
-    pub sector2_idx: usize,
     pub next_sector_to_update: u8,
     pub shortcut_entry: Option<crate::storage::DirectoryEntry>,
     pub treadmill_spinup_delay: u16,
@@ -35,8 +33,6 @@ impl<S: Read + Seek, D: DirectorySource> VirtualDiskImage<S, D> {
             source,
             file_storage: None,
             id: [id_high, id_low],
-            sector1_idx: 0,
-            sector2_idx: 0,
             next_sector_to_update: 1,
             shortcut_entry: None,
             treadmill_spinup_delay: 0,
@@ -125,163 +121,8 @@ impl<S: Read + Seek, D: DirectorySource> VirtualDiskImage<S, D> {
         }
     }
 
-    pub async fn update_dynamic_buffer(
-        &mut self,
-        current_byte_idx: usize,
-        gcr_data: &mut [u8],
-    ) -> bool {
-        if self.treadmill_spinup_delay > 0 {
-            self.treadmill_spinup_delay -= 1;
-            return false;
-        }
-
-        let sector = if current_byte_idx < 40 {
-            0xFF
-        } else {
-            ((current_byte_idx - 40) / 372) as u8
-        };
-
-        let (target_sector, next_after) = if sector == 1 && self.next_sector_to_update == 2 {
-            (2, 1)
-        } else if sector == 2 && self.next_sector_to_update == 1 {
-            (1, 2)
-        } else {
-            return false;
-        };
-
-        let idx = if target_sector == 1 {
-            self.sector1_idx
-        } else {
-            self.sector2_idx
-        };
-        if idx == 0 {
-            return false;
-        }
-
-        if let Some(storage) = &mut self.file_storage {
-            let mut file_buf = [0u8; 254];
-            let mut bytes_read = 0;
-            loop {
-                let n = storage.read(&mut file_buf[bytes_read..]).await.unwrap_or(0);
-                if n == 0 {
-                    break;
-                }
-                bytes_read += n;
-                if bytes_read == 254 {
-                    break;
-                }
-            }
-
-            let mut raw_sector = [0u8; 256];
-            raw_sector[2..2 + bytes_read].copy_from_slice(&file_buf[..bytes_read]);
-
-            let (next_t, next_s) = if bytes_read == 254 {
-                (1, if target_sector == 1 { 2 } else { 1 })
-            } else {
-                (0, (bytes_read + 1) as u8) // End of file
-            };
-            raw_sector[0] = next_t;
-            raw_sector[1] = next_s;
-
-            let mut data_checksum = 0u8;
-            for b in raw_sector.iter() {
-                data_checksum ^= b;
-            }
-            let mut data_raw = [0u8; 260];
-            data_raw[0] = 0x07;
-            data_raw[1..257].copy_from_slice(&raw_sector);
-            data_raw[257] = data_checksum;
-
-            let mut dest_gcr = [0u8; 325];
-            for (i, chunk) in data_raw.chunks_exact(4).enumerate() {
-                crate::gcr::encode_gcr_block(
-                    chunk.try_into().unwrap(),
-                    (&mut dest_gcr[i * 5..(i + 1) * 5]).try_into().unwrap(),
-                );
-            }
-
-            // Reverse bits for the PIO DMA (LSB first shifting)
-            for byte in dest_gcr.iter_mut() {
-                *byte = byte.reverse_bits();
-            }
-
-            if idx + 325 <= gcr_data.len() {
-                gcr_data[idx..idx + 325].copy_from_slice(&dest_gcr);
-                self.next_sector_to_update = next_after;
-                return true;
-            }
-            return false;
-        }
-
-        let mut entries = [crate::storage::DirectoryEntry::new(b"", 0, 0, 0); 8];
-        let mut count = 0;
-
-        if let Some(entry) = self.shortcut_entry {
-            if target_sector == 1 {
-                entries[0] = entry;
-                count = 1;
-            } else {
-                // Sector 2 is empty/end when shortcut is present
-                count = 0;
-            }
-        } else {
-            for entry_slot in &mut entries {
-                if let Some(entry) = self.source.next_entry() {
-                    *entry_slot = entry;
-                    count += 1;
-                } else {
-                    break;
-                }
-            }
-            let is_exhausted = self
-                .source
-                .as_paged_mut()
-                .map(|p| p.is_exhausted())
-                .unwrap_or(true);
-            if count == 0 && !is_exhausted {
-                // Blocks not loaded yet by prefetcher, wait for next tick
-                return false;
-            }
-        }
-
-        log::debug!(
-            "Virtual directory: Laid out {} entries in Sector {}",
-            count,
-            target_sector
-        );
-
-        let (next_t, next_s) = if count == 0 {
-            (0, 0xFF)
-        } else {
-            (18, if target_sector == 1 { 2 } else { 1 })
-        };
-
-        let mut dest_gcr = [0u8; 325];
-        self.encode_directory_sector_gcr(&entries[..count], next_t, next_s, &mut dest_gcr);
-
-        // Reverse bits for the PIO DMA (LSB first shifting)
-        for byte in dest_gcr.iter_mut() {
-            *byte = byte.reverse_bits();
-        }
-
-        if idx + 325 <= gcr_data.len() {
-            gcr_data[idx..idx + 325].copy_from_slice(&dest_gcr);
-            self.next_sector_to_update = next_after;
-            return true;
-        }
-        false
-    }
-
     pub async fn force_update_directory_sectors(&mut self, gcr_data: &mut [u8]) {
-        // To update Sector 1, we must simulate the head being in Sector 2
-        self.next_sector_to_update = 1;
-        self.update_dynamic_buffer(40 + 372 * 2 + 1, gcr_data).await; // Head in Sector 2, updates Sector 1
-
-        // To update Sector 2, we must simulate the head being in Sector 1
-        self.next_sector_to_update = 2;
-        self.update_dynamic_buffer(40 + 372 + 1, gcr_data).await; // Head in Sector 1, updates Sector 2
-
-        self.next_sector_to_update = 1; // When actual read starts, wait for Sector 1 to pass, then update Sector 2
+        let _ = self.read_track(34, gcr_data).await;
     }
 }
 
@@ -482,6 +323,8 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
 
             self.source.rewind();
 
+            let mut peek_slot: Option<crate::storage::DirectoryEntry> = None;
+
             for physical_sector in 0..sectors {
                 let sector = physical_sector as u8;
                 let mut sector_data = [0u8; 256];
@@ -533,50 +376,48 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                     sector_data[164] = 0xA0;
                     sector_data[165] = 0x32;
                     sector_data[166] = 0x41;
-                } else if sector == 1 || sector == 2 {
+                } else if let Some(entry) = self.shortcut_entry {
                     if sector == 1 {
-                        self.sector1_idx = write_ptr + 29;
+                        self.encode_directory_sector(&[entry], 0, 0xFF, &mut sector_data);
                     } else {
-                        self.sector2_idx = write_ptr + 29;
+                        // Sector > 1 is empty
+                        self.encode_directory_sector(&[], 0, 0xFF, &mut sector_data);
+                    }
+                } else {
+                    let mut entries = [crate::storage::DirectoryEntry::new(b"", 0, 0, 0); 8];
+                    let mut count = 0;
+                    if let Some(peek) = peek_slot.take() {
+                        entries[0] = peek;
+                        count = 1;
+                    }
+                    while count < 8 {
+                        if let Some(entry) = self.source.next_entry() {
+                            entries[count] = entry;
+                            count += 1;
+                        } else {
+                            break;
+                        }
                     }
 
-                    if let Some(entry) = self.shortcut_entry {
-                        if sector == 1 {
-                            self.encode_directory_sector(&[entry], 0, 0xFF, &mut sector_data);
-                        } else {
-                            // Sector 2 is empty/end
-                            self.encode_directory_sector(&[], 0, 0xFF, &mut sector_data);
-                        }
+                    let (next_t, next_s) = if count == 0 {
+                        (0, 0xFF)
+                    } else if sector == 18 {
+                        (0, 0xFF)
+                    } else if count < 8 {
+                        (0, 0xFF)
+                    } else if let Some(peek) = self.source.next_entry() {
+                        peek_slot = Some(peek);
+                        (18, sector + 1)
                     } else {
-                        let mut entries = [crate::storage::DirectoryEntry::new(b"", 0, 0, 0); 8];
-                        let mut count = 0;
-                        for entry_slot in &mut entries {
-                            if let Some(entry) = self.source.next_entry() {
-                                *entry_slot = entry;
-                                count += 1;
-                            } else {
-                                break;
-                            }
-                        }
+                        (0, 0xFF)
+                    };
 
-                        log::info!(
-                            "Virtual directory (Initial): Laid out {} entries in Sector {}",
-                            count,
-                            sector
-                        );
-
-                        let (next_t, next_s) = if count == 0 {
-                            (0, 0xFF)
-                        } else {
-                            (18, if sector == 1 { 2 } else { 1 })
-                        };
-                        self.encode_directory_sector(
-                            &entries[..count],
-                            next_t,
-                            next_s,
-                            &mut sector_data,
-                        );
-                    }
+                    self.encode_directory_sector(
+                        &entries[..count],
+                        next_t,
+                        next_s,
+                        &mut sector_data,
+                    );
                 }
 
                 for _ in 0..5 {
@@ -635,16 +476,6 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
             while write_ptr < speed_zone_len && write_ptr < dest.len() {
                 dest[write_ptr] = 0x55;
                 write_ptr += 1;
-            }
-
-            // In PRG (single-file / shortcut) mode the directory entry was already
-            // encoded in the sector loop above.  Do NOT call force_update here:
-            // file_storage is set, so update_dynamic_buffer would overwrite sector 1
-            // with raw file bytes and destroy the GCR sync marks → 21,READ ERROR.
-            // The treadmill is only needed for large paged directory listings.
-            if self.shortcut_entry.is_none() {
-                self.source.rewind();
-                self.force_update_directory_sectors(dest).await;
             }
 
             return Ok((TrackLayout::Accurate, write_ptr, None));
