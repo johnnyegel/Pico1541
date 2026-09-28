@@ -9,11 +9,11 @@ use embedded_io_async::{Read, Seek};
 use pico1541_common::interface::TrackHandoff;
 use pico1541_common::track_buffer::{ManagerHandle, TrackLayout};
 
-mod cd_handler;
+pub mod cd_handler;
 mod timer;
 mod track;
 
-pub use cd_handler::resolve_cd_path;
+pub use cd_handler::{resolve_cd_action, resolve_cd_path, CdAction};
 
 pub use file_opener::{match_c64_filename, FileOpener};
 pub mod file_opener;
@@ -98,6 +98,12 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
                         .await;
                 }
                 self.last_mounted_path = current_path;
+            }
+
+            if PAGE_CHANGED.load(Ordering::Acquire) {
+                PAGE_CHANGED.store(false, Ordering::Release);
+                let page = CURRENT_PAGE.load(Ordering::Acquire);
+                self.refresh_paged_directory(page).await;
             }
 
             let track_fut = self.handoff.wait_for_change();
@@ -279,6 +285,59 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
             self.handle_track_event(half_track).await;
         }
     }
+
+    async fn refresh_paged_directory(&mut self, page: usize) {
+        let (current_path, current_use_internal) = {
+            let guard = self.mounted_dir.lock().await;
+            (guard.0.clone(), guard.1)
+        };
+        let p_str = current_path.as_str();
+
+        let mut page_entries = heapless::Vec::<crate::storage::DirectoryEntry, 16>::new();
+        let start_entry = page * crate::storage::PAGE_CAPACITY;
+        let _ = self
+            .opener
+            .list_dir_range(p_str, current_use_internal, start_entry, 16, |entry| {
+                let _ = page_entries.push(entry);
+            })
+            .await;
+
+        #[cfg(feature = "defmt")]
+        defmt::info!(
+            "Page refresh: {} entries for \"{}\", page {}",
+            page_entries.len(),
+            p_str,
+            page
+        );
+
+        if let Some(disk) = self.disk_image.as_mut() {
+            if let Some(vdir) = disk.as_virtual_disk_mut() {
+                if let Some(paged) = vdir.source.as_paged_mut() {
+                    paged.set_page(page);
+                    paged.set_block(0, &page_entries);
+                }
+            }
+        }
+
+        self.track_handle.set_active_layout(TrackLayout::Void);
+        self.track_handle.set_write_protected(true); // LOW (sliding out)
+        embassy_time::Timer::after_millis(50).await;
+        self.track_handle.set_write_protected(false); // HIGH (no disk)
+        embassy_time::Timer::after_millis(400).await;
+        self.track_handle.set_write_protected(true); // LOW (sliding in)
+        embassy_time::Timer::after_millis(50).await;
+        self.track_handle.set_write_protected(true);
+
+        self.track_handle.force_disk_change();
+
+        let half_track = self.track_handle.get_head_half_track();
+        if let Some(disk) = self.disk_image.as_mut() {
+            if let Some(vdir) = disk.as_virtual_disk_mut() {
+                vdir.source.rewind();
+            }
+        }
+        self.handle_track_event(half_track).await;
+    }
 }
 
 // ── Path helpers ──────────────────────────────────────────────────────────────
@@ -309,11 +368,15 @@ fn last_segment(path: &str) -> &str {
 use embassy_sync::channel::Receiver;
 
 
+pub static CURRENT_PAGE: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+pub static PAGE_CHANGED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
 pub struct MountControllerTask<L: LedsDriver> {
     leds: L,
     mounted_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
     motor_state: &'static AtomicBool,
     cmd_rx: Receiver<'static, CriticalSectionRawMutex, crate::InternalCommand, 128>,
+    current_page: usize,
 }
 
 impl<L: LedsDriver> MountControllerTask<L> {
@@ -323,7 +386,17 @@ impl<L: LedsDriver> MountControllerTask<L> {
         motor_state: &'static AtomicBool,
         cmd_rx: Receiver<'static, CriticalSectionRawMutex, crate::InternalCommand, 128>,
     ) -> Self {
-        Self { leds, mounted_dir, motor_state, cmd_rx }
+        Self {
+            leds,
+            mounted_dir,
+            motor_state,
+            cmd_rx,
+            current_page: 0,
+        }
+    }
+
+    pub fn current_page(&self) -> usize {
+        self.current_page
     }
 
     pub async fn run(&mut self) {
@@ -334,6 +407,8 @@ impl<L: LedsDriver> MountControllerTask<L> {
                     self.motor_state.store(active, Ordering::Relaxed);
                 }
                 crate::InternalCommand::Mount(payload) => {
+                    self.current_page = 0;
+                    CURRENT_PAGE.store(0, Ordering::Release);
                     let (path, use_internal, led_mode) = payload.into_parts();
 
                     {
@@ -344,6 +419,8 @@ impl<L: LedsDriver> MountControllerTask<L> {
                     self.leds.set_status(led_mode);
                 }
                 crate::InternalCommand::Unmount => {
+                    self.current_page = 0;
+                    CURRENT_PAGE.store(0, Ordering::Release);
                     {
                         let mut guard = self.mounted_dir.lock().await;
                         guard.0 = heapless::String::new();
@@ -357,28 +434,41 @@ impl<L: LedsDriver> MountControllerTask<L> {
                         let guard = self.mounted_dir.lock().await;
                         guard.0.clone()
                     };
-                    if let Some(new_path) =
-                        cd_handler::resolve_cd_path(current.as_str(), cd_str.as_str())
+                    if let Some(action) =
+                        cd_handler::resolve_cd_action(current.as_str(), cd_str.as_str())
                     {
-                        let is_image = new_path.ends_with(".d64")
-                            || new_path.ends_with(".D64")
-                            || new_path.ends_with(".g64")
-                            || new_path.ends_with(".G64")
-                            || new_path.ends_with(".nib")
-                            || new_path.ends_with(".NIB");
-
-                        let led_mode = if is_image {
-                            crate::driver::StatusLedMode::NonAccurateDisk
-                        } else {
-                            crate::driver::StatusLedMode::VirtualDisk
-                        };
-
-                        {
-                            let mut guard = self.mounted_dir.lock().await;
-                            guard.0 = new_path;
-                            guard.1 = false; // always SD card for SD2IEC nav
+                        match action {
+                            cd_handler::CdAction::NextPage => {
+                                self.current_page += 1;
+                                CURRENT_PAGE.store(self.current_page, Ordering::Release);
+                                PAGE_CHANGED.store(true, Ordering::Release);
+                            }
+                            cd_handler::CdAction::PrevPage => {
+                                self.current_page = self.current_page.saturating_sub(1);
+                                CURRENT_PAGE.store(self.current_page, Ordering::Release);
+                                PAGE_CHANGED.store(true, Ordering::Release);
+                            }
+                            cd_handler::CdAction::ChangeDir(new_path) => {
+                                self.current_page = 0;
+                                CURRENT_PAGE.store(0, Ordering::Release);
+                                {
+                                    let mut guard = self.mounted_dir.lock().await;
+                                    guard.0 = new_path;
+                                    guard.1 = false; // always SD card for SD2IEC nav
+                                }
+                                self.leds.set_status(crate::driver::StatusLedMode::VirtualDisk);
+                            }
+                            cd_handler::CdAction::MountImage(new_path) => {
+                                self.current_page = 0;
+                                CURRENT_PAGE.store(0, Ordering::Release);
+                                {
+                                    let mut guard = self.mounted_dir.lock().await;
+                                    guard.0 = new_path;
+                                    guard.1 = false; // always SD card for SD2IEC nav
+                                }
+                                self.leds.set_status(crate::driver::StatusLedMode::NonAccurateDisk);
+                            }
                         }
-                        self.leds.set_status(led_mode);
                     }
                 }
             }

@@ -1,27 +1,27 @@
-/// Resolves an SD2IEC `CD:` command string against the current directory path.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CdAction {
+    NextPage,
+    PrevPage,
+    ChangeDir(heapless::String<128>),
+    MountImage(heapless::String<128>),
+}
+
+/// Resolves an SD2IEC `CD:` command string into a [`CdAction`].
 ///
 /// # Arguments
-/// - `current_path`: The current directory path (e.g. `"/"`, `"/GAMES"`, `"/GAMES/ACTION"`).
-/// - `cd_cmd`: The raw CD command string as sent from the C64 (e.g. `"CD:GAMES"`, `"CD/"`, `"CD:\x1F"`).
+/// - `current_path`: The current directory path (e.g. `"/"`, `"/GAMES"`).
+/// - `cd_cmd`: The raw CD command string as sent from the C64.
 ///
 /// # Returns
-/// `Some(new_path)` on success, or `None` if the command is unrecognized.
-///
-/// # Supported commands
-/// - `CD:dirname`  — enter named subfolder
-/// - `CD:\x1F`    — go to parent directory (PETSCII left-arrow)
-/// - `CD:_`       — go to parent directory (alternate encoding used by some tools)
-/// - `CD:..`      — go to parent directory
-/// - `CD//`       — go to root
-/// - `CD/dirname` — enter named subfolder (alternate prefix)
-pub fn resolve_cd_path(
+/// `Some(CdAction)` on success, or `None` if the command is unrecognized.
+pub fn resolve_cd_action(
     current_path: &str,
     cd_cmd: &str,
-) -> Option<heapless::String<128>> {
+) -> Option<CdAction> {
     // Strip prefix to obtain the raw argument
     let raw_arg = if cd_cmd.eq_ignore_ascii_case("CD//") || cd_cmd.eq_ignore_ascii_case("CD:") {
         // CD// or bare CD: → root
-        return heapless::String::try_from("/").ok();
+        return Some(CdAction::ChangeDir(heapless::String::try_from("/").ok()?));
     } else if let Some(stripped) = strip_prefix_ci(cd_cmd, "CD:") {
         stripped
     } else if let Some(stripped) = strip_prefix_ci(cd_cmd, "CD/") {
@@ -35,17 +35,54 @@ pub fn resolve_cd_path(
 
     // Empty argument → root
     if arg.is_empty() || arg == "/" || arg == "//" {
-        return heapless::String::try_from("/").ok();
+        return Some(CdAction::ChangeDir(heapless::String::try_from("/").ok()?));
+    }
+
+    // Page navigation commands
+    if arg == ">>> MORE >>>" || arg == "..." {
+        return Some(CdAction::NextPage);
+    }
+    if arg == "<<< PREV <<<" {
+        return Some(CdAction::PrevPage);
     }
 
     // Parent directory: PETSCII left-arrow (0x1F), "..", or "_"
-    if arg == "\x1F" || arg == ".." || arg == "_" {
-        return go_to_parent(current_path);
-    }
+    let new_path = if arg == "\x1F" || arg == ".." || arg == "_" {
+        go_to_parent(current_path)?
+    } else {
+        go_to_child(current_path, arg)?
+    };
 
-    // Child folder / image file
-    go_to_child(current_path, arg)
+    let p_str = new_path.as_str();
+    let is_image = if let Some(dot) = p_str.rfind('.') {
+        let ext = &p_str[dot..];
+        ext.eq_ignore_ascii_case(".d64")
+            || ext.eq_ignore_ascii_case(".g64")
+            || ext.eq_ignore_ascii_case(".nib")
+    } else {
+        false
+    };
+
+    if is_image {
+        Some(CdAction::MountImage(new_path))
+    } else {
+        Some(CdAction::ChangeDir(new_path))
+    }
 }
+
+/// Resolves an SD2IEC `CD:` command string against the current directory path.
+///
+/// Backwards-compatible wrapper around [`resolve_cd_action`].
+pub fn resolve_cd_path(
+    current_path: &str,
+    cd_cmd: &str,
+) -> Option<heapless::String<128>> {
+    match resolve_cd_action(current_path, cd_cmd)? {
+        CdAction::ChangeDir(path) | CdAction::MountImage(path) => Some(path),
+        CdAction::NextPage | CdAction::PrevPage => None,
+    }
+}
+
 
 // ── helpers ────────────────────────────────────────────────────────────────
 

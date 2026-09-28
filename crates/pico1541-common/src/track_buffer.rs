@@ -419,6 +419,10 @@ impl ManagerHandle {
             .store(force, Ordering::Release);
     }
 
+    pub fn force_disk_change(&self) {
+        self.set_force_disk_change(true);
+    }
+
     pub fn get_current_byte_idx(&self) -> usize {
         self.core_buffer.current_byte_idx.load(Ordering::Acquire)
     }

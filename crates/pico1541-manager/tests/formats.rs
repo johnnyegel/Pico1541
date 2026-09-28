@@ -610,3 +610,19 @@ fn test_virtual_disk_static_track_18_all_sectors() {
     }
 }
 
+#[test]
+fn test_resolve_cd_navigation_commands() {
+    use pico1541_manager::tasks::mount_manager::cd_handler::{resolve_cd_action, CdAction};
+
+    let h = |s: &str| heapless::String::<128>::try_from(s).unwrap();
+
+    assert_eq!(resolve_cd_action("/", "CD:>>> MORE >>>"), Some(CdAction::NextPage));
+    assert_eq!(resolve_cd_action("/", "CD:..."), Some(CdAction::NextPage));
+    assert_eq!(resolve_cd_action("/", "CD:<<< PREV <<<"), Some(CdAction::PrevPage));
+    assert_eq!(resolve_cd_action("/GAMES", "CD:.."), Some(CdAction::ChangeDir(h("/"))));
+    assert_eq!(resolve_cd_action("/", "CD:GAMES"), Some(CdAction::ChangeDir(h("/GAMES"))));
+    assert_eq!(resolve_cd_action("/", "CD:GAME.D64"), Some(CdAction::MountImage(h("/GAME.D64"))));
+    assert_eq!(resolve_cd_action("/", "CD/GAME.G64"), Some(CdAction::MountImage(h("/GAME.G64"))));
+}
+
+

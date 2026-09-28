@@ -113,6 +113,8 @@ pub trait PagedDirectorySourceTrait {
     fn is_exhausted(&self) -> bool;
     /// Invalidates the cache and resets the read pointer.
     fn invalidate(&mut self);
+    fn set_page(&mut self, page: usize);
+    fn current_page(&self) -> usize;
 }
 
 pub trait DirectorySource {
@@ -320,6 +322,15 @@ impl<const N: usize> PagedDirectorySourceTrait for PagedDirectorySource<N> {
         self.start_block = 0;
         self.end_block = 0;
         self.page = 0;
+    }
+
+    fn set_page(&mut self, page: usize) {
+        self.page = page;
+        self.current_read_index = 0;
+    }
+
+    fn current_page(&self) -> usize {
+        self.page
     }
 
     fn set_block(&mut self, block_index: usize, block_entries: &[DirectoryEntry]) {
