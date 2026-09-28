@@ -92,6 +92,7 @@ pub enum InternalCommand {
     Mount(MountPayload),
     Unmount,
     Cd(heapless::String<64>),
+    SelectVirtualFile(usize),
 }
 
 pub static CMD_CHANNEL: Channel<CriticalSectionRawMutex, InternalCommand, 128> = Channel::new();

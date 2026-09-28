@@ -116,6 +116,12 @@ impl HostInterface for HardwareBridge {
         let _ = pico1541_manager::CMD_CHANNEL.try_send(pico1541_manager::InternalCommand::Cd(s));
     }
 
+    #[link_section = ".core1_text"]
+    #[inline(always)]
+    fn select_virtual_file(&mut self, slot: usize) {
+        let _ = pico1541_manager::CMD_CHANNEL.try_send(pico1541_manager::InternalCommand::SelectVirtualFile(slot));
+    }
+
 
     #[link_section = ".core1_text"]
     #[inline(always)]

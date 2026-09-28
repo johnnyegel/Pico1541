@@ -146,6 +146,7 @@ pub struct TestBridge {
     pub sync_hook:
         Option<Box<dyn FnMut(&'static pico1541_common::track_buffer::DualCoreTrackBuffer)>>,
     pub intercepted_cds: Vec<String>,
+    pub selected_virtual_files: Vec<usize>,
 }
 
 impl TestBridge {
@@ -165,6 +166,7 @@ impl TestBridge {
             drive_iec: IecBusState::default(),
             sync_hook: None,
             intercepted_cds: Vec::new(),
+            selected_virtual_files: Vec::new(),
         }
     }
 
@@ -224,6 +226,7 @@ impl TestBridge {
         self.total_cycles = 0;
         self.sync_hook = None;
         self.intercepted_cds.clear();
+        self.selected_virtual_files.clear();
     }
 
     pub fn cycles(&self) -> u32 {
@@ -352,6 +355,9 @@ impl HostInterface for TestBridge {
     }
     fn intercept_cd_command(&mut self, path: &str) {
         self.intercepted_cds.push(path.to_string());
+    }
+    fn select_virtual_file(&mut self, slot: usize) {
+        self.selected_virtual_files.push(slot);
     }
 }
 

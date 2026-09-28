@@ -349,6 +349,15 @@ impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H,
         if (addr & 0x9800) == 0x1800 {
             self.write_io(addr, val, cycle, ctx);
         } else {
+            if addr <= 0x0005 && (val & 0x8F) == 0x80 && self.memory.read(0x001C) != 0 {
+                let buf = addr as usize;
+                let track = self.memory.read(0x06 + (buf * 2) as u16);
+                let sector = self.memory.read(0x07 + (buf * 2) as u16);
+                if (11..=17).contains(&track) && sector < 21 {
+                    let slot = (17 - track) as usize * 21 + sector as usize;
+                    ctx.select_virtual_file(slot);
+                }
+            }
             if self.memory.write(addr, val) {
                 let (addr77, addr78) = self.memory.get_iec_addresses();
                 ctx.update_iec_addresses(addr77, addr78);

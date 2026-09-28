@@ -113,3 +113,38 @@ fn test_paged_directory_source() {
     paged.rewind();
     assert!(paged.next_entry().is_none()); // index 0 is not in range 1..4!
 }
+
+#[test]
+fn test_paged_directory_entry_at_slot() {
+    use pico1541_manager::storage::{DirectoryEntry, PagedDirectorySource};
+
+    let mut paged = PagedDirectorySource::<144>::new(b"TEST DISK");
+    let entry0 = DirectoryEntry::from_file_info(b"GAME1.PRG", false, 500);
+    let entry1 = DirectoryEntry::from_file_info(b"GAME2.PRG", false, 1000);
+    paged.set_page_entry(0, entry0);
+    paged.set_page_entry(1, entry1);
+    paged.set_total_count(2);
+
+    // Slot 0 -> track 17, sector 0
+    let s0 = paged.entry_at_slot(0).expect("slot 0 must exist");
+    assert_eq!(s0.first_track, 17);
+    assert_eq!(s0.first_sector, 0);
+    assert!(!s0.is_dir());
+
+    // Slot 1 -> track 17, sector 1
+    let s1 = paged.entry_at_slot(1).expect("slot 1 must exist");
+    assert_eq!(s1.first_track, 17);
+    assert_eq!(s1.first_sector, 1);
+    assert!(!s1.is_dir());
+
+    // Slot 2 beyond total_count -> None
+    assert!(paged.entry_at_slot(2).is_none());
+
+    // Test on Page 1 (where slot 0 is <<< PREV <<<)
+    paged.set_page(1);
+    paged.set_total_count(200); // more entries than page capacity
+    let prev = paged.entry_at_slot(0).expect("slot 0 should be PREV");
+    assert!(prev.is_dir());
+    assert_eq!(&prev.filename[..12], b"<<< PREV <<<");
+}
+

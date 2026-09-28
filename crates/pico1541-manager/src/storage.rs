@@ -99,6 +99,10 @@ impl DirectoryEntry {
             block_size: if is_dir { 0 } else { size.div_ceil(254) as u16 },
         }
     }
+
+    pub fn is_dir(&self) -> bool {
+        (self.file_type & 0x07) == 0x06
+    }
 }
 
 pub trait PagedDirectorySourceTrait {
@@ -117,6 +121,7 @@ pub trait PagedDirectorySourceTrait {
     fn current_page(&self) -> usize;
     fn set_page_entry(&mut self, index: usize, entry: DirectoryEntry);
     fn set_page_entries(&mut self, page: usize, entries: &[DirectoryEntry], has_more: bool);
+    fn entry_at_slot(&self, slot: usize) -> Option<DirectoryEntry>;
 }
 
 pub trait DirectorySource {
@@ -327,6 +332,59 @@ impl<const N: usize> PagedDirectorySource<N> {
     pub fn set_total_count(&mut self, total_count: usize) {
         self.total_count = total_count;
     }
+
+    pub fn entry_at_slot(&self, slot: usize) -> Option<DirectoryEntry> {
+        if slot >= N {
+            return None;
+        }
+
+        let page_capacity = PAGE_CAPACITY.min(N.saturating_sub(2));
+        let nav_prefix = if self.page > 0 { 1 } else { 0 };
+        let has_more = self.total_count != usize::MAX
+            && self.total_count > (self.page + 1) * page_capacity;
+
+        if self.page > 0 && slot == 0 {
+            return Some(DirectoryEntry::from_file_info(b"<<< PREV <<<", true, 0));
+        }
+
+        if has_more && slot == nav_prefix + page_capacity {
+            return Some(DirectoryEntry::from_file_info(b">>> MORE >>>", true, 0));
+        }
+
+        let real_slot = slot.saturating_sub(nav_prefix);
+
+        if self.total_count != usize::MAX {
+            let entries_before_page = self.page * page_capacity;
+            let remaining_entries = self.total_count.saturating_sub(entries_before_page);
+            if real_slot >= remaining_entries || real_slot >= page_capacity {
+                return None;
+            }
+        } else if real_slot >= page_capacity {
+            return None;
+        }
+
+        if real_slot >= N {
+            return None;
+        }
+
+        let b = real_slot / 16;
+        let mut entry = if self.start_block == self.end_block {
+            self.entries[real_slot]
+        } else if b >= self.start_block && b < self.end_block {
+            self.entries[(b % (N / 16)) * 16 + (real_slot % 16)]
+        } else {
+            return None;
+        };
+
+        if entry.file_type == 0 {
+            return None;
+        }
+
+        let (t, s) = slot_to_track_sector(slot);
+        entry.first_track = t;
+        entry.first_sector = s;
+        Some(entry)
+    }
 }
 
 impl<const N: usize> PagedDirectorySourceTrait for PagedDirectorySource<N> {
@@ -368,6 +426,10 @@ impl<const N: usize> PagedDirectorySourceTrait for PagedDirectorySource<N> {
 
     fn set_page_entries(&mut self, page: usize, entries: &[DirectoryEntry], has_more: bool) {
         self.set_page_entries(page, entries, has_more);
+    }
+
+    fn entry_at_slot(&self, slot: usize) -> Option<DirectoryEntry> {
+        self.entry_at_slot(slot)
     }
 
     fn set_block(&mut self, block_index: usize, block_entries: &[DirectoryEntry]) {

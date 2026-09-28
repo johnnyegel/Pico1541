@@ -62,6 +62,9 @@ pub trait HostInterface: crate::context::ViaHardware {
     /// Called when an SD2IEC "CD" command is intercepted from channel 15
     fn intercept_cd_command(&mut self, _path: &str) {}
 
+    /// Called when a virtual file slot is selected via 1541 DOS job queue read
+    fn select_virtual_file(&mut self, _slot: usize) {}
+
     // Execution control
     fn check_halt_requested(&self) -> bool {
         false

@@ -223,3 +223,52 @@ fn test_virtual_disk_shortcut_generation() {
     let result = pollster::block_on(vdir.read_track(36, &mut dest)); // HT 36 = Track 18
     assert!(result.is_ok());
 }
+
+#[test]
+fn test_job_queue_snoop_select_virtual_file() {
+    use racc6502v4::bus::Bus;
+
+    let (mut drive, mut bridge) = setup_drive(false, 8);
+    // Simulate 1541 DOS initialized:
+    drive.bus_mut().memory.write(0x001C, 1);
+
+    // Set buffer 0 target track = 17, sector = 2
+    drive.bus_mut().memory.write(0x0006, 17);
+    drive.bus_mut().memory.write(0x0007, 2);
+
+    // Dispatch Read job ($80) to Buffer 0 ($0000)
+    drive.bus_mut().write(&mut bridge, 0x0000, 0x80, 0);
+
+    // Slot = (17 - 17) * 21 + 2 = 2
+    assert_eq!(bridge.selected_virtual_files, vec![2]);
+
+    // Test another buffer (Buffer 1 at $0001, track at $0008, sector at $0009)
+    // Target Track = 16, Sector = 5 -> Slot = (17 - 16) * 21 + 5 = 26
+    drive.bus_mut().memory.write(0x0008, 16);
+    drive.bus_mut().memory.write(0x0009, 5);
+    drive.bus_mut().write(&mut bridge, 0x0001, 0x80, 0);
+    assert_eq!(bridge.selected_virtual_files, vec![2, 26]);
+
+    // Test ignore when DOS not initialized (0x001C == 0)
+    drive.bus_mut().memory.write(0x001C, 0);
+    drive.bus_mut().write(&mut bridge, 0x0000, 0x80, 0);
+    assert_eq!(bridge.selected_virtual_files, vec![2, 26]);
+    drive.bus_mut().memory.write(0x001C, 1);
+
+    // Test ignore when track outside 11..=17 (e.g. track 18 or 10)
+    drive.bus_mut().memory.write(0x0006, 18);
+    drive.bus_mut().write(&mut bridge, 0x0000, 0x80, 0);
+    assert_eq!(bridge.selected_virtual_files, vec![2, 26]);
+
+    // Test ignore when sector >= 21
+    drive.bus_mut().memory.write(0x0006, 17);
+    drive.bus_mut().memory.write(0x0007, 21);
+    drive.bus_mut().write(&mut bridge, 0x0000, 0x80, 0);
+    assert_eq!(bridge.selected_virtual_files, vec![2, 26]);
+
+    // Test ignore when job command is not Read ($80)
+    drive.bus_mut().memory.write(0x0007, 2);
+    drive.bus_mut().write(&mut bridge, 0x0000, 0x01, 0);
+    assert_eq!(bridge.selected_virtual_files, vec![2, 26]);
+}
+

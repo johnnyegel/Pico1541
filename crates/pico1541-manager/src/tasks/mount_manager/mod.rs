@@ -105,6 +105,11 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
                 self.refresh_paged_directory(page).await;
             }
 
+            if SLOT_SELECTED.swap(false, Ordering::AcqRel) {
+                let slot = SELECTED_SLOT.load(Ordering::Acquire);
+                self.select_virtual_file(slot).await;
+            }
+
             let track_fut = self.handoff.wait_for_change();
             let timer_fut = embassy_time::Timer::after_millis(20);
 
@@ -404,6 +409,33 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
         }
         self.handle_track_event(half_track).await;
     }
+
+    pub async fn select_virtual_file(&mut self, slot: usize) {
+        #[cfg(feature = "defmt")]
+        defmt::info!("Mounting virtual file from slot {}", slot);
+        log::info!("Mounting virtual file from slot {}", slot);
+
+        if let Some(disk) = self.disk_image.as_mut() {
+            if let Some(vdir) = disk.as_virtual_disk_mut() {
+                let entry_opt = if let Some(paged) = vdir.source.as_paged_mut() {
+                    paged.entry_at_slot(slot)
+                } else {
+                    None
+                };
+
+                if let Some(entry) = entry_opt {
+                    if !entry.is_dir() {
+                        if let Ok(file) = self.opener.open_file(&entry.filename).await {
+                            vdir.file_storage = Some(file);
+                            #[cfg(feature = "defmt")]
+                            defmt::info!("Mounted virtual file for slot {}", slot);
+                            log::info!("Mounted virtual file for slot {}", slot);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 // ── Path helpers ──────────────────────────────────────────────────────────────
@@ -436,6 +468,8 @@ use embassy_sync::channel::Receiver;
 
 pub static CURRENT_PAGE: portable_atomic::AtomicUsize = portable_atomic::AtomicUsize::new(0);
 pub static PAGE_CHANGED: portable_atomic::AtomicBool = portable_atomic::AtomicBool::new(false);
+pub static SELECTED_SLOT: portable_atomic::AtomicUsize = portable_atomic::AtomicUsize::new(usize::MAX);
+pub static SLOT_SELECTED: portable_atomic::AtomicBool = portable_atomic::AtomicBool::new(false);
 
 pub struct MountControllerTask<L: LedsDriver> {
     leds: L,
@@ -536,6 +570,13 @@ impl<L: LedsDriver> MountControllerTask<L> {
                             }
                         }
                     }
+                }
+                crate::InternalCommand::SelectVirtualFile(slot) => {
+                    #[cfg(feature = "defmt")]
+                    defmt::info!("SelectVirtualFile received for slot {}", slot);
+                    log::info!("SelectVirtualFile received for slot {}", slot);
+                    SELECTED_SLOT.store(slot, Ordering::Release);
+                    SLOT_SELECTED.store(true, Ordering::Release);
                 }
             }
         }
