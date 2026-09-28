@@ -100,8 +100,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
                 self.last_mounted_path = current_path;
             }
 
-            if PAGE_CHANGED.load(Ordering::Acquire) {
-                PAGE_CHANGED.store(false, Ordering::Release);
+            if PAGE_CHANGED.swap(false, Ordering::AcqRel) {
                 let page = CURRENT_PAGE.load(Ordering::Acquire);
                 self.refresh_paged_directory(page).await;
             }
@@ -218,29 +217,57 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
             let vdisk = crate::formats::VirtualDiskImage::new(dir_source, name_bytes);
             self.disk_image = Some(crate::formats::AnyDiskImage::VirtualDisk(vdisk));
 
-            // Synchronous initial fetch: populate block 0 before Track 18 GCR is first
-            // generated. Without this the drive would stream an empty directory to the C64
-            // because the timer-driven prefetcher fires 20 ms too late.
-            let mut initial_entries =
-                heapless::Vec::<crate::storage::DirectoryEntry, 16>::new();
+            let mut count = 0;
+            let mut has_more = false;
+            let disk_image = &mut self.disk_image;
             let _ = self
                 .opener
-                .list_dir_range(p_str, use_internal, 0, 16, |entry| {
-                    let _ = initial_entries.push(entry);
-                })
+                .list_dir_range(
+                    p_str,
+                    use_internal,
+                    0,
+                    crate::storage::PAGE_CAPACITY + 1,
+                    |entry| {
+                        if count < crate::storage::PAGE_CAPACITY {
+                            if let Some(disk) = disk_image.as_mut() {
+                                if let Some(vdir) = disk.as_virtual_disk_mut() {
+                                    if let Some(paged) = vdir.source.as_paged_mut() {
+                                        paged.set_page_entry(count, entry);
+                                    }
+                                }
+                            }
+                        } else {
+                            has_more = true;
+                        }
+                        count += 1;
+                    },
+                )
                 .await;
 
             #[cfg(feature = "defmt")]
             defmt::info!(
                 "Initial dir fetch: {} entries for \"{}\"",
-                initial_entries.len(),
+                count.min(crate::storage::PAGE_CAPACITY),
                 p_str
             );
 
             if let Some(disk) = self.disk_image.as_mut() {
                 if let Some(vdir) = disk.as_virtual_disk_mut() {
                     if let Some(paged) = vdir.source.as_paged_mut() {
-                        paged.set_block(0, &initial_entries);
+                        let loaded_count = count.min(crate::storage::PAGE_CAPACITY);
+                        for i in loaded_count..crate::storage::PAGE_CAPACITY {
+                            paged.set_page_entry(i, crate::storage::DirectoryEntry::default());
+                        }
+                        if count < crate::storage::PAGE_CAPACITY
+                            || (count == crate::storage::PAGE_CAPACITY && !has_more)
+                        {
+                            paged.set_total_count(count);
+                        } else if has_more {
+                            let known_min = crate::storage::PAGE_CAPACITY + 1;
+                            if paged.total_count() == usize::MAX || paged.total_count() < known_min {
+                                paged.set_total_count(known_min);
+                            }
+                        }
                     }
                 }
             }
@@ -293,19 +320,46 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
         };
         let p_str = current_path.as_str();
 
-        let mut page_entries = heapless::Vec::<crate::storage::DirectoryEntry, 16>::new();
+        if let Some(disk) = self.disk_image.as_mut() {
+            if let Some(vdir) = disk.as_virtual_disk_mut() {
+                if let Some(paged) = vdir.source.as_paged_mut() {
+                    paged.set_page(page);
+                }
+            }
+        }
+
         let start_entry = page * crate::storage::PAGE_CAPACITY;
+        let mut count = 0;
+        let mut has_more = false;
+        let disk_image = &mut self.disk_image;
         let _ = self
             .opener
-            .list_dir_range(p_str, current_use_internal, start_entry, 16, |entry| {
-                let _ = page_entries.push(entry);
-            })
+            .list_dir_range(
+                p_str,
+                current_use_internal,
+                start_entry,
+                crate::storage::PAGE_CAPACITY + 1,
+                |entry| {
+                    if count < crate::storage::PAGE_CAPACITY {
+                        if let Some(disk) = disk_image.as_mut() {
+                            if let Some(vdir) = disk.as_virtual_disk_mut() {
+                                if let Some(paged) = vdir.source.as_paged_mut() {
+                                    paged.set_page_entry(count, entry);
+                                }
+                            }
+                        }
+                    } else {
+                        has_more = true;
+                    }
+                    count += 1;
+                },
+            )
             .await;
 
         #[cfg(feature = "defmt")]
         defmt::info!(
             "Page refresh: {} entries for \"{}\", page {}",
-            page_entries.len(),
+            count.min(crate::storage::PAGE_CAPACITY),
             p_str,
             page
         );
@@ -313,8 +367,20 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
         if let Some(disk) = self.disk_image.as_mut() {
             if let Some(vdir) = disk.as_virtual_disk_mut() {
                 if let Some(paged) = vdir.source.as_paged_mut() {
-                    paged.set_page(page);
-                    paged.set_block(0, &page_entries);
+                    let loaded_count = count.min(crate::storage::PAGE_CAPACITY);
+                    for i in loaded_count..crate::storage::PAGE_CAPACITY {
+                        paged.set_page_entry(i, crate::storage::DirectoryEntry::default());
+                    }
+                    if count < crate::storage::PAGE_CAPACITY
+                        || (count == crate::storage::PAGE_CAPACITY && !has_more)
+                    {
+                        paged.set_total_count(start_entry + count);
+                    } else if has_more {
+                        let known_min = (page + 1) * crate::storage::PAGE_CAPACITY + 1;
+                        if paged.total_count() == usize::MAX || paged.total_count() < known_min {
+                            paged.set_total_count(known_min);
+                        }
+                    }
                 }
             }
         }
@@ -368,8 +434,8 @@ fn last_segment(path: &str) -> &str {
 use embassy_sync::channel::Receiver;
 
 
-pub static CURRENT_PAGE: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
-pub static PAGE_CHANGED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+pub static CURRENT_PAGE: portable_atomic::AtomicUsize = portable_atomic::AtomicUsize::new(0);
+pub static PAGE_CHANGED: portable_atomic::AtomicBool = portable_atomic::AtomicBool::new(false);
 
 pub struct MountControllerTask<L: LedsDriver> {
     leds: L,

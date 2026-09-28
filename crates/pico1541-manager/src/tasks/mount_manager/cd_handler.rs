@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CdAction {
     NextPage,
     PrevPage,
@@ -49,6 +49,8 @@ pub fn resolve_cd_action(
     // Parent directory: PETSCII left-arrow (0x1F), "..", or "_"
     let new_path = if arg == "\x1F" || arg == ".." || arg == "_" {
         go_to_parent(current_path)?
+    } else if arg.starts_with('/') {
+        heapless::String::try_from(arg).ok()?
     } else {
         go_to_child(current_path, arg)?
     };
@@ -87,13 +89,11 @@ pub fn resolve_cd_path(
 // ── helpers ────────────────────────────────────────────────────────────────
 
 fn strip_prefix_ci<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
-    if s.len() >= prefix.len() {
-        let (head, tail) = s.split_at(prefix.len());
-        if head.eq_ignore_ascii_case(prefix) {
-            return Some(tail);
-        }
+    if s.len() >= prefix.len() && s.as_bytes()[..prefix.len()].eq_ignore_ascii_case(prefix.as_bytes()) {
+        Some(&s[prefix.len()..])
+    } else {
+        None
     }
-    None
 }
 
 fn go_to_parent(current_path: &str) -> Option<heapless::String<128>> {

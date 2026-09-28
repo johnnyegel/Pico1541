@@ -93,4 +93,82 @@ fn test_resolve_cd_action_navigation() {
     assert_eq!(resolve_cd_action("/", "CD/GAME.NIB"), Some(CdAction::MountImage(h("/GAME.NIB"))));
 }
 
+#[test]
+fn test_resolve_cd_action_absolute_path() {
+    use pico1541_manager::tasks::mount_manager::cd_handler::{resolve_cd_action, CdAction};
+
+    let h = |s: &str| heapless::String::<128>::try_from(s).unwrap();
+
+    // Absolute paths from a subdirectory
+    assert_eq!(
+        resolve_cd_action("/SUB/NESTED", "CD:/GAMES"),
+        Some(CdAction::ChangeDir(h("/GAMES")))
+    );
+    assert_eq!(
+        resolve_cd_action("/SUB/NESTED", "CD//GAMES"),
+        Some(CdAction::ChangeDir(h("/GAMES")))
+    );
+    assert_eq!(
+        resolve_cd_action("/SUB", "CD:/IMAGE.D64"),
+        Some(CdAction::MountImage(h("/IMAGE.D64")))
+    );
+}
+
+#[test]
+fn test_resolve_cd_non_ascii_safety() {
+    use pico1541_manager::tasks::mount_manager::cd_handler::resolve_cd_action;
+
+    // Non-ASCII characters should not panic in strip_prefix_ci
+    assert_eq!(resolve_cd_action("/", "§§§"), None);
+    assert_eq!(resolve_cd_action("/", "äöü"), None);
+    assert_eq!(resolve_cd_action("/", "日本語"), None);
+    assert_eq!(resolve_cd_action("/", "€"), None);
+}
+
+#[test]
+fn test_cd_action_derive_eq() {
+    use pico1541_manager::tasks::mount_manager::cd_handler::CdAction;
+
+    fn assert_eq_impl<T: Eq>() {}
+    assert_eq_impl::<CdAction>();
+}
+
+#[test]
+fn test_paged_directory_page_1_few_entries() {
+    use pico1541_manager::storage::{
+        DirectoryEntry, DirectorySource, PagedDirectorySource, PagedDirectorySourceTrait,
+        PAGE_CAPACITY,
+    };
+
+    let mut source = PagedDirectorySource::<144>::new(b"TEST DIR");
+
+    // Populate Page 1 with 5 entries using set_page_entries (count < PAGE_CAPACITY, has_more: false)
+    let page1_entries: Vec<DirectoryEntry> = (0..5)
+        .map(|i| {
+            let name = format!("FILE_P1_{}", i);
+            DirectoryEntry::new(name.as_bytes(), 17, 0, 10)
+        })
+        .collect();
+
+    source.set_page_entries(1, &page1_entries, false);
+
+    assert_eq!(source.current_page(), 1);
+    assert_eq!(source.total_count(), PAGE_CAPACITY + 5);
+
+    // Reading should yield:
+    // 1) PREV navigation entry
+    // 2..6) 5 real entries
+    // 7) None (end of page)
+    let first = source.next_entry().expect("Should have PREV entry");
+    assert_eq!(&first.filename[..12], b"<<< PREV <<<");
+
+    for i in 0..5 {
+        let entry = source.next_entry().expect("Should have real entry");
+        let expected = format!("FILE_P1_{}", i);
+        assert_eq!(&entry.filename[..expected.len()], expected.as_bytes());
+    }
+
+    assert!(source.next_entry().is_none(), "Should terminate after 5 entries");
+}
+
 

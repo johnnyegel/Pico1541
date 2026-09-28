@@ -115,6 +115,8 @@ pub trait PagedDirectorySourceTrait {
     fn invalidate(&mut self);
     fn set_page(&mut self, page: usize);
     fn current_page(&self) -> usize;
+    fn set_page_entry(&mut self, index: usize, entry: DirectoryEntry);
+    fn set_page_entries(&mut self, page: usize, entries: &[DirectoryEntry], has_more: bool);
 }
 
 pub trait DirectorySource {
@@ -288,6 +290,34 @@ impl<const N: usize> PagedDirectorySource<N> {
     pub fn set_page(&mut self, page: usize) {
         self.page = page;
         self.current_read_index = 0;
+        self.start_block = 0;
+        self.end_block = 0;
+    }
+
+    pub fn set_page_entry(&mut self, index: usize, entry: DirectoryEntry) {
+        if index < N {
+            self.entries[index] = entry;
+        }
+    }
+
+    pub fn set_page_entries(&mut self, page: usize, entries: &[DirectoryEntry], has_more: bool) {
+        self.set_page(page);
+        let count = entries.len().min(PAGE_CAPACITY);
+        for i in 0..count {
+            self.entries[i] = entries[i];
+        }
+        for i in count..PAGE_CAPACITY.min(N) {
+            self.entries[i] = DirectoryEntry::default();
+        }
+        let start_entry = page * PAGE_CAPACITY;
+        if has_more {
+            let known_min = (page + 1) * PAGE_CAPACITY + 1;
+            if self.total_count == usize::MAX || self.total_count < known_min {
+                self.total_count = known_min;
+            }
+        } else {
+            self.total_count = start_entry + count;
+        }
     }
 
     pub fn current_page(&self) -> usize {
@@ -325,12 +355,19 @@ impl<const N: usize> PagedDirectorySourceTrait for PagedDirectorySource<N> {
     }
 
     fn set_page(&mut self, page: usize) {
-        self.page = page;
-        self.current_read_index = 0;
+        self.set_page(page);
     }
 
     fn current_page(&self) -> usize {
         self.page
+    }
+
+    fn set_page_entry(&mut self, index: usize, entry: DirectoryEntry) {
+        self.set_page_entry(index, entry);
+    }
+
+    fn set_page_entries(&mut self, page: usize, entries: &[DirectoryEntry], has_more: bool) {
+        self.set_page_entries(page, entries, has_more);
     }
 
     fn set_block(&mut self, block_index: usize, block_entries: &[DirectoryEntry]) {
