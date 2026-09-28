@@ -1,8 +1,8 @@
-# Task: Paged Track 18 Directory Navigation & Track-Mapped PRG Loading
+# Task List: Root Directory Virtual Disk & Unified Location Architecture
 
-- [x] 1. Paged Directory Source & Navigation Entries (`crates/pico1541-manager/src/storage.rs`)
-- [x] 2. Static Sequential Track 18 Formatter (`crates/pico1541-manager/src/formats/virtual_disk.rs`)
-- [x] 3. CD Command Interception for Page Navigation (`crates/pico1541-manager/src/tasks/mount_manager/cd_handler.rs`)
-- [x] 4. Job Queue Snooping & Virtual File Selection IPC (`crates/pico1541-emulator/src/systembus.rs` & `interface.rs`)
-- [x] 5. Multi-Track Downward PRG Streaming (`crates/pico1541-manager/src/formats/virtual_disk.rs`)
-- [x] 6. Workspace Build, Release Verification & Final Cleanup
+- [ ] 1. Canonical `DriveLocation` Type (`crates/pico1541-common/src/location.rs`)
+- [ ] 2. Root Directory Virtual Disk Track 18 Formatter (`crates/pico1541-manager/src/formats/virtual_disk.rs`)
+- [ ] 3. Unified CD Action Resolution & Location State Machine (`crates/pico1541-manager/src/tasks/mount_manager/cd_handler.rs`)
+- [ ] 4. Job Queue Selection for Root Slots & Mount Manager Integration (`crates/pico1541-manager/src/tasks/mount_manager/mod.rs`)
+- [ ] 5. Reactive OLED UI Integration & State Consolidation (`crates/pico1541-manager/src/tasks/ui/`, `rp2040/src/main.rs`, `rp2350/src/main.rs`)
+- [ ] 6. Full Verification, Release Target Checks & Code Cleanup
