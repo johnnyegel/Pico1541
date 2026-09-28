@@ -87,7 +87,8 @@ impl<S: Read + Seek, D: DirectorySource> VirtualDiskImage<S, D> {
                 raw[offset + 29] = (entry.block_size >> 8) as u8;
             }
         }
-        dest.copy_from_slice(&raw);
+        let len = dest.len().min(256);
+        dest[..len].copy_from_slice(&raw[..len]);
     }
 
     pub async fn force_update_directory_sectors(&mut self, gcr_data: &mut [u8]) {
@@ -267,8 +268,8 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
             return Ok((TrackLayout::Accurate, write_ptr, None));
         }
 
-        // FIXME! Why is this needed?
-        if half_track == 34 || half_track == 35 {
+        // Track 18: BAM and directory track
+        if track == 18 {
             // Track 18: Generate BAM and initial directory sectors
             let sectors = 19;
             let speed_zone = pico1541_common::track_buffer::default_speed_zone(
