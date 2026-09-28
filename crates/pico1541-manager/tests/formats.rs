@@ -405,3 +405,45 @@ fn test_virtual_disk_prg_byte_exact() {
     assert_eq!(reconstructed.len(), original_bytes.len(), "Reconstructed length must match");
     assert_eq!(reconstructed, original_bytes, "Reconstructed bytes must be byte-for-byte identical to fb.prg");
 }
+
+#[test]
+fn test_paged_directory_navigation_entries() {
+    use pico1541_manager::storage::{DirectorySource, PagedDirectorySource};
+
+    let mut source = PagedDirectorySource::<144>::new(b"TEST DIR");
+    source.set_total_count(200); // More than 1 page
+
+    // Page 0: No previous entry, ends with ">>> MORE >>>"
+    source.set_page(0);
+    let mut page0_entries = Vec::new();
+    while let Some(entry) = source.next_entry() {
+        page0_entries.push(entry);
+    }
+    assert_eq!(page0_entries.len(), 144);
+    assert_ne!(&page0_entries[0].filename[..12], b"<<< PREV <<<");
+    assert_eq!(&page0_entries[143].filename[..12], b">>> MORE >>>");
+    assert_eq!(page0_entries[143].file_type, 0x86); // DIR
+
+    // Page 1: Starts with "<<< PREV <<<", ends with real entries
+    source.set_page(1);
+    let mut page1_entries = Vec::new();
+    while let Some(entry) = source.next_entry() {
+        page1_entries.push(entry);
+    }
+    assert_eq!(&page1_entries[0].filename[..12], b"<<< PREV <<<");
+    assert_eq!(page1_entries[0].file_type, 0x86); // DIR
+}
+
+#[test]
+fn test_directory_entry_unique_track_sector_mapping() {
+    use pico1541_manager::storage::slot_to_track_sector;
+
+    // Slot 0 -> Track 17, Sector 0
+    assert_eq!(slot_to_track_sector(0), (17, 0));
+    // Slot 20 -> Track 17, Sector 20
+    assert_eq!(slot_to_track_sector(20), (17, 20));
+    // Slot 21 -> Track 16, Sector 0
+    assert_eq!(slot_to_track_sector(21), (16, 0));
+    // Slot 143 -> Track 11, Sector 17
+    assert_eq!(slot_to_track_sector(143), (11, 17));
+}

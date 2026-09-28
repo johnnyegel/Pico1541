@@ -238,6 +238,22 @@ impl<const N: usize> DirectorySource for VectorDirectorySource<N> {
     }
 }
 
+#[inline(always)]
+pub fn slot_to_track_sector(slot: usize) -> (u8, u8) {
+    let track = 17 - (slot / 21) as u8;
+    let sector = (slot % 21) as u8;
+    (track, sector)
+}
+
+#[inline(always)]
+pub fn track_sector_to_slot(track: u8, sector: u8) -> Option<usize> {
+    if (11..=17).contains(&track) && sector < 21 {
+        Some((17 - track) as usize * 21 + sector as usize)
+    } else {
+        None
+    }
+}
+
 pub struct PagedDirectorySource<const N: usize = 144> {
     name: [u8; 16],
     entries: [DirectoryEntry; N],
@@ -246,6 +262,7 @@ pub struct PagedDirectorySource<const N: usize = 144> {
     current_read_index: usize,
     /// Known upper bound; starts at usize::MAX and is tightened when a partial block arrives.
     total_count: usize,
+    page: usize,
 }
 
 impl<const N: usize> PagedDirectorySource<N> {
@@ -259,7 +276,21 @@ impl<const N: usize> PagedDirectorySource<N> {
             end_block: 0,
             current_read_index: 0,
             total_count: usize::MAX,
+            page: 0,
         }
+    }
+
+    pub fn set_page(&mut self, page: usize) {
+        self.page = page;
+        self.current_read_index = 0;
+    }
+
+    pub fn current_page(&self) -> usize {
+        self.page
+    }
+
+    pub fn set_total_count(&mut self, total_count: usize) {
+        self.total_count = total_count;
     }
 }
 
@@ -285,6 +316,7 @@ impl<const N: usize> PagedDirectorySourceTrait for PagedDirectorySource<N> {
         self.total_count = usize::MAX;
         self.start_block = 0;
         self.end_block = 0;
+        self.page = 0;
     }
 
     fn set_block(&mut self, block_index: usize, block_entries: &[DirectoryEntry]) {
@@ -339,19 +371,65 @@ impl<const N: usize> DirectorySource for PagedDirectorySource<N> {
     }
 
     fn next_entry(&mut self) -> Option<DirectoryEntry> {
-        let idx = self.current_read_index;
-        // total_count is usize::MAX until end-of-directory is discovered.
-        if idx >= self.total_count {
+        let slot = self.current_read_index;
+
+        // Legacy sliding-block mode for unpaged stream where blocks are loaded and total_count is unknown
+        if self.start_block != self.end_block && self.total_count == usize::MAX {
+            let idx = slot;
+            let b = idx / 16;
+            if b >= self.start_block && b < self.end_block {
+                let mut entry = self.entries[(b % (N / 16)) * 16 + (idx % 16)];
+                let (t, s) = slot_to_track_sector(slot);
+                entry.first_track = t;
+                entry.first_sector = s;
+                self.current_read_index += 1;
+                return Some(entry);
+            } else {
+                return None;
+            }
+        }
+
+        if slot >= N {
             return None;
         }
-        let b = idx / 16;
-        if b >= self.start_block && b < self.end_block {
-            let entry = self.entries[(b % (N / 16)) * 16 + (idx % 16)];
+
+        let has_more = self.total_count != usize::MAX
+            && self.total_count > (self.page + 1) * (N - 1);
+
+        if self.page > 0 && slot == 0 {
             self.current_read_index += 1;
-            Some(entry)
-        } else {
-            None // Block not yet loaded; caller must prefetch
+            return Some(DirectoryEntry::from_file_info(b"<<< PREV <<<", true, 0));
         }
+
+        if has_more && slot == N - 1 {
+            self.current_read_index += 1;
+            return Some(DirectoryEntry::from_file_info(b">>> MORE >>>", true, 0));
+        }
+
+        if self.total_count != usize::MAX {
+            let entries_before_page = self.page * (N - 1);
+            let remaining_entries = self.total_count.saturating_sub(entries_before_page);
+            let nav_prefix = if self.page > 0 { 1 } else { 0 };
+            let real_slot = slot.saturating_sub(nav_prefix);
+            if !has_more && real_slot >= remaining_entries {
+                return None;
+            }
+        }
+
+        let b = slot / 16;
+        let mut entry = if self.start_block == self.end_block {
+            self.entries[slot]
+        } else if b >= self.start_block && b < self.end_block {
+            self.entries[(b % (N / 16)) * 16 + (slot % 16)]
+        } else {
+            return None;
+        };
+
+        let (t, s) = slot_to_track_sector(slot);
+        entry.first_track = t;
+        entry.first_sector = s;
+        self.current_read_index += 1;
+        Some(entry)
     }
 
     fn rewind(&mut self) {
