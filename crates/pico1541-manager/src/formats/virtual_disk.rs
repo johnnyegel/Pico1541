@@ -10,6 +10,8 @@ pub struct VirtualDiskImage<S, D: DirectorySource> {
     pub file_storage: Option<S>,
     id: [u8; 2],
     pub shortcut_entry: Option<crate::storage::DirectoryEntry>,
+    pub prg_start_track: u8,
+    pub prg_start_sector: u8,
 }
 
 impl<S: Read + Seek, D: DirectorySource> VirtualDiskImage<S, D> {
@@ -32,7 +34,14 @@ impl<S: Read + Seek, D: DirectorySource> VirtualDiskImage<S, D> {
             file_storage: None,
             id: [id_high, id_low],
             shortcut_entry: None,
+            prg_start_track: 17,
+            prg_start_sector: 0,
         }
+    }
+
+    pub fn set_prg_start(&mut self, track: u8, sector: u8) {
+        self.prg_start_track = track;
+        self.prg_start_sector = sector;
     }
 
     pub fn set_id(&mut self, id: [u8; 2]) {
@@ -111,8 +120,11 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
         let track = half_track / 2 + 1;
 
         if track <= 17 && self.file_storage.is_some() {
-            // PRG File Tracks: Lay out the PRG data across tracks 17 down to 1.
-            // Track 17 holds blocks 0..20, Track 16 holds blocks 21..41, etc.
+            if track > self.prg_start_track {
+                return Ok((TrackLayout::Void, 0, None));
+            }
+
+            // PRG File Tracks: Lay out the PRG data across tracks prg_start_track down to 1.
             let sectors = 21;
             let speed_zone = pico1541_common::track_buffer::default_speed_zone(half_track);
             let speed_zone_len: usize =
@@ -131,16 +143,20 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                 }
             }
 
-            // Track index starting from 17 downwards:
-            // Track 17 -> 0, Track 16 -> 1, Track 15 -> 2, etc.
-            let t_idx = (17 - track) as u64;
+            // Track index relative to prg_start_track downwards
+            let t_idx = (self.prg_start_track - track) as u64;
             let track_byte_offset = t_idx * 21 * 254;
+            let start_sec = if track == self.prg_start_track {
+                self.prg_start_sector
+            } else {
+                0
+            };
 
             for physical_sector in 0..sectors {
                 let sector = physical_sector as u8;
 
-                // Chain step for standard interleave 10: (sector * 19) % 21
-                let step = (physical_sector as usize * 19) % 21;
+                // Chain step for standard interleave 10:
+                let step = ((physical_sector + 21 - start_sec as usize) * 19) % 21;
                 let file_pos = track_byte_offset + (step as u64 * 254);
 
                 let mut sector_data = [0u8; 256];
@@ -174,13 +190,15 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                                 if has_more {
                                     if step + 1 < 21 {
                                         sector_data[0] = track;
-                                        sector_data[1] = (((step + 1) * 10) % 21) as u8;
+                                        sector_data[1] =
+                                            ((start_sec as usize + (step + 1) * 10) % 21) as u8;
                                     } else if track > 1 {
                                         sector_data[0] = track - 1;
                                         sector_data[1] = 0;
                                     } else {
-                                        sector_data[0] = 0;
-                                        sector_data[1] = 255;
+                                        // wrap to 17
+                                        sector_data[0] = 17;
+                                        sector_data[1] = 0;
                                     }
                                 } else {
                                     // Exactly 254 bytes on the last block

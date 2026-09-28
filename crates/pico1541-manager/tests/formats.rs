@@ -625,4 +625,99 @@ fn test_resolve_cd_navigation_commands() {
     assert_eq!(resolve_cd_action("/", "CD/GAME.G64"), Some(CdAction::MountImage(h("/GAME.G64"))));
 }
 
+#[test]
+fn test_virtual_disk_prg_multitrack_offset() {
+    use pico1541_manager::formats::VirtualDiskImage;
+    use pico1541_manager::storage::{DummySource, MemoryStorage};
+    use pico1541_manager::DiskImage;
+    use pico1541_manager::gcr::decode_gcr_block;
+    use pollster::block_on;
+
+    let test_data: Vec<u8> = (0..7000).map(|i| (i % 256) as u8).collect();
+    let storage = MemoryStorage::new(&test_data);
+    let mut vdisk = VirtualDiskImage::new(DummySource, b"OFFSET.PRG");
+    vdisk.set_prg_start(16, 5);
+    vdisk.file_storage = Some(storage);
+
+    // Track 17 (half track 32) should be Void since track 17 > prg_start_track (16)
+    let mut dest17 = vec![0u8; 10000];
+    let (l17, _, _) = block_on(vdisk.read_track(32, &mut dest17)).unwrap();
+    assert_eq!(l17, pico1541_common::track_buffer::TrackLayout::Void);
+
+    // Read track 16 (half track 30)
+    let mut dest16 = vec![0u8; 10000];
+    let (l16, len16, _) = block_on(vdisk.read_track(30, &mut dest16)).unwrap();
+    assert_eq!(l16, pico1541_common::track_buffer::TrackLayout::Accurate);
+
+    // Read track 15 (half track 28)
+    let mut dest15 = vec![0u8; 10000];
+    let (l15, len15, _) = block_on(vdisk.read_track(28, &mut dest15)).unwrap();
+    assert_eq!(l15, pico1541_common::track_buffer::TrackLayout::Accurate);
+
+    // Helper to decode sectors from track GCR buffer
+    let mut sector_data_map = std::collections::HashMap::new();
+
+    for (t, dest, len) in [(16, &dest16, len16), (15, &dest15, len15)] {
+        let mut pos = 0;
+        while pos + 5 <= len {
+            if dest[pos..pos + 5] == [0xFF, 0xFF, 0xFF, 0xFF, 0xFF] {
+                let mut header_raw = [0u8; 8];
+                decode_gcr_block((&dest[pos + 5..pos + 10]).try_into().unwrap(), (&mut header_raw[0..4]).try_into().unwrap());
+                decode_gcr_block((&dest[pos + 10..pos + 15]).try_into().unwrap(), (&mut header_raw[4..8]).try_into().unwrap());
+
+                if header_raw[0] == 0x08 {
+                    let sector = header_raw[2];
+                    let track = header_raw[3];
+                    assert_eq!(track, t);
+
+                    let data_gcr_pos = pos + 5 + 10 + 9 + 5;
+                    if data_gcr_pos + 325 <= len {
+                        let mut data_raw = [0u8; 260];
+                        for chunk_idx in 0..65 {
+                            let src_slice = &dest[data_gcr_pos + chunk_idx * 5..data_gcr_pos + chunk_idx * 5 + 5];
+                            let dst_slice = &mut data_raw[chunk_idx * 4..chunk_idx * 4 + 4];
+                            decode_gcr_block(src_slice.try_into().unwrap(), dst_slice.try_into().unwrap());
+                        }
+                        assert_eq!(data_raw[0], 0x07, "Data block mark must be 0x07");
+                        let mut sector_buf = [0u8; 256];
+                        sector_buf.copy_from_slice(&data_raw[1..257]);
+                        sector_data_map.insert((track, sector), sector_buf);
+                        pos = data_gcr_pos + 325;
+                        continue;
+                    }
+                }
+            }
+            pos += 1;
+        }
+    }
+
+    // Decode and verify the sector chain starting at Track 16 Sector 5
+    // follows across Track 16 down to Track 15 Sector 0 and matches test_data byte-for-byte!
+    let mut current_track = 16;
+    let mut current_sector = 5;
+    let mut reconstructed = Vec::new();
+
+    loop {
+        let sector_buf = sector_data_map.get(&(current_track, current_sector)).expect("sector missing in chain");
+        let next_track = sector_buf[0];
+        let next_sector = sector_buf[1];
+
+        if next_track == 0 {
+            // Last block: next_sector is the last valid byte offset + 1
+            let valid_len = (next_sector as usize).saturating_sub(1);
+            reconstructed.extend_from_slice(&sector_buf[2..2 + valid_len]);
+            break;
+        } else {
+            // Full block: 254 bytes
+            reconstructed.extend_from_slice(&sector_buf[2..256]);
+            current_track = next_track;
+            current_sector = next_sector;
+        }
+    }
+
+    assert_eq!(reconstructed.len(), test_data.len(), "Reconstructed length must match");
+    assert_eq!(reconstructed, test_data, "Reconstructed bytes must match test_data byte-for-byte");
+}
+
+
 

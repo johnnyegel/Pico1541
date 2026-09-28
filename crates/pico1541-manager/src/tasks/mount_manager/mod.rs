@@ -432,6 +432,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
                 if let Some(entry) = entry_opt {
                     if !entry.is_dir() {
                         if let Ok(file) = self.opener.open_file(&entry.filename).await {
+                            vdir.set_prg_start(entry.first_track, entry.first_sector);
                             vdir.file_storage = Some(file);
                             #[cfg(feature = "defmt")]
                             defmt::info!("Mounted virtual file for slot {}", slot);
