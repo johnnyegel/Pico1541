@@ -196,8 +196,8 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                                         sector_data[0] = track - 1;
                                         sector_data[1] = 0;
                                     } else {
-                                        // wrap to 17
-                                        sector_data[0] = 17;
+                                        // wrap to prg_start_track
+                                        sector_data[0] = self.prg_start_track;
                                         sector_data[1] = 0;
                                     }
                                 } else {
