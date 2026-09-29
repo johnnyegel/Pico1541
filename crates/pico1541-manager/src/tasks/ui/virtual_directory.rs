@@ -19,14 +19,6 @@ where
     S: FileStorageDriver,
     Internal: FileStorageDriver,
 {
-    pub async fn mount_virtual_directory(&mut self) {
-        let mut path: heapless::String<128> = heapless::String::new();
-        let _ = path.push_str(self.current_path.as_str());
-        let _ = self.context.cmd_tx.try_send(crate::InternalCommand::Mount(
-            crate::MountPayload::VirtualDirectory(path, self.use_internal),
-        ));
-    }
-
     pub async fn ensure_block_loaded(&mut self, block_idx: usize) -> Result<Vec<FileInfo, 16>, ()> {
         let mut block_infos = Vec::<FileInfo, 16>::new();
         let path_str = self.current_path.as_str();

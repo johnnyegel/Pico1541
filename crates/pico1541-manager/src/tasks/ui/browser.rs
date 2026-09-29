@@ -120,16 +120,6 @@ where
             context: &ctx.context,
         };
 
-        // If not mounted, mount it
-        if ctx.mounted_file_path.is_none() {
-            manager.mount_virtual_directory().await;
-            ctx.leds.set_status(StatusLedMode::Unmounted);
-            *ctx.location.lock().await = DriveLocation::VirtualDirectory {
-                path: manager.current_path.clone(),
-                use_internal,
-            };
-        }
-
         let mut menu = Menu::<String<64>, 48, _>::new_paged(menu_title.clone());
         menu.set_scroll_offset(scroll_offset);
 
