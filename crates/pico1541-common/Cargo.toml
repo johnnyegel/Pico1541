@@ -13,7 +13,7 @@ pio = "0.3.0"
 
 [features]
 default = []
-defmt = ["dep:defmt"]
+defmt = ["dep:defmt", "heapless/defmt"]
 
 [dev-dependencies]
 pollster = "0.4.0"
