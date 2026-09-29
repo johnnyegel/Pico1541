@@ -75,7 +75,7 @@ where
                         return PageState::MainMenu;
                     }
                     let parent = parent_dir(path.as_str());
-                    *current_path_ptr = String::from_str(parent).unwrap();
+                    *current_path_ptr = String::from_str(parent).unwrap_or_default();
                     *ctx.mounted_file_path = Some(path);
                 }
             }
@@ -167,86 +167,48 @@ where
             let mut empty_items = Vec::<&'static str, 1>::new();
             let _ = empty_items.push("No files found");
             let mut empty_menu = Menu::new(menu_title, empty_items);
-            match empty_menu.run(ctx.display, &ctx.context.action_rx).await {
-                MenuEvent::Back => {
-                    if manager.current_path.as_str() == "/"
-                        || (use_internal && manager.current_path.as_str() == "/files")
-                    {
-                        *ctx.location.lock().await = DriveLocation::Root;
-                        crate::LOCATION_CHANGED.signal(());
-                        let _ = ctx.context.cmd_tx.try_send(crate::InternalCommand::Unmount);
-                        ctx.leds.set_status(StatusLedMode::Unmounted);
-                        return PageState::MainMenu;
-                    } else {
-                        let parent = parent_dir(manager.current_path.as_str());
-                        let parent_path = String::from_str(parent).unwrap();
-                        *manager.current_path = parent_path.clone();
-                        let state = cursor_stack.pop().unwrap_or((0, 0));
-                        cursor = state.0;
-                        scroll_offset = state.1;
-                        *ctx.mounted_file_path = None;
-                        *ctx.location.lock().await = DriveLocation::VirtualDirectory {
-                            path: parent_path,
-                            use_internal,
-                        };
-                        crate::LOCATION_CHANGED.signal(());
-                        continue;
-                    }
-                }
-                MenuEvent::Home => {
-                    *ctx.location.lock().await = DriveLocation::Root;
-                    crate::LOCATION_CHANGED.signal(());
-                    let _ = ctx.context.cmd_tx.try_send(crate::InternalCommand::Unmount);
-                    ctx.leds.set_status(StatusLedMode::Unmounted);
-                    return PageState::MainMenu;
-                }
-                MenuEvent::LocationChanged => {
-                    let loc = ctx.location.lock().await.clone();
-                    match loc {
-                        DriveLocation::Root => {
-                            ctx.leds.set_status(StatusLedMode::Unmounted);
+            loop {
+                match empty_menu.run(ctx.display, &ctx.context.action_rx).await {
+                    MenuEvent::Timeout => {
+                        if !use_internal && !manager.storage.is_available().await {
+                            if ctx.context.cmd_tx
+                                .try_send(crate::InternalCommand::Unmount)
+                                .is_err()
+                            {
+                                #[cfg(feature = "defmt")]
+                                defmt::error!("cmd_tx is FULL for Unmount!");
+                            }
                             return PageState::MainMenu;
                         }
-                        DriveLocation::VirtualDirectory {
-                            ref path,
-                            use_internal: loc_internal,
-                        } => {
-                            if loc_internal != use_internal {
-                                return PageState::MainMenu;
+                        continue;
+                    }
+                    MenuEvent::Back => {
+                        if manager.current_path.as_str() == "/"
+                            || (use_internal && manager.current_path.as_str() == "/files")
+                        {
+                            if ctx.context.cmd_tx
+                                .try_send(crate::InternalCommand::Unmount)
+                                .is_err()
+                            {
+                                #[cfg(feature = "defmt")]
+                                defmt::error!("cmd_tx is FULL for Unmount!");
                             }
-                            *manager.current_path = path.clone();
-                            cursor = 0;
-                            scroll_offset = 0;
-                            cursor_stack.clear();
-                            continue;
-                        }
-                        DriveLocation::DiskImage {
-                            ref path,
-                            use_internal: loc_internal,
-                        } => {
-                            if loc_internal != use_internal {
-                                return PageState::MainMenu;
-                            }
-                            let parent = parent_dir(path.as_str());
-                            *manager.current_path = String::from_str(parent).unwrap();
-                            *ctx.mounted_file_path = Some(path.clone());
-                            cursor = 0;
-                            scroll_offset = 0;
-                            cursor_stack.clear();
-                            continue;
+                            return PageState::MainMenu;
+                        } else {
+                            let parent = parent_dir(manager.current_path.as_str());
+                            let parent_path = String::from_str(parent).unwrap_or_default();
+                            *manager.current_path = parent_path.clone();
+                            let state = cursor_stack.pop().unwrap_or((0, 0));
+                            cursor = state.0;
+                            scroll_offset = state.1;
+                            *ctx.mounted_file_path = None;
+                            let _ = ctx.context.cmd_tx.send(crate::InternalCommand::Mount(
+                                crate::MountPayload::VirtualDirectory(parent_path, use_internal),
+                            )).await;
+                            break;
                         }
                     }
-                }
-                MenuEvent::Monitor => {
-                    if monitor::run_monitor_page(
-                        ctx.display,
-                        manager.internal,
-                        ctx.config,
-                        ctx.sys_clock_freq,
-                        &ctx.context,
-                    )
-                    .await
-                    {
+                    MenuEvent::Home => {
                         if ctx.context.cmd_tx
                             .try_send(crate::InternalCommand::Unmount)
                             .is_err()
@@ -254,27 +216,70 @@ where
                             #[cfg(feature = "defmt")]
                             defmt::error!("cmd_tx is FULL for Unmount!");
                         }
-
-                        ctx.leds.set_status(StatusLedMode::Unmounted);
                         return PageState::MainMenu;
                     }
-                    ctx.display.request_redraw();
-                    continue;
+                    MenuEvent::LocationChanged => {
+                        let loc = ctx.location.lock().await.clone();
+                        match loc {
+                            DriveLocation::Root => {
+                                return PageState::MainMenu;
+                            }
+                            DriveLocation::VirtualDirectory {
+                                ref path,
+                                use_internal: loc_internal,
+                            } => {
+                                if loc_internal != use_internal {
+                                    return PageState::MainMenu;
+                                }
+                                *manager.current_path = path.clone();
+                                cursor = 0;
+                                scroll_offset = 0;
+                                cursor_stack.clear();
+                                break;
+                            }
+                            DriveLocation::DiskImage {
+                                ref path,
+                                use_internal: loc_internal,
+                            } => {
+                                if loc_internal != use_internal {
+                                    return PageState::MainMenu;
+                                }
+                                let parent = parent_dir(path.as_str());
+                                *manager.current_path = String::from_str(parent).unwrap_or_default();
+                                *ctx.mounted_file_path = Some(path.clone());
+                                cursor = 0;
+                                scroll_offset = 0;
+                                cursor_stack.clear();
+                                break;
+                            }
+                        }
+                    }
+                    MenuEvent::Monitor => {
+                        if monitor::run_monitor_page(
+                            ctx.display,
+                            manager.internal,
+                            ctx.config,
+                            ctx.sys_clock_freq,
+                            &ctx.context,
+                        )
+                        .await
+                        {
+                            if ctx.context.cmd_tx
+                                .try_send(crate::InternalCommand::Unmount)
+                                .is_err()
+                            {
+                                #[cfg(feature = "defmt")]
+                                defmt::error!("cmd_tx is FULL for Unmount!");
+                            }
+                            return PageState::MainMenu;
+                        }
+                        ctx.display.request_redraw();
+                        continue;
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
-            if !use_internal {
-                if ctx.context.cmd_tx
-                    .try_send(crate::InternalCommand::Unmount)
-                    .is_err()
-                {
-                    #[cfg(feature = "defmt")]
-                    defmt::error!("cmd_tx is FULL for Unmount!");
-                }
-
-                ctx.leds.set_status(StatusLedMode::Unmounted);
-            }
-            return PageState::MainMenu;
+            continue;
         }
 
         // Ensure exact cursor block is loaded
@@ -372,7 +377,7 @@ where
 
                 ctx.leds.set_status(StatusLedMode::Unmounted);
                 if !use_internal && title == "SD Card" {
-                    *manager.current_path = String::from_str("/").unwrap();
+                    *manager.current_path = String::from_str("/").unwrap_or_default();
                 }
                 return PageState::MainMenu;
             }
@@ -416,11 +421,9 @@ where
                     let _ = cursor_stack.push((cursor, menu.scroll_offset()));
                     cursor = 0;
                     scroll_offset = 0;
-                    *ctx.location.lock().await = DriveLocation::VirtualDirectory {
-                        path: new_path,
-                        use_internal,
-                    };
-                    crate::LOCATION_CHANGED.signal(());
+                    let _ = ctx.context.cmd_tx.send(crate::InternalCommand::Mount(
+                        crate::MountPayload::VirtualDirectory(new_path, use_internal),
+                    )).await;
                 } else {
                     let filename = selected_name;
                     let mut full_path = String::<128>::new();
@@ -436,21 +439,13 @@ where
                     }
 
                     if Some(full_path.clone()) == *ctx.mounted_file_path {
-                        if ctx.context.cmd_tx
-                            .try_send(crate::InternalCommand::Unmount)
-                            .is_err()
-                        {
-                            #[cfg(feature = "defmt")]
-                            defmt::error!("cmd_tx is FULL for Unmount!");
-                        }
-
-                        ctx.leds.set_status(StatusLedMode::Unmounted);
+                        let _ = ctx.context.cmd_tx
+                            .send(crate::InternalCommand::Mount(crate::MountPayload::VirtualDirectory(
+                                manager.current_path.clone(),
+                                use_internal,
+                            )))
+                            .await;
                         *ctx.mounted_file_path = None;
-                        *ctx.location.lock().await = DriveLocation::VirtualDirectory {
-                            path: manager.current_path.clone(),
-                            use_internal,
-                        };
-                        crate::LOCATION_CHANGED.signal(());
                         continue;
                     }
 
@@ -482,12 +477,7 @@ where
                                 manager.use_internal,
                             )))
                             .await;
-                        *ctx.mounted_file_path = Some(full_path.clone());
-                        *ctx.location.lock().await = DriveLocation::DiskImage {
-                            path: full_path,
-                            use_internal: manager.use_internal,
-                        };
-                        crate::LOCATION_CHANGED.signal(());
+                        *ctx.mounted_file_path = Some(full_path);
                     } else if is_g64 {
                         #[cfg(feature = "defmt")]
                         defmt::info!("Sending Mount for G64...");
@@ -497,12 +487,7 @@ where
                                 manager.use_internal,
                             )))
                             .await;
-                        *ctx.mounted_file_path = Some(full_path.clone());
-                        *ctx.location.lock().await = DriveLocation::DiskImage {
-                            path: full_path,
-                            use_internal: manager.use_internal,
-                        };
-                        crate::LOCATION_CHANGED.signal(());
+                        *ctx.mounted_file_path = Some(full_path);
                     } else if is_nib {
                         #[cfg(feature = "defmt")]
                         defmt::info!("Sending Mount for NIB...");
@@ -512,12 +497,7 @@ where
                                 manager.use_internal,
                             )))
                             .await;
-                        *ctx.mounted_file_path = Some(full_path.clone());
-                        *ctx.location.lock().await = DriveLocation::DiskImage {
-                            path: full_path,
-                            use_internal: manager.use_internal,
-                        };
-                        crate::LOCATION_CHANGED.signal(());
+                        *ctx.mounted_file_path = Some(full_path);
                     } else {
                         // Non-image file (PRG, SEQ, …) — mount as single-file virtual disk.
                         #[cfg(feature = "defmt")]
@@ -530,12 +510,7 @@ where
                                 manager.use_internal,
                             )))
                             .await;
-                        *ctx.mounted_file_path = Some(full_path.clone());
-                        *ctx.location.lock().await = DriveLocation::VirtualDirectory {
-                            path: manager.current_path.clone(),
-                            use_internal: manager.use_internal,
-                        };
-                        crate::LOCATION_CHANGED.signal(());
+                        *ctx.mounted_file_path = Some(full_path);
                     }
                 }
             }
@@ -543,8 +518,6 @@ where
                 if manager.current_path.as_str() == "/"
                     || (use_internal && manager.current_path.as_str() == "/files")
                 {
-                    *ctx.location.lock().await = DriveLocation::Root;
-                    crate::LOCATION_CHANGED.signal(());
                     if ctx.context.cmd_tx
                         .try_send(crate::InternalCommand::Unmount)
                         .is_err()
@@ -553,27 +526,22 @@ where
                         defmt::error!("cmd_tx is FULL for Unmount!");
                     }
 
-                    ctx.leds.set_status(StatusLedMode::Unmounted);
                     return PageState::MainMenu;
                 }
 
                 let parent = parent_dir(manager.current_path.as_str());
-                let parent_path = String::from_str(parent).unwrap();
+                let parent_path = String::from_str(parent).unwrap_or_default();
                 *manager.current_path = parent_path.clone();
 
                 let state = cursor_stack.pop().unwrap_or((0, 0));
                 cursor = state.0;
                 scroll_offset = state.1;
                 *ctx.mounted_file_path = None;
-                *ctx.location.lock().await = DriveLocation::VirtualDirectory {
-                    path: parent_path,
-                    use_internal,
-                };
-                crate::LOCATION_CHANGED.signal(());
+                let _ = ctx.context.cmd_tx.send(crate::InternalCommand::Mount(
+                    crate::MountPayload::VirtualDirectory(parent_path, use_internal),
+                )).await;
             }
             MenuEvent::Home => {
-                *ctx.location.lock().await = DriveLocation::Root;
-                crate::LOCATION_CHANGED.signal(());
                 if ctx.context.cmd_tx
                     .try_send(crate::InternalCommand::Unmount)
                     .is_err()
@@ -582,14 +550,12 @@ where
                     defmt::error!("cmd_tx is FULL for Unmount!");
                 }
 
-                ctx.leds.set_status(StatusLedMode::Unmounted);
                 return PageState::MainMenu;
             }
             MenuEvent::LocationChanged => {
                 let loc = ctx.location.lock().await.clone();
                 match loc {
                     DriveLocation::Root => {
-                        ctx.leds.set_status(StatusLedMode::Unmounted);
                         return PageState::MainMenu;
                     }
                     DriveLocation::VirtualDirectory {
@@ -617,7 +583,7 @@ where
                         }
                         let parent = parent_dir(path.as_str());
                         if parent != manager.current_path.as_str() {
-                            *manager.current_path = String::from_str(parent).unwrap();
+                            *manager.current_path = String::from_str(parent).unwrap_or_default();
                             cursor = 0;
                             scroll_offset = 0;
                             cursor_stack.clear();

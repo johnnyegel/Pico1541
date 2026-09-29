@@ -44,6 +44,8 @@ use pico1541_rp_common::emulation::bridge::RpTrackHandoff;
 use pico1541_manager::tasks::{
     ActionTask, DisplayTask, KeyboardTask, MainMenuTask, TrackCacheTask, MountControllerTask,
 };
+use pico1541_manager::tasks::ui::UiContext;
+use pico1541_manager::{ACTION_CHANNEL, CMD_CHANNEL, KEYBOARD_CHANNEL, SETTINGS_CHANNEL};
 
 #[cfg(has_mklittlefs)]
 #[link_section = ".fs"]
@@ -590,13 +592,13 @@ async fn core0_init_task(
         StatusLedsWrapper(status_leds_mutex),
         &CURRENT_LOCATION,
         &MOTOR_STATE,
-        pico1541_manager::CMD_CHANNEL.receiver(),
+        CMD_CHANNEL.receiver(),
     );
 
-    let ui_context = pico1541_manager::tasks::ui::UiContext {
-        action_rx: pico1541_manager::ACTION_CHANNEL.receiver(),
-        cmd_tx: pico1541_manager::CMD_CHANNEL.sender(),
-        settings_tx: pico1541_manager::SETTINGS_CHANNEL.sender(),
+    let ui_context = UiContext {
+        action_rx: ACTION_CHANNEL.receiver(),
+        cmd_tx: CMD_CHANNEL.sender(),
+        settings_tx: SETTINGS_CHANNEL.sender(),
     };
 
     let main_menu_task = MainMenuTask::new(
@@ -615,8 +617,8 @@ async fn core0_init_task(
     spawner.spawn(menu_run(main_menu_task).unwrap());
     spawner.spawn(keyboard_run(keyboard_task).unwrap());
     let action_task = ActionTask::new(
-        pico1541_manager::KEYBOARD_CHANNEL.receiver(),
-        pico1541_manager::ACTION_CHANNEL.sender(),
+        KEYBOARD_CHANNEL.receiver(),
+        ACTION_CHANNEL.sender(),
     );
     spawner.spawn(action_run(action_task).unwrap());
 

@@ -1,6 +1,7 @@
 use crate::driver::RgbLedDriver as LedsDriver;
 use crate::formats::AnyDiskImage;
 use crate::storage::DirectorySource;
+use core::str::FromStr;
 use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_futures::select::{select, Either};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -620,11 +621,21 @@ impl<L: LedsDriver> MountControllerTask<L> {
                     CURRENT_PAGE.store(0, Ordering::Release);
                     let led_mode = payload.status_led_mode();
                     let new_loc = match payload {
-                        crate::MountPayload::VirtualDirectory(p, i)
-                        | crate::MountPayload::Prg(p, i) => DriveLocation::VirtualDirectory {
+                        crate::MountPayload::VirtualDirectory(p, i) => DriveLocation::VirtualDirectory {
                             path: p,
                             use_internal: i,
                         },
+                        crate::MountPayload::Prg(p, i) => {
+                            let parent = match p.rfind('/') {
+                                Some(0) => "/",
+                                Some(idx) => &p[..idx],
+                                None => "/",
+                            };
+                            DriveLocation::VirtualDirectory {
+                                path: heapless::String::from_str(parent).unwrap_or_default(),
+                                use_internal: i,
+                            }
+                        }
                         crate::MountPayload::D64(p, i)
                         | crate::MountPayload::G64(p, i)
                         | crate::MountPayload::Nib(p, i) => DriveLocation::DiskImage {
