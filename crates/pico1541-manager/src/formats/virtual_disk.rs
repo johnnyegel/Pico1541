@@ -387,11 +387,7 @@ impl<S: Read + Seek, D: DirectorySource> DiskImage for VirtualDiskImage<S, D> {
                         }
                     }
 
-                    let (next_t, next_s) = if count == 0 {
-                        (0, 0xFF)
-                    } else if sector == 18 {
-                        (0, 0xFF)
-                    } else if count < 8 {
+                    let (next_t, next_s) = if count < 8 || sector == 18 {
                         (0, 0xFF)
                     } else if let Some(peek) = self.source.next_entry() {
                         peek_slot = Some(peek);

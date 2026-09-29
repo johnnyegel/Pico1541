@@ -719,5 +719,80 @@ fn test_virtual_disk_prg_multitrack_offset() {
     assert_eq!(reconstructed, test_data, "Reconstructed bytes must match test_data byte-for-byte");
 }
 
+#[test]
+fn test_root_directory_virtual_disk_track_18() {
+    use pico1541_manager::formats::VirtualDiskImage;
+    use pico1541_manager::storage::{DirectoryEntry, VectorDirectorySource, MemoryStorage};
+    use pico1541_manager::DiskImage;
+    use pico1541_manager::gcr::decode_gcr_block;
+    use pollster::block_on;
 
+    let mut entries = heapless::Vec::<DirectoryEntry, 2>::new();
+    let _ = entries.push(DirectoryEntry::new_dir(b"INTERNAL", 17, 0));
+    let _ = entries.push(DirectoryEntry::new_dir(b"SD CARD", 17, 1));
 
+    let source = VectorDirectorySource::new(b"STORAGE", entries);
+    let mut vdisk = VirtualDiskImage::<MemoryStorage<'static>, _>::new(source, b"STORAGE");
+
+    let mut dest = vec![0u8; 10000];
+    let (layout, len, _) = block_on(vdisk.read_track(34, &mut dest)).unwrap();
+    assert_eq!(layout, pico1541_common::track_buffer::TrackLayout::Accurate);
+
+    // Decode all sectors into map
+    let mut sector_data_map = std::collections::HashMap::new();
+    let mut pos = 0;
+    while pos + 5 <= len {
+        if dest[pos..pos + 5] == [0xFF, 0xFF, 0xFF, 0xFF, 0xFF] {
+            let mut header_raw = [0u8; 8];
+            decode_gcr_block((&dest[pos + 5..pos + 10]).try_into().unwrap(), (&mut header_raw[0..4]).try_into().unwrap());
+            decode_gcr_block((&dest[pos + 10..pos + 15]).try_into().unwrap(), (&mut header_raw[4..8]).try_into().unwrap());
+            if header_raw[0] == 0x08 {
+                let sector = header_raw[2];
+                let data_gcr_pos = pos + 5 + 10 + 9 + 5;
+                if data_gcr_pos + 325 <= len {
+                    let mut data_raw = [0u8; 260];
+                    for chunk_idx in 0..65 {
+                        let src_slice = &dest[data_gcr_pos + chunk_idx * 5..data_gcr_pos + chunk_idx * 5 + 5];
+                        let dst_slice = &mut data_raw[chunk_idx * 4..chunk_idx * 4 + 4];
+                        decode_gcr_block(src_slice.try_into().unwrap(), dst_slice.try_into().unwrap());
+                    }
+                    assert_eq!(data_raw[0], 0x07);
+                    let mut sector_buf = [0u8; 256];
+                    sector_buf.copy_from_slice(&data_raw[1..257]);
+                    sector_data_map.insert(sector, sector_buf);
+                    pos = data_gcr_pos + 325;
+                    continue;
+                }
+            }
+        }
+        pos += 1;
+    }
+
+    // Verify Sector 0 (BAM) points to (18, 1) and disk name is STORAGE
+    let s0 = sector_data_map.get(&0).unwrap();
+    assert_eq!(s0[0], 18);
+    assert_eq!(s0[1], 1);
+    assert_eq!(&s0[0x90..0x97], b"STORAGE");
+
+    // Verify Sector 1: points to (0, 0xFF), contains INTERNAL and SD CARD
+    let s1 = sector_data_map.get(&1).unwrap();
+    assert_eq!(s1[0], 0);
+    assert_eq!(s1[1], 0xFF);
+
+    // Entry 0: INTERNAL
+    assert_eq!(s1[2], 0x86, "First entry must be DIR (0x86)");
+    assert_eq!(s1[3], 17, "First entry target track must be 17");
+    assert_eq!(s1[4], 0, "First entry target sector must be 0");
+    assert_eq!(&s1[5..13], b"INTERNAL");
+
+    // Entry 1: SD CARD
+    assert_eq!(s1[0x20 + 2], 0x86, "Second entry must be DIR (0x86)");
+    assert_eq!(s1[0x20 + 3], 17, "Second entry target track must be 17");
+    assert_eq!(s1[0x20 + 4], 1, "Second entry target sector must be 1");
+    assert_eq!(&s1[0x20 + 5..0x20 + 12], b"SD CARD");
+
+    // Entries 2..7 must be empty (file_type == 0)
+    for entry_idx in 2..8 {
+        assert_eq!(s1[entry_idx * 32 + 2], 0, "Unused entry must be 0");
+    }
+}

@@ -103,6 +103,21 @@ impl DirectoryEntry {
     pub fn is_dir(&self) -> bool {
         (self.file_type & 0x07) == 0x06
     }
+
+    pub fn new_dir(name: &[u8], track: u8, sector: u8) -> Self {
+        let mut filename = [0xA0; 16];
+        let copy_len = name.len().min(16);
+        for i in 0..copy_len {
+            filename[i] = ascii_to_petscii(name[i]);
+        }
+        Self {
+            file_type: 0x86, // Closed DIR
+            filename,
+            first_track: track,
+            first_sector: sector,
+            block_size: 0,
+        }
+    }
 }
 
 pub trait PagedDirectorySourceTrait {
