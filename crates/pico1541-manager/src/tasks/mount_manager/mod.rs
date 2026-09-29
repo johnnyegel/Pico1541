@@ -116,6 +116,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
             if SLOT_SELECTED.swap(false, Ordering::AcqRel) {
                 let slot = SELECTED_SLOT.load(Ordering::Acquire);
                 self.select_virtual_file(slot).await;
+                continue;
             }
 
             let track_fut = self.handoff.wait_for_change();
@@ -460,12 +461,14 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
         match current_loc {
             DriveLocation::Root => {
                 if slot == 0 {
+                    CURRENT_PAGE.store(0, Ordering::Release);
                     *self.location.lock().await = DriveLocation::VirtualDirectory {
                         path: heapless::String::try_from("/files").unwrap_or_default(),
                         use_internal: true,
                     };
                     crate::LOCATION_CHANGED.signal(());
                 } else if slot == 1 {
+                    CURRENT_PAGE.store(0, Ordering::Release);
                     *self.location.lock().await = DriveLocation::VirtualDirectory {
                         path: heapless::String::try_from("/").unwrap_or_default(),
                         use_internal: false,
@@ -503,9 +506,23 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
                                 }
                                 let nav_action =
                                     cd_handler::resolve_cd_nav(&current_loc, cd_cmd.as_str());
-                                if let cd_handler::CdNavAction::Transition(target) = nav_action {
-                                    *self.location.lock().await = target;
-                                    crate::LOCATION_CHANGED.signal(());
+                                match nav_action {
+                                    cd_handler::CdNavAction::NextPage => {
+                                        let next = CURRENT_PAGE.load(Ordering::Acquire) + 1;
+                                        CURRENT_PAGE.store(next, Ordering::Release);
+                                        PAGE_CHANGED.store(true, Ordering::Release);
+                                    }
+                                    cd_handler::CdNavAction::PrevPage => {
+                                        let prev = CURRENT_PAGE.load(Ordering::Acquire).saturating_sub(1);
+                                        CURRENT_PAGE.store(prev, Ordering::Release);
+                                        PAGE_CHANGED.store(true, Ordering::Release);
+                                    }
+                                    cd_handler::CdNavAction::Transition(target) => {
+                                        CURRENT_PAGE.store(0, Ordering::Release);
+                                        *self.location.lock().await = target;
+                                        crate::LOCATION_CHANGED.signal(());
+                                    }
+                                    cd_handler::CdNavAction::Ignore => {}
                                 }
                             } else if entry.filename[0] != 0 {
                                 if let Ok(file) = self.opener.open_file(&entry.filename).await {
@@ -631,13 +648,15 @@ impl<L: LedsDriver> MountControllerTask<L> {
                     let current_loc = self.location.lock().await.clone();
                     match cd_handler::resolve_cd_nav(&current_loc, cd_str.as_str()) {
                         cd_handler::CdNavAction::NextPage => {
-                            self.current_page += 1;
-                            CURRENT_PAGE.store(self.current_page, Ordering::Release);
+                            let next = CURRENT_PAGE.load(Ordering::Acquire) + 1;
+                            self.current_page = next;
+                            CURRENT_PAGE.store(next, Ordering::Release);
                             PAGE_CHANGED.store(true, Ordering::Release);
                         }
                         cd_handler::CdNavAction::PrevPage => {
-                            self.current_page = self.current_page.saturating_sub(1);
-                            CURRENT_PAGE.store(self.current_page, Ordering::Release);
+                            let prev = CURRENT_PAGE.load(Ordering::Acquire).saturating_sub(1);
+                            self.current_page = prev;
+                            CURRENT_PAGE.store(prev, Ordering::Release);
                             PAGE_CHANGED.store(true, Ordering::Release);
                         }
                         cd_handler::CdNavAction::Transition(new_loc) => {
@@ -649,8 +668,17 @@ impl<L: LedsDriver> MountControllerTask<L> {
                                 DriveLocation::Root | DriveLocation::VirtualDirectory { .. } => {
                                     crate::driver::StatusLedMode::VirtualDisk
                                 }
-                                DriveLocation::DiskImage { .. } => {
-                                    crate::driver::StatusLedMode::NonAccurateDisk
+                                DriveLocation::DiskImage { ref path, .. } => {
+                                    let p = path.as_str();
+                                    if p.ends_with(".g64")
+                                        || p.ends_with(".G64")
+                                        || p.ends_with(".nib")
+                                        || p.ends_with(".NIB")
+                                    {
+                                        crate::driver::StatusLedMode::AccurateDisk
+                                    } else {
+                                        crate::driver::StatusLedMode::NonAccurateDisk
+                                    }
                                 }
                             };
                             self.leds.set_status(led_mode);
