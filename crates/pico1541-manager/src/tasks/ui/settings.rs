@@ -115,6 +115,7 @@ where
                 cursor = menu.selected_index();
             }
             MenuEvent::ContextAction(_) => {}
+            _ => {}
         }
     }
 }

@@ -81,8 +81,6 @@ const DEFAULT_DRIVE_ID: u8 = 8;
 
 static SNOOPER_CONFIG: SnooperConfig = SnooperConfig::new(DEFAULT_DRIVE_ID);
 
-static CURRENT_DIR: Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)> =
-    Mutex::new((heapless::String::new(), false));
 static CURRENT_LOCATION: Mutex<CriticalSectionRawMutex, DriveLocation> =
     Mutex::new(DriveLocation::Root);
 static MOTOR_STATE: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
@@ -593,7 +591,7 @@ async fn core0_init_task(
         IndicatorWrapper(indicator_mutex),
         StorageWrapper(sd_mutex),
         pico1541_rp_common::littlefs_storage::LittleFsStorage,
-        &CURRENT_DIR,
+        &CURRENT_LOCATION,
         config,
         rom_name,
         SYSTEM_CLOCK_FREQ,

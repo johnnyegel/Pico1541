@@ -2,13 +2,17 @@ use super::PageState;
 use crate::driver::{DisplayDriver, FileStorageDriver};
 use crate::tasks::menu::{Menu, MenuEvent};
 use core::str::FromStr;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::mutex::Mutex;
 use heapless::{String, Vec};
+use pico1541_common::DriveLocation;
 
 pub async fn run_main_menu<D, S, Internal>(
     display: &mut D,
     storage: &mut S,
     internal: &mut Internal,
     sd_path: &mut String<128>,
+    location: &'static Mutex<CriticalSectionRawMutex, DriveLocation>,
     context: &crate::tasks::ui::UiContext,
 ) -> PageState
 where
@@ -48,11 +52,21 @@ where
                 match idx {
                     0 => {
                         if int_available {
+                            *location.lock().await = DriveLocation::VirtualDirectory {
+                                path: String::from_str("/files").unwrap(),
+                                use_internal: true,
+                            };
+                            crate::LOCATION_CHANGED.signal(());
                             return PageState::InternalMenu;
                         }
                     }
                     1 => {
                         if sd_available {
+                            *location.lock().await = DriveLocation::VirtualDirectory {
+                                path: String::from_str("/").unwrap(),
+                                use_internal: false,
+                            };
+                            crate::LOCATION_CHANGED.signal(());
                             return PageState::SdCardMenu;
                         }
                     }
@@ -74,6 +88,20 @@ where
                     *sd_path = String::from_str("/").unwrap();
                 }
                 // Loop continues to refresh status icons
+            }
+            MenuEvent::LocationChanged => {
+                let loc = location.lock().await.clone();
+                match loc {
+                    DriveLocation::VirtualDirectory { use_internal, .. }
+                    | DriveLocation::DiskImage { use_internal, .. } => {
+                        return if use_internal {
+                            PageState::InternalMenu
+                        } else {
+                            PageState::SdCardMenu
+                        };
+                    }
+                    DriveLocation::Root => {}
+                }
             }
             MenuEvent::ContextAction(_) => {}
         }

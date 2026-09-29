@@ -11,6 +11,7 @@ pub enum MenuEvent {
     ContextAction(usize),
     LoadBlock(usize),
     Timeout,
+    LocationChanged,
 }
 
 pub struct Menu<T, const N: usize, Title = &'static str> {
@@ -386,15 +387,20 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
 
             let action = match action_rx.try_receive() {
                 Ok(a) => a,
-                Err(_) => match embassy_time::with_timeout(
-                    embassy_time::Duration::from_millis(500),
-                    action_rx.receive(),
-                )
-                .await
-                {
-                    Ok(a) => a,
-                    Err(_) => return MenuEvent::Timeout,
-                },
+                Err(_) => {
+                    let rx_fut = action_rx.receive();
+                    let loc_fut = crate::LOCATION_CHANGED.wait();
+                    match embassy_time::with_timeout(
+                        embassy_time::Duration::from_millis(500),
+                        embassy_futures::select::select(rx_fut, loc_fut),
+                    )
+                    .await
+                    {
+                        Ok(embassy_futures::select::Either::First(a)) => a,
+                        Ok(embassy_futures::select::Either::Second(_)) => return MenuEvent::LocationChanged,
+                        Err(_) => return MenuEvent::Timeout,
+                    }
+                }
             };
 
             let mut process_action = |a: UiAction| -> Option<MenuEvent> {

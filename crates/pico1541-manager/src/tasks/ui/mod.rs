@@ -5,6 +5,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use heapless::String;
 use pico1541_common::snooper::SnooperConfig;
+use pico1541_common::DriveLocation;
 
 use embassy_sync::channel::{Receiver, Sender};
 
@@ -31,7 +32,7 @@ where
     pub _indicator: &'a mut Ind,
     pub storage: &'a mut S,
     pub internal: &'a mut Internal,
-    pub viewed_dir: &'a Mutex<CriticalSectionRawMutex, (String<128>, bool)>,
+    pub location: &'static Mutex<CriticalSectionRawMutex, DriveLocation>,
     pub config: &'a SnooperConfig,
     pub sd_path: &'a mut String<128>,
     pub internal_path: &'a mut String<128>,
@@ -93,7 +94,7 @@ pub struct MainMenuTask<D, L, Ind, S, Internal: crate::driver::FileStorageDriver
     _indicator: Ind,
     storage: S,
     internal: Internal,
-    viewed_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
+    location: &'static Mutex<CriticalSectionRawMutex, DriveLocation>,
     config: &'static SnooperConfig,
     sd_path: String<128>,
     internal_path: String<128>,
@@ -120,7 +121,7 @@ where
         indicator: Ind,
         storage: S,
         internal: Internal,
-        viewed_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
+        location: &'static Mutex<CriticalSectionRawMutex, DriveLocation>,
         config: &'static SnooperConfig,
         rom_name: String<32>,
         sys_clock_freq: u32,
@@ -132,7 +133,7 @@ where
             _indicator: indicator,
             storage,
             internal,
-            viewed_dir,
+            location,
             config,
             sd_path: String::from_str("/").unwrap(),
             internal_path: String::from_str("/files").unwrap(),
@@ -148,6 +149,32 @@ where
         let mut state = PageState::BootScreen;
 
         loop {
+            match state {
+                PageState::MainMenu => {
+                    let loc = self.location.lock().await.clone();
+                    match loc {
+                        DriveLocation::VirtualDirectory { use_internal, .. }
+                        | DriveLocation::DiskImage { use_internal, .. } => {
+                            state = if use_internal {
+                                PageState::InternalMenu
+                            } else {
+                                PageState::SdCardMenu
+                            };
+                            continue;
+                        }
+                        DriveLocation::Root => {}
+                    }
+                }
+                PageState::SdCardMenu | PageState::InternalMenu => {
+                    let loc = self.location.lock().await.clone();
+                    if loc.is_root() {
+                        state = PageState::MainMenu;
+                        continue;
+                    }
+                }
+                _ => {}
+            }
+
             state = match state {
                 PageState::BootScreen => {
                     let _ = self.context.cmd_tx.try_send(crate::InternalCommand::Unmount);
@@ -165,6 +192,7 @@ where
                         &mut self.storage,
                         &mut self.internal,
                         &mut self.sd_path,
+                        self.location,
                         &self.context,
                     )
                     .await
@@ -187,7 +215,7 @@ where
                         _indicator: &mut self._indicator,
                         storage: &mut self.storage,
                         internal: &mut self.internal,
-                        viewed_dir: self.viewed_dir,
+                        location: self.location,
                         config: self.config,
                         sd_path: &mut self.sd_path,
                         internal_path: &mut self.internal_path,
@@ -206,7 +234,7 @@ where
                         _indicator: &mut self._indicator,
                         storage: &mut self.storage,
                         internal: &mut self.internal,
-                        viewed_dir: self.viewed_dir,
+                        location: self.location,
                         config: self.config,
                         sd_path: &mut self.sd_path,
                         internal_path: &mut self.internal_path,
