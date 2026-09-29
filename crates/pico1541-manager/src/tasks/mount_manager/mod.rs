@@ -13,7 +13,9 @@ pub mod cd_handler;
 mod timer;
 mod track;
 
-pub use cd_handler::{resolve_cd_action, resolve_cd_path, CdAction};
+pub use cd_handler::{
+    resolve_cd_action, resolve_cd_nav, resolve_cd_path, CdAction, CdNavAction,
+};
 
 pub use file_opener::{match_c64_filename, FileOpener};
 pub mod file_opener;

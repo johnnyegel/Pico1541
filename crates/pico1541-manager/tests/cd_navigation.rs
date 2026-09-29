@@ -171,4 +171,182 @@ fn test_paged_directory_page_1_few_entries() {
     assert!(source.next_entry().is_none(), "Should terminate after 5 entries");
 }
 
+use heapless::String;
+use pico1541_common::DriveLocation;
+use pico1541_manager::tasks::mount_manager::cd_handler::{resolve_cd_nav, CdNavAction};
+
+#[test]
+fn test_resolve_cd_nav_from_root() {
+    let root = DriveLocation::Root;
+
+    // CD:INTERNAL -> enters Internal /files
+    assert_eq!(
+        resolve_cd_nav(&root, "CD:INTERNAL"),
+        CdNavAction::Transition(DriveLocation::VirtualDirectory {
+            path: String::try_from("/files").unwrap(),
+            use_internal: true,
+        })
+    );
+
+    // CD:SD CARD -> enters SD card /
+    assert_eq!(
+        resolve_cd_nav(&root, "CD:SD CARD"),
+        CdNavAction::Transition(DriveLocation::VirtualDirectory {
+            path: String::try_from("/").unwrap(),
+            use_internal: false,
+        })
+    );
+
+    // Bare CD: or CD// at Root remains Root (Ignore)
+    assert_eq!(resolve_cd_nav(&root, "CD:"), CdNavAction::Ignore);
+    assert_eq!(resolve_cd_nav(&root, "CD//"), CdNavAction::Ignore);
+}
+
+#[test]
+fn test_resolve_cd_nav_from_virtual_directory() {
+    let sd_root = DriveLocation::VirtualDirectory {
+        path: String::try_from("/").unwrap(),
+        use_internal: false,
+    };
+
+    // CD:.. from SD root returns to Root
+    assert_eq!(
+        resolve_cd_nav(&sd_root, "CD:.."),
+        CdNavAction::Transition(DriveLocation::Root)
+    );
+    assert_eq!(
+        resolve_cd_nav(&sd_root, "CD:_"),
+        CdNavAction::Transition(DriveLocation::Root)
+    );
+    assert_eq!(
+        resolve_cd_nav(&sd_root, "CD:"),
+        CdNavAction::Transition(DriveLocation::Root)
+    );
+
+    // CD:GAMES from SD root enters /GAMES
+    assert_eq!(
+        resolve_cd_nav(&sd_root, "CD:GAMES"),
+        CdNavAction::Transition(DriveLocation::VirtualDirectory {
+            path: String::try_from("/GAMES").unwrap(),
+            use_internal: false,
+        })
+    );
+
+    // CD:GAME.D64 mounts disk image
+    assert_eq!(
+        resolve_cd_nav(&sd_root, "CD:GAME.D64"),
+        CdNavAction::Transition(DriveLocation::DiskImage {
+            path: String::try_from("/GAME.D64").unwrap(),
+            use_internal: false,
+        })
+    );
+
+    let internal_files = DriveLocation::VirtualDirectory {
+        path: String::try_from("/files").unwrap(),
+        use_internal: true,
+    };
+    // CD:.. or CD: from internal files returns to Root
+    assert_eq!(
+        resolve_cd_nav(&internal_files, "CD:.."),
+        CdNavAction::Transition(DriveLocation::Root)
+    );
+    assert_eq!(
+        resolve_cd_nav(&internal_files, "CD:"),
+        CdNavAction::Transition(DriveLocation::Root)
+    );
+}
+
+#[test]
+fn test_resolve_cd_nav_from_disk_image() {
+    let img = DriveLocation::DiskImage {
+        path: String::try_from("/GAMES/ACTION/DOOM.D64").unwrap(),
+        use_internal: false,
+    };
+
+    // Unmounting from disk image returns to its directory
+    assert_eq!(
+        resolve_cd_nav(&img, "CD:.."),
+        CdNavAction::Transition(DriveLocation::VirtualDirectory {
+            path: String::try_from("/GAMES/ACTION").unwrap(),
+            use_internal: false,
+        })
+    );
+    assert_eq!(
+        resolve_cd_nav(&img, "CD:_"),
+        CdNavAction::Transition(DriveLocation::VirtualDirectory {
+            path: String::try_from("/GAMES/ACTION").unwrap(),
+            use_internal: false,
+        })
+    );
+}
+
+#[test]
+fn test_resolve_cd_nav_paging() {
+    let sd_root = DriveLocation::VirtualDirectory {
+        path: String::try_from("/").unwrap(),
+        use_internal: false,
+    };
+    assert_eq!(
+        resolve_cd_nav(&sd_root, "CD:>>> MORE >>>"),
+        CdNavAction::NextPage
+    );
+    assert_eq!(
+        resolve_cd_nav(&sd_root, "CD:..."),
+        CdNavAction::NextPage
+    );
+    assert_eq!(
+        resolve_cd_nav(&sd_root, "CD:<<< PREV <<<"),
+        CdNavAction::PrevPage
+    );
+}
+
+#[test]
+fn test_resolve_cd_nav_nested_and_edge_cases() {
+    let nested = DriveLocation::VirtualDirectory {
+        path: String::try_from("/GAMES/ACTION").unwrap(),
+        use_internal: false,
+    };
+
+    // Up one level from /GAMES/ACTION -> /GAMES
+    assert_eq!(
+        resolve_cd_nav(&nested, "CD:.."),
+        CdNavAction::Transition(DriveLocation::VirtualDirectory {
+            path: String::try_from("/GAMES").unwrap(),
+            use_internal: false,
+        })
+    );
+
+    // Absolute jump from nested folder
+    assert_eq!(
+        resolve_cd_nav(&nested, "CD:/DEMOS"),
+        CdNavAction::Transition(DriveLocation::VirtualDirectory {
+            path: String::try_from("/DEMOS").unwrap(),
+            use_internal: false,
+        })
+    );
+
+    // Case-insensitive Root navigation
+    let root = DriveLocation::Root;
+    assert_eq!(
+        resolve_cd_nav(&root, "cd:internal"),
+        CdNavAction::Transition(DriveLocation::VirtualDirectory {
+            path: String::try_from("/files").unwrap(),
+            use_internal: true,
+        })
+    );
+    assert_eq!(
+        resolve_cd_nav(&root, "cd:sd"),
+        CdNavAction::Transition(DriveLocation::VirtualDirectory {
+            path: String::try_from("/").unwrap(),
+            use_internal: false,
+        })
+    );
+
+    // Unrecognized or invalid command returns Ignore
+    assert_eq!(resolve_cd_nav(&root, "LOAD\"$\",8"), CdNavAction::Ignore);
+    assert_eq!(resolve_cd_nav(&root, "CD:UNKNOWN_DIR"), CdNavAction::Ignore);
+}
+
+
+
 

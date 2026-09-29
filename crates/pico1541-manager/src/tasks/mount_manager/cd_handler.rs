@@ -1,3 +1,6 @@
+use heapless::String;
+use pico1541_common::DriveLocation;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CdAction {
     NextPage,
@@ -5,6 +8,130 @@ pub enum CdAction {
     ChangeDir(heapless::String<128>),
     MountImage(heapless::String<128>),
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum CdNavAction {
+    NextPage,
+    PrevPage,
+    Transition(DriveLocation),
+    Ignore,
+}
+
+pub fn resolve_cd_nav(current: &DriveLocation, cmd: &str) -> CdNavAction {
+    let cmd = cmd.trim();
+    let body = if cmd.eq_ignore_ascii_case("CD//") || cmd.eq_ignore_ascii_case("CD:") {
+        ""
+    } else if let Some(stripped) = strip_prefix_ci(cmd, "CD:") {
+        stripped
+    } else if let Some(stripped) = strip_prefix_ci(cmd, "CD/") {
+        stripped
+    } else {
+        return CdNavAction::Ignore;
+    };
+
+    let body = body.trim();
+
+    // Page navigation commands
+    if body.eq_ignore_ascii_case(">>> MORE >>>") || body == "..." {
+        return CdNavAction::NextPage;
+    }
+    if body.eq_ignore_ascii_case("<<< PREV <<<") {
+        return CdNavAction::PrevPage;
+    }
+
+    match current {
+        DriveLocation::Root => {
+            if body.eq_ignore_ascii_case("INTERNAL") {
+                CdNavAction::Transition(DriveLocation::VirtualDirectory {
+                    path: String::try_from("/files").unwrap_or_default(),
+                    use_internal: true,
+                })
+            } else if body.eq_ignore_ascii_case("SD CARD")
+                || body.eq_ignore_ascii_case("SD")
+            {
+                CdNavAction::Transition(DriveLocation::VirtualDirectory {
+                    path: String::try_from("/").unwrap_or_default(),
+                    use_internal: false,
+                })
+            } else {
+                CdNavAction::Ignore
+            }
+        }
+        DriveLocation::VirtualDirectory { path, use_internal } => {
+            // Returning to Root or parent
+            if body.is_empty() || body == "/" || body == "//" {
+                return CdNavAction::Transition(DriveLocation::Root);
+            }
+            if body == ".." || body == "_" || body == "\x1F" || body == "<-" {
+                if (*use_internal && path == "/files") || (!*use_internal && path == "/") {
+                    return CdNavAction::Transition(DriveLocation::Root);
+                }
+                let trimmed = path.trim_end_matches('/');
+                let parent = match trimmed.rfind('/') {
+                    Some(0) => "/",
+                    Some(idx) => &trimmed[..idx],
+                    None => "/",
+                };
+                return CdNavAction::Transition(DriveLocation::VirtualDirectory {
+                    path: String::try_from(parent).unwrap_or_default(),
+                    use_internal: *use_internal,
+                });
+            }
+
+            // Check if mounting a disk image (.d64, .g64, .nib)
+            let is_image = if let Some(dot) = body.rfind('.') {
+                let ext = &body[dot..];
+                ext.eq_ignore_ascii_case(".d64")
+                    || ext.eq_ignore_ascii_case(".g64")
+                    || ext.eq_ignore_ascii_case(".nib")
+            } else {
+                false
+            };
+
+            let mut target_path = String::<128>::new();
+            if body.starts_with('/') {
+                let _ = target_path.push_str(body);
+            } else {
+                let base = path.trim_end_matches('/');
+                if !base.is_empty() {
+                    let _ = target_path.push_str(base);
+                }
+                let _ = target_path.push('/');
+                let _ = target_path.push_str(body);
+            }
+
+            if is_image {
+                CdNavAction::Transition(DriveLocation::DiskImage {
+                    path: target_path,
+                    use_internal: *use_internal,
+                })
+            } else {
+                CdNavAction::Transition(DriveLocation::VirtualDirectory {
+                    path: target_path,
+                    use_internal: *use_internal,
+                })
+            }
+        }
+        DriveLocation::DiskImage { path, use_internal } => {
+            if body == ".." || body == "_" || body.is_empty() || body == "\x1F" || body == "<-" {
+                let trimmed = path.trim_end_matches('/');
+                let parent = match trimmed.rfind('/') {
+                    Some(0) => "/",
+                    Some(idx) => &trimmed[..idx],
+                    None => "/",
+                };
+                CdNavAction::Transition(DriveLocation::VirtualDirectory {
+                    path: String::try_from(parent).unwrap_or_default(),
+                    use_internal: *use_internal,
+                })
+            } else {
+                CdNavAction::Ignore
+            }
+        }
+    }
+}
+
 
 /// Resolves an SD2IEC `CD:` command string into a [`CdAction`].
 ///
