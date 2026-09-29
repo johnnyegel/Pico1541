@@ -5,4 +5,4 @@
 - [x] 3. Unified CD Action Resolution & Location State Machine (`crates/pico1541-manager/src/tasks/mount_manager/cd_handler.rs`)
 - [x] 4. Job Queue Selection for Root Slots & Mount Manager Integration (`crates/pico1541-manager/src/tasks/mount_manager/mod.rs`)
 - [x] 5. Reactive OLED UI Integration & State Consolidation (`crates/pico1541-manager/src/tasks/ui/`, `rp2040/src/main.rs`, `rp2350/src/main.rs`)
-- [ ] 6. Full Verification, Release Target Checks & Code Cleanup
+- [x] 6. Full Verification, Release Target Checks & Code Cleanup
