@@ -42,13 +42,14 @@ pub fn resolve_cd_nav(current: &DriveLocation, cmd: &str) -> CdNavAction {
 
     match current {
         DriveLocation::Root => {
-            if body.eq_ignore_ascii_case("INTERNAL") {
+            let clean_body = body.trim_matches('/');
+            if clean_body.eq_ignore_ascii_case("INTERNAL") {
                 CdNavAction::Transition(DriveLocation::VirtualDirectory {
                     path: String::try_from("/files").unwrap_or_default(),
                     use_internal: true,
                 })
-            } else if body.eq_ignore_ascii_case("SD CARD")
-                || body.eq_ignore_ascii_case("SD")
+            } else if clean_body.eq_ignore_ascii_case("SD CARD")
+                || clean_body.eq_ignore_ascii_case("SD")
             {
                 CdNavAction::Transition(DriveLocation::VirtualDirectory {
                     path: String::try_from("/").unwrap_or_default(),
@@ -90,15 +91,25 @@ pub fn resolve_cd_nav(current: &DriveLocation, cmd: &str) -> CdNavAction {
             };
 
             let mut target_path = String::<128>::new();
-            if body.starts_with('/') {
-                let _ = target_path.push_str(body);
+            let append_ok = if body.starts_with('/') {
+                target_path.push_str(body).is_ok()
             } else {
                 let base = path.trim_end_matches('/');
+                let mut ok = true;
                 if !base.is_empty() {
-                    let _ = target_path.push_str(base);
+                    ok = target_path.push_str(base).is_ok();
                 }
-                let _ = target_path.push('/');
-                let _ = target_path.push_str(body);
+                if ok {
+                    ok = target_path.push('/').is_ok();
+                }
+                if ok {
+                    ok = target_path.push_str(body).is_ok();
+                }
+                ok
+            };
+
+            if !append_ok {
+                return CdNavAction::Ignore;
             }
 
             if is_image {
@@ -114,7 +125,7 @@ pub fn resolve_cd_nav(current: &DriveLocation, cmd: &str) -> CdNavAction {
             }
         }
         DriveLocation::DiskImage { path, use_internal } => {
-            if body == ".." || body == "_" || body.is_empty() || body == "\x1F" || body == "<-" {
+            if body == ".." || body == "_" || body.is_empty() || body == "/" || body == "//" || body == "\x1F" || body == "<-" {
                 let trimmed = path.trim_end_matches('/');
                 let parent = match trimmed.rfind('/') {
                     Some(0) => "/",

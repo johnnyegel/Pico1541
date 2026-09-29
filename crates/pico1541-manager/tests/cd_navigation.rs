@@ -325,10 +325,24 @@ fn test_resolve_cd_nav_nested_and_edge_cases() {
         })
     );
 
-    // Case-insensitive Root navigation
+    // Case-insensitive and leading slash Root navigation
     let root = DriveLocation::Root;
     assert_eq!(
         resolve_cd_nav(&root, "cd:internal"),
+        CdNavAction::Transition(DriveLocation::VirtualDirectory {
+            path: String::try_from("/files").unwrap(),
+            use_internal: true,
+        })
+    );
+    assert_eq!(
+        resolve_cd_nav(&root, "CD:/INTERNAL"),
+        CdNavAction::Transition(DriveLocation::VirtualDirectory {
+            path: String::try_from("/files").unwrap(),
+            use_internal: true,
+        })
+    );
+    assert_eq!(
+        resolve_cd_nav(&root, "CD//INTERNAL"),
         CdNavAction::Transition(DriveLocation::VirtualDirectory {
             path: String::try_from("/files").unwrap(),
             use_internal: true,
@@ -341,6 +355,42 @@ fn test_resolve_cd_nav_nested_and_edge_cases() {
             use_internal: false,
         })
     );
+    assert_eq!(
+        resolve_cd_nav(&root, "CD:/SD CARD"),
+        CdNavAction::Transition(DriveLocation::VirtualDirectory {
+            path: String::try_from("/").unwrap(),
+            use_internal: false,
+        })
+    );
+
+    // Unmount disk image at root of SD or internal flash
+    let sd_img = DriveLocation::DiskImage {
+        path: String::try_from("/GAME.D64").unwrap(),
+        use_internal: false,
+    };
+    assert_eq!(
+        resolve_cd_nav(&sd_img, "CD:/"),
+        CdNavAction::Transition(DriveLocation::VirtualDirectory {
+            path: String::try_from("/").unwrap(),
+            use_internal: false,
+        })
+    );
+
+    let int_img = DriveLocation::DiskImage {
+        path: String::try_from("/files/GAME.D64").unwrap(),
+        use_internal: true,
+    };
+    assert_eq!(
+        resolve_cd_nav(&int_img, "CD:.."),
+        CdNavAction::Transition(DriveLocation::VirtualDirectory {
+            path: String::try_from("/files").unwrap(),
+            use_internal: true,
+        })
+    );
+
+    // Buffer overflow returns Ignore
+    let long_dir = "A".repeat(130);
+    assert_eq!(resolve_cd_nav(&nested, &format!("CD:{}", long_dir)), CdNavAction::Ignore);
 
     // Unrecognized or invalid command returns Ignore
     assert_eq!(resolve_cd_nav(&root, "LOAD\"$\",8"), CdNavAction::Ignore);
