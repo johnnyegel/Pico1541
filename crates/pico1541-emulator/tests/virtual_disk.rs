@@ -284,3 +284,25 @@ fn test_job_queue_snoop_select_virtual_file() {
     }
 }
 
+#[test]
+fn test_job_queue_snoop_root_slots() {
+    use racc6502v4::bus::Bus;
+
+    let (mut drive, mut bridge) = setup_drive(false, 8);
+    // Simulate 1541 DOS initialized (IEC listen/talk addresses configured):
+    drive.bus_mut().memory.write(0x0077, 0x28);
+    drive.bus_mut().memory.write(0x0078, 0x48);
+
+    // Slot 0: Track 17 Sector 0
+    drive.bus_mut().memory.write(0x0006, 17);
+    drive.bus_mut().memory.write(0x0007, 0);
+    drive.bus_mut().write(&mut bridge, 0x0000, 0x80, 0);
+    assert_eq!(bridge.selected_virtual_files, vec![0]);
+
+    // Slot 1: Track 17 Sector 1
+    drive.bus_mut().memory.write(0x0006, 17);
+    drive.bus_mut().memory.write(0x0007, 1);
+    drive.bus_mut().write(&mut bridge, 0x0000, 0x80, 0);
+    assert_eq!(bridge.selected_virtual_files, vec![0, 1]);
+}
+

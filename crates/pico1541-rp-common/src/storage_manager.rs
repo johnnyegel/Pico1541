@@ -6,6 +6,7 @@ use embassy_rp::spi::{Blocking, Spi};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::Delay;
+use pico1541_common::DriveLocation;
 use pico1541_manager::driver::file_storage::{FatFsFileWrapper, StorageWrapper};
 use pico1541_manager::driver::{FileInfo, FileStorageDriver};
 use pico1541_manager::formats::Error as FormatError;
@@ -30,16 +31,16 @@ pub type MyStorage = RuntimeStorage<'static, MyFile, crate::littlefs_storage::Li
 
 pub struct PlatformStorageManager {
     pub storage: StorageWrapper<MyRawBlockIo, MyDet>,
-    pub mounted_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
+    pub location: &'static Mutex<CriticalSectionRawMutex, DriveLocation>,
 }
 
 impl FileOpener for PlatformStorageManager {
     type FileStorage = MyStorage;
 
     async fn open_file(&self, requested_petscii: &[u8]) -> Result<Self::FileStorage, FormatError> {
-        let (dir_path, use_internal) = {
-            let guard = self.mounted_dir.lock().await;
-            (guard.0.clone(), guard.1)
+        let (dir_path, use_internal) = match *self.location.lock().await {
+            DriveLocation::VirtualDirectory { ref path, use_internal } => (path.clone(), use_internal),
+            _ => return Err(FormatError::FileNotFound),
         };
 
         let mut found_filename = heapless::String::<64>::new();

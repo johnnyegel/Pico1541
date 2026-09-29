@@ -3,6 +3,7 @@ use crate::formats::DiskImage;
 use crate::storage::DirectorySource;
 use embedded_io_async::{Read, Seek};
 use pico1541_common::track_buffer::TrackLayout;
+use pico1541_common::DriveLocation;
 
 impl<
         S: Read + Seek + 'static,
@@ -56,9 +57,9 @@ impl<
             let old_layout = self.track_handle.get_active_layout();
             self.track_handle.set_active_layout(TrackLayout::Void);
 
-            let (path, use_internal) = {
-                let guard = self.mounted_dir.lock().await;
-                (guard.0.clone(), guard.1)
+            let (path, use_internal) = match *self.location.lock().await {
+                DriveLocation::VirtualDirectory { ref path, use_internal } => (path.clone(), use_internal),
+                _ => return,
             };
 
             // Fetch all missing blocks in a single sequential pass.

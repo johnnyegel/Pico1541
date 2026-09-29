@@ -3,6 +3,7 @@
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
+use embassy_sync::signal::Signal;
 
 pub mod driver;
 pub mod formats;
@@ -96,6 +97,7 @@ pub enum InternalCommand {
 }
 
 pub static CMD_CHANNEL: Channel<CriticalSectionRawMutex, InternalCommand, 128> = Channel::new();
+pub static LOCATION_CHANGED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

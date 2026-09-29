@@ -6,6 +6,7 @@ use embassy_futures::select::{select, Either};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use embedded_io_async::{Read, Seek};
+use pico1541_common::DriveLocation;
 use pico1541_common::interface::TrackHandoff;
 use pico1541_common::track_buffer::{ManagerHandle, TrackLayout};
 
@@ -22,12 +23,12 @@ pub mod file_opener;
 
 pub struct TrackCacheTask<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
 {
-    pub(super) disk_image: Option<AnyDiskImage<S, crate::storage::PagedDirectorySource<144>>>,
+    pub disk_image: Option<AnyDiskImage<S, crate::storage::PagedDirectorySource<144>>>,
     pub(super) track_handle: ManagerHandle,
     pub(super) opener: O,
     pub(super) handoff: H,
-    pub(super) mounted_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
-    last_mounted_path: heapless::String<128>,
+    pub(super) location: &'static Mutex<CriticalSectionRawMutex, DriveLocation>,
+    last_location: DriveLocation,
     last_motor_state: bool,
     motor_state: &'static AtomicBool,
     pub(super) just_selected: bool,
@@ -40,7 +41,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
         track_handle: ManagerHandle,
         opener: O,
         handoff: H,
-        mounted_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
+        location: &'static Mutex<CriticalSectionRawMutex, DriveLocation>,
         motor_state: &'static AtomicBool,
     ) -> Self {
         Self {
@@ -48,8 +49,11 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
             track_handle,
             opener,
             handoff,
-            mounted_dir,
-            last_mounted_path: heapless::String::new(),
+            location,
+            last_location: DriveLocation::DiskImage {
+                path: heapless::String::new(),
+                use_internal: false,
+            },
             last_motor_state: false,
             motor_state,
             just_selected: false,
@@ -81,27 +85,27 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
             }
             self.last_motor_state = current_motor_state;
 
-            // Check mounted dir changes
-            let (current_path, current_use_internal) = {
-                let guard = self.mounted_dir.lock().await;
-                (guard.0.clone(), guard.1)
-            };
-
-            if current_path != self.last_mounted_path {
+            // Check location changes
+            let current_loc = self.location.lock().await.clone();
+            if current_loc != self.last_location {
                 #[cfg(feature = "defmt")]
                 defmt::info!(
-                    "TrackCacheTask detected path change: {} -> {}",
-                    self.last_mounted_path.as_str(),
-                    current_path.as_str()
+                    "TrackCacheTask detected location change: {:?}",
+                    current_loc
                 );
 
-                if current_path.is_empty() {
-                    self.unmount_sequence().await;
-                } else {
-                    self.mount_sequence(current_path.clone(), current_use_internal)
-                        .await;
+                match &current_loc {
+                    DriveLocation::Root => {
+                        self.mount_root().await;
+                    }
+                    DriveLocation::VirtualDirectory { path, use_internal } => {
+                        self.mount_sequence(path.clone(), *use_internal).await;
+                    }
+                    DriveLocation::DiskImage { path, use_internal } => {
+                        self.mount_sequence(path.clone(), *use_internal).await;
+                    }
                 }
-                self.last_mounted_path = current_path;
+                self.last_location = current_loc;
             }
 
             if PAGE_CHANGED.swap(false, Ordering::AcqRel) {
@@ -128,6 +132,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
         }
     }
 
+    #[allow(dead_code)]
     async fn unmount_sequence(&mut self) {
         #[cfg(feature = "defmt")]
         defmt::info!("Image unmounted. Simulating disk removal.");
@@ -137,6 +142,42 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
         embassy_time::Timer::after_millis(50).await;
         self.track_handle.set_write_protected(false); // HIGH (no disk)
         embassy_time::Timer::after_millis(50).await;
+    }
+
+    async fn mount_root(&mut self) {
+        let mut dir_source = crate::storage::PagedDirectorySource::<144>::new(b"STORAGE");
+        dir_source.set_page_entries(
+            0,
+            &[
+                crate::storage::DirectoryEntry::new_dir(b"INTERNAL", 17, 0),
+                crate::storage::DirectoryEntry::new_dir(b"SD CARD", 17, 1),
+            ],
+            false,
+        );
+        let vdisk = crate::formats::VirtualDiskImage::new(dir_source, b"STORAGE");
+        self.disk_image = Some(crate::formats::AnyDiskImage::VirtualDisk(vdisk));
+
+        #[cfg(feature = "defmt")]
+        defmt::info!("Root directory mounted. Simulating physical disk swap.");
+
+        self.track_handle.set_active_layout(TrackLayout::Void);
+        self.track_handle.set_write_protected(true); // LOW (sliding out)
+        embassy_time::Timer::after_millis(50).await;
+        self.track_handle.set_write_protected(false); // HIGH (no disk)
+        embassy_time::Timer::after_millis(400).await;
+        self.track_handle.set_write_protected(true); // LOW (sliding in)
+        embassy_time::Timer::after_millis(50).await;
+        self.track_handle.set_write_protected(true); // LOW (configured: always write protected)
+
+        self.track_handle.force_disk_change();
+
+        let half_track = self.track_handle.get_head_half_track();
+        if let Some(disk) = self.disk_image.as_mut() {
+            if let Some(vdir) = disk.as_virtual_disk_mut() {
+                vdir.source.rewind();
+            }
+        }
+        self.handle_track_event(half_track).await;
     }
 
     #[allow(unused_variables, unused_assignments)]
@@ -323,9 +364,9 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
     }
 
     async fn refresh_paged_directory(&mut self, page: usize) {
-        let (current_path, current_use_internal) = {
-            let guard = self.mounted_dir.lock().await;
-            (guard.0.clone(), guard.1)
+        let (current_path, current_use_internal) = match *self.location.lock().await {
+            DriveLocation::VirtualDirectory { ref path, use_internal } => (path.clone(), use_internal),
+            _ => return,
         };
         let p_str = current_path.as_str();
 
@@ -415,35 +456,76 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
     }
 
     pub async fn select_virtual_file(&mut self, slot: usize) {
-        if let Some(disk) = self.disk_image.as_mut() {
-            if let Some(vdir) = disk.as_virtual_disk_mut() {
-                if vdir.file_storage.is_some() {
-                    return;
+        let current_loc = self.location.lock().await.clone();
+        match current_loc {
+            DriveLocation::Root => {
+                if slot == 0 {
+                    *self.location.lock().await = DriveLocation::VirtualDirectory {
+                        path: heapless::String::try_from("/files").unwrap_or_default(),
+                        use_internal: true,
+                    };
+                    crate::LOCATION_CHANGED.signal(());
+                } else if slot == 1 {
+                    *self.location.lock().await = DriveLocation::VirtualDirectory {
+                        path: heapless::String::try_from("/").unwrap_or_default(),
+                        use_internal: false,
+                    };
+                    crate::LOCATION_CHANGED.signal(());
                 }
+            }
+            DriveLocation::VirtualDirectory { .. } => {
+                if let Some(disk) = self.disk_image.as_mut() {
+                    if let Some(vdir) = disk.as_virtual_disk_mut() {
+                        if vdir.file_storage.is_some() {
+                            return;
+                        }
 
-                let entry_opt = if let Some(paged) = vdir.source.as_paged_mut() {
-                    paged.entry_at_slot(slot)
-                } else {
-                    None
-                };
+                        let entry_opt = if let Some(paged) = vdir.source.as_paged_mut() {
+                            paged.entry_at_slot(slot)
+                        } else {
+                            None
+                        };
 
-                if let Some(entry) = entry_opt {
-                    if !entry.is_dir() && entry.filename[0] != 0 {
-                        if let Ok(file) = self.opener.open_file(&entry.filename).await {
-                            vdir.set_prg_start(entry.first_track, entry.first_sector);
-                            vdir.file_storage = Some(file);
-                            #[cfg(feature = "defmt")]
-                            defmt::info!("Mounted virtual file for slot {}", slot);
-                            log::info!("Mounted virtual file for slot {}", slot);
+                        if let Some(entry) = entry_opt {
+                            if entry.is_dir() {
+                                let mut cd_cmd = heapless::String::<64>::new();
+                                let _ = cd_cmd.push_str("CD:");
+                                for &b in &entry.filename {
+                                    if b == 0xA0 || b == 0 {
+                                        break;
+                                    }
+                                    let ascii = match b {
+                                        0x41..=0x5A => b,
+                                        0xC1..=0xDA => b - 0x80,
+                                        _ => b,
+                                    };
+                                    let _ = cd_cmd.push(ascii as char);
+                                }
+                                let nav_action =
+                                    cd_handler::resolve_cd_nav(&current_loc, cd_cmd.as_str());
+                                if let cd_handler::CdNavAction::Transition(target) = nav_action {
+                                    *self.location.lock().await = target;
+                                    crate::LOCATION_CHANGED.signal(());
+                                }
+                            } else if entry.filename[0] != 0 {
+                                if let Ok(file) = self.opener.open_file(&entry.filename).await {
+                                    vdir.set_prg_start(entry.first_track, entry.first_sector);
+                                    vdir.file_storage = Some(file);
+                                    #[cfg(feature = "defmt")]
+                                    defmt::info!("Mounted virtual file for slot {}", slot);
+                                    log::info!("Mounted virtual file for slot {}", slot);
 
-                            let ht = self.track_handle.get_head_half_track();
-                            if ht < 34 {
-                                self.handle_track_event(ht).await;
+                                    let ht = self.track_handle.get_head_half_track();
+                                    if ht < 34 {
+                                        self.handle_track_event(ht).await;
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
+            DriveLocation::DiskImage { .. } => {}
         }
     }
 }
@@ -483,7 +565,7 @@ pub static SLOT_SELECTED: portable_atomic::AtomicBool = portable_atomic::AtomicB
 
 pub struct MountControllerTask<L: LedsDriver> {
     leds: L,
-    mounted_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
+    location: &'static Mutex<CriticalSectionRawMutex, DriveLocation>,
     motor_state: &'static AtomicBool,
     cmd_rx: Receiver<'static, CriticalSectionRawMutex, crate::InternalCommand, 128>,
     current_page: usize,
@@ -492,13 +574,13 @@ pub struct MountControllerTask<L: LedsDriver> {
 impl<L: LedsDriver> MountControllerTask<L> {
     pub fn new(
         leds: L,
-        mounted_dir: &'static Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)>,
+        location: &'static Mutex<CriticalSectionRawMutex, DriveLocation>,
         motor_state: &'static AtomicBool,
         cmd_rx: Receiver<'static, CriticalSectionRawMutex, crate::InternalCommand, 128>,
     ) -> Self {
         Self {
             leds,
-            mounted_dir,
+            location,
             motor_state,
             cmd_rx,
             current_page: 0,
@@ -519,66 +601,61 @@ impl<L: LedsDriver> MountControllerTask<L> {
                 crate::InternalCommand::Mount(payload) => {
                     self.current_page = 0;
                     CURRENT_PAGE.store(0, Ordering::Release);
-                    let (path, use_internal, led_mode) = payload.into_parts();
-
-                    {
-                        let mut guard = self.mounted_dir.lock().await;
-                        guard.0 = path;
-                        guard.1 = use_internal;
-                    }
+                    let led_mode = payload.status_led_mode();
+                    let new_loc = match payload {
+                        crate::MountPayload::VirtualDirectory(p, i)
+                        | crate::MountPayload::Prg(p, i) => DriveLocation::VirtualDirectory {
+                            path: p,
+                            use_internal: i,
+                        },
+                        crate::MountPayload::D64(p, i)
+                        | crate::MountPayload::G64(p, i)
+                        | crate::MountPayload::Nib(p, i) => DriveLocation::DiskImage {
+                            path: p,
+                            use_internal: i,
+                        },
+                    };
+                    *self.location.lock().await = new_loc;
+                    crate::LOCATION_CHANGED.signal(());
                     self.leds.set_status(led_mode);
                 }
                 crate::InternalCommand::Unmount => {
                     self.current_page = 0;
                     CURRENT_PAGE.store(0, Ordering::Release);
-                    {
-                        let mut guard = self.mounted_dir.lock().await;
-                        guard.0 = heapless::String::new();
-                        guard.1 = false;
-                    }
+                    *self.location.lock().await = DriveLocation::Root;
+                    crate::LOCATION_CHANGED.signal(());
                     self.leds
                         .set_status(crate::driver::StatusLedMode::Unmounted);
                 }
                 crate::InternalCommand::Cd(cd_str) => {
-                    let current = {
-                        let guard = self.mounted_dir.lock().await;
-                        guard.0.clone()
-                    };
-                    if let Some(action) =
-                        cd_handler::resolve_cd_action(current.as_str(), cd_str.as_str())
-                    {
-                        match action {
-                            cd_handler::CdAction::NextPage => {
-                                self.current_page += 1;
-                                CURRENT_PAGE.store(self.current_page, Ordering::Release);
-                                PAGE_CHANGED.store(true, Ordering::Release);
-                            }
-                            cd_handler::CdAction::PrevPage => {
-                                self.current_page = self.current_page.saturating_sub(1);
-                                CURRENT_PAGE.store(self.current_page, Ordering::Release);
-                                PAGE_CHANGED.store(true, Ordering::Release);
-                            }
-                            cd_handler::CdAction::ChangeDir(new_path) => {
-                                self.current_page = 0;
-                                CURRENT_PAGE.store(0, Ordering::Release);
-                                {
-                                    let mut guard = self.mounted_dir.lock().await;
-                                    guard.0 = new_path;
-                                    guard.1 = false; // always SD card for SD2IEC nav
-                                }
-                                self.leds.set_status(crate::driver::StatusLedMode::VirtualDisk);
-                            }
-                            cd_handler::CdAction::MountImage(new_path) => {
-                                self.current_page = 0;
-                                CURRENT_PAGE.store(0, Ordering::Release);
-                                {
-                                    let mut guard = self.mounted_dir.lock().await;
-                                    guard.0 = new_path;
-                                    guard.1 = false; // always SD card for SD2IEC nav
-                                }
-                                self.leds.set_status(crate::driver::StatusLedMode::NonAccurateDisk);
-                            }
+                    let current_loc = self.location.lock().await.clone();
+                    match cd_handler::resolve_cd_nav(&current_loc, cd_str.as_str()) {
+                        cd_handler::CdNavAction::NextPage => {
+                            self.current_page += 1;
+                            CURRENT_PAGE.store(self.current_page, Ordering::Release);
+                            PAGE_CHANGED.store(true, Ordering::Release);
                         }
+                        cd_handler::CdNavAction::PrevPage => {
+                            self.current_page = self.current_page.saturating_sub(1);
+                            CURRENT_PAGE.store(self.current_page, Ordering::Release);
+                            PAGE_CHANGED.store(true, Ordering::Release);
+                        }
+                        cd_handler::CdNavAction::Transition(new_loc) => {
+                            self.current_page = 0;
+                            CURRENT_PAGE.store(0, Ordering::Release);
+                            *self.location.lock().await = new_loc.clone();
+                            crate::LOCATION_CHANGED.signal(());
+                            let led_mode = match new_loc {
+                                DriveLocation::Root | DriveLocation::VirtualDirectory { .. } => {
+                                    crate::driver::StatusLedMode::VirtualDisk
+                                }
+                                DriveLocation::DiskImage { .. } => {
+                                    crate::driver::StatusLedMode::NonAccurateDisk
+                                }
+                            };
+                            self.leds.set_status(led_mode);
+                        }
+                        cd_handler::CdNavAction::Ignore => {}
                     }
                 }
                 crate::InternalCommand::SelectVirtualFile(slot) => {

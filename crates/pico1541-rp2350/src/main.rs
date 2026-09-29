@@ -27,6 +27,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 
 use pico1541_common::snooper::SnooperConfig;
+use pico1541_common::DriveLocation;
 
 use embassy_rp::block::{item_image_type_exe, item_vector_table, Architecture, Block, Security};
 
@@ -91,8 +92,8 @@ static SNOOPER_CONFIG: SnooperConfig = SnooperConfig::new(DEFAULT_DRIVE_ID);
 
 static CURRENT_DIR: Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)> =
     Mutex::new((heapless::String::new(), false));
-static MOUNTED_DIR: Mutex<CriticalSectionRawMutex, (heapless::String<128>, bool)> =
-    Mutex::new((heapless::String::new(), false));
+static CURRENT_LOCATION: Mutex<CriticalSectionRawMutex, DriveLocation> =
+    Mutex::new(DriveLocation::Root);
 static MOTOR_STATE: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 
 static EXECUTOR_HIGH: embassy_executor::InterruptExecutor =
@@ -580,16 +581,16 @@ async fn core0_init_task(
         manager_handle,
         PlatformStorageManager {
             storage: StorageWrapper(sd_mutex),
-            mounted_dir: &MOUNTED_DIR,
+            location: &CURRENT_LOCATION,
         },
         RpTrackHandoff::new(),
-        &MOUNTED_DIR,
+        &CURRENT_LOCATION,
         &MOTOR_STATE,
     );
 
     let mount_controller_task = MountControllerTask::new(
         StatusLedsWrapper(status_leds_mutex),
-        &MOUNTED_DIR,
+        &CURRENT_LOCATION,
         &MOTOR_STATE,
         pico1541_manager::CMD_CHANNEL.receiver(),
     );
