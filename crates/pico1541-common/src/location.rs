@@ -1,9 +1,10 @@
 use heapless::String;
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum DriveLocation {
     /// Top-level root container presenting "INTERNAL" and "SD CARD".
+    #[default]
     Root,
 
     /// Virtual directory listing within either Internal flash (/files) or SD card.
