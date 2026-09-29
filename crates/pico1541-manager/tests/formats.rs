@@ -728,8 +728,8 @@ fn test_root_directory_virtual_disk_track_18() {
     use pollster::block_on;
 
     let mut entries = heapless::Vec::<DirectoryEntry, 2>::new();
-    let _ = entries.push(DirectoryEntry::new_dir(b"INTERNAL", 17, 0));
-    let _ = entries.push(DirectoryEntry::new_dir(b"SD CARD", 17, 1));
+    entries.push(DirectoryEntry::new_dir(b"INTERNAL\0extra", 17, 0)).expect("push failed");
+    entries.push(DirectoryEntry::new_dir(b"SD CARD", 17, 1)).expect("push failed");
 
     let source = VectorDirectorySource::new(b"STORAGE", entries);
     let mut vdisk = VirtualDiskImage::<MemoryStorage<'static>, _>::new(source, b"STORAGE");
@@ -767,6 +767,8 @@ fn test_root_directory_virtual_disk_track_18() {
         }
         pos += 1;
     }
+
+    assert_eq!(sector_data_map.len(), 19, "All 19 sectors must be present on Track 18");
 
     // Verify Sector 0 (BAM) points to (18, 1) and disk name is STORAGE
     let s0 = sector_data_map.get(&0).unwrap();

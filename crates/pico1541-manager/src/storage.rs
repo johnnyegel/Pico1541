@@ -106,8 +106,8 @@ impl DirectoryEntry {
 
     pub fn new_dir(name: &[u8], track: u8, sector: u8) -> Self {
         let mut filename = [0xA0; 16];
-        let copy_len = name.len().min(16);
-        for i in 0..copy_len {
+        let actual_len = name.iter().position(|&c| c == 0).unwrap_or(name.len()).min(16);
+        for i in 0..actual_len {
             filename[i] = ascii_to_petscii(name[i]);
         }
         Self {
