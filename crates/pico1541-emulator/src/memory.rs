@@ -63,7 +63,6 @@ impl Memory {
         false
     }
 
-
     #[inline(always)]
     pub fn load_rom(&mut self, rom: &'static [u8; 16384]) {
         self.data[0x4000..0x8000].copy_from_slice(rom);
@@ -87,7 +86,8 @@ impl Memory {
         let mut patched = false;
         let orig_chk = compute_rom_8k_checksum(&rom_slice[0..0x2000]);
 
-        for i in 0..(rom_slice.len().saturating_sub(18)) {
+        // Bound with saturating_sub(20) to ensure i + 20 never exceeds rom_slice.len()
+        for i in 0..(rom_slice.len().saturating_sub(20)) {
             if rom_slice[i] == 0xB9
                 && rom_slice[i + 3] == 0x9D
                 && rom_slice[i + 6] == 0xCA
@@ -122,6 +122,11 @@ impl Memory {
                     break;
                 }
             }
+            debug_assert_eq!(
+                compute_rom_8k_checksum(&rom_slice[0..0x2000]),
+                orig_chk,
+                "Failed to repair 1541-II ROM checksum"
+            );
         }
     }
 
@@ -195,6 +200,7 @@ mod tests {
         rom[offset + 14] = 0xB9; rom[offset + 15] = 0xBB; rom[offset + 16] = 0xFE;
         rom[offset + 17] = 0x9D; rom[offset + 18] = 0xB1; rom[offset + 19] = 0x02;
 
+        let expected_chk = compute_rom_8k_checksum(&rom[0..0x2000]);
         memory.load_rom(rom);
 
         // Verify extended tables at $BF00
@@ -218,6 +224,31 @@ mod tests {
         assert_eq!(memory.read(0xC000 + offset as u16 + 9), 0xBF);
         assert_eq!(memory.read(0xC000 + offset as u16 + 15), 0x00);
         assert_eq!(memory.read(0xC000 + offset as u16 + 16), 0xBF);
+
+        // Verify checksum repair matches the pre-patch checksum
+        assert_eq!(
+            compute_rom_8k_checksum(&memory.data[0x4000..0x6000]),
+            expected_chk
+        );
+    }
+
+
+    #[test]
+    fn test_rom_scanner_edge_bounds_safety() {
+        let mut sys_mem = [0u8; MEMORY_SIZE];
+        let mut memory = Memory::new(unsafe {
+            &mut *core::ptr::addr_of_mut!(sys_mem)
+        });
+
+        // Place partial pattern bytes right at the very end of ROM
+        static mut EDGE_ROM: [u8; 16384] = [0; 16384];
+        let rom = unsafe { &mut *core::ptr::addr_of_mut!(EDGE_ROM) };
+        rom[16375] = 0xB9;
+        rom[16380] = 0xB9;
+        rom[16383] = 0xB9;
+
+        // Must not panic on out-of-bounds slicing
+        memory.load_rom(rom);
     }
 }
 
