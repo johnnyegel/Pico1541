@@ -175,6 +175,21 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
         embassy_time::Timer::after_millis(50).await;
     }
 
+    async fn simulate_disk_swap(&mut self, final_write_protected: bool) {
+        #[cfg(feature = "defmt")]
+        defmt::info!("Simulating physical disk swap (Write Protect sensor toggle).");
+
+        self.track_handle.set_active_layout(TrackLayout::Void);
+        self.track_handle.set_write_protected(true); // LOW (sliding out)
+        embassy_time::Timer::after_millis(50).await;
+        self.track_handle.set_write_protected(false); // HIGH (no disk, phototransistor uncovered)
+        embassy_time::Timer::after_millis(300).await;
+        self.track_handle.set_write_protected(true); // LOW (sliding in, phototransistor covered)
+        embassy_time::Timer::after_millis(50).await;
+        self.track_handle.set_write_protected(final_write_protected);
+        self.track_handle.force_disk_change();
+    }
+
     async fn mount_root(&mut self) {
         let mut dir_source = PagedDirectorySource::<144>::new(b"STORAGE");
         dir_source.set_page_entries(
@@ -195,8 +210,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
         #[cfg(feature = "defmt")]
         defmt::info!("Root directory mounted.");
 
-        self.track_handle.set_write_protected(true);
-        self.track_handle.force_disk_change();
+        self.simulate_disk_swap(true).await;
 
         let half_track = self.track_handle.get_head_half_track();
         if let Some(disk) = self.disk_image.as_mut() {
@@ -282,7 +296,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
         } else {
             // ── Virtual directory listing ─────────────────────────────────────────
             let mut name_bytes = b"SD CARD".as_slice();
-            if p_str == "/" || p_str.is_empty() {
+            if p_str == "/" || p_str.is_empty() || (use_internal && p_str == "/files") {
                 if use_internal {
                     name_bytes = b"INTERNAL".as_slice();
                 } else {
@@ -374,17 +388,19 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
             ht2
         );
 
+        let final_wp = if let Some(disk) = self.disk_image.as_mut() {
+            disk.as_virtual_disk_mut().is_some()
+        } else {
+            false
+        };
+
+        self.simulate_disk_swap(final_wp).await;
+
         let mut disk_opt = self.disk_image.as_mut();
         if let Some(disk) = disk_opt.as_mut() {
             if let Some(vdir) = disk.as_virtual_disk_mut() {
-                self.track_handle.set_write_protected(true);
                 vdir.source.rewind();
-            } else {
-                self.track_handle.set_write_protected(false);
             }
-
-            self.track_handle.force_disk_change();
-
             let half_track = self.track_handle.get_head_half_track();
             drop(disk_opt);
 
@@ -476,8 +492,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
             }
         }
 
-        self.track_handle.set_write_protected(true);
-        self.track_handle.force_disk_change();
+        self.simulate_disk_swap(true).await;
 
         let half_track = self.track_handle.get_head_half_track();
         if let Some(disk) = self.disk_image.as_mut() {
