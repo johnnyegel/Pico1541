@@ -1,6 +1,6 @@
 use crate::driver::RgbLedDriver as LedsDriver;
-use crate::formats::AnyDiskImage;
-use crate::storage::DirectorySource;
+use crate::formats::{AnyDiskImage, D64Image, G64Image, NibImage, VirtualDiskImage};
+use crate::storage::{DirectoryEntry, DirectorySource, PagedDirectorySource, PAGE_CAPACITY};
 use core::str::FromStr;
 use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_futures::select::{select, Either};
@@ -24,7 +24,7 @@ pub mod file_opener;
 
 pub struct TrackCacheTask<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
 {
-    pub disk_image: Option<AnyDiskImage<S, crate::storage::PagedDirectorySource<144>>>,
+    pub disk_image: Option<AnyDiskImage<S, PagedDirectorySource<144>>>,
     pub(super) track_handle: ManagerHandle,
     pub(super) opener: O,
     pub(super) handoff: H,
@@ -147,17 +147,17 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
     }
 
     async fn mount_root(&mut self) {
-        let mut dir_source = crate::storage::PagedDirectorySource::<144>::new(b"STORAGE");
+        let mut dir_source = PagedDirectorySource::<144>::new(b"STORAGE");
         dir_source.set_page_entries(
             0,
             &[
-                crate::storage::DirectoryEntry::new_dir(b"INTERNAL", 17, 0),
-                crate::storage::DirectoryEntry::new_dir(b"SD CARD", 17, 1),
+                DirectoryEntry::new_dir(b"INTERNAL", 17, 0),
+                DirectoryEntry::new_dir(b"SD CARD", 17, 1),
             ],
             false,
         );
-        let vdisk = crate::formats::VirtualDiskImage::new(dir_source, b"STORAGE");
-        self.disk_image = Some(crate::formats::AnyDiskImage::VirtualDisk(vdisk));
+        let vdisk = VirtualDiskImage::new(dir_source, b"STORAGE");
+        self.disk_image = Some(AnyDiskImage::VirtualDisk(vdisk));
 
         #[cfg(feature = "defmt")]
         defmt::info!("Root directory mounted.");
@@ -193,19 +193,19 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
             };
 
             if is_d64 {
-                let d64 = crate::formats::D64Image::new(file).await;
-                self.disk_image = Some(crate::formats::AnyDiskImage::D64(d64));
+                let d64 = D64Image::new(file).await;
+                self.disk_image = Some(AnyDiskImage::D64(d64));
             } else if is_g64 {
-                self.disk_image = crate::formats::G64Image::from_storage(file)
+                self.disk_image = G64Image::from_storage(file)
                     .await
                     .ok()
-                    .map(crate::formats::AnyDiskImage::G64);
+                    .map(AnyDiskImage::G64);
                 ht2 = self.track_handle.get_head_half_track();
             } else if is_nib {
-                self.disk_image = crate::formats::NibImage::from_storage(file)
+                self.disk_image = NibImage::from_storage(file)
                     .await
                     .ok()
-                    .map(crate::formats::AnyDiskImage::Nib);
+                    .map(AnyDiskImage::Nib);
                 ht2 = self.track_handle.get_head_half_track();
             }
         } else if is_single_file(p_str) {
@@ -217,8 +217,8 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
 
             let name_bytes = last_segment(p_str).as_bytes();
 
-            let dir_source = crate::storage::PagedDirectorySource::<144>::new(name_bytes);
-            let mut vdisk = crate::formats::VirtualDiskImage::new(dir_source, name_bytes);
+            let dir_source = PagedDirectorySource::<144>::new(name_bytes);
+            let mut vdisk = VirtualDiskImage::new(dir_source, name_bytes);
 
             // Open the file and attach it as the file storage.
             let mut file = if use_internal {
@@ -234,11 +234,11 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
             let _ = embedded_io_async::Seek::seek(&mut file, embedded_io_async::SeekFrom::Start(0)).await;
 
             // Single directory entry: filename + first_track=17, first_sector=0.
-            let entry = crate::storage::DirectoryEntry::from_file_info(name_bytes, false, file_size as u32);
+            let entry = DirectoryEntry::from_file_info(name_bytes, false, file_size as u32);
             vdisk.set_shortcut_entry(Some(entry));
             vdisk.file_storage = Some(file);
 
-            self.disk_image = Some(crate::formats::AnyDiskImage::VirtualDisk(vdisk));
+            self.disk_image = Some(AnyDiskImage::VirtualDisk(vdisk));
 
             #[cfg(feature = "defmt")]
             defmt::info!("PRG mount: \"{}\"", p_str);
@@ -257,9 +257,9 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
                 name_bytes = p_str.as_bytes();
             }
 
-            let dir_source = crate::storage::PagedDirectorySource::<144>::new(name_bytes);
-            let vdisk = crate::formats::VirtualDiskImage::new(dir_source, name_bytes);
-            self.disk_image = Some(crate::formats::AnyDiskImage::VirtualDisk(vdisk));
+            let dir_source = PagedDirectorySource::<144>::new(name_bytes);
+            let vdisk = VirtualDiskImage::new(dir_source, name_bytes);
+            self.disk_image = Some(AnyDiskImage::VirtualDisk(vdisk));
 
             let mut count = 0;
             let mut has_more = false;
@@ -270,9 +270,9 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
                     p_str,
                     use_internal,
                     0,
-                    crate::storage::PAGE_CAPACITY + 1,
+                    PAGE_CAPACITY + 1,
                     |entry| {
-                        if count < crate::storage::PAGE_CAPACITY {
+                        if count < PAGE_CAPACITY {
                             if let Some(disk) = disk_image.as_mut() {
                                 if let Some(vdir) = disk.as_virtual_disk_mut() {
                                     if let Some(paged) = vdir.source.as_paged_mut() {
@@ -291,23 +291,23 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
             #[cfg(feature = "defmt")]
             defmt::info!(
                 "Initial dir fetch: {} entries for \"{}\"",
-                count.min(crate::storage::PAGE_CAPACITY),
+                count.min(PAGE_CAPACITY),
                 p_str
             );
 
             if let Some(disk) = self.disk_image.as_mut() {
                 if let Some(vdir) = disk.as_virtual_disk_mut() {
                     if let Some(paged) = vdir.source.as_paged_mut() {
-                        let loaded_count = count.min(crate::storage::PAGE_CAPACITY);
-                        for i in loaded_count..crate::storage::PAGE_CAPACITY {
-                            paged.set_page_entry(i, crate::storage::DirectoryEntry::default());
+                        let loaded_count = count.min(PAGE_CAPACITY);
+                        for i in loaded_count..PAGE_CAPACITY {
+                            paged.set_page_entry(i, DirectoryEntry::default());
                         }
-                        if count < crate::storage::PAGE_CAPACITY
-                            || (count == crate::storage::PAGE_CAPACITY && !has_more)
+                        if count < PAGE_CAPACITY
+                            || (count == PAGE_CAPACITY && !has_more)
                         {
                             paged.set_total_count(count);
                         } else if has_more {
-                            let known_min = crate::storage::PAGE_CAPACITY + 1;
+                            let known_min = PAGE_CAPACITY + 1;
                             if paged.total_count() == usize::MAX || paged.total_count() < known_min {
                                 paged.set_total_count(known_min);
                             }
@@ -358,7 +358,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
             }
         }
 
-        let start_entry = page * crate::storage::PAGE_CAPACITY;
+        let start_entry = page * PAGE_CAPACITY;
         let mut count = 0;
         let mut has_more = false;
         let disk_image = &mut self.disk_image;
@@ -368,9 +368,9 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
                 p_str,
                 current_use_internal,
                 start_entry,
-                crate::storage::PAGE_CAPACITY + 1,
+                PAGE_CAPACITY + 1,
                 |entry| {
-                    if count < crate::storage::PAGE_CAPACITY {
+                    if count < PAGE_CAPACITY {
                         if let Some(disk) = disk_image.as_mut() {
                             if let Some(vdir) = disk.as_virtual_disk_mut() {
                                 if let Some(paged) = vdir.source.as_paged_mut() {
@@ -389,7 +389,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
         #[cfg(feature = "defmt")]
         defmt::info!(
             "Page refresh: {} entries for \"{}\", page {}",
-            count.min(crate::storage::PAGE_CAPACITY),
+            count.min(PAGE_CAPACITY),
             p_str,
             page
         );
@@ -397,16 +397,16 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
         if let Some(disk) = self.disk_image.as_mut() {
             if let Some(vdir) = disk.as_virtual_disk_mut() {
                 if let Some(paged) = vdir.source.as_paged_mut() {
-                    let loaded_count = count.min(crate::storage::PAGE_CAPACITY);
-                    for i in loaded_count..crate::storage::PAGE_CAPACITY {
-                        paged.set_page_entry(i, crate::storage::DirectoryEntry::default());
+                    let loaded_count = count.min(PAGE_CAPACITY);
+                    for i in loaded_count..PAGE_CAPACITY {
+                        paged.set_page_entry(i, DirectoryEntry::default());
                     }
-                    if count < crate::storage::PAGE_CAPACITY
-                        || (count == crate::storage::PAGE_CAPACITY && !has_more)
+                    if count < PAGE_CAPACITY
+                        || (count == PAGE_CAPACITY && !has_more)
                     {
                         paged.set_total_count(start_entry + count);
                     } else if has_more {
-                        let known_min = (page + 1) * crate::storage::PAGE_CAPACITY + 1;
+                        let known_min = (page + 1) * PAGE_CAPACITY + 1;
                         if paged.total_count() == usize::MAX || paged.total_count() < known_min {
                             paged.set_total_count(known_min);
                         }
