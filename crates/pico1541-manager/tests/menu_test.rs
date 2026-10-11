@@ -67,3 +67,23 @@ fn test_menu_receives_ui_action() {
         _ => panic!("Expected MenuEvent::Selected(0)"),
     }
 }
+
+#[test]
+fn test_is_mounted_case_insensitive() {
+    use pico1541_manager::tasks::ui::browser::is_mounted;
+    use heapless::String;
+
+    let mut mounted = String::<128>::new();
+    let _ = mounted.push_str("/demos/DISK1.D64");
+
+    // Exact match
+    assert!(is_mounted("/demos/DISK1.D64", Some(&mounted)));
+    // Lowercase match
+    assert!(is_mounted("/demos/disk1.d64", Some(&mounted)));
+    // Mixed case match
+    assert!(is_mounted("/Demos/Disk1.D64", Some(&mounted)));
+    // Different path
+    assert!(!is_mounted("/demos/disk2.d64", Some(&mounted)));
+    // None mounted
+    assert!(!is_mounted("/demos/disk1.d64", None));
+}

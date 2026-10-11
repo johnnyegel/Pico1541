@@ -35,7 +35,7 @@ where
     run_file_browser_menu(ctx, "Internal", true).await
 }
 
-fn is_mounted(item_path: &str, mounted_path: Option<&String<128>>) -> bool {
+pub fn is_mounted(item_path: &str, mounted_path: Option<&String<128>>) -> bool {
     mounted_path.map_or(false, |m| m.as_str().eq_ignore_ascii_case(item_path))
 }
 

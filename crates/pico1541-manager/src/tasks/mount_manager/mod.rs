@@ -22,6 +22,11 @@ pub use cd_handler::{
 pub use file_opener::{match_c64_filename, ChildInfo, FileOpener};
 pub mod file_opener;
 
+#[inline]
+fn has_extension(path: &str, ext: &str) -> bool {
+    path.len() >= ext.len() && path[path.len() - ext.len()..].eq_ignore_ascii_case(ext)
+}
+
 pub struct TrackCacheTask<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
 {
     pub disk_image: Option<AnyDiskImage<S, PagedDirectorySource<144>>>,
@@ -178,9 +183,9 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
     async fn mount_sequence(&mut self, path: heapless::String<128>, use_internal: bool) {
         let p_str = path.as_str();
 
-        let is_d64 = p_str.ends_with(".d64") || p_str.ends_with(".D64");
-        let is_g64 = p_str.ends_with(".g64") || p_str.ends_with(".G64");
-        let is_nib = p_str.ends_with(".nib") || p_str.ends_with(".NIB");
+        let is_d64 = has_extension(p_str, ".d64");
+        let is_g64 = has_extension(p_str, ".g64");
+        let is_nib = has_extension(p_str, ".nib");
 
         let ht1 = self.track_handle.get_head_half_track();
         let mut ht2 = ht1;
@@ -767,11 +772,7 @@ impl<L: LedsDriver, O: FileOpener> MountControllerTask<L, O> {
                                 }
                                 DriveLocation::DiskImage { ref path, .. } => {
                                     let p = path.as_str();
-                                    if p.ends_with(".g64")
-                                        || p.ends_with(".G64")
-                                        || p.ends_with(".nib")
-                                        || p.ends_with(".NIB")
-                                    {
+                                    if has_extension(p, ".g64") || has_extension(p, ".nib") {
                                         crate::driver::StatusLedMode::AccurateDisk
                                     } else {
                                         crate::driver::StatusLedMode::NonAccurateDisk

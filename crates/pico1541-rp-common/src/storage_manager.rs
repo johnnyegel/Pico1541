@@ -171,15 +171,17 @@ impl FileOpener for PlatformStorageManager {
             }
         };
 
+        const MAX_DIR_SCAN_ENTRIES: usize = 1000;
+
         if use_internal {
             let mut internal = crate::littlefs_storage::LittleFsStorage;
             let _ = internal
-                .list_dir_range(dir_path, 0, 1000, find_fn)
+                .list_dir_range(dir_path, 0, MAX_DIR_SCAN_ENTRIES, find_fn)
                 .await;
         } else {
             let mut sd = self.storage;
             let _ = sd
-                .list_dir_range(dir_path, 0, 1000, find_fn)
+                .list_dir_range(dir_path, 0, MAX_DIR_SCAN_ENTRIES, find_fn)
                 .await;
         }
 
