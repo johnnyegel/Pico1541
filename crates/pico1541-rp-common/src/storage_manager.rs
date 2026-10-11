@@ -12,7 +12,7 @@ use pico1541_manager::driver::{FileInfo, FileStorageDriver};
 use pico1541_manager::formats::Error as FormatError;
 use pico1541_manager::storage::RuntimeStorage;
 use pico1541_manager::storage::{mangle_filename, DirectoryEntry};
-use pico1541_manager::tasks::mount_manager::{match_c64_filename, ChildInfo, FileOpener};
+use pico1541_manager::tasks::mount_manager::{match_c64_filename, FileOpener};
 
 pub type MySpi = Spi<'static, SPI1, Blocking>;
 
@@ -116,7 +116,7 @@ impl FileOpener for PlatformStorageManager {
         use_internal: bool,
         start_index: usize,
         count: usize,
-        mut callback: impl FnMut(DirectoryEntry),
+        mut callback: impl FnMut(DirectoryEntry, &str),
     ) -> Result<(), FormatError> {
         let handle_info = |info: FileInfo| {
             let name_len = info
@@ -124,9 +124,10 @@ impl FileOpener for PlatformStorageManager {
                 .iter()
                 .position(|&c| c == 0)
                 .unwrap_or(info.name.len());
+            let name_str = core::str::from_utf8(&info.name[..name_len]).unwrap_or("");
             let entry =
                 DirectoryEntry::from_file_info(&info.name[..name_len], info.is_dir, info.size);
-            callback(entry);
+            callback(entry, name_str);
         };
 
         if use_internal {
@@ -140,51 +141,5 @@ impl FileOpener for PlatformStorageManager {
                 .list_dir_range(path, start_index, count, handle_info)
                 .await
         }
-    }
-
-    async fn find_child(
-        &self,
-        dir_path: &str,
-        use_internal: bool,
-        requested_petscii: &[u8],
-    ) -> Result<Option<ChildInfo>, FormatError> {
-        let mut found_child = None;
-
-        let find_fn = |info: FileInfo| {
-            if found_child.is_none() {
-                let mangled = mangle_filename(&info.name);
-                if match_c64_filename(&mangled, requested_petscii) {
-                    let name_len = info
-                        .name
-                        .iter()
-                        .position(|&c| c == 0)
-                        .unwrap_or(info.name.len());
-                    if let Ok(s) = core::str::from_utf8(&info.name[..name_len]) {
-                        let mut name = heapless::String::<64>::new();
-                        let _ = name.push_str(s);
-                        found_child = Some(ChildInfo {
-                            name,
-                            is_dir: info.is_dir,
-                        });
-                    }
-                }
-            }
-        };
-
-        const MAX_DIR_SCAN_ENTRIES: usize = 1000;
-
-        if use_internal {
-            let mut internal = crate::littlefs_storage::LittleFsStorage;
-            let _ = internal
-                .list_dir_range(dir_path, 0, MAX_DIR_SCAN_ENTRIES, find_fn)
-                .await;
-        } else {
-            let mut sd = self.storage;
-            let _ = sd
-                .list_dir_range(dir_path, 0, MAX_DIR_SCAN_ENTRIES, find_fn)
-                .await;
-        }
-
-        Ok(found_child)
     }
 }

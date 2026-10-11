@@ -27,8 +27,27 @@ fn has_extension(path: &str, ext: &str) -> bool {
     path.len() >= ext.len() && path[path.len() - ext.len()..].eq_ignore_ascii_case(ext)
 }
 
-pub struct TrackCacheTask<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
-{
+pub fn status_led_for_location(loc: &DriveLocation) -> crate::driver::StatusLedMode {
+    match loc {
+        DriveLocation::Root => crate::driver::StatusLedMode::Unmounted,
+        DriveLocation::VirtualDirectory { .. } => crate::driver::StatusLedMode::VirtualDisk,
+        DriveLocation::DiskImage { path, .. } => {
+            let p = path.as_str();
+            if has_extension(p, ".g64") || has_extension(p, ".nib") {
+                crate::driver::StatusLedMode::AccurateDisk
+            } else {
+                crate::driver::StatusLedMode::NonAccurateDisk
+            }
+        }
+    }
+}
+
+pub struct TrackCacheTask<
+    S: Read + Seek + 'static,
+    O: FileOpener<FileStorage = S>,
+    H: TrackHandoff,
+    L: LedsDriver,
+> {
     pub disk_image: Option<AnyDiskImage<S, PagedDirectorySource<144>>>,
     pub(super) track_handle: ManagerHandle,
     pub(super) opener: O,
@@ -38,10 +57,11 @@ pub struct TrackCacheTask<S: Read + Seek + 'static, O: FileOpener<FileStorage = 
     last_motor_state: bool,
     motor_state: &'static AtomicBool,
     pub(super) just_selected: bool,
+    pub(super) leds: L,
 }
 
-impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
-    TrackCacheTask<S, O, H>
+impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, L: LedsDriver>
+    TrackCacheTask<S, O, H, L>
 {
     pub fn new(
         track_handle: ManagerHandle,
@@ -49,7 +69,9 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
         handoff: H,
         location: &'static Mutex<CriticalSectionRawMutex, DriveLocation>,
         motor_state: &'static AtomicBool,
+        mut leds: L,
     ) -> Self {
+        leds.set_status(crate::driver::StatusLedMode::Unmounted);
         Self {
             disk_image: None,
             track_handle,
@@ -63,6 +85,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
             last_motor_state: false,
             motor_state,
             just_selected: false,
+            leds,
         }
     }
 
@@ -111,6 +134,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
                         self.mount_sequence(path.clone(), *use_internal).await;
                     }
                 }
+                self.leds.set_status(status_led_for_location(&current_loc));
                 self.last_location = current_loc;
             }
 
@@ -163,6 +187,10 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
         );
         let vdisk = VirtualDiskImage::new(dir_source, b"STORAGE");
         self.disk_image = Some(AnyDiskImage::VirtualDisk(vdisk));
+        {
+            let mut guard = ACTIVE_CHILDREN.lock().await;
+            guard.clear();
+        }
 
         #[cfg(feature = "defmt")]
         defmt::info!("Root directory mounted.");
@@ -191,6 +219,10 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
         let mut ht2 = ht1;
 
         if is_d64 || is_g64 || is_nib {
+            {
+                let mut guard = ACTIVE_CHILDREN.lock().await;
+                guard.clear();
+            }
             let file = if use_internal {
                 self.opener.open_internal_file(p_str)
             } else {
@@ -268,6 +300,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
 
             let mut count = 0;
             let mut has_more = false;
+            let mut active_children_batch = heapless::Vec::<CachedChildEntry, 48>::new();
             let disk_image = &mut self.disk_image;
             let _ = self
                 .opener
@@ -276,15 +309,22 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
                     use_internal,
                     0,
                     PAGE_CAPACITY + 1,
-                    |entry| {
+                    |entry, name_str| {
                         if count < PAGE_CAPACITY {
                             if let Some(disk) = disk_image.as_mut() {
                                 if let Some(vdir) = disk.as_virtual_disk_mut() {
                                     if let Some(paged) = vdir.source.as_paged_mut() {
-                                        paged.set_page_entry(count, entry);
+                                        paged.set_page_entry_with_name(count, entry, name_str);
                                     }
                                 }
                             }
+                            let mut s = heapless::String::<64>::new();
+                            let _ = s.push_str(name_str);
+                            let _ = active_children_batch.push(CachedChildEntry {
+                                petscii_name: entry.filename,
+                                real_name: s,
+                                is_dir: entry.is_dir(),
+                            });
                         } else {
                             has_more = true;
                         }
@@ -292,6 +332,10 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
                     },
                 )
                 .await;
+            {
+                let mut guard = ACTIVE_CHILDREN.lock().await;
+                *guard = active_children_batch;
+            }
 
             #[cfg(feature = "defmt")]
             defmt::info!(
@@ -366,6 +410,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
         let start_entry = page * PAGE_CAPACITY;
         let mut count = 0;
         let mut has_more = false;
+        let mut active_children_batch = heapless::Vec::<CachedChildEntry, 48>::new();
         let disk_image = &mut self.disk_image;
         let _ = self
             .opener
@@ -374,15 +419,22 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
                 current_use_internal,
                 start_entry,
                 PAGE_CAPACITY + 1,
-                |entry| {
+                |entry, name_str| {
                     if count < PAGE_CAPACITY {
                         if let Some(disk) = disk_image.as_mut() {
                             if let Some(vdir) = disk.as_virtual_disk_mut() {
                                 if let Some(paged) = vdir.source.as_paged_mut() {
-                                    paged.set_page_entry(count, entry);
+                                    paged.set_page_entry_with_name(count, entry, name_str);
                                 }
                             }
                         }
+                        let mut s = heapless::String::<64>::new();
+                        let _ = s.push_str(name_str);
+                        let _ = active_children_batch.push(CachedChildEntry {
+                            petscii_name: entry.filename,
+                            real_name: s,
+                            is_dir: entry.is_dir(),
+                        });
                     } else {
                         has_more = true;
                     }
@@ -390,6 +442,10 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
                 },
             )
             .await;
+        {
+            let mut guard = ACTIVE_CHILDREN.lock().await;
+            *guard = active_children_batch;
+        }
 
         #[cfg(feature = "defmt")]
         defmt::info!(
@@ -467,45 +523,18 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
 
                         if let Some(entry) = entry_opt {
                             if entry.is_dir() {
-                                let mut cd_cmd = heapless::String::<64>::new();
-                                let _ = cd_cmd.push_str("CD:");
-                                for &b in &entry.filename {
-                                    if b == 0xA0 || b == 0 {
-                                        break;
-                                    }
-                                    let ascii = match b {
-                                        0x41..=0x5A => b,
-                                        0xC1..=0xDA => b - 0x80,
-                                        _ => b,
+                                let (name, _) = if let Some(paged) = vdir.source.as_paged_mut() {
+                                    paged.child_at_slot(slot).unwrap_or_default()
+                                } else {
+                                    (heapless::String::new(), true)
+                                };
+                                if let Some(target_path) = cd_handler::go_to_child(current_loc.path(), name.as_str()) {
+                                    CURRENT_PAGE.store(0, Ordering::Release);
+                                    *self.location.lock().await = DriveLocation::VirtualDirectory {
+                                        path: target_path,
+                                        use_internal: current_loc.use_internal(),
                                     };
-                                    let _ = cd_cmd.push(ascii as char);
-                                }
-                                let nav_action =
-                                    cd_handler::resolve_cd_nav(&current_loc, cd_cmd.as_str());
-                                match nav_action {
-                                    cd_handler::CdNavAction::NextPage => {
-                                        let next = CURRENT_PAGE.load(Ordering::Acquire) + 1;
-                                        CURRENT_PAGE.store(next, Ordering::Release);
-                                        PAGE_CHANGED.store(true, Ordering::Release);
-                                    }
-                                    cd_handler::CdNavAction::PrevPage => {
-                                        let prev = CURRENT_PAGE.load(Ordering::Acquire).saturating_sub(1);
-                                        CURRENT_PAGE.store(prev, Ordering::Release);
-                                        PAGE_CHANGED.store(true, Ordering::Release);
-                                    }
-                                    cd_handler::CdNavAction::Transition(target) => {
-                                        let resolved_target = resolve_child_location(
-                                            &self.opener,
-                                            &current_loc,
-                                            target,
-                                            cd_cmd.as_str(),
-                                        )
-                                        .await;
-                                        CURRENT_PAGE.store(0, Ordering::Release);
-                                        *self.location.lock().await = resolved_target;
-                                        crate::LOCATION_CHANGED.signal(());
-                                    }
-                                    cd_handler::CdNavAction::Ignore => {}
+                                    crate::LOCATION_CHANGED.signal(());
                                 }
                             } else if entry.filename[0] != 0 {
                                 if let Ok(file) = self.opener.open_file(&entry.filename).await {
@@ -527,6 +556,21 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
             }
             DriveLocation::DiskImage { .. } => {}
         }
+    }
+
+    pub fn resolve_child_in_memory(&mut self, child_name: &str) -> Option<(heapless::String<64>, bool)> {
+        let mut petscii_buf = [0xA0; 16];
+        for (i, &b) in child_name.as_bytes().iter().take(16).enumerate() {
+            petscii_buf[i] = crate::storage::ascii_to_petscii(b);
+        }
+        if let Some(disk) = self.disk_image.as_mut() {
+            if let Some(vdir) = disk.as_virtual_disk_mut() {
+                if let Some(paged) = vdir.source.as_paged_mut() {
+                    return paged.resolve_child(&petscii_buf);
+                }
+            }
+        }
+        None
     }
 }
 
@@ -557,140 +601,56 @@ fn last_segment(path: &str) -> &str {
 
 use embassy_sync::channel::Receiver;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CachedChildEntry {
+    pub petscii_name: [u8; 16],
+    pub real_name: heapless::String<64>,
+    pub is_dir: bool,
+}
+
+pub static ACTIVE_CHILDREN: Mutex<CriticalSectionRawMutex, heapless::Vec<CachedChildEntry, 48>> =
+    Mutex::new(heapless::Vec::new());
+
+pub async fn resolve_active_child(child_name: &str) -> Option<(heapless::String<64>, bool)> {
+    let mut petscii_buf = [0xA0; 16];
+    for (i, &b) in child_name.as_bytes().iter().take(16).enumerate() {
+        petscii_buf[i] = crate::storage::ascii_to_petscii(b);
+    }
+    let guard = ACTIVE_CHILDREN.lock().await;
+    for entry in guard.iter() {
+        if file_opener::match_c64_filename(&entry.petscii_name, &petscii_buf) {
+            return Some((entry.real_name.clone(), entry.is_dir));
+        }
+    }
+    None
+}
 
 pub static CURRENT_PAGE: portable_atomic::AtomicUsize = portable_atomic::AtomicUsize::new(0);
 pub static PAGE_CHANGED: portable_atomic::AtomicBool = portable_atomic::AtomicBool::new(false);
 pub static SELECTED_SLOT: portable_atomic::AtomicUsize = portable_atomic::AtomicUsize::new(usize::MAX);
 pub static SLOT_SELECTED: portable_atomic::AtomicBool = portable_atomic::AtomicBool::new(false);
 
-pub async fn resolve_child_location<O: FileOpener>(
-    opener: &O,
-    current: &DriveLocation,
-    tentative: DriveLocation,
-    cd_raw: &str,
-) -> DriveLocation {
-    let (current_path, use_internal) = match current {
-        DriveLocation::VirtualDirectory { path, use_internal } => (path, *use_internal),
-        _ => return tentative,
-    };
-
-    match &tentative {
-        DriveLocation::Root => return tentative,
-        DriveLocation::VirtualDirectory { path, .. } => {
-            let trimmed_curr = current_path.trim_end_matches('/');
-            let parent = match trimmed_curr.rfind('/') {
-                Some(0) => "/",
-                Some(idx) => &trimmed_curr[..idx],
-                None => "/",
-            };
-            if path.as_str() == parent {
-                return tentative;
-            }
-        }
-        _ => {}
-    }
-
-    let cmd = cd_raw.trim();
-    let body = if let Some(stripped) = cd_handler::strip_prefix_ci(cmd, "CD:") {
-        stripped.trim()
-    } else if let Some(stripped) = cd_handler::strip_prefix_ci(cmd, "CD/") {
-        stripped.trim()
-    } else {
-        cmd
-    };
-
-    let is_abs = body.starts_with('/');
-    let clean_body = body.trim_matches('/');
-    if clean_body.is_empty() {
-        return tentative;
-    }
-
-    let mut curr_dir = heapless::String::<128>::new();
-    if is_abs {
-        let base = if use_internal { "/files" } else { "/" };
-        let _ = curr_dir.push_str(base);
-    } else {
-        let _ = curr_dir.push_str(current_path.as_str());
-    }
-
-    let mut final_is_dir = true;
-
-    for seg in clean_body.split('/') {
-        let seg = seg.trim();
-        if seg.is_empty() || seg == "." {
-            continue;
-        }
-        if seg == ".." || seg == "_" || seg == "\x1F" || seg == "<-" {
-            if let Some(parent) = cd_handler::go_to_parent(curr_dir.as_str()) {
-                curr_dir = parent;
-            }
-            continue;
-        }
-
-        let mut petscii_buf = [0xA0; 16];
-        for (i, &b) in seg.as_bytes().iter().take(16).enumerate() {
-            petscii_buf[i] = crate::storage::ascii_to_petscii(b);
-        }
-
-        if let Ok(Some(child)) = opener
-            .find_child(curr_dir.as_str(), use_internal, &petscii_buf)
-            .await
-        {
-            final_is_dir = child.is_dir;
-            if let Some(next) = cd_handler::go_to_child(curr_dir.as_str(), child.name.as_str()) {
-                curr_dir = next;
-            }
-        } else {
-            if let Some(next) = cd_handler::go_to_child(curr_dir.as_str(), seg) {
-                curr_dir = next;
-            }
-            final_is_dir = !cd_handler::is_disk_image(seg);
-        }
-    }
-
-    let is_image = cd_handler::is_disk_image(curr_dir.as_str());
-    if !final_is_dir && is_image {
-        DriveLocation::DiskImage {
-            path: curr_dir,
-            use_internal,
-        }
-    } else {
-        DriveLocation::VirtualDirectory {
-            path: curr_dir,
-            use_internal,
-        }
-    }
-}
-
-pub struct MountControllerTask<L: LedsDriver, O: FileOpener> {
-    leds: L,
-    opener: O,
+pub struct MountControllerTask {
     location: &'static Mutex<CriticalSectionRawMutex, DriveLocation>,
     motor_state: &'static AtomicBool,
     cmd_rx: Receiver<'static, CriticalSectionRawMutex, crate::InternalCommand, 128>,
-    current_page: usize,
 }
 
-impl<L: LedsDriver, O: FileOpener> MountControllerTask<L, O> {
+impl MountControllerTask {
     pub fn new(
-        leds: L,
-        opener: O,
         location: &'static Mutex<CriticalSectionRawMutex, DriveLocation>,
         motor_state: &'static AtomicBool,
         cmd_rx: Receiver<'static, CriticalSectionRawMutex, crate::InternalCommand, 128>,
     ) -> Self {
         Self {
-            leds,
-            opener,
             location,
             motor_state,
             cmd_rx,
-            current_page: 0,
         }
     }
 
     pub fn current_page(&self) -> usize {
-        self.current_page
+        CURRENT_PAGE.load(Ordering::Relaxed)
     }
 
     pub async fn run(&mut self) {
@@ -701,9 +661,7 @@ impl<L: LedsDriver, O: FileOpener> MountControllerTask<L, O> {
                     self.motor_state.store(active, Ordering::Relaxed);
                 }
                 crate::InternalCommand::Mount(payload) => {
-                    self.current_page = 0;
                     CURRENT_PAGE.store(0, Ordering::Release);
-                    let led_mode = payload.status_led_mode();
                     let new_loc = match payload {
                         crate::MountPayload::VirtualDirectory(p, i) => DriveLocation::VirtualDirectory {
                             path: p,
@@ -729,59 +687,74 @@ impl<L: LedsDriver, O: FileOpener> MountControllerTask<L, O> {
                     };
                     *self.location.lock().await = new_loc;
                     crate::LOCATION_CHANGED.signal(());
-                    self.leds.set_status(led_mode);
                 }
                 crate::InternalCommand::Unmount => {
-                    self.current_page = 0;
                     CURRENT_PAGE.store(0, Ordering::Release);
                     *self.location.lock().await = DriveLocation::Root;
                     crate::LOCATION_CHANGED.signal(());
-                    self.leds
-                        .set_status(crate::driver::StatusLedMode::Unmounted);
                 }
                 crate::InternalCommand::Cd(cd_str) => {
                     let current_loc = self.location.lock().await.clone();
-                    match cd_handler::resolve_cd_nav(&current_loc, cd_str.as_str()) {
-                        cd_handler::CdNavAction::NextPage => {
-                            let next = CURRENT_PAGE.load(Ordering::Acquire) + 1;
-                            self.current_page = next;
-                            CURRENT_PAGE.store(next, Ordering::Release);
-                            PAGE_CHANGED.store(true, Ordering::Release);
+                    match current_loc {
+                        DriveLocation::Root => {
+                            let nav = cd_handler::resolve_cd_nav(&current_loc, cd_str.as_str());
+                            if let cd_handler::CdNavAction::Transition(loc) = nav {
+                                CURRENT_PAGE.store(0, Ordering::Release);
+                                *self.location.lock().await = loc;
+                                crate::LOCATION_CHANGED.signal(());
+                            }
                         }
-                        cd_handler::CdNavAction::PrevPage => {
-                            let prev = CURRENT_PAGE.load(Ordering::Acquire).saturating_sub(1);
-                            self.current_page = prev;
-                            CURRENT_PAGE.store(prev, Ordering::Release);
-                            PAGE_CHANGED.store(true, Ordering::Release);
-                        }
-                        cd_handler::CdNavAction::Transition(new_loc) => {
-                            let resolved_loc = resolve_child_location(
-                                &self.opener,
-                                &current_loc,
-                                new_loc,
-                                cd_str.as_str(),
-                            )
-                            .await;
-                            self.current_page = 0;
-                            CURRENT_PAGE.store(0, Ordering::Release);
-                            *self.location.lock().await = resolved_loc.clone();
-                            crate::LOCATION_CHANGED.signal(());
-                            let led_mode = match resolved_loc {
-                                DriveLocation::Root | DriveLocation::VirtualDirectory { .. } => {
-                                    crate::driver::StatusLedMode::VirtualDisk
+                        DriveLocation::VirtualDirectory { ref path, use_internal } => {
+                            let nav = cd_handler::resolve_cd_nav(&current_loc, cd_str.as_str());
+                            match nav {
+                                cd_handler::CdNavAction::NextPage => {
+                                    let next = CURRENT_PAGE.load(Ordering::Acquire) + 1;
+                                    CURRENT_PAGE.store(next, Ordering::Release);
+                                    PAGE_CHANGED.store(true, Ordering::Release);
                                 }
-                                DriveLocation::DiskImage { ref path, .. } => {
-                                    let p = path.as_str();
-                                    if has_extension(p, ".g64") || has_extension(p, ".nib") {
-                                        crate::driver::StatusLedMode::AccurateDisk
-                                    } else {
-                                        crate::driver::StatusLedMode::NonAccurateDisk
-                                    }
+                                cd_handler::CdNavAction::PrevPage => {
+                                    let prev = CURRENT_PAGE.load(Ordering::Acquire).saturating_sub(1);
+                                    CURRENT_PAGE.store(prev, Ordering::Release);
+                                    PAGE_CHANGED.store(true, Ordering::Release);
                                 }
-                            };
-                            self.leds.set_status(led_mode);
+                                cd_handler::CdNavAction::Transition(new_loc) => {
+                                    let child_seg = cd_handler::extract_cd_target(cd_str.as_str());
+                                    let resolved_child = resolve_active_child(child_seg).await;
+                                    let target_loc = match (new_loc, resolved_child) {
+                                        (DriveLocation::Root, _) => DriveLocation::Root,
+                                        (DriveLocation::VirtualDirectory { path: p, .. }, Some((name, true))) => {
+                                            let next_p = cd_handler::go_to_child(path.as_str(), name.as_str()).unwrap_or(p);
+                                            DriveLocation::VirtualDirectory { path: next_p, use_internal }
+                                        }
+                                        (DriveLocation::VirtualDirectory { path: p, .. }, Some((name, false))) => {
+                                            if cd_handler::is_disk_image(name.as_str()) {
+                                                let next_p = cd_handler::go_to_child(path.as_str(), name.as_str()).unwrap_or(p);
+                                                DriveLocation::DiskImage { path: next_p, use_internal }
+                                            } else {
+                                                DriveLocation::VirtualDirectory { path: p, use_internal }
+                                            }
+                                        }
+                                        (DriveLocation::DiskImage { path: p, .. }, Some((name, false))) => {
+                                            let next_p = cd_handler::go_to_child(path.as_str(), name.as_str()).unwrap_or(p);
+                                            DriveLocation::DiskImage { path: next_p, use_internal }
+                                        }
+                                        (other, _) => other,
+                                    };
+                                    CURRENT_PAGE.store(0, Ordering::Release);
+                                    *self.location.lock().await = target_loc;
+                                    crate::LOCATION_CHANGED.signal(());
+                                }
+                                cd_handler::CdNavAction::Ignore => {}
+                            }
                         }
-                        cd_handler::CdNavAction::Ignore => {}
+                        DriveLocation::DiskImage { .. } => {
+                            let nav = cd_handler::resolve_cd_nav(&current_loc, cd_str.as_str());
+                            if let cd_handler::CdNavAction::Transition(loc) = nav {
+                                CURRENT_PAGE.store(0, Ordering::Release);
+                                *self.location.lock().await = loc;
+                                crate::LOCATION_CHANGED.signal(());
+                            }
+                        }
                     }
                 }
                 crate::InternalCommand::SelectVirtualFile(slot) => {

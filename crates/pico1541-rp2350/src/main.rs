@@ -413,6 +413,7 @@ async fn track_cache_run(
         MyStorage,
         PlatformStorageManager,
         RpTrackHandoff,
+        StatusLedsWrapper<CriticalSectionRawMutex>,
     >,
 ) {
     task.run().await;
@@ -420,10 +421,7 @@ async fn track_cache_run(
 
 #[embassy_executor::task]
 async fn controller_run(
-    mut task: MountControllerTask<
-        StatusLedsWrapper<CriticalSectionRawMutex>,
-        PlatformStorageManager,
-    >,
+    mut task: MountControllerTask,
 ) {
     task.run().await;
 }
@@ -589,14 +587,10 @@ async fn core0_init_task(
         RpTrackHandoff::new(),
         &CURRENT_LOCATION,
         &MOTOR_STATE,
+        StatusLedsWrapper(status_leds_mutex),
     );
 
     let mount_controller_task = MountControllerTask::new(
-        StatusLedsWrapper(status_leds_mutex),
-        PlatformStorageManager {
-            storage: StorageWrapper(sd_mutex),
-            location: &CURRENT_LOCATION,
-        },
         &CURRENT_LOCATION,
         &MOTOR_STATE,
         CMD_CHANNEL.receiver(),

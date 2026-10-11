@@ -1,4 +1,4 @@
-use super::{FileOpener, TrackCacheTask};
+use super::{FileOpener, LedsDriver, TrackCacheTask};
 use crate::formats::DiskImage;
 use embassy_futures::select::select;
 use embassy_futures::select::Either;
@@ -14,7 +14,8 @@ impl<
         S: Read + Seek + 'static,
         O: FileOpener<FileStorage = S>,
         H: pico1541_common::interface::TrackHandoff,
-    > TrackCacheTask<S, O, H>
+        L: LedsDriver,
+    > TrackCacheTask<S, O, H, L>
 {
         pub(super) async fn handle_track_event(&mut self, half_track: u8) {
         let mut target_ht = half_track;

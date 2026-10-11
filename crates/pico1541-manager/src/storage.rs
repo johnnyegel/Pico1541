@@ -16,7 +16,6 @@ pub fn ascii_to_petscii(a: u8) -> u8 {
 
 pub fn petscii_to_ascii(p: u8) -> u8 {
     match p {
-        0x41..=0x5A => p + 0x20, // 0x41-0x5A -> 0x61-0x7A ('a'-'z')
         0xC1..=0xDA => p - 0x80, // 0xC1-0xDA -> 0x41-0x5A ('A'-'Z')
         _ => p,
     }
@@ -137,6 +136,9 @@ pub trait PagedDirectorySourceTrait {
     fn set_page_entry(&mut self, index: usize, entry: DirectoryEntry);
     fn set_page_entries(&mut self, page: usize, entries: &[DirectoryEntry], has_more: bool);
     fn entry_at_slot(&self, slot: usize) -> Option<DirectoryEntry>;
+    fn set_page_entry_with_name(&mut self, index: usize, entry: DirectoryEntry, orig_name: &str);
+    fn resolve_child(&self, req_petscii: &[u8]) -> Option<(heapless::String<64>, bool)>;
+    fn child_at_slot(&self, slot: usize) -> Option<(heapless::String<64>, bool)>;
 }
 
 pub trait DirectorySource {
@@ -266,9 +268,29 @@ pub const PAGE_CAPACITY: usize = 142;
 
 pub use pico1541_common::track_buffer::{slot_to_track_sector, track_sector_to_slot};
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct LongNameEntry {
+    pub slot: u8,
+    pub name: heapless::String<64>,
+}
+
+#[inline]
+fn is_disk_image_name(name: &str) -> bool {
+    if let Some(dot) = name.rfind('.') {
+        let ext = &name[dot..];
+        ext.eq_ignore_ascii_case(".d64")
+            || ext.eq_ignore_ascii_case(".g64")
+            || ext.eq_ignore_ascii_case(".nib")
+    } else {
+        false
+    }
+}
+
 pub struct PagedDirectorySource<const N: usize = 144> {
     name: [u8; 16],
     pub entries: [DirectoryEntry; N],
+    pub long_names: heapless::Vec<LongNameEntry, 64>,
     start_block: usize,
     end_block: usize,
     current_read_index: usize,
@@ -284,6 +306,7 @@ impl<const N: usize> PagedDirectorySource<N> {
         Self {
             name: n,
             entries: [DirectoryEntry::default(); N],
+            long_names: heapless::Vec::new(),
             start_block: 0,
             end_block: 0,
             current_read_index: 0,
@@ -297,12 +320,71 @@ impl<const N: usize> PagedDirectorySource<N> {
         self.current_read_index = 0;
         self.start_block = 0;
         self.end_block = 0;
+        self.long_names.clear();
     }
 
     pub fn set_page_entry(&mut self, index: usize, entry: DirectoryEntry) {
         if index < N {
             self.entries[index] = entry;
         }
+    }
+
+    pub fn set_page_entry_with_name(&mut self, index: usize, entry: DirectoryEntry, orig_name: &str) {
+        if index < N {
+            self.entries[index] = entry;
+            if orig_name.len() > 16 || entry.is_dir() || is_disk_image_name(orig_name) {
+                let mut s = heapless::String::<64>::new();
+                let _ = s.push_str(orig_name);
+                let _ = self.long_names.push(LongNameEntry {
+                    slot: index as u8,
+                    name: s,
+                });
+            }
+        }
+    }
+
+    pub fn resolve_child(&self, req_petscii: &[u8]) -> Option<(heapless::String<64>, bool)> {
+        for (i, entry) in self.entries.iter().enumerate() {
+            if entry.file_type == 0 {
+                continue;
+            }
+            if crate::tasks::mount_manager::file_opener::match_c64_filename(&entry.filename, req_petscii) {
+                if let Some(ln) = self.long_names.iter().find(|l| l.slot == i as u8) {
+                    return Some((ln.name.clone(), entry.is_dir()));
+                }
+                let mut name = heapless::String::<64>::new();
+                for &b in &entry.filename {
+                    if b == 0xA0 || b == 0 {
+                        break;
+                    }
+                    let ascii = petscii_to_ascii(b);
+                    let _ = name.push(ascii as char);
+                }
+                return Some((name, entry.is_dir()));
+            }
+        }
+        None
+    }
+
+    pub fn child_at_slot(&self, slot: usize) -> Option<(heapless::String<64>, bool)> {
+        let entry = self.entry_at_slot(slot)?;
+        if entry.file_type == 0 {
+            return None;
+        }
+        let nav_prefix = if self.page > 0 { 1 } else { 0 };
+        let real_slot = slot.saturating_sub(nav_prefix);
+        if let Some(ln) = self.long_names.iter().find(|l| l.slot == real_slot as u8) {
+            return Some((ln.name.clone(), entry.is_dir()));
+        }
+        let mut name = heapless::String::<64>::new();
+        for &b in &entry.filename {
+            if b == 0xA0 || b == 0 {
+                break;
+            }
+            let ascii = petscii_to_ascii(b);
+            let _ = name.push(ascii as char);
+        }
+        Some((name, entry.is_dir()))
     }
 
     pub fn set_page_entries(&mut self, page: usize, entries: &[DirectoryEntry], has_more: bool) {
@@ -430,6 +512,18 @@ impl<const N: usize> PagedDirectorySourceTrait for PagedDirectorySource<N> {
 
     fn entry_at_slot(&self, slot: usize) -> Option<DirectoryEntry> {
         self.entry_at_slot(slot)
+    }
+
+    fn set_page_entry_with_name(&mut self, index: usize, entry: DirectoryEntry, orig_name: &str) {
+        self.set_page_entry_with_name(index, entry, orig_name);
+    }
+
+    fn resolve_child(&self, req_petscii: &[u8]) -> Option<(heapless::String<64>, bool)> {
+        self.resolve_child(req_petscii)
+    }
+
+    fn child_at_slot(&self, slot: usize) -> Option<(heapless::String<64>, bool)> {
+        self.child_at_slot(slot)
     }
 
     fn set_block(&mut self, block_index: usize, block_entries: &[DirectoryEntry]) {

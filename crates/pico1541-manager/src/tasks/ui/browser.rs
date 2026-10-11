@@ -1,7 +1,7 @@
 use super::monitor;
 use super::{join_path, parent_dir, PageState, MenuContext};
 use crate::driver::{
-    DisplayDriver, FileInfo, FileStorageDriver, IndicatorDriver, RgbLedDriver, StatusLedMode,
+    DisplayDriver, FileInfo, FileStorageDriver, IndicatorDriver, RgbLedDriver,
 };
 use crate::tasks::menu::{Menu, MenuEvent};
 use crate::tasks::ui::virtual_directory::VirtualDirectoryManager;
@@ -369,7 +369,6 @@ where
                     defmt::error!("cmd_tx is FULL for Unmount!");
                 }
 
-                ctx.leds.set_status(StatusLedMode::Unmounted);
                 if !use_internal && title == "SD Card" {
                     *manager.current_path = String::from_str("/").unwrap_or_default();
                 }
@@ -605,7 +604,6 @@ where
                         defmt::error!("cmd_tx is FULL for Unmount!");
                     }
 
-                    ctx.leds.set_status(StatusLedMode::Unmounted);
                     return PageState::MainMenu;
                 }
                 ctx.display.request_redraw();

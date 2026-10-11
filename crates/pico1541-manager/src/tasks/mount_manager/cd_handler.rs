@@ -217,9 +217,19 @@ pub fn resolve_cd_path(
 }
 
 
-// ── helpers ────────────────────────────────────────────────────────────────
+pub fn extract_cd_target(cmd: &str) -> &str {
+    let trimmed = cmd.trim();
+    let body = if let Some(stripped) = strip_prefix_ci(trimmed, "CD:") {
+        stripped.trim()
+    } else if let Some(stripped) = strip_prefix_ci(trimmed, "CD/") {
+        stripped.trim()
+    } else {
+        trimmed
+    };
+    body.trim_matches('/')
+}
 
-pub(crate) fn is_disk_image(path: &str) -> bool {
+pub fn is_disk_image(path: &str) -> bool {
     if let Some(dot) = path.rfind('.') {
         let ext = &path[dot..];
         ext.eq_ignore_ascii_case(".d64")
@@ -238,7 +248,7 @@ pub(crate) fn strip_prefix_ci<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
     }
 }
 
-pub(crate) fn go_to_parent(current_path: &str) -> Option<heapless::String<128>> {
+pub fn go_to_parent(current_path: &str) -> Option<heapless::String<128>> {
     if current_path == "/" || current_path.is_empty() {
         return heapless::String::try_from("/").ok();
     }
@@ -255,7 +265,7 @@ pub(crate) fn go_to_parent(current_path: &str) -> Option<heapless::String<128>> 
     heapless::String::try_from(parent).ok()
 }
 
-pub(crate) fn go_to_child(current_path: &str, name: &str) -> Option<heapless::String<128>> {
+pub fn go_to_child(current_path: &str, name: &str) -> Option<heapless::String<128>> {
     let mut new_path = heapless::String::<128>::new();
     // Append base path without trailing slash
     let base = current_path.trim_end_matches('/');

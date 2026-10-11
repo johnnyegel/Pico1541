@@ -18,17 +18,8 @@ pub trait FileOpener {
         use_internal: bool,
         start_index: usize,
         count: usize,
-        callback: impl FnMut(crate::storage::DirectoryEntry),
+        callback: impl FnMut(crate::storage::DirectoryEntry, &str),
     ) -> Result<(), crate::formats::Error>;
-
-    async fn find_child(
-        &self,
-        _dir_path: &str,
-        _use_internal: bool,
-        _requested_petscii: &[u8],
-    ) -> Result<Option<ChildInfo>, crate::formats::Error> {
-        Ok(None)
-    }
 }
 
 pub fn match_c64_filename(entry_name: &[u8; 16], req_name: &[u8]) -> bool {
