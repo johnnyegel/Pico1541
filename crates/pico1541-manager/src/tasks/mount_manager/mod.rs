@@ -160,17 +160,9 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
         self.disk_image = Some(crate::formats::AnyDiskImage::VirtualDisk(vdisk));
 
         #[cfg(feature = "defmt")]
-        defmt::info!("Root directory mounted. Simulating physical disk swap.");
+        defmt::info!("Root directory mounted.");
 
-        self.track_handle.set_active_layout(TrackLayout::Void);
-        self.track_handle.set_write_protected(true); // LOW (sliding out)
-        embassy_time::Timer::after_millis(50).await;
-        self.track_handle.set_write_protected(false); // HIGH (no disk)
-        embassy_time::Timer::after_millis(400).await;
-        self.track_handle.set_write_protected(true); // LOW (sliding in)
-        embassy_time::Timer::after_millis(50).await;
-        self.track_handle.set_write_protected(true); // LOW (configured: always write protected)
-
+        self.track_handle.set_write_protected(true);
         self.track_handle.force_disk_change();
 
         let half_track = self.track_handle.get_head_half_track();
@@ -327,38 +319,24 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
 
         #[cfg(feature = "defmt")]
         defmt::info!(
-            "Disk Image mounted: {}. Simulating physical disk swap. Head: {}, {}",
+            "Disk Image mounted: {}. Head: {}, {}",
             p_str,
             ht1,
             ht2
         );
 
-        // 1. Unmount sequence
-        self.track_handle.set_active_layout(TrackLayout::Void);
-        self.track_handle.set_write_protected(true); // LOW (sliding out)
-        embassy_time::Timer::after_millis(50).await;
-        self.track_handle.set_write_protected(false); // HIGH (no disk)
-
         let mut disk_opt = self.disk_image.as_mut();
-        if !disk_opt.is_none() {
-            embassy_time::Timer::after_millis(400).await;
-            self.track_handle.set_write_protected(true); // LOW (sliding in)
-            embassy_time::Timer::after_millis(50).await;
-            self.track_handle.set_write_protected(true); // LOW (configured: always write protected)
+        if let Some(disk) = disk_opt.as_mut() {
+            if let Some(vdir) = disk.as_virtual_disk_mut() {
+                self.track_handle.set_write_protected(true);
+                vdir.source.rewind();
+            } else {
+                self.track_handle.set_write_protected(false);
+            }
 
-            self.track_handle.set_force_disk_change(true);
+            self.track_handle.force_disk_change();
 
             let half_track = self.track_handle.get_head_half_track();
-
-            if let Some(disk) = disk_opt.as_mut() {
-                if let Some(vdir) = disk.as_virtual_disk_mut() {
-                    // NOTE: do NOT clear shortcut_entry or file_storage here.
-                    // mount_sequence always creates a fresh VirtualDiskImage, so these
-                    // fields are exactly what we just configured (PRG mount or empty).
-                    // Clearing them would destroy the shortcut entry and file handle.
-                    vdir.source.rewind();
-                }
-            }
             drop(disk_opt);
 
             self.handle_track_event(half_track).await;
@@ -437,15 +415,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff>
             }
         }
 
-        self.track_handle.set_active_layout(TrackLayout::Void);
-        self.track_handle.set_write_protected(true); // LOW (sliding out)
-        embassy_time::Timer::after_millis(50).await;
-        self.track_handle.set_write_protected(false); // HIGH (no disk)
-        embassy_time::Timer::after_millis(400).await;
-        self.track_handle.set_write_protected(true); // LOW (sliding in)
-        embassy_time::Timer::after_millis(50).await;
         self.track_handle.set_write_protected(true);
-
         self.track_handle.force_disk_change();
 
         let half_track = self.track_handle.get_head_half_track();

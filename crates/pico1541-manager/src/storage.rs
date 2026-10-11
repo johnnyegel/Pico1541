@@ -549,6 +549,11 @@ impl<const N: usize> DirectorySource for PagedDirectorySource<N> {
         let (t, s) = slot_to_track_sector(slot);
         entry.first_track = t;
         entry.first_sector = s;
+
+        if entry.file_type == 0 {
+            return None;
+        }
+
         self.current_read_index += 1;
         Some(entry)
     }

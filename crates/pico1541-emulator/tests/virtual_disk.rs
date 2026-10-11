@@ -306,3 +306,20 @@ fn test_job_queue_snoop_root_slots() {
     assert_eq!(bridge.selected_virtual_files, vec![0, 1]);
 }
 
+#[test]
+fn test_force_disk_change_sets_wpsw() {
+    let (mut drive, mut bridge) = setup_drive(false, 8);
+
+    drive.bus_mut().memory.write(0x001C, 0);
+    drive.bus_mut().memory.write(0x001D, 0);
+
+    bridge.buffer.split().0.force_disk_change();
+
+    for _ in 0..2000 {
+        drive.tick(&mut bridge);
+    }
+
+    assert_eq!(drive.bus_mut().memory.read(0x001C), 1);
+    assert_eq!(drive.bus_mut().memory.read(0x001D), 1);
+}
+

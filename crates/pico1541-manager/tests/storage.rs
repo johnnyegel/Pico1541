@@ -161,3 +161,23 @@ fn test_slot_to_track_sector_reexport() {
     assert_eq!(t_overflow, 11);
 }
 
+#[test]
+fn test_paged_directory_next_entry_stops_on_empty() {
+    use pico1541_manager::storage::{DirectoryEntry, DirectorySource, PagedDirectorySource};
+
+    let mut paged = PagedDirectorySource::<144>::new(b"TEST DISK");
+    paged.set_page_entry(0, DirectoryEntry::from_file_info(b"FILE1.PRG", false, 500));
+    paged.set_page_entry(1, DirectoryEntry::from_file_info(b"FILE2.PRG", false, 1000));
+    // Notice total_count is left at default usize::MAX, simulating lazy boundary discovery
+    paged.rewind();
+
+    let e0 = paged.next_entry().expect("Entry 0 must exist");
+    assert_eq!(&e0.filename[..9], b"FILE1.PRG");
+
+    let e1 = paged.next_entry().expect("Entry 1 must exist");
+    assert_eq!(&e1.filename[..9], b"FILE2.PRG");
+
+    // Entry 2 is DirectoryEntry::default() (file_type == 0). next_entry must return None!
+    assert!(paged.next_entry().is_none());
+}
+

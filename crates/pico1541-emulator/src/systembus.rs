@@ -121,8 +121,10 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             }
 
             if self.mechanics.pop_force_disk_change() {
+                self.memory.write(0x001C, 0x01);
+                self.memory.write(0x001D, 0x01);
                 self.mechanics.force_evaluate_track_source(current_cycle);
-                crate::emu_info!("DISK SWAP: Core 0 handled force_disk_change! RAM 0x001C flag is currently: {:02X}", self.memory.read(0x001C));
+                crate::emu_info!("DISK SWAP: Core 0 handled force_disk_change! Set RAM 0x001C/0x001D (wpsw) to 1");
             }
         }
     }
