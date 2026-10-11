@@ -1,3 +1,9 @@
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChildInfo {
+    pub name: heapless::String<64>,
+    pub is_dir: bool,
+}
+
 pub trait FileOpener {
     type FileStorage: embedded_io_async::Read + embedded_io_async::Seek + 'static;
     async fn open_file(
@@ -14,6 +20,15 @@ pub trait FileOpener {
         count: usize,
         callback: impl FnMut(crate::storage::DirectoryEntry),
     ) -> Result<(), crate::formats::Error>;
+
+    async fn find_child(
+        &self,
+        _dir_path: &str,
+        _use_internal: bool,
+        _requested_petscii: &[u8],
+    ) -> Result<Option<ChildInfo>, crate::formats::Error> {
+        Ok(None)
+    }
 }
 
 pub fn match_c64_filename(entry_name: &[u8; 16], req_name: &[u8]) -> bool {
@@ -57,7 +72,9 @@ pub fn match_c64_filename(entry_name: &[u8; 16], req_name: &[u8]) -> bool {
     }
 
     if r_idx == req_len {
-        let extensions: &[&[u8]] = &[b".PRG", b".SEQ", b".USR", b".DEL", b".DIR"];
+        let extensions: &[&[u8]] = &[
+            b".PRG", b".SEQ", b".USR", b".DEL", b".DIR", b".D64", b".G64", b".NIB",
+        ];
         for ext in extensions {
             if entry_len == r_idx + ext.len() {
                 let mut match_found = true;

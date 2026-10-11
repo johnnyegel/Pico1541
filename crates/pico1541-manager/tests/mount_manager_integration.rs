@@ -11,7 +11,7 @@ use pico1541_manager::driver::{RgbLedDriver, StatusLedMode};
 use pico1541_manager::formats::Error as FormatError;
 use pico1541_manager::storage::{DirectoryEntry, MemoryStorage};
 use pico1541_manager::tasks::mount_manager::{
-    FileOpener, MountControllerTask, TrackCacheTask, CURRENT_PAGE, PAGE_CHANGED,
+    ChildInfo, FileOpener, MountControllerTask, TrackCacheTask, CURRENT_PAGE, PAGE_CHANGED,
 };
 use pico1541_manager::{InternalCommand, MountPayload, LOCATION_CHANGED};
 
@@ -73,6 +73,69 @@ impl FileOpener for DummyOpener {
     }
 }
 
+struct MockResolvingOpener;
+
+impl FileOpener for MockResolvingOpener {
+    type FileStorage = MemoryStorage<'static>;
+
+    async fn open_file(&self, _requested_petscii: &[u8]) -> Result<Self::FileStorage, FormatError> {
+        Err(FormatError::FileNotFound)
+    }
+
+    fn open_sd_file(&self, _path: &str) -> Self::FileStorage {
+        MemoryStorage::new(&[])
+    }
+
+    fn open_internal_file(&self, _path: &str) -> Self::FileStorage {
+        MemoryStorage::new(&[])
+    }
+
+    async fn list_dir_range(
+        &self,
+        _path: &str,
+        _use_internal: bool,
+        _start_index: usize,
+        _count: usize,
+        _callback: impl FnMut(DirectoryEntry),
+    ) -> Result<(), FormatError> {
+        Ok(())
+    }
+
+    async fn find_child(
+        &self,
+        _dir_path: &str,
+        _use_internal: bool,
+        requested_petscii: &[u8],
+    ) -> Result<Option<ChildInfo>, FormatError> {
+        use pico1541_manager::storage::mangle_filename;
+        use pico1541_manager::tasks::mount_manager::match_c64_filename;
+
+        let demo_dir = b"Commodore_64_Demo_Party_2026";
+        let mangled_demo = mangle_filename(demo_dir);
+        if match_c64_filename(&mangled_demo, requested_petscii) {
+            let mut name = heapless::String::new();
+            let _ = name.push_str(core::str::from_utf8(demo_dir).unwrap());
+            return Ok(Some(ChildInfo {
+                name,
+                is_dir: true,
+            }));
+        }
+
+        let disk_file = b"Disk1.d64";
+        let mangled_disk = mangle_filename(disk_file);
+        if match_c64_filename(&mangled_disk, requested_petscii) {
+            let mut name = heapless::String::new();
+            let _ = name.push_str(core::str::from_utf8(disk_file).unwrap());
+            return Ok(Some(ChildInfo {
+                name,
+                is_dir: false,
+            }));
+        }
+
+        Ok(None)
+    }
+}
+
 struct DummyHandoff;
 
 impl TrackHandoff for DummyHandoff {
@@ -96,6 +159,7 @@ fn test_mount_controller_commands() {
 
     let mut controller = MountControllerTask::new(
         MockLeds::new(),
+        DummyOpener,
         &LOCATION,
         &MOTOR,
         CMD_CH.receiver(),
@@ -313,4 +377,62 @@ fn test_track_cache_select_virtual_file_subdirectory() {
         );
         assert!(LOCATION_CHANGED.signaled());
     });
+}
+
+#[test]
+fn test_resolve_child_location_mangled_long_directory() {
+    use pico1541_manager::tasks::mount_manager::{cd_handler, resolve_child_location};
+
+    let current = DriveLocation::VirtualDirectory {
+        path: heapless::String::try_from("/").unwrap(),
+        use_internal: false,
+    };
+    let tentative = match cd_handler::resolve_cd_nav(&current, "CD:COMMODORE_64_-26") {
+        cd_handler::CdNavAction::Transition(loc) => loc,
+        _ => panic!("Expected transition"),
+    };
+
+    let resolved = block_on(resolve_child_location(
+        &MockResolvingOpener,
+        &current,
+        tentative,
+        "CD:COMMODORE_64_-26",
+    ));
+
+    assert_eq!(
+        resolved,
+        DriveLocation::VirtualDirectory {
+            path: heapless::String::try_from("/Commodore_64_Demo_Party_2026").unwrap(),
+            use_internal: false,
+        }
+    );
+}
+
+#[test]
+fn test_resolve_child_location_mixed_case_d64_image() {
+    use pico1541_manager::tasks::mount_manager::{cd_handler, resolve_child_location};
+
+    let current = DriveLocation::VirtualDirectory {
+        path: heapless::String::try_from("/demos").unwrap(),
+        use_internal: false,
+    };
+    let tentative = match cd_handler::resolve_cd_nav(&current, "CD:DISK1.D64") {
+        cd_handler::CdNavAction::Transition(loc) => loc,
+        _ => panic!("Expected transition"),
+    };
+
+    let resolved = block_on(resolve_child_location(
+        &MockResolvingOpener,
+        &current,
+        tentative,
+        "CD:DISK1.D64",
+    ));
+
+    assert_eq!(
+        resolved,
+        DriveLocation::DiskImage {
+            path: heapless::String::try_from("/demos/Disk1.d64").unwrap(),
+            use_internal: false,
+        }
+    );
 }

@@ -81,14 +81,7 @@ pub fn resolve_cd_nav(current: &DriveLocation, cmd: &str) -> CdNavAction {
             }
 
             // Check if mounting a disk image (.d64, .g64, .nib)
-            let is_image = if let Some(dot) = body.rfind('.') {
-                let ext = &body[dot..];
-                ext.eq_ignore_ascii_case(".d64")
-                    || ext.eq_ignore_ascii_case(".g64")
-                    || ext.eq_ignore_ascii_case(".nib")
-            } else {
-                false
-            };
+            let is_image = is_disk_image(body);
 
             let mut target_path = String::<128>::new();
             let append_ok = if body.starts_with('/') {
@@ -226,7 +219,18 @@ pub fn resolve_cd_path(
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
-fn strip_prefix_ci<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
+pub(crate) fn is_disk_image(path: &str) -> bool {
+    if let Some(dot) = path.rfind('.') {
+        let ext = &path[dot..];
+        ext.eq_ignore_ascii_case(".d64")
+            || ext.eq_ignore_ascii_case(".g64")
+            || ext.eq_ignore_ascii_case(".nib")
+    } else {
+        false
+    }
+}
+
+pub(crate) fn strip_prefix_ci<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
     if s.len() >= prefix.len() && s.as_bytes()[..prefix.len()].eq_ignore_ascii_case(prefix.as_bytes()) {
         Some(&s[prefix.len()..])
     } else {
@@ -234,7 +238,7 @@ fn strip_prefix_ci<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
     }
 }
 
-fn go_to_parent(current_path: &str) -> Option<heapless::String<128>> {
+pub(crate) fn go_to_parent(current_path: &str) -> Option<heapless::String<128>> {
     if current_path == "/" || current_path.is_empty() {
         return heapless::String::try_from("/").ok();
     }
@@ -251,7 +255,7 @@ fn go_to_parent(current_path: &str) -> Option<heapless::String<128>> {
     heapless::String::try_from(parent).ok()
 }
 
-fn go_to_child(current_path: &str, name: &str) -> Option<heapless::String<128>> {
+pub(crate) fn go_to_child(current_path: &str, name: &str) -> Option<heapless::String<128>> {
     let mut new_path = heapless::String::<128>::new();
     // Append base path without trailing slash
     let base = current_path.trim_end_matches('/');

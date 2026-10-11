@@ -35,6 +35,10 @@ where
     run_file_browser_menu(ctx, "Internal", true).await
 }
 
+fn is_mounted(item_path: &str, mounted_path: Option<&String<128>>) -> bool {
+    mounted_path.map_or(false, |m| m.as_str().eq_ignore_ascii_case(item_path))
+}
+
 async fn run_file_browser_menu<D, L, Ind, S, Internal>(
     ctx: &mut MenuContext<'_, D, L, Ind, S, Internal>,
     title: &str,
@@ -140,7 +144,7 @@ where
                     let name_str = core::str::from_utf8(&info.name).unwrap_or("???");
                     let name_trimmed = name_str.trim_matches('\0');
                     let file_path = join_path(manager.current_path.as_str(), name_trimmed);
-                    if Some(file_path) == *ctx.mounted_file_path {
+                    if is_mounted(file_path.as_str(), ctx.mounted_file_path.as_ref()) {
                         let _ = s.push('*');
                     }
                     let _ = s.push_str(name_trimmed);
@@ -284,7 +288,7 @@ where
                     let name_str = core::str::from_utf8(&info.name).unwrap_or("???");
                     let name_trimmed = name_str.trim_matches('\0');
                     let file_path = join_path(manager.current_path.as_str(), name_trimmed);
-                    if Some(file_path) == *ctx.mounted_file_path {
+                    if is_mounted(file_path.as_str(), ctx.mounted_file_path.as_ref()) {
                         let _ = s.push('*');
                     }
                     let _ = s.push_str(name_trimmed);
@@ -309,7 +313,7 @@ where
                             let name_str = core::str::from_utf8(&info.name).unwrap_or("???");
                             let name_trimmed = name_str.trim_matches('\0');
                             let file_path = join_path(manager.current_path.as_str(), name_trimmed);
-                            if Some(file_path) == *ctx.mounted_file_path {
+                            if is_mounted(file_path.as_str(), ctx.mounted_file_path.as_ref()) {
                                 let _ = s.push('*');
                             }
                             let _ = s.push_str(name_trimmed);
@@ -334,7 +338,7 @@ where
                                 let name_trimmed = name_str.trim_matches('\0');
                                 let file_path =
                                     join_path(manager.current_path.as_str(), name_trimmed);
-                                if Some(file_path) == *ctx.mounted_file_path {
+                                if is_mounted(file_path.as_str(), ctx.mounted_file_path.as_ref()) {
                                     let _ = s.push('*');
                                 }
                                 let _ = s.push_str(name_trimmed);
@@ -428,7 +432,7 @@ where
                         let _ = full_path.push_str(filename);
                     }
 
-                    if Some(full_path.clone()) == *ctx.mounted_file_path {
+                    if is_mounted(full_path.as_str(), ctx.mounted_file_path.as_ref()) {
                         let _ = ctx.context.cmd_tx
                             .send(crate::InternalCommand::Mount(crate::MountPayload::VirtualDirectory(
                                 manager.current_path.clone(),
@@ -555,7 +559,7 @@ where
                         if loc_internal != use_internal {
                             return PageState::MainMenu;
                         }
-                        if path != manager.current_path {
+                        if !path.as_str().eq_ignore_ascii_case(manager.current_path.as_str()) {
                             *manager.current_path = path.clone();
                             cursor = 0;
                             scroll_offset = 0;
@@ -572,7 +576,7 @@ where
                             return PageState::MainMenu;
                         }
                         let parent = parent_dir(path.as_str());
-                        if parent != manager.current_path.as_str() {
+                        if !parent.eq_ignore_ascii_case(manager.current_path.as_str()) {
                             *manager.current_path = String::from_str(parent).unwrap_or_default();
                             cursor = 0;
                             scroll_offset = 0;
