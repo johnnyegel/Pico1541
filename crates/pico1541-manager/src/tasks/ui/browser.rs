@@ -225,10 +225,12 @@ where
                                 if loc_internal != use_internal {
                                     return PageState::MainMenu;
                                 }
-                                *manager.current_path = path.clone();
+                                if !path.as_str().eq_ignore_ascii_case(manager.current_path.as_str()) {
+                                    *manager.current_path = path.clone();
+                                    cursor_stack.clear();
+                                }
                                 cursor = 0;
                                 scroll_offset = 0;
-                                cursor_stack.clear();
                                 *ctx.mounted_file_path = None;
                                 break;
                             }
@@ -392,17 +394,21 @@ where
                     }
                 }
                 if selected_infos.is_empty() {
+                    let page_offset = crate::tasks::mount_manager::CURRENT_PAGE
+                        .load(core::sync::atomic::Ordering::Acquire)
+                        * crate::storage::PAGE_CAPACITY;
+                    let start_entry = page_offset + idx;
                     let fetch_res = if manager.use_internal {
                         manager
                             .internal
-                            .list_dir_range(manager.current_path.as_str(), idx, 1, |info| {
+                            .list_dir_range(manager.current_path.as_str(), start_entry, 1, |info| {
                                 let _ = selected_infos.push(info);
                             })
                             .await
                     } else {
                         manager
                             .storage
-                            .list_dir_range(manager.current_path.as_str(), idx, 1, |info| {
+                            .list_dir_range(manager.current_path.as_str(), start_entry, 1, |info| {
                                 let _ = selected_infos.push(info);
                             })
                             .await
@@ -575,10 +581,12 @@ where
                         if loc_internal != use_internal {
                             return PageState::MainMenu;
                         }
-                        *manager.current_path = path.clone();
+                        if !path.as_str().eq_ignore_ascii_case(manager.current_path.as_str()) {
+                            *manager.current_path = path.clone();
+                            cursor_stack.clear();
+                        }
                         cursor = 0;
                         scroll_offset = 0;
-                        cursor_stack.clear();
                         *ctx.mounted_file_path = None;
                         continue;
                     }

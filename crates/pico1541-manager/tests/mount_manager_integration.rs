@@ -194,8 +194,7 @@ fn test_mount_controller_commands() {
                 embassy_futures::yield_now().await;
             }
             assert_eq!(CURRENT_PAGE.load(core::sync::atomic::Ordering::Acquire), 1);
-            assert!(LOCATION_CHANGED.signaled());
-            LOCATION_CHANGED.reset();
+            assert!(PAGE_CHANGED.load(core::sync::atomic::Ordering::Acquire));
 
             PAGE_CHANGED.store(false, core::sync::atomic::Ordering::Release);
             CMD_CH
@@ -207,8 +206,7 @@ fn test_mount_controller_commands() {
                 embassy_futures::yield_now().await;
             }
             assert_eq!(CURRENT_PAGE.load(core::sync::atomic::Ordering::Acquire), 0);
-            assert!(LOCATION_CHANGED.signaled());
-            LOCATION_CHANGED.reset();
+            assert!(PAGE_CHANGED.load(core::sync::atomic::Ordering::Acquire));
 
             // Verify ACTIVE_CHILDREN capacity is 144
             {

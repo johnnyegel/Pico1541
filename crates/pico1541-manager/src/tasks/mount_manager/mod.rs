@@ -414,6 +414,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
             self.handle_track_event(half_track).await;
         }
         pico1541_common::HALT_EMULATOR.store(false, Ordering::Release);
+        crate::LOCATION_CHANGED.signal(());
     }
 
     async fn refresh_paged_directory(&mut self, page: usize) {
@@ -744,22 +745,12 @@ impl MountControllerTask {
                                 cd_handler::CdNavAction::NextPage => {
                                     let next = CURRENT_PAGE.load(Ordering::Acquire) + 1;
                                     CURRENT_PAGE.store(next, Ordering::Release);
-                                    {
-                                        let mut guard = ACTIVE_CHILDREN.lock().await;
-                                        guard.clear();
-                                    }
                                     PAGE_CHANGED.store(true, Ordering::Release);
-                                    crate::LOCATION_CHANGED.signal(());
                                 }
                                 cd_handler::CdNavAction::PrevPage => {
                                     let prev = CURRENT_PAGE.load(Ordering::Acquire).saturating_sub(1);
                                     CURRENT_PAGE.store(prev, Ordering::Release);
-                                    {
-                                        let mut guard = ACTIVE_CHILDREN.lock().await;
-                                        guard.clear();
-                                    }
                                     PAGE_CHANGED.store(true, Ordering::Release);
-                                    crate::LOCATION_CHANGED.signal(());
                                 }
                                 cd_handler::CdNavAction::Transition(new_loc) => {
                                     let child_seg = cd_handler::extract_cd_target(cd_str.as_str());
