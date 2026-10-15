@@ -141,8 +141,8 @@ impl HostInterface for HardwareBridge {
     #[link_section = ".core1_text"]
     #[inline(always)]
     fn check_halt_requested(&self) -> bool {
-        pico1541_common::HALT_EMULATOR.load(Ordering::Relaxed)
-            || self.config.halt_emulator.load(Ordering::Relaxed)
+        pico1541_common::HALT_EMULATOR.load(Ordering::Acquire)
+            || self.config.halt_emulator.load(Ordering::Acquire)
     }
 
     #[link_section = ".core1_text"]
