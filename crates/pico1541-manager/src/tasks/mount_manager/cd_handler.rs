@@ -40,6 +40,16 @@ pub fn resolve_cd_nav(current: &DriveLocation, cmd: &str) -> CdNavAction {
         return CdNavAction::PrevPage;
     }
 
+    if body.is_empty() {
+        if cmd.eq_ignore_ascii_case("CD//") {
+            return match current {
+                DriveLocation::Root => CdNavAction::Ignore,
+                _ => CdNavAction::Transition(DriveLocation::Root),
+            };
+        }
+        return CdNavAction::Ignore;
+    }
+
     match current {
         DriveLocation::Root => {
             let clean_body = body.trim_matches('/');
@@ -61,7 +71,7 @@ pub fn resolve_cd_nav(current: &DriveLocation, cmd: &str) -> CdNavAction {
         }
         DriveLocation::VirtualDirectory { path, use_internal } => {
             // Returning to Root or parent
-            if body.is_empty() || body == "/" || body == "//" {
+            if body == "/" || body == "//" {
                 return CdNavAction::Transition(DriveLocation::Root);
             }
             if body == ".." || body == "_" || body == "\x1F" || body == "<-" {
@@ -118,7 +128,7 @@ pub fn resolve_cd_nav(current: &DriveLocation, cmd: &str) -> CdNavAction {
             }
         }
         DriveLocation::DiskImage { path, use_internal } => {
-            if body == ".." || body == "_" || body.is_empty() || body == "/" || body == "//" || body == "\x1F" || body == "<-" {
+            if body == ".." || body == "_" || body == "/" || body == "//" || body == "\x1F" || body == "<-" {
                 let trimmed = path.trim_end_matches('/');
                 let parent = match trimmed.rfind('/') {
                     Some(0) => "/",

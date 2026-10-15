@@ -220,6 +220,10 @@ fn test_resolve_cd_nav_from_virtual_directory() {
     );
     assert_eq!(
         resolve_cd_nav(&sd_root, "CD:"),
+        CdNavAction::Ignore
+    );
+    assert_eq!(
+        resolve_cd_nav(&sd_root, "CD//"),
         CdNavAction::Transition(DriveLocation::Root)
     );
 
@@ -245,13 +249,17 @@ fn test_resolve_cd_nav_from_virtual_directory() {
         path: String::try_from("/files").unwrap(),
         use_internal: true,
     };
-    // CD:.. or CD: from internal files returns to Root
+    // CD:.. from internal files returns to Root, bare CD: is ignored
     assert_eq!(
         resolve_cd_nav(&internal_files, "CD:.."),
         CdNavAction::Transition(DriveLocation::Root)
     );
     assert_eq!(
         resolve_cd_nav(&internal_files, "CD:"),
+        CdNavAction::Ignore
+    );
+    assert_eq!(
+        resolve_cd_nav(&internal_files, "CD//"),
         CdNavAction::Transition(DriveLocation::Root)
     );
 }
@@ -397,6 +405,51 @@ fn test_resolve_cd_nav_nested_and_edge_cases() {
     assert_eq!(resolve_cd_nav(&root, "CD:UNKNOWN_DIR"), CdNavAction::Ignore);
 }
 
+#[test]
+fn test_resolve_cd_nav_bare_cd_probe_and_cd_root() {
+    let root = DriveLocation::Root;
+    let internal_files = DriveLocation::VirtualDirectory {
+        path: String::try_from("/files").unwrap(),
+        use_internal: true,
+    };
+    let sd_root = DriveLocation::VirtualDirectory {
+        path: String::try_from("/").unwrap(),
+        use_internal: false,
+    };
+    let sd_nested = DriveLocation::VirtualDirectory {
+        path: String::try_from("/GAMES/ACTION").unwrap(),
+        use_internal: false,
+    };
+    let disk_image = DriveLocation::DiskImage {
+        path: String::try_from("/GAMES/ACTION/DOOM.D64").unwrap(),
+        use_internal: false,
+    };
 
+    let locations = [&root, &internal_files, &sd_root, &sd_nested, &disk_image];
 
+    for loc in locations {
+        assert_eq!(resolve_cd_nav(loc, "CD:"), CdNavAction::Ignore);
+        assert_eq!(resolve_cd_nav(loc, "CD: "), CdNavAction::Ignore);
+        assert_eq!(resolve_cd_nav(loc, "cd:"), CdNavAction::Ignore);
+        assert_eq!(resolve_cd_nav(loc, "cd:   "), CdNavAction::Ignore);
+    }
 
+    // CD// returns Transition to Root from anywhere except Root (where it stays Root / Ignore)
+    assert_eq!(resolve_cd_nav(&root, "CD//"), CdNavAction::Ignore);
+    assert_eq!(
+        resolve_cd_nav(&internal_files, "CD//"),
+        CdNavAction::Transition(DriveLocation::Root)
+    );
+    assert_eq!(
+        resolve_cd_nav(&sd_root, "CD//"),
+        CdNavAction::Transition(DriveLocation::Root)
+    );
+    assert_eq!(
+        resolve_cd_nav(&sd_nested, "CD//"),
+        CdNavAction::Transition(DriveLocation::Root)
+    );
+    assert_eq!(
+        resolve_cd_nav(&disk_image, "CD//"),
+        CdNavAction::Transition(DriveLocation::Root)
+    );
+}
