@@ -81,32 +81,55 @@ Communication between cores occurs via atomic flags and shared double-buffered t
 
 ## Hardware & Pinout
 
-Pico1541 interfaces with the 5V Commodore IEC bus using an open-collector inverter (7406 or 7405) with 1kΩ pull-up resistors on the 3.3V RP2040 side. Ready-to-order KiCad PCB schematics and Gerbers are located in [`hardware/kicad/`](hardware/kicad/).
+Pico1541 interfaces with the 5V Commodore IEC bus using an open-collector inverter (7406 or 7405) with 1kΩ pull-up resistors on the 3.3V side. Ready-to-order KiCad PCB schematics and Gerbers for both board revisions are located in [`hardware/kicad/`](hardware/kicad/).
 
-### RP2040 / RP2350 GPIO Pin Assignment
+### Hardware Revision 2 (RP2350 / Raspberry Pi Pico 2)
+
+| GPIO | Function | Description | Connection |
+|:---:|:---|:---|:---|
+| **GPIO 19** | `DATA_RX` | IEC Data In | Inverted from IEC Pin 5 (DATA, 1kΩ pull-up) |
+| **GPIO 20** | `DATA_TX` | IEC Data Out | Drives 7406/7405 Open-Collector to IEC DATA |
+| **GPIO 21** | `CLK_RX`  | IEC Clock In | Inverted from IEC Pin 4 (CLK, 1kΩ pull-up) |
+| **GPIO 22** | `CLK_TX`  | IEC Clock Out | Drives 7406/7405 Open-Collector to IEC CLK |
+| **GPIO 26** | `ATN_RX`  | IEC Attention In | Inverted from IEC Pin 3 (ATN, 1kΩ pull-up) |
+| **GPIO 27** | `RESET_RX`| IEC Reset In | Inverted from IEC Pin 6 (RESET, 1kΩ pull-up) |
+| **GPIO 4**  | `I2C0_SDA`| OLED Display SDA | SSD1306 I2C Data |
+| **GPIO 5**  | `I2C0_SCL`| OLED Display SCL | SSD1306 I2C Clock |
+| **GPIO 6..9**| `BUTTONS` | Tactile Buttons | Short to Ground (Up, Down, Enter, Back) |
+| **GPIO 11** | `SD_DET`  | MicroSD Card Detect | SD Socket Card Detect Switch |
+| **GPIO 12** | `SD_MISO` | MicroSD Data Out | SPI1 MISO (DAT0) |
+| **GPIO 13** | `SD_CS`   | MicroSD Chip Select | SPI1 Chip Select (CD) |
+| **GPIO 14** | `SD_CLK`  | MicroSD Clock | SPI1 SCK |
+| **GPIO 15** | `SD_MOSI` | MicroSD Data In | SPI1 MOSI (CMD) |
+| **GPIO 2**  | `PIEZO`   | Piezo Speaker | Head Stepper Sound Simulation |
+| **GPIO 10** | `ACT_LED1`| Activity LED Pin 1 | Dual-color Activity Indicator |
+| **GPIO 3**  | `ACT_LED2`| Activity LED Pin 2 | Dual-color Activity Indicator |
+| **GPIO 16** | `RGB_RED` | Status RGB LED Red | Drive State Indicator |
+| **GPIO 17** | `RGB_GREEN`| Status RGB LED Green | Drive State Indicator |
+| **GPIO 18** | `RGB_BLUE`| Status RGB LED Blue | Drive State Indicator |
+
+### Hardware Revision 1 (RP2040 / Raspberry Pi Pico)
 
 | GPIO | Function | Description | Connection |
 |:---:|:---|:---|:---|
 | **GPIO 16** | `DATA_RX` | IEC Data In | Inverted from IEC Pin 5 (DATA) |
-| **GPIO 17** | `CLK_RX` | IEC Clock In | Inverted from IEC Pin 4 (CLK) |
-| **GPIO 18** | `ATN_RX` | IEC Attention In | Inverted from IEC Pin 3 (ATN) |
+| **GPIO 17** | `CLK_RX`  | IEC Clock In | Inverted from IEC Pin 4 (CLK) |
+| **GPIO 18** | `ATN_RX`  | IEC Attention In | Inverted from IEC Pin 3 (ATN) |
 | **GPIO 19** | `DATA_TX` | IEC Data Out | Drives 7406/7405 Open-Collector to IEC DATA |
-| **GPIO 20** | `CLK_TX` | IEC Clock Out | Drives 7406/7405 Open-Collector to IEC CLK |
+| **GPIO 20** | `CLK_TX`  | IEC Clock Out | Drives 7406/7405 Open-Collector to IEC CLK |
 | **GPIO 21** | `RESET_RX`| IEC Reset In | Inverted from IEC Pin 6 (RESET) |
 | **GPIO 4**  | `I2C0_SDA`| OLED Display SDA | SSD1306 I2C Data |
 | **GPIO 5**  | `I2C0_SCL`| OLED Display SCL | SSD1306 I2C Clock |
-| **GPIO 6**  | `KBD_ROW1`| Keypad Matrix Row 1 | Navigation Buttons |
-| **GPIO 7**  | `KBD_ROW2`| Keypad Matrix Row 2 | Navigation Buttons |
-| **GPIO 8**  | `KBD_COL1`| Keypad Matrix Col 1 | Navigation Buttons |
-| **GPIO 9**  | `KBD_COL2`| Keypad Matrix Col 2 | Navigation Buttons |
+| **GPIO 6, 7**| `KBD_ROWS`| Keypad Matrix Rows | 2x2 Matrix Rows |
+| **GPIO 8, 9**| `KBD_COLS`| Keypad Matrix Cols | 2x2 Matrix Columns |
 | **GPIO 11** | `SD_DET`  | MicroSD Card Detect | SD Socket Card Detect Switch |
 | **GPIO 12** | `SD_MISO` | MicroSD Data Out | SPI1 MISO |
 | **GPIO 13** | `SD_CS`   | MicroSD Chip Select | SPI1 Chip Select |
 | **GPIO 14** | `SD_CLK`  | MicroSD Clock | SPI1 SCK |
 | **GPIO 15** | `SD_MOSI` | MicroSD Data In | SPI1 MOSI |
 | **GPIO 2**  | `PIEZO`   | Piezo Speaker | Head Stepper Sound Simulation |
-| **GPIO 22** | `ACT_LED1`| Drive Activity LED (+) | Activity Indicator |
-| **GPIO 3**  | `ACT_LED2`| Drive Activity LED (-) | Activity Indicator |
+| **GPIO 22** | `ACT_LED1`| Activity/Power LED (+) | Drive Activity Indicator |
+| **GPIO 3**  | `ACT_LED2`| Activity/Power LED (-) | Drive Activity Indicator |
 | **GPIO 26** | `RGB_RED` | Status RGB LED Red | Drive State Indicator |
 | **GPIO 27** | `RGB_GREEN`| Status RGB LED Green | Drive State Indicator |
 | **GPIO 28** | `RGB_BLUE`| Status RGB LED Blue | Drive State Indicator |
