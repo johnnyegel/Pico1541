@@ -39,6 +39,7 @@ pub struct HardwareBridge {
     _pins_debug: DebugPins,
     led_gpio: Gpio,
     iec_reset_gpio: Gpio,
+    last_via1_port_b: u8,
 }
 
 impl HardwareBridge {
@@ -60,8 +61,22 @@ impl HardwareBridge {
             _pins_debug: pins_debug,
             led_gpio: Gpio::new(GPIO_LED_MASK_GREEN | GPIO_LED_MASK_RED),
             iec_reset_gpio: Gpio::new(GPIO_IEC_MASK_RESET),
+            last_via1_port_b: 0,
         };
         bridge
+    }
+
+    #[link_section = ".core1_text"]
+    #[inline(never)]
+    pub fn assert_iec_data_busy(&mut self, busy: bool) {
+        if busy {
+            // Force PB1 (DATA_OUT) = 1 (asserted low on bus)
+            let clk_out = (self.last_via1_port_b >> pico1541_common::context::via::VIA1_IEC_BIT_CLK_TX) & 1;
+            let pio_cmd = clk_out | 2; // PB1 = 1 (bit 1 = 2)
+            embassy_rp::pac::PIO1.txf(0).write_value(pio_cmd as u32);
+        } else {
+            self.write_iec_port(self.last_via1_port_b);
+        }
     }
 }
 
@@ -126,7 +141,8 @@ impl HostInterface for HardwareBridge {
     #[link_section = ".core1_text"]
     #[inline(always)]
     fn check_halt_requested(&self) -> bool {
-        self.config.halt_emulator.load(Ordering::Relaxed)
+        pico1541_common::HALT_EMULATOR.load(Ordering::Relaxed)
+            || self.config.halt_emulator.load(Ordering::Relaxed)
     }
 
     #[link_section = ".core1_text"]
@@ -180,6 +196,8 @@ impl ViaHardware for HardwareBridge {
     #[link_section = ".core1_text"]
     #[inline(always)]
     fn write_iec_port(&mut self, via_port_b: u8) {
+        self.last_via1_port_b = via_port_b;
+
         // PIO Unified IEC Logic
         // Bit 0: CLK target
         // Bit 1: PB1 (DATA_OUT)
@@ -237,7 +255,7 @@ impl ViaHardware for HardwareBridge {
     #[link_section = ".core1_text"]
     #[inline(always)]
     fn is_reset_line_asserted(&self) -> bool {
-        (self.iec_reset_gpio.read() != 0) || self.check_halt_requested()
+        self.iec_reset_gpio.read() != 0
     }
 }
 

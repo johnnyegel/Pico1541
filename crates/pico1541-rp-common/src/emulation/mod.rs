@@ -125,6 +125,19 @@ pub fn spawn_core1(
     });
 }
 
+#[cold]
+#[inline(never)]
+fn pause_emulator(hw: &mut HardwareBridge, cycles: u32) {
+    use pico1541_common::interface::HostInterface;
+    hw.assert_iec_data_busy(true);
+    while hw.check_halt_requested() {
+        hw.timekeeper.update_base(cycles);
+        cortex_m::asm::nop();
+    }
+    hw.assert_iec_data_busy(false);
+    hw.timekeeper.update_base(cycles);
+}
+
 #[link_section = ".core1_text"]
 #[inline(never)]
 pub fn run_emulator(
@@ -164,6 +177,10 @@ pub fn run_emulator(
                 emulator.reset(hw);
                 hw.timekeeper.update_base(emulator.cycles);
                 was_reset = false;
+            }
+
+            if hw.check_halt_requested() {
+                pause_emulator(hw, emulator.cycles);
             }
 
             // :: Advance the emulator by 512 ticks

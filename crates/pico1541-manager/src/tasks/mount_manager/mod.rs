@@ -210,6 +210,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
         #[cfg(feature = "defmt")]
         defmt::info!("Root directory mounted.");
 
+        pico1541_common::HALT_EMULATOR.store(true, Ordering::Release);
         self.simulate_disk_swap(true).await;
 
         let half_track = self.track_handle.get_head_half_track();
@@ -219,10 +220,12 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
             }
         }
         self.handle_track_event(half_track).await;
+        pico1541_common::HALT_EMULATOR.store(false, Ordering::Release);
     }
 
     #[allow(unused_variables, unused_assignments)]
     async fn mount_sequence(&mut self, path: heapless::String<128>, use_internal: bool) {
+        pico1541_common::HALT_EMULATOR.store(true, Ordering::Release);
         let p_str = path.as_str();
 
         let is_d64 = has_extension(p_str, ".d64");
@@ -406,6 +409,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
 
             self.handle_track_event(half_track).await;
         }
+        pico1541_common::HALT_EMULATOR.store(false, Ordering::Release);
     }
 
     async fn refresh_paged_directory(&mut self, page: usize) {
@@ -413,6 +417,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
             DriveLocation::VirtualDirectory { ref path, use_internal } => (path.clone(), use_internal),
             _ => return,
         };
+        pico1541_common::HALT_EMULATOR.store(true, Ordering::Release);
         let p_str = current_path.as_str();
 
         if let Some(disk) = self.disk_image.as_mut() {
@@ -501,6 +506,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
             }
         }
         self.handle_track_event(half_track).await;
+        pico1541_common::HALT_EMULATOR.store(false, Ordering::Release);
     }
 
     pub async fn select_virtual_file(&mut self, slot: usize) {
