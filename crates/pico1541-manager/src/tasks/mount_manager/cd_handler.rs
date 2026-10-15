@@ -18,9 +18,17 @@ pub enum CdNavAction {
     Ignore,
 }
 
+/// Resolves an SD2IEC / CMD `CD` command string against the current [`DriveLocation`].
+///
+/// Under the SD2IEC / CMD specification:
+/// - `CD//` explicitly navigates to the root container ([`DriveLocation::Root`]).
+/// - `CD:DIR` navigates into subdirectory `DIR`.
+/// - `CD:←`, `CD:_`, `CD:..` navigate up to the parent directory.
+/// - Bare `CD:`, `CD: ` (spaces only after colon) is a device ping / status inquiry
+///   sent by file browsers (such as `fb64`) on startup and returns [`CdNavAction::Ignore`].
 pub fn resolve_cd_nav(current: &DriveLocation, cmd: &str) -> CdNavAction {
     let cmd = cmd.trim();
-    let body = if cmd.eq_ignore_ascii_case("CD//") || cmd.eq_ignore_ascii_case("CD:") {
+    let body = if cmd.eq_ignore_ascii_case("CD//") {
         ""
     } else if let Some(stripped) = strip_prefix_ci(cmd, "CD:") {
         stripped
