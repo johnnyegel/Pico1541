@@ -1,35 +1,321 @@
 # Pico1541
 
-Pico1541 is a CBM 1541 cycle accurate disk drive emulator running on the Raspberry Pi Pico.
-It emulates the exact hardware of the original drive and is therefore compatible with all
-fast loaders and custom roms supported by the original drives.
+A cycle-accurate Commodore 1541 disk drive emulator running on the Raspberry Pi Pico (RP2040) and Raspberry Pi Pico 2 (RP2350).
 
-## Hardware
+Unlike high-level IEC drive emulators (such as standard SD2IEC devices), **Pico1541** provides true hardware-level emulation. It models the MOS 6502 CPU and dual MOS 6522 VIAs in cycle-exact lockstep at 1 MHz, alongside a custom PIO-based magnetic track surface. As a result, Pico1541 is fully compatible with custom fastloaders, custom DOS routines, and sophisticated multi-stage copy protection schemes that execute code directly inside the drive.
 
-The Pico1541 runs on Raspberry PI Pico, mounted on a custom interface "hat" containing the 
-necessary hardware to interact with the C64 hardware through the IEC bus. The interface can
-support an SD card reader, and USB flash drives. It also supports buttons for selecting 
-what image to mount in the drive.
+---
 
-The hardware design is created with KiCad, and is Licensed under [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/)
-See the [Hardware License](hardware/LICENSE.md) file for details.
+## Table of Contents
 
-See the [Commercial Lisence](COMMERCIAL_LICENSE.md) file for commercial lisencing options.
+- [Features](#features)
+- [Architecture](#architecture)
+- [Hardware & Pinout](#hardware--pinout)
+- [ROM Installation & Legal Notice](#rom-installation--legal-notice)
+  - [Method 1: Compile-Time Embedding (Flash LittleFS)](#method-1-compile-time-embedding-flash-littlefs)
+  - [Method 2: Runtime Loading from MicroSD Card](#method-2-runtime-loading-from-microsd-card)
+- [Prerequisites](#prerequisites)
+- [Building & Flashing](#building--flashing)
+  - [Raspberry Pi Pico (RP2040)](#raspberry-pi-pico-rp2040)
+  - [Raspberry Pi Pico 2 (RP2350)](#raspberry-pi-pico-2-rp2350)
+  - [Flashing via SWD Debugger](#flashing-via-swd-debugger)
+- [Usage & Operation](#usage--operation)
+  - [IEC Cable Connection](#iec-cable-connection)
+  - [OLED Menu Navigation](#oled-menu-navigation)
+  - [C64 Commands & Browser](#c64-commands--browser)
+- [Repository Structure](#repository-structure)
+- [Licensing](#licensing)
 
-## Firmware
+---
 
-The PI Pico firmware is implemented in Rust, and currently runs on the original PI Pico (1).
+## Features
 
-The firmware and code is Licensed under [PolyForm Noncommercial 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/).
-See the [Firmware License](LICENSE.md) file for details.
+- **Cycle-Exact Emulation:** Driven by `racc6502v4`, a dedicated micro-instruction 6502 CPU core executing in sub-cycle lockstep with dual 6522 VIAs at 1 MHz.
+- **Full Fastloader & Protection Compatibility:** Supports fastloaders and custom drive code (Action Replay, Final Cartridge III, Epyx Fastload, Vorpal, V-MAX!, RapidLok, and custom track loaders).
+- **Extensive Disk Format Support:**
+  - **`.D64`**: Standard 35-track and 40-track Commodore disk images (dynamic on-the-fly GCR encoding/decoding).
+  - **`.G64`**: Raw GCR track bitstreams with custom sector interleave and variable speed zones.
+  - **`.NIB`**: Bit-level flux/GCR captures (8,192 bytes per track) preserving low-level copy protection.
+  - **`.PRG`**: Mount standalone PRG files as virtual single-file disks on the fly.
+- **Dual-Core Architecture:**
+  - **Core 1 (Emulator):** Dedicated entirely to the cycle-exact 6502 CPU, 6522 VIAs, and PIO magnetic surface streaming.
+  - **Core 0 (Manager):** Runs asynchronous Embassy tasks managing the SD card, flash filesystem, OLED display, navigation buttons, and virtual directory synthesis.
+- **Hardware PIO Magnetic Surface:** Utilizes RP2040/RP2350 Programmable I/O (PIO) state machines and two-channel ping-pong DMA chaining for zero-CPU-overhead track data streaming to the emulated read head.
+- **Storage Options:**
+  - **MicroSD Card (FAT32):** Mount disk images directly from folders on your SD card.
+  - **Internal Flash (LittleFS):** Built-in flash filesystem for bundled utilities, settings, and ROM storage.
+- **On-Device Interface:**
+  - 128x64 I2C SSD1306 OLED display.
+  - 4-button tactile keypad (Up, Down, Select/Enter, Back/Exit).
+  - RGB Status LED and Dual-color Drive Activity LED.
+  - Piezo speaker providing authentic mechanical head-stepping acoustics and seek sounds.
+- **SD2IEC Navigation & File Browser:** Intercepts `CD:` commands on IEC channel 15 to allow navigating SD card folders and disk images using standard Commodore 64 file browsers such as `fb64`.
+- **Configurable Drive ID:** Switch drive device address between 8, 9, 10, or 11 with settings saved persistently in on-board flash.
 
-See the [Commercial Lisence](COMMERCIAL_LICENSE.md) file for commercial lisencing options.
+---
 
-## Cycle Accurate 6502 Emulator (racc6502)
+## Architecture
 
-This was needed for cycle accurate 1541 drive emulation, and I could not find any existing projects
-that was suitable. So I created my own which use micro-instructions to make the emulated CPU behave
-exactly as the original CPU would.
+Pico1541 divides responsibilities cleanly across the microcontroller's two cores:
 
-The 6502 emulator is Licensed under [GPL-3.0](https://www.gnu.org/licenses/gpl-3.0.en.html).
-See the [racc6502 License](racc6502/LICENSE.md) file for details.
+```
+┌────────────────────────────────────────┐  ┌────────────────────────────────────────┐
+│         Core 0 — Drive Manager         │  │        Core 1 — Hardware Emulator      │
+│  (Embassy Async / pico1541-manager)    │  │   (Cycle-Exact / pico1541-emulator)    │
+├────────────────────────────────────────┤  ├────────────────────────────────────────┤
+│ • MicroSD FAT32 Driver (SPI)           │  │ • 6502 CPU Core (racc6502v4) @ 1 MHz   │
+│ • Internal Flash LittleFS Storage      │  │ • Dual 6522 VIAs (Timers, Handshake)   │
+│ • D64 / G64 / NIB / PRG Handlers       │  │ • PIO Magnetic Surface Engine          │
+│ • On-the-fly GCR Track Encoder         │  │ • Hardware DMA Ping-Pong Streaming     │
+│ • SSD1306 OLED UI & Keypad Task       │  │ • Physical IEC Bus Line Polling        │
+│ • SD2IEC CD: Command Interceptor       │  │ • Stepper Motor & Head Position Logic  │
+└───────────────────┬────────────────────┘  └───────────────────┬────────────────────┘
+                    │                                           │
+                    └─────────── Shared Track Buffer ───────────┘
+                                (Double-buffered GCR)
+```
+
+Communication between cores occurs via atomic flags and shared double-buffered track memory (`DualCoreTrackBuffer`), ensuring Core 1 never suffers jitter or interrupt latency from SD card I/O.
+
+---
+
+## Hardware & Pinout
+
+Pico1541 interfaces with the 5V Commodore IEC bus using an open-collector inverter (7406 or 7405) with 1kΩ pull-up resistors on the 3.3V RP2040 side. Ready-to-order KiCad PCB schematics and Gerbers are located in [`hardware/kicad/`](hardware/kicad/).
+
+### RP2040 / RP2350 GPIO Pin Assignment
+
+| GPIO | Function | Description | Connection |
+|:---:|:---|:---|:---|
+| **GPIO 16** | `DATA_RX` | IEC Data In | Inverted from IEC Pin 5 (DATA) |
+| **GPIO 17** | `CLK_RX` | IEC Clock In | Inverted from IEC Pin 4 (CLK) |
+| **GPIO 18** | `ATN_RX` | IEC Attention In | Inverted from IEC Pin 3 (ATN) |
+| **GPIO 19** | `DATA_TX` | IEC Data Out | Drives 7406/7405 Open-Collector to IEC DATA |
+| **GPIO 20** | `CLK_TX` | IEC Clock Out | Drives 7406/7405 Open-Collector to IEC CLK |
+| **GPIO 21** | `RESET_RX`| IEC Reset In | Inverted from IEC Pin 6 (RESET) |
+| **GPIO 4**  | `I2C0_SDA`| OLED Display SDA | SSD1306 I2C Data |
+| **GPIO 5**  | `I2C0_SCL`| OLED Display SCL | SSD1306 I2C Clock |
+| **GPIO 6**  | `KBD_ROW1`| Keypad Matrix Row 1 | Navigation Buttons |
+| **GPIO 7**  | `KBD_ROW2`| Keypad Matrix Row 2 | Navigation Buttons |
+| **GPIO 8**  | `KBD_COL1`| Keypad Matrix Col 1 | Navigation Buttons |
+| **GPIO 9**  | `KBD_COL2`| Keypad Matrix Col 2 | Navigation Buttons |
+| **GPIO 11** | `SD_DET`  | MicroSD Card Detect | SD Socket Card Detect Switch |
+| **GPIO 12** | `SD_MISO` | MicroSD Data Out | SPI1 MISO |
+| **GPIO 13** | `SD_CS`   | MicroSD Chip Select | SPI1 Chip Select |
+| **GPIO 14** | `SD_CLK`  | MicroSD Clock | SPI1 SCK |
+| **GPIO 15** | `SD_MOSI` | MicroSD Data In | SPI1 MOSI |
+| **GPIO 2**  | `PIEZO`   | Piezo Speaker | Head Stepper Sound Simulation |
+| **GPIO 22** | `ACT_LED1`| Drive Activity LED (+) | Activity Indicator |
+| **GPIO 3**  | `ACT_LED2`| Drive Activity LED (-) | Activity Indicator |
+| **GPIO 26** | `RGB_RED` | Status RGB LED Red | Drive State Indicator |
+| **GPIO 27** | `RGB_GREEN`| Status RGB LED Green | Drive State Indicator |
+| **GPIO 28** | `RGB_BLUE`| Status RGB LED Blue | Drive State Indicator |
+
+---
+
+## ROM Installation & Legal Notice
+
+> [!IMPORTANT]
+> **Commodore DOS ROMs are proprietary and copyrighted.**
+> This repository **does NOT contain any Commodore ROM files**.
+> To use Pico1541, you must supply a legally obtained 16 KB (16,384 bytes) binary dump of a 1541 DOS ROM (such as `1541-II.251968-03.bin`, original `1541-c.bin`, or a licensed JiffyDOS 1541 ROM).
+
+The ROM file must have an exact size of **16,384 bytes** (`0x4000` bytes).
+
+You can install ROMs using either of the following two procedures:
+
+### Method 1: Compile-Time Embedding (Flash LittleFS)
+
+This is the recommended method. The build system will package the ROM into an internal LittleFS flash partition on the Pico, making the drive completely self-contained.
+
+1. Install `mklittlefs` on your system:
+   - On Linux / macOS, build from source via [earlephilhower/mklittlefs](https://github.com/earlephilhower/mklittlefs) or install via your package manager.
+   - Verify `mklittlefs` is accessible in your `PATH` (`mklittlefs --version`).
+2. Copy your 16 KB ROM file into the `flash-fs/roms/` directory in this repository:
+   ```bash
+   cp /path/to/1541-II.251968-03.bin flash-fs/roms/
+   ```
+   *(Multiple `.bin` or `.rom` files can be placed here, e.g., standard DOS and JiffyDOS).*
+3. Compile the firmware as described in [Building & Flashing](#building--flashing). The build script (`build.rs`) will automatically pack `flash-fs/` into an image (`fs.bin`) and link it into flash memory.
+
+### Method 2: Runtime Loading from MicroSD Card
+
+If you prefer not to rebuild the firmware with `mklittlefs`, or wish to swap ROMs at runtime:
+
+1. Format a MicroSD card with a standard **FAT32** filesystem.
+2. Create a folder named `roms` at the root of the SD card:
+   ```
+   SD_CARD/
+   └── roms/
+       ├── 1541-II.251968-03.bin
+       └── JiffyDOS_1541-II.bin
+   ```
+3. Insert the MicroSD card into Pico1541 and power on the device.
+4. Using the keypad and OLED display, navigate to:
+   ```
+   Main Menu -> Settings -> Select ROM
+   ```
+5. Select your desired ROM file from the list and press **Select**. The firmware will load the ROM into active memory, set it as the default boot ROM in internal settings, and reset the emulated 1541 drive.
+
+---
+
+## Prerequisites
+
+### 1. Rust Toolchain
+
+Pico1541 is built with Rust. Install the stable Rust toolchain via `rustup`:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+### 2. ARM Cortex-M Target
+
+Add the appropriate bare-metal target for your microcontroller:
+
+- **For Raspberry Pi Pico (RP2040):**
+  ```bash
+  rustup target add thumbv6m-none-eabi
+  ```
+- **For Raspberry Pi Pico 2 (RP2350):**
+  ```bash
+  rustup target add thumbv8m.main-none-eabihf
+  ```
+
+### 3. Flashing Tools
+
+Install `elf2uf2-rs` for easy USB drag-and-drop flashing (when the Pico is in BOOTSEL mode):
+
+```bash
+cargo install elf2uf2-rs --locked
+```
+
+Alternatively, install [`picotool`](https://github.com/raspberrypi/picotool) or [`probe-rs`](https://probe.rs/) if you prefer flashing via SWD/JTAG debuggers.
+
+---
+
+## Building & Flashing
+
+Clone the repository and enter the project directory:
+
+```bash
+git clone https://github.com/johnnyegel/Pico1541.git
+cd Pico1541
+```
+
+Make sure you have placed your 16 KB DOS ROM in `flash-fs/roms/` before building if using compile-time embedding.
+
+### Raspberry Pi Pico (RP2040)
+
+To build the release binary for RP2040:
+
+```bash
+cargo build -p pico1541-rp2040 --target thumbv6m-none-eabi --release
+```
+
+#### Flashing via USB (BOOTSEL Mode):
+
+1. Unplug the Pico.
+2. Hold down the **BOOTSEL** button on the Pico board and plug it into your computer via USB.
+3. Flash the binary:
+   ```bash
+   elf2uf2-rs -d target/thumbv6m-none-eabi/release/pico1541-rp2040
+   ```
+   *(Or run `cargo run -p pico1541-rp2040 --release` directly from within the `crates/pico1541-rp2040` directory).*
+
+### Raspberry Pi Pico 2 (RP2350)
+
+To build the release binary for RP2350:
+
+```bash
+cargo build -p pico1541-rp2350 --target thumbv8m.main-none-eabihf --release
+```
+
+#### Flashing via USB (BOOTSEL Mode):
+
+Put the Pico 2 into BOOTSEL mode and flash:
+
+```bash
+elf2uf2-rs -d target/thumbv8m.main-none-eabihf/release/pico1541-rp2350
+```
+
+### Flashing via SWD Debugger
+
+If you are using a Raspberry Pi Debug Probe or SWD debugger with `probe-rs`, you can use the predefined cargo alias:
+
+```bash
+cargo flash-swd
+```
+
+---
+
+## Usage & Operation
+
+### IEC Cable Connection
+
+Connect a standard 6-pin DIN serial cable from the Commodore 64 / 128 serial port to the DIN connector on the Pico1541 hat. Ensure the ground reference is shared.
+
+### OLED Menu Navigation
+
+Pico1541 uses a 4-button navigation scheme:
+
+- **Up / Down:** Scroll through menus, files, and disk directories.
+- **Select / Enter:** Open a directory, mount a disk image (`.D64`, `.G64`, `.NIB`), or mount a `.PRG`.
+- **Back:** Navigate up one directory level, or unmount the current image and return to the main menu.
+- **Fast Scroll:** Holding the Up or Down buttons skips through large lists quickly.
+
+### C64 Commands & Browser
+
+Once an image is mounted, use standard Commodore commands on your C64:
+
+```basic
+LOAD "$",8
+LIST
+LOAD "*",8,1
+RUN
+```
+
+#### Navigating with C64 File Browsers (e.g., `fb64`):
+
+Pico1541 includes built-in SD2IEC protocol command snooping. When using tools like `fb64`:
+- Directory changes (`CD:DIRNAME`, `CD:_`, `CD:←`) are automatically intercepted on command channel 15.
+- The virtual directory track is dynamically updated, allowing you to browse folders and mount disks directly from the C64 screen without touching the hardware buttons.
+
+---
+
+## Repository Structure
+
+```
+Pico1541/
+├── crates/
+│   ├── pico1541-emulator/     # Pure 6502 and dual 6522 VIA emulation engine
+│   ├── racc6502v4/            # Cycle-accurate micro-step 6502 CPU implementation
+│   ├── pico1541-manager/      # Async Embassy manager, disk formats, GCR, UI logic
+│   ├── pico1541-rp-common/    # Shared RP-family hardware drivers (PIO, SPI, Display)
+│   ├── pico1541-rp2040/       # Firmware entry point for Raspberry Pi Pico (RP2040)
+│   ├── pico1541-rp2350/       # Firmware entry point for Raspberry Pi Pico 2 (RP2350)
+│   └── pico1541-common/       # Common definitions, events, and inter-core buffers
+├── flash-fs/                  # Root filesystem packed into on-chip LittleFS partition
+│   └── roms/                  # Location to place 16KB DOS ROMs for compile-time embedding
+├── hardware/                  # KiCad schematics, PCB layouts, and Gerber files
+│   └── kicad/
+│       ├── Pico1541/          # v1 Hardware interface hat
+│       └── Pico1541v2/        # v2 Hardware interface hat
+├── COMMERCIAL_LICENSE.md      # Commercial manufacturing terms
+└── LICENSE.md                 # Firmware license (PolyForm Noncommercial 1.0.0)
+```
+
+---
+
+## Licensing
+
+This project is made available under multiple licenses:
+
+- **Firmware & Management Software:**
+  Licensed under the **[PolyForm Noncommercial License 1.0.0](LICENSE.md)**. Free for personal, hobby, educational, and non-commercial use.
+- **6502 Emulator Core (`racc6502v4`):**
+  Licensed under the **[GNU General Public License v3.0 (GPL-3.0)](crates/racc6502/LICENSE.md)**.
+- **Hardware Design & KiCad Schematics:**
+  Licensed under the **[Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)](hardware/LICENSE.md)**.
+- **Commercial Licensing:**
+  Commercial manufacturing and sale of assembled Pico1541 units requires a commercial license for a flat royalty fee of **5 EUR/USD per sold unit**. Please refer to [COMMERCIAL_LICENSE.md](COMMERCIAL_LICENSE.md) or contact [johnnyege@gmail.com](mailto:johnnyege@gmail.com) to arrange an agreement before starting production.
