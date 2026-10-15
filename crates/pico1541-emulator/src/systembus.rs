@@ -3,6 +3,7 @@ use crate::via6522::Via6522;
 #[cfg(feature = "debug")]
 use crate::MemoryMonitor;
 use core::marker::PhantomData;
+use core::sync::atomic::Ordering;
 #[allow(unused_imports)]
 use pico1541_common::context::ViaHardware;
 use pico1541_common::interface::HostInterface;
@@ -190,17 +191,33 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             len += 1;
         }
 
+        let mut cmd_str_opt = None;
+        let mut ascii_buf = [0u8; 48];
         if let Ok(cmd_str) = core::str::from_utf8(&buf[..len]) {
-            crate::emu_info!("SD2IEC CD intercepted: {}", cmd_str);
-            hardware.intercept_cd_command(cmd_str);
+            cmd_str_opt = Some(cmd_str);
         } else {
-            let mut ascii_buf = [0u8; 48];
             for i in 0..len {
                 ascii_buf[i] = buf[i] & 0x7F;
             }
             if let Ok(cmd_str) = core::str::from_utf8(&ascii_buf[..len]) {
-                crate::emu_info!("SD2IEC CD intercepted: {}", cmd_str);
-                hardware.intercept_cd_command(cmd_str);
+                cmd_str_opt = Some(cmd_str);
+            }
+        }
+
+        if let Some(cmd_str) = cmd_str_opt {
+            crate::emu_info!("SD2IEC CD intercepted: {}", cmd_str);
+            hardware.intercept_cd_command(cmd_str);
+
+            let trimmed = cmd_str.trim();
+            let is_probe = trimmed.eq_ignore_ascii_case("CD")
+                || (trimmed.len() >= 3
+                    && (trimmed.as_bytes()[0] == b'C' || trimmed.as_bytes()[0] == b'c')
+                    && (trimmed.as_bytes()[1] == b'D' || trimmed.as_bytes()[1] == b'd')
+                    && trimmed.as_bytes()[2] == b':'
+                    && trimmed[3..].trim().is_empty());
+
+            if !is_probe {
+                pico1541_common::HALT_EMULATOR.store(true, Ordering::Release);
             }
         }
 
