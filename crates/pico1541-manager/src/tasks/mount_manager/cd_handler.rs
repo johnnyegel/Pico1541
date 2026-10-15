@@ -18,27 +18,49 @@ pub enum CdNavAction {
     Ignore,
 }
 
+/// Extracts the argument body from an SD2IEC / CMD `CD` command.
+///
+/// Returns `Some((body, is_explicit_root))` where `is_explicit_root` is true
+/// for commands like `CD//` or `CD//:` which explicitly designate the root container.
+///
+/// Supports prefixes: `CD:`, `CD/`, `CD//`, `CD/:`, `CD//:`, `CD `, or bare `CD`
+/// followed directly by tokens like `_`, `\x1F`, `<-`, `←`, `..`.
+pub fn parse_cd_body(cmd: &str) -> Option<(&str, bool)> {
+    let trimmed = cmd.trim();
+    let rest = strip_prefix_ci(trimmed, "CD")?;
+
+    // Explicit root container commands: CD// or CD//:
+    if rest.eq_ignore_ascii_case("//") || rest.eq_ignore_ascii_case("//:") {
+        return Some(("", true));
+    }
+
+    // Strip delimiters: :, /
+    // Note: For "CD//GAMES", stripping a single '/' leaves "/GAMES", which preserves
+    // the leading slash indicating an absolute path from the root.
+    let body = if let Some(stripped) = rest.strip_prefix(':') {
+        stripped
+    } else if let Some(stripped) = rest.strip_prefix('/') {
+        stripped
+    } else {
+        rest
+    };
+
+    Some((body.trim(), false))
+}
+
 /// Resolves an SD2IEC / CMD `CD` command string against the current [`DriveLocation`].
 ///
 /// Under the SD2IEC / CMD specification:
 /// - `CD//` explicitly navigates to the root container ([`DriveLocation::Root`]).
 /// - `CD:DIR` navigates into subdirectory `DIR`.
-/// - `CD:←`, `CD:_`, `CD:..` navigate up to the parent directory.
-/// - Bare `CD:`, `CD: ` (spaces only after colon) is a device ping / status inquiry
+/// - `CD:←`, `CD←`, `CD:_`, `CD_`, `CD:..`, `CD..`, `CD:<-`, `CD<-` navigate up to the parent directory.
+/// - Bare `CD:`, `CD: `, `CD` (spaces only after colon/CD) is a device ping / status inquiry
 ///   sent by file browsers (such as `fb64`) on startup and returns [`CdNavAction::Ignore`].
 pub fn resolve_cd_nav(current: &DriveLocation, cmd: &str) -> CdNavAction {
-    let cmd = cmd.trim();
-    let body = if cmd.eq_ignore_ascii_case("CD//") {
-        ""
-    } else if let Some(stripped) = strip_prefix_ci(cmd, "CD:") {
-        stripped
-    } else if let Some(stripped) = strip_prefix_ci(cmd, "CD/") {
-        stripped
-    } else {
-        return CdNavAction::Ignore;
+    let (body, is_explicit_root) = match parse_cd_body(cmd) {
+        Some(res) => res,
+        None => return CdNavAction::Ignore,
     };
-
-    let body = body.trim();
 
     // Page navigation commands
     if body.eq_ignore_ascii_case(">>> MORE >>>") || body == "..." {
@@ -48,13 +70,14 @@ pub fn resolve_cd_nav(current: &DriveLocation, cmd: &str) -> CdNavAction {
         return CdNavAction::PrevPage;
     }
 
+    if is_explicit_root {
+        return match current {
+            DriveLocation::Root => CdNavAction::Ignore,
+            _ => CdNavAction::Transition(DriveLocation::Root),
+        };
+    }
+
     if body.is_empty() {
-        if cmd.eq_ignore_ascii_case("CD//") {
-            return match current {
-                DriveLocation::Root => CdNavAction::Ignore,
-                _ => CdNavAction::Transition(DriveLocation::Root),
-            };
-        }
         return CdNavAction::Ignore;
     }
 
@@ -79,10 +102,20 @@ pub fn resolve_cd_nav(current: &DriveLocation, cmd: &str) -> CdNavAction {
         }
         DriveLocation::VirtualDirectory { path, use_internal } => {
             // Returning to Root or parent
-            if body == "/" || body == "//" {
+            if body == "//" {
                 return CdNavAction::Transition(DriveLocation::Root);
             }
-            if body == ".." || body == "_" || body == "\x1F" || body == "<-" {
+            if body == "/" {
+                if (*use_internal && path == "/files") || (!*use_internal && path == "/") {
+                    return CdNavAction::Transition(DriveLocation::Root);
+                }
+                let root_path = if *use_internal { "/files" } else { "/" };
+                return CdNavAction::Transition(DriveLocation::VirtualDirectory {
+                    path: String::try_from(root_path).unwrap_or_default(),
+                    use_internal: *use_internal,
+                });
+            }
+            if body == ".." || body == "_" || body == "\x1F" || body == "<-" || body == "←" {
                 if (*use_internal && path == "/files") || (!*use_internal && path == "/") {
                     return CdNavAction::Transition(DriveLocation::Root);
                 }
@@ -95,6 +128,24 @@ pub fn resolve_cd_nav(current: &DriveLocation, cmd: &str) -> CdNavAction {
                 return CdNavAction::Transition(DriveLocation::VirtualDirectory {
                     path: String::try_from(parent).unwrap_or_default(),
                     use_internal: *use_internal,
+                });
+            }
+
+            let clean_body = body.trim_matches('/');
+            // Safety: if the user/browser requested "SD CARD" or "INTERNAL" while already at SD or Internal root
+            if clean_body.eq_ignore_ascii_case("INTERNAL") && *use_internal && path == "/files" {
+                return CdNavAction::Transition(DriveLocation::VirtualDirectory {
+                    path: String::try_from("/files").unwrap_or_default(),
+                    use_internal: true,
+                });
+            }
+            if (clean_body.eq_ignore_ascii_case("SD CARD") || clean_body.eq_ignore_ascii_case("SD"))
+                && !*use_internal
+                && path == "/"
+            {
+                return CdNavAction::Transition(DriveLocation::VirtualDirectory {
+                    path: String::try_from("/").unwrap_or_default(),
+                    use_internal: false,
                 });
             }
 
@@ -136,7 +187,7 @@ pub fn resolve_cd_nav(current: &DriveLocation, cmd: &str) -> CdNavAction {
             }
         }
         DriveLocation::DiskImage { path, use_internal } => {
-            if body == ".." || body == "_" || body == "/" || body == "//" || body == "\x1F" || body == "<-" {
+            if body == ".." || body == "_" || body == "/" || body == "//" || body == "\x1F" || body == "<-" || body == "←" {
                 let trimmed = path.trim_end_matches('/');
                 let parent = match trimmed.rfind('/') {
                     Some(0) => "/",
@@ -167,23 +218,12 @@ pub fn resolve_cd_action(
     current_path: &str,
     cd_cmd: &str,
 ) -> Option<CdAction> {
-    // Strip prefix to obtain the raw argument
-    let raw_arg = if cd_cmd.eq_ignore_ascii_case("CD//") || cd_cmd.eq_ignore_ascii_case("CD:") {
-        // CD// or bare CD: → root
-        return Some(CdAction::ChangeDir(heapless::String::try_from("/").ok()?));
-    } else if let Some(stripped) = strip_prefix_ci(cd_cmd, "CD:") {
-        stripped
-    } else if let Some(stripped) = strip_prefix_ci(cd_cmd, "CD/") {
-        stripped
-    } else {
-        return None;
-    };
+    let (body, is_explicit_root) = parse_cd_body(cd_cmd)?;
 
-    // Trim trailing spaces that the C64 may pad
-    let arg = raw_arg.trim_end();
+    let arg = body.trim_end();
 
-    // Empty argument → root
-    if arg.is_empty() || arg == "/" || arg == "//" {
+    // Empty argument or explicit root → root
+    if is_explicit_root || arg.is_empty() || arg == "/" || arg == "//" {
         return Some(CdAction::ChangeDir(heapless::String::try_from("/").ok()?));
     }
 
@@ -195,8 +235,8 @@ pub fn resolve_cd_action(
         return Some(CdAction::PrevPage);
     }
 
-    // Parent directory: PETSCII left-arrow (0x1F), "..", or "_"
-    let new_path = if arg == "\x1F" || arg == ".." || arg == "_" {
+    // Parent directory: PETSCII left-arrow (0x1F), "..", "_", "<-", or "←"
+    let new_path = if arg == "\x1F" || arg == ".." || arg == "_" || arg == "<-" || arg == "←" {
         go_to_parent(current_path)?
     } else if arg.starts_with('/') {
         heapless::String::try_from(arg).ok()?
@@ -205,14 +245,7 @@ pub fn resolve_cd_action(
     };
 
     let p_str = new_path.as_str();
-    let is_image = if let Some(dot) = p_str.rfind('.') {
-        let ext = &p_str[dot..];
-        ext.eq_ignore_ascii_case(".d64")
-            || ext.eq_ignore_ascii_case(".g64")
-            || ext.eq_ignore_ascii_case(".nib")
-    } else {
-        false
-    };
+    let is_image = is_disk_image(p_str);
 
     if is_image {
         Some(CdAction::MountImage(new_path))
@@ -234,17 +267,11 @@ pub fn resolve_cd_path(
     }
 }
 
-
 pub fn extract_cd_target(cmd: &str) -> &str {
-    let trimmed = cmd.trim();
-    let body = if let Some(stripped) = strip_prefix_ci(trimmed, "CD:") {
-        stripped.trim()
-    } else if let Some(stripped) = strip_prefix_ci(trimmed, "CD/") {
-        stripped.trim()
-    } else {
-        trimmed
-    };
-    body.trim_matches('/')
+    match parse_cd_body(cmd) {
+        Some((body, _)) => body.trim_matches('/'),
+        None => cmd.trim().trim_matches('/'),
+    }
 }
 
 pub fn is_disk_image(path: &str) -> bool {

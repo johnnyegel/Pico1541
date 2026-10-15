@@ -453,3 +453,112 @@ fn test_resolve_cd_nav_bare_cd_probe_and_cd_root() {
         CdNavAction::Transition(DriveLocation::Root)
     );
 }
+
+#[test]
+fn test_resolve_cd_nav_parent_variants_without_colon() {
+    let sd_root = DriveLocation::VirtualDirectory {
+        path: String::try_from("/").unwrap(),
+        use_internal: false,
+    };
+    let internal_files = DriveLocation::VirtualDirectory {
+        path: String::try_from("/files").unwrap(),
+        use_internal: true,
+    };
+    let sd_nested = DriveLocation::VirtualDirectory {
+        path: String::try_from("/GAMES/ACTION").unwrap(),
+        use_internal: false,
+    };
+    let disk_image = DriveLocation::DiskImage {
+        path: String::try_from("/GAMES/ACTION/DOOM.D64").unwrap(),
+        use_internal: false,
+    };
+
+    // 1. CD_ (without colon) from root of SD card or internal returns to Root container
+    assert_eq!(resolve_cd_nav(&sd_root, "CD_"), CdNavAction::Transition(DriveLocation::Root));
+    assert_eq!(resolve_cd_nav(&sd_root, "cd_"), CdNavAction::Transition(DriveLocation::Root));
+    assert_eq!(resolve_cd_nav(&sd_root, "CD←"), CdNavAction::Transition(DriveLocation::Root));
+    assert_eq!(resolve_cd_nav(&sd_root, "CD\x1F"), CdNavAction::Transition(DriveLocation::Root));
+    assert_eq!(resolve_cd_nav(&sd_root, "CD<-"), CdNavAction::Transition(DriveLocation::Root));
+    assert_eq!(resolve_cd_nav(&sd_root, "CD.."), CdNavAction::Transition(DriveLocation::Root));
+
+    assert_eq!(resolve_cd_nav(&internal_files, "CD_"), CdNavAction::Transition(DriveLocation::Root));
+
+    // 2. CD_ from nested subfolder returns to parent folder
+    assert_eq!(
+        resolve_cd_nav(&sd_nested, "CD_"),
+        CdNavAction::Transition(DriveLocation::VirtualDirectory {
+            path: String::try_from("/GAMES").unwrap(),
+            use_internal: false,
+        })
+    );
+    assert_eq!(
+        resolve_cd_nav(&sd_nested, "CD.."),
+        CdNavAction::Transition(DriveLocation::VirtualDirectory {
+            path: String::try_from("/GAMES").unwrap(),
+            use_internal: false,
+        })
+    );
+
+    // 3. CD_ from disk image unmounts back to parent directory
+    assert_eq!(
+        resolve_cd_nav(&disk_image, "CD_"),
+        CdNavAction::Transition(DriveLocation::VirtualDirectory {
+            path: String::try_from("/GAMES/ACTION").unwrap(),
+            use_internal: false,
+        })
+    );
+
+    // 4. Subdirectory navigation with space e.g. "CD GAMES" or "CD/GAMES"
+    assert_eq!(
+        resolve_cd_nav(&sd_root, "CD GAMES"),
+        CdNavAction::Transition(DriveLocation::VirtualDirectory {
+            path: String::try_from("/GAMES").unwrap(),
+            use_internal: false,
+        })
+    );
+    assert_eq!(
+        resolve_cd_nav(&sd_root, "CD/GAMES"),
+        CdNavAction::Transition(DriveLocation::VirtualDirectory {
+            path: String::try_from("/GAMES").unwrap(),
+            use_internal: false,
+        })
+    );
+}
+
+#[test]
+fn test_resolve_cd_reselect_sd_card_safety() {
+    let sd_root = DriveLocation::VirtualDirectory {
+        path: String::try_from("/").unwrap(),
+        use_internal: false,
+    };
+    let internal_files = DriveLocation::VirtualDirectory {
+        path: String::try_from("/files").unwrap(),
+        use_internal: true,
+    };
+
+    // CD:SD CARD while already at SD root stays at SD root rather than creating /SD CARD
+    assert_eq!(
+        resolve_cd_nav(&sd_root, "CD:SD CARD"),
+        CdNavAction::Transition(DriveLocation::VirtualDirectory {
+            path: String::try_from("/").unwrap(),
+            use_internal: false,
+        })
+    );
+    assert_eq!(
+        resolve_cd_nav(&sd_root, "CD/SD CARD"),
+        CdNavAction::Transition(DriveLocation::VirtualDirectory {
+            path: String::try_from("/").unwrap(),
+            use_internal: false,
+        })
+    );
+
+    // CD:INTERNAL while already at internal root stays at internal root rather than creating /files/INTERNAL
+    assert_eq!(
+        resolve_cd_nav(&internal_files, "CD:INTERNAL"),
+        CdNavAction::Transition(DriveLocation::VirtualDirectory {
+            path: String::try_from("/files").unwrap(),
+            use_internal: true,
+        })
+    );
+}
+

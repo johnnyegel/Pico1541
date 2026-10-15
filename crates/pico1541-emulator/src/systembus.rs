@@ -162,10 +162,18 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         let b1 = self.memory.read(0x0201);
         let b2 = self.memory.read(0x0202);
 
-        // Check for CD: (b"CD:"), CD/ (b"CD/"), or CD<- (b"CD\x1F")
+        // Check for CD command (e.g. CD:, CD/, CD_, CD<-, CD.., CD DIR, bare CD)
         let is_cd = (b0 == b'C' || b0 == b'c')
             && (b1 == b'D' || b1 == b'd')
-            && (b2 == b':' || b2 == b'/' || b2 == 0x1F || b2 == b'_');
+            && (b2 == b':'
+                || b2 == b'/'
+                || b2 == 0x1F
+                || b2 == b'_'
+                || b2 == b'.'
+                || b2 == b' '
+                || b2 == b'<'
+                || b2 == 0
+                || b2 == b'\r');
         if !is_cd {
             return;
         }
