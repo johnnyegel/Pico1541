@@ -44,16 +44,19 @@ where
         }
 
         let path_str = self.current_path.as_str();
+        let page_offset = crate::tasks::mount_manager::CURRENT_PAGE.load(core::sync::atomic::Ordering::Acquire)
+            * crate::storage::PAGE_CAPACITY;
+        let start_entry = page_offset + block_idx * 16;
 
         let fetch_res = if self.use_internal {
             self.internal
-                .list_dir_range(path_str, block_idx * 16, 16, |info| {
+                .list_dir_range(path_str, start_entry, 16, |info| {
                     let _ = block_infos.push(info);
                 })
                 .await
         } else {
             self.storage
-                .list_dir_range(path_str, block_idx * 16, 16, |info| {
+                .list_dir_range(path_str, start_entry, 16, |info| {
                     let _ = block_infos.push(info);
                 })
                 .await
