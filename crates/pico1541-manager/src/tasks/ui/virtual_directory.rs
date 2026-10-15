@@ -1,7 +1,6 @@
 use crate::driver::{FileInfo, FileStorageDriver};
 use crate::storage::PAGE_CAPACITY;
 use crate::tasks::mount_manager::{ACTIVE_CHILDREN, CURRENT_PAGE};
-use crate::tasks::ui::UiContext;
 use core::sync::atomic::Ordering;
 use heapless::{String, Vec};
 
@@ -14,7 +13,6 @@ where
     pub storage: &'a mut S,
     pub internal: &'a mut Internal,
     pub current_path: &'a mut String<128>,
-    pub context: &'a UiContext,
 }
 
 impl<'a, S, Internal> VirtualDirectoryManager<'a, S, Internal>
@@ -67,8 +65,8 @@ where
     pub async fn fetch_entry_at(&mut self, idx: usize) -> Option<FileInfo> {
         {
             let guard = ACTIVE_CHILDREN.lock().await;
-            if idx < guard.len() {
-                return Some(guard[idx].to_file_info());
+            if !guard.is_empty() {
+                return guard.get(idx).map(|entry| entry.to_file_info());
             }
         }
 

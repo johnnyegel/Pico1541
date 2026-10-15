@@ -1,6 +1,10 @@
 use crate::driver::DisplayDriver;
-use crate::UiAction;
+use crate::{UiAction, LOCATION_CHANGED};
 use core::fmt::Display;
+use embassy_futures::select::{select, Either};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Receiver;
+use embassy_time::{with_timeout, Duration};
 use heapless::Vec;
 
 pub enum MenuEvent {
@@ -366,7 +370,7 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
     pub async fn run<D: DisplayDriver>(
         &mut self,
         display: &mut D,
-        action_rx: &embassy_sync::channel::Receiver<'static, embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex, crate::UiAction, 16>,
+        action_rx: &Receiver<'static, CriticalSectionRawMutex, UiAction, 16>,
     ) -> MenuEvent {
         loop {
             for i in 0..5 {
@@ -389,15 +393,15 @@ impl<T: Clone + Display + AsRef<str>, const N: usize, Title: AsRef<str>> Menu<T,
                 Ok(a) => a,
                 Err(_) => {
                     let rx_fut = action_rx.receive();
-                    let loc_fut = crate::LOCATION_CHANGED.wait();
-                    match embassy_time::with_timeout(
-                        embassy_time::Duration::from_millis(500),
-                        embassy_futures::select::select(rx_fut, loc_fut),
+                    let loc_fut = LOCATION_CHANGED.wait();
+                    match with_timeout(
+                        Duration::from_millis(500),
+                        select(rx_fut, loc_fut),
                     )
                     .await
                     {
-                        Ok(embassy_futures::select::Either::First(a)) => a,
-                        Ok(embassy_futures::select::Either::Second(_)) => return MenuEvent::LocationChanged,
+                        Ok(Either::First(a)) => a,
+                        Ok(Either::Second(_)) => return MenuEvent::LocationChanged,
                         Err(_) => return MenuEvent::Timeout,
                     }
                 }

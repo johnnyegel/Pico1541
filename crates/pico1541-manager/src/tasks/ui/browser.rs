@@ -6,7 +6,8 @@ use crate::driver::{
 use crate::tasks::menu::{Menu, MenuEvent};
 use crate::tasks::ui::virtual_directory::VirtualDirectoryManager;
 use crate::{InternalCommand, MountPayload};
-use core::str::FromStr;
+use core::fmt::Write as _;
+use core::str::{from_utf8, FromStr};
 use heapless::{String, Vec};
 use pico1541_common::DriveLocation;
 
@@ -40,7 +41,7 @@ pub fn is_mounted(item_path: &str, mounted_path: Option<&String<128>>) -> bool {
     mounted_path.map_or(false, |m| m.as_str().eq_ignore_ascii_case(item_path))
 }
 
-fn format_menu_block(
+pub fn format_menu_block(
     infos: &[FileInfo],
     current_path: &str,
     mounted_path: Option<&String<128>>,
@@ -48,7 +49,7 @@ fn format_menu_block(
     let mut block_strings = Vec::<String<64>, 16>::new();
     for info in infos.iter() {
         let mut s = String::<64>::new();
-        let name_str = core::str::from_utf8(&info.name).unwrap_or("???");
+        let name_str = from_utf8(&info.name).unwrap_or("???");
         let name_trimmed = name_str.trim_matches('\0');
         let file_path = join_path(current_path, name_trimmed);
         if is_mounted(file_path.as_str(), mounted_path) {
@@ -132,7 +133,7 @@ where
         let path_is_root = current_path_ptr.as_str() == "/";
         if path_is_root && !use_internal {
             if let Some(label) = ctx.storage.volume_label() {
-                let _ = core::fmt::write(&mut menu_title, format_args!("SD: {}", label.as_str()));
+                let _ = write!(menu_title, "SD: {}", label.as_str());
             } else {
                 let _ = menu_title.push_str("SD CARD");
             }
@@ -145,7 +146,6 @@ where
             storage: ctx.storage,
             internal: ctx.internal,
             current_path: current_path_ptr,
-            context: &ctx.context,
         };
 
         let mut menu = Menu::<String<64>, 48, _>::new_paged(menu_title.clone());
@@ -162,21 +162,11 @@ where
                     break;
                 }
                 files_found += infos.len();
-                let mut block_strings = Vec::<String<64>, 16>::new();
-                for info in infos.iter() {
-                    let mut s = String::<64>::new();
-                    let name_str = core::str::from_utf8(&info.name).unwrap_or("???");
-                    let name_trimmed = name_str.trim_matches('\0');
-                    let file_path = join_path(manager.current_path.as_str(), name_trimmed);
-                    if is_mounted(file_path.as_str(), ctx.mounted_file_path.as_ref()) {
-                        let _ = s.push('*');
-                    }
-                    let _ = s.push_str(name_trimmed);
-                    if info.is_dir {
-                        let _ = s.push_str("/");
-                    }
-                    let _ = block_strings.push(s);
-                }
+                let block_strings = format_menu_block(
+                    &infos,
+                    manager.current_path.as_str(),
+                    ctx.mounted_file_path.as_ref(),
+                );
                 menu.set_block(block_idx, &block_strings);
             }
         }
@@ -382,7 +372,7 @@ where
                     }
                 };
 
-                let selected_name = core::str::from_utf8(&selected.name)
+                let selected_name = from_utf8(&selected.name)
                     .unwrap_or("???")
                     .trim_matches('\0');
                 #[cfg(feature = "defmt")]
@@ -400,17 +390,7 @@ where
                     )).await;
                 } else {
                     let filename = selected_name;
-                    let mut full_path = String::<128>::new();
-                    let current_path_val = manager.current_path.as_str();
-
-                    if current_path_val == "/" {
-                        let _ = full_path.push_str("/");
-                        let _ = full_path.push_str(filename);
-                    } else {
-                        let _ = full_path.push_str(current_path_val);
-                        let _ = full_path.push_str("/");
-                        let _ = full_path.push_str(filename);
-                    }
+                    let full_path = join_path(manager.current_path.as_str(), filename);
 
                     if is_mounted(full_path.as_str(), ctx.mounted_file_path.as_ref()) {
                         let _ = ctx.context.cmd_tx
