@@ -19,7 +19,7 @@ pub mod virtual_directory;
 #[derive(Clone, Copy)]
 pub struct UiContext {
     pub action_rx: Receiver<'static, CriticalSectionRawMutex, crate::UiAction, 16>,
-    pub cmd_tx: Sender<'static, CriticalSectionRawMutex, crate::InternalCommand, 128>,
+    pub cmd_tx: Sender<'static, CriticalSectionRawMutex, crate::InternalCommand, 32>,
     pub settings_tx: Sender<'static, CriticalSectionRawMutex, crate::SettingsCommand, 2>,
 }
 

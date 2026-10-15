@@ -1,5 +1,4 @@
 use crate::driver::{FileInfo, FileStorageDriver};
-use crate::storage::DirectoryEntry;
 use heapless::{String, Vec};
 
 pub struct VirtualDirectoryManager<'a, S, Internal>
@@ -21,6 +20,29 @@ where
 {
     pub async fn ensure_block_loaded(&mut self, block_idx: usize) -> Result<Vec<FileInfo, 16>, ()> {
         let mut block_infos = Vec::<FileInfo, 16>::new();
+
+        {
+            let guard = crate::tasks::mount_manager::ACTIVE_CHILDREN.lock().await;
+            if !guard.is_empty() {
+                let start_idx = block_idx * 16;
+                if start_idx < guard.len() {
+                    let end_idx = (start_idx + 16).min(guard.len());
+                    for entry in &guard[start_idx..end_idx] {
+                        let mut name = [0u8; 64];
+                        let nb = entry.real_name.as_bytes();
+                        let len = nb.len().min(63);
+                        name[..len].copy_from_slice(&nb[..len]);
+                        let _ = block_infos.push(FileInfo {
+                            name,
+                            size: 0,
+                            is_dir: entry.is_dir,
+                        });
+                    }
+                }
+                return Ok(block_infos);
+            }
+        }
+
         let path_str = self.current_path.as_str();
 
         let fetch_res = if self.use_internal {
@@ -39,17 +61,6 @@ where
 
         if fetch_res.is_err() {
             return Err(());
-        }
-
-        let mut entries = Vec::<DirectoryEntry, 16>::new();
-        for info in block_infos.iter() {
-            let mut name_len = 0;
-            while name_len < info.name.len() && info.name[name_len] != 0 {
-                name_len += 1;
-            }
-            let entry =
-                DirectoryEntry::from_file_info(&info.name[..name_len], info.is_dir, info.size);
-            let _ = entries.push(entry);
         }
 
         Ok(block_infos)

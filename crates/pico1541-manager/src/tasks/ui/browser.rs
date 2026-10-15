@@ -229,6 +229,7 @@ where
                                 cursor = 0;
                                 scroll_offset = 0;
                                 cursor_stack.clear();
+                                *ctx.mounted_file_path = None;
                                 break;
                             }
                             DriveLocation::DiskImage {
@@ -376,28 +377,44 @@ where
             }
             MenuEvent::Selected(idx) => {
                 let mut selected_infos = Vec::<FileInfo, 1>::new();
-                let fetch_res = if manager.use_internal {
-                    manager
-                        .internal
-                        .list_dir_range(manager.current_path.as_str(), idx, 1, |info| {
-                            let _ = selected_infos.push(info);
-                        })
-                        .await
-                } else {
-                    manager
-                        .storage
-                        .list_dir_range(manager.current_path.as_str(), idx, 1, |info| {
-                            let _ = selected_infos.push(info);
-                        })
-                        .await
-                };
+                {
+                    let guard = crate::tasks::mount_manager::ACTIVE_CHILDREN.lock().await;
+                    if idx < guard.len() {
+                        let mut name = [0u8; 64];
+                        let nb = guard[idx].real_name.as_bytes();
+                        let len = nb.len().min(63);
+                        name[..len].copy_from_slice(&nb[..len]);
+                        let _ = selected_infos.push(FileInfo {
+                            name,
+                            size: 0,
+                            is_dir: guard[idx].is_dir,
+                        });
+                    }
+                }
+                if selected_infos.is_empty() {
+                    let fetch_res = if manager.use_internal {
+                        manager
+                            .internal
+                            .list_dir_range(manager.current_path.as_str(), idx, 1, |info| {
+                                let _ = selected_infos.push(info);
+                            })
+                            .await
+                    } else {
+                        manager
+                            .storage
+                            .list_dir_range(manager.current_path.as_str(), idx, 1, |info| {
+                                let _ = selected_infos.push(info);
+                            })
+                            .await
+                    };
 
-                if fetch_res.is_err() || selected_infos.is_empty() {
-                    log::error!("Failed to fetch selected item at index {}", idx);
-                    #[cfg(feature = "defmt")]
-                    defmt::error!("Failed to fetch selected item at index {}", idx);
-                    cursor = 0;
-                    continue;
+                    if fetch_res.is_err() || selected_infos.is_empty() {
+                        log::error!("Failed to fetch selected item at index {}", idx);
+                        #[cfg(feature = "defmt")]
+                        defmt::error!("Failed to fetch selected item at index {}", idx);
+                        cursor = 0;
+                        continue;
+                    }
                 }
 
                 let selected = selected_infos[0];
@@ -558,12 +575,10 @@ where
                         if loc_internal != use_internal {
                             return PageState::MainMenu;
                         }
-                        if !path.as_str().eq_ignore_ascii_case(manager.current_path.as_str()) {
-                            *manager.current_path = path.clone();
-                            cursor = 0;
-                            scroll_offset = 0;
-                            cursor_stack.clear();
-                        }
+                        *manager.current_path = path.clone();
+                        cursor = 0;
+                        scroll_offset = 0;
+                        cursor_stack.clear();
                         *ctx.mounted_file_path = None;
                         continue;
                     }

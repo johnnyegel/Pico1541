@@ -96,7 +96,7 @@ pub enum InternalCommand {
     SelectVirtualFile(usize),
 }
 
-pub static CMD_CHANNEL: Channel<CriticalSectionRawMutex, InternalCommand, 128> = Channel::new();
+pub static CMD_CHANNEL: Channel<CriticalSectionRawMutex, InternalCommand, 32> = Channel::new();
 pub static LOCATION_CHANGED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

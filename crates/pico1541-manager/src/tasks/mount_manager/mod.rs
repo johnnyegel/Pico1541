@@ -263,6 +263,10 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
                 ht2 = self.track_handle.get_head_half_track();
             }
         } else if is_single_file(p_str) {
+            {
+                let mut guard = ACTIVE_CHILDREN.lock().await;
+                guard.clear();
+            }
             // ── Single non-image file (PRG, SEQ, …) ──────────────────────────────
             // Build a VirtualDisk with one shortcut directory entry (track=1,
             // sector=1) and attach the opened file as file_storage.  The track-1
@@ -317,7 +321,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
 
             let mut count = 0;
             let mut has_more = false;
-            let mut active_children_batch = heapless::Vec::<CachedChildEntry, 48>::new();
+            let mut active_children_batch = heapless::Vec::<CachedChildEntry, 144>::new();
             let disk_image = &mut self.disk_image;
             let _ = self
                 .opener
@@ -431,7 +435,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
         let start_entry = page * PAGE_CAPACITY;
         let mut count = 0;
         let mut has_more = false;
-        let mut active_children_batch = heapless::Vec::<CachedChildEntry, 48>::new();
+        let mut active_children_batch = heapless::Vec::<CachedChildEntry, 144>::new();
         let disk_image = &mut self.disk_image;
         let _ = self
             .opener
@@ -629,7 +633,7 @@ pub struct CachedChildEntry {
     pub is_dir: bool,
 }
 
-pub static ACTIVE_CHILDREN: Mutex<CriticalSectionRawMutex, heapless::Vec<CachedChildEntry, 48>> =
+pub static ACTIVE_CHILDREN: Mutex<CriticalSectionRawMutex, heapless::Vec<CachedChildEntry, 144>> =
     Mutex::new(heapless::Vec::new());
 
 pub async fn resolve_active_child(child_name: &str) -> Option<(heapless::String<64>, bool)> {
@@ -654,14 +658,14 @@ pub static SLOT_SELECTED: portable_atomic::AtomicBool = portable_atomic::AtomicB
 pub struct MountControllerTask {
     location: &'static Mutex<CriticalSectionRawMutex, DriveLocation>,
     motor_state: &'static AtomicBool,
-    cmd_rx: Receiver<'static, CriticalSectionRawMutex, crate::InternalCommand, 128>,
+    cmd_rx: Receiver<'static, CriticalSectionRawMutex, crate::InternalCommand, 32>,
 }
 
 impl MountControllerTask {
     pub fn new(
         location: &'static Mutex<CriticalSectionRawMutex, DriveLocation>,
         motor_state: &'static AtomicBool,
-        cmd_rx: Receiver<'static, CriticalSectionRawMutex, crate::InternalCommand, 128>,
+        cmd_rx: Receiver<'static, CriticalSectionRawMutex, crate::InternalCommand, 32>,
     ) -> Self {
         Self {
             location,
@@ -683,6 +687,10 @@ impl MountControllerTask {
                 }
                 crate::InternalCommand::Mount(payload) => {
                     CURRENT_PAGE.store(0, Ordering::Release);
+                    {
+                        let mut guard = ACTIVE_CHILDREN.lock().await;
+                        guard.clear();
+                    }
                     let new_loc = match payload {
                         crate::MountPayload::VirtualDirectory(p, i) => DriveLocation::VirtualDirectory {
                             path: p,
@@ -711,6 +719,10 @@ impl MountControllerTask {
                 }
                 crate::InternalCommand::Unmount => {
                     CURRENT_PAGE.store(0, Ordering::Release);
+                    {
+                        let mut guard = ACTIVE_CHILDREN.lock().await;
+                        guard.clear();
+                    }
                     *self.location.lock().await = DriveLocation::Root;
                     crate::LOCATION_CHANGED.signal(());
                 }
@@ -732,11 +744,13 @@ impl MountControllerTask {
                                     let next = CURRENT_PAGE.load(Ordering::Acquire) + 1;
                                     CURRENT_PAGE.store(next, Ordering::Release);
                                     PAGE_CHANGED.store(true, Ordering::Release);
+                                    crate::LOCATION_CHANGED.signal(());
                                 }
                                 cd_handler::CdNavAction::PrevPage => {
                                     let prev = CURRENT_PAGE.load(Ordering::Acquire).saturating_sub(1);
                                     CURRENT_PAGE.store(prev, Ordering::Release);
                                     PAGE_CHANGED.store(true, Ordering::Release);
+                                    crate::LOCATION_CHANGED.signal(());
                                 }
                                 cd_handler::CdNavAction::Transition(new_loc) => {
                                     let child_seg = cd_handler::extract_cd_target(cd_str.as_str());

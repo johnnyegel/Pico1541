@@ -92,7 +92,7 @@ fn test_mount_controller_commands() {
     static LOCATION: Mutex<CriticalSectionRawMutex, DriveLocation> =
         Mutex::new(DriveLocation::Root);
     static MOTOR: AtomicBool = AtomicBool::new(false);
-    static CMD_CH: Channel<CriticalSectionRawMutex, InternalCommand, 128> = Channel::new();
+    static CMD_CH: Channel<CriticalSectionRawMutex, InternalCommand, 32> = Channel::new();
 
     let mut controller = MountControllerTask::new(
         &LOCATION,
@@ -183,6 +183,7 @@ fn test_mount_controller_commands() {
                 path: heapless::String::try_from("/").unwrap(),
                 use_internal: false,
             };
+            LOCATION_CHANGED.reset();
             PAGE_CHANGED.store(false, core::sync::atomic::Ordering::Release);
             CMD_CH
                 .send(InternalCommand::Cd(
@@ -193,6 +194,8 @@ fn test_mount_controller_commands() {
                 embassy_futures::yield_now().await;
             }
             assert_eq!(CURRENT_PAGE.load(core::sync::atomic::Ordering::Acquire), 1);
+            assert!(LOCATION_CHANGED.signaled());
+            LOCATION_CHANGED.reset();
 
             PAGE_CHANGED.store(false, core::sync::atomic::Ordering::Release);
             CMD_CH
@@ -204,8 +207,17 @@ fn test_mount_controller_commands() {
                 embassy_futures::yield_now().await;
             }
             assert_eq!(CURRENT_PAGE.load(core::sync::atomic::Ordering::Acquire), 0);
+            assert!(LOCATION_CHANGED.signaled());
+            LOCATION_CHANGED.reset();
+
+            // Verify ACTIVE_CHILDREN capacity is 144
+            {
+                let guard = pico1541_manager::tasks::mount_manager::ACTIVE_CHILDREN.lock().await;
+                assert_eq!(guard.capacity(), 144);
+            }
 
             // 8. CD:COMMODORE_64_-26 resolving via ACTIVE_CHILDREN to full long directory name
+            // Verify resolution works for entries past index 48 (e.g. index 60)
             *LOCATION.lock().await = DriveLocation::VirtualDirectory {
                 path: heapless::String::try_from("/").unwrap(),
                 use_internal: false,
@@ -213,6 +225,15 @@ fn test_mount_controller_commands() {
             {
                 let mut guard = pico1541_manager::tasks::mount_manager::ACTIVE_CHILDREN.lock().await;
                 guard.clear();
+                for i in 0..60 {
+                    let mut dummy_name = heapless::String::new();
+                    let _ = core::fmt::write(&mut dummy_name, format_args!("file_{:03}.prg", i));
+                    guard.push(pico1541_manager::tasks::mount_manager::CachedChildEntry {
+                        petscii_name: [0x41; 16],
+                        real_name: dummy_name,
+                        is_dir: false,
+                    }).unwrap();
+                }
                 let mut mangled_petscii = [0xA0; 16];
                 let mangled = pico1541_manager::storage::mangle_filename(b"Commodore_64_Demo_Party_2026");
                 for (i, &b) in mangled.iter().enumerate() {
@@ -225,6 +246,7 @@ fn test_mount_controller_commands() {
                     real_name,
                     is_dir: true,
                 }).unwrap();
+                assert_eq!(guard.len(), 61);
             }
             CMD_CH
                 .send(InternalCommand::Cd(
