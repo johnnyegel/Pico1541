@@ -12,8 +12,8 @@ Unlike high-level IEC drive emulators (such as standard SD2IEC devices), **Pico1
 - [Architecture](#architecture)
 - [Hardware & Pinout](#hardware--pinout)
 - [ROM Installation & Legal Notice](#rom-installation--legal-notice)
-  - [Method 1: Compile-Time Embedding (Flash LittleFS)](#method-1-compile-time-embedding-flash-littlefs)
-  - [Method 2: Runtime Loading from MicroSD Card](#method-2-runtime-loading-from-microsd-card)
+  - [Compile-Time Embedding (Flash LittleFS)](#compile-time-embedding-flash-littlefs)
+  - [Switching ROMs at Runtime (OLED Menu)](#switching-roms-at-runtime-oled-menu)
 - [Prerequisites](#prerequisites)
 - [Building & Flashing](#building--flashing)
   - [Raspberry Pi Pico (RP2040)](#raspberry-pi-pico-rp2040)
@@ -147,38 +147,30 @@ The ROM file must have an exact size of **16,384 bytes** (`0x4000` bytes).
 
 You can install ROMs using either of the following two procedures:
 
-### Method 1: Compile-Time Embedding (Flash LittleFS)
+### Compile-Time Embedding (Flash LittleFS)
 
-This is the recommended method. The build system will package the ROM into an internal LittleFS flash partition on the Pico, making the drive completely self-contained.
+This is the standard and recommended installation method. The build system will package the ROMs into an internal LittleFS flash partition on the Pico, making the drive completely self-contained.
 
 1. Install `mklittlefs` on your system:
    - On Linux / macOS, build from source via [earlephilhower/mklittlefs](https://github.com/earlephilhower/mklittlefs) or install via your package manager.
    - Verify `mklittlefs` is accessible in your `PATH` (`mklittlefs --version`).
-2. Copy your 16 KB ROM file into the `flash-fs/roms/` directory in this repository:
+2. Copy your 16 KB ROM file(s) into the `flash-fs/roms/` directory in this repository:
    ```bash
    cp /path/to/1541-II.251968-03.bin flash-fs/roms/
    ```
-   *(Multiple `.bin` or `.rom` files can be placed here, e.g., standard DOS and JiffyDOS).*
+   *(You can place multiple `.bin` or `.rom` files here—such as standard 1541-II DOS, 1541-C, and JiffyDOS—to switch between them on device).*
 3. Compile the firmware as described in [Building & Flashing](#building--flashing). The build script (`build.rs`) will automatically pack `flash-fs/` into an image (`fs.bin`) and link it into flash memory.
 
-### Method 2: Runtime Loading from MicroSD Card
+### Switching ROMs at Runtime (OLED Menu)
 
-If you prefer not to rebuild the firmware with `mklittlefs`, or wish to swap ROMs at runtime:
+When multiple ROMs are bundled into the flash filesystem, you can switch between them on the fly:
 
-1. Format a MicroSD card with a standard **FAT32** filesystem.
-2. Create a folder named `roms` at the root of the SD card:
-   ```
-   SD_CARD/
-   └── roms/
-       ├── 1541-II.251968-03.bin
-       └── JiffyDOS_1541-II.bin
-   ```
-3. Insert the MicroSD card into Pico1541 and power on the device.
-4. Using the keypad and OLED display, navigate to:
+1. On the device, navigate to:
    ```
    Main Menu -> Settings -> Select ROM
    ```
-5. Select your desired ROM file from the list and press **Select**. The firmware will load the ROM into active memory, set it as the default boot ROM in internal settings, and reset the emulated 1541 drive.
+2. The OLED screen displays all ROMs discovered in internal storage.
+3. Scroll to the desired ROM and press **Select**. The firmware immediately writes the selection to `/settings/boot_rom.txt` in persistent flash, reloads the emulator memory buffer, and resets the 6502 drive emulation.
 
 ---
 
@@ -337,7 +329,7 @@ This project is made available under multiple licenses:
 - **Firmware & Management Software:**
   Licensed under the **[PolyForm Noncommercial License 1.0.0](LICENSE.md)**. Free for personal, hobby, educational, and non-commercial use.
 - **6502 Emulator Core (`racc6502v4`):**
-  Licensed under the **[GNU General Public License v3.0 (GPL-3.0)](crates/racc6502/LICENSE.md)**.
+  Licensed under the **[GNU General Public License v3.0 (GPL-3.0)](crates/racc6502v4/LICENSE.md)**.
 - **Hardware Design & KiCad Schematics:**
   Licensed under the **[Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)](hardware/LICENSE.md)**.
 - **Commercial Licensing:**
