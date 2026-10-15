@@ -42,13 +42,15 @@ pub fn status_led_for_location(loc: &DriveLocation) -> crate::driver::StatusLedM
     }
 }
 
+pub const SHARED_CACHE_CAPACITY: usize = PAGE_CAPACITY + 2;
+
 pub struct TrackCacheTask<
     S: Read + Seek + 'static,
     O: FileOpener<FileStorage = S>,
     H: TrackHandoff,
     L: LedsDriver,
 > {
-    pub disk_image: Option<AnyDiskImage<S, PagedDirectorySource<144>>>,
+    pub disk_image: Option<AnyDiskImage<S, PagedDirectorySource<SHARED_CACHE_CAPACITY>>>,
     pub(super) track_handle: ManagerHandle,
     pub(super) opener: O,
     pub(super) handoff: H,
@@ -191,7 +193,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
     }
 
     async fn mount_root(&mut self) {
-        let mut dir_source = PagedDirectorySource::<144>::new(b"STORAGE");
+        let mut dir_source = PagedDirectorySource::<SHARED_CACHE_CAPACITY>::new(b"STORAGE");
         dir_source.set_page_entries(
             0,
             &[
@@ -275,7 +277,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
 
             let name_bytes = last_segment(p_str).as_bytes();
 
-            let dir_source = PagedDirectorySource::<144>::new(name_bytes);
+            let dir_source = PagedDirectorySource::<SHARED_CACHE_CAPACITY>::new(name_bytes);
             let mut vdisk = VirtualDiskImage::new(dir_source, name_bytes);
 
             // Open the file and attach it as the file storage.
@@ -315,13 +317,13 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
                 name_bytes = p_str.as_bytes();
             }
 
-            let dir_source = PagedDirectorySource::<144>::new(name_bytes);
+            let dir_source = PagedDirectorySource::<SHARED_CACHE_CAPACITY>::new(name_bytes);
             let vdisk = VirtualDiskImage::new(dir_source, name_bytes);
             self.disk_image = Some(AnyDiskImage::VirtualDisk(vdisk));
 
             let mut count = 0;
             let mut has_more = false;
-            let mut active_children_batch = heapless::Vec::<CachedChildEntry, 144>::new();
+            let mut active_children_batch = heapless::Vec::<CachedChildEntry, SHARED_CACHE_CAPACITY>::new();
             let disk_image = &mut self.disk_image;
             let _ = self
                 .opener
@@ -436,7 +438,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
         let start_entry = page * PAGE_CAPACITY;
         let mut count = 0;
         let mut has_more = false;
-        let mut active_children_batch = heapless::Vec::<CachedChildEntry, 144>::new();
+        let mut active_children_batch = heapless::Vec::<CachedChildEntry, SHARED_CACHE_CAPACITY>::new();
         let disk_image = &mut self.disk_image;
         let _ = self
             .opener
@@ -635,7 +637,21 @@ pub struct CachedChildEntry {
     pub is_dir: bool,
 }
 
-pub static ACTIVE_CHILDREN: Mutex<CriticalSectionRawMutex, heapless::Vec<CachedChildEntry, 144>> =
+impl CachedChildEntry {
+    pub fn to_file_info(&self) -> crate::driver::FileInfo {
+        let mut name = [0u8; 64];
+        let nb = self.real_name.as_bytes();
+        let len = nb.len().min(63);
+        name[..len].copy_from_slice(&nb[..len]);
+        crate::driver::FileInfo {
+            name,
+            size: 0,
+            is_dir: self.is_dir,
+        }
+    }
+}
+
+pub static ACTIVE_CHILDREN: Mutex<CriticalSectionRawMutex, heapless::Vec<CachedChildEntry, SHARED_CACHE_CAPACITY>> =
     Mutex::new(heapless::Vec::new());
 
 pub async fn resolve_active_child(child_name: &str) -> Option<(heapless::String<64>, bool)> {

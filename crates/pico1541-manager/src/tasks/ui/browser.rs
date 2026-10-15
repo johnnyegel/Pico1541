@@ -5,6 +5,7 @@ use crate::driver::{
 };
 use crate::tasks::menu::{Menu, MenuEvent};
 use crate::tasks::ui::virtual_directory::VirtualDirectoryManager;
+use crate::{InternalCommand, MountPayload};
 use core::str::FromStr;
 use heapless::{String, Vec};
 use pico1541_common::DriveLocation;
@@ -37,6 +38,29 @@ where
 
 pub fn is_mounted(item_path: &str, mounted_path: Option<&String<128>>) -> bool {
     mounted_path.map_or(false, |m| m.as_str().eq_ignore_ascii_case(item_path))
+}
+
+fn format_menu_block(
+    infos: &[FileInfo],
+    current_path: &str,
+    mounted_path: Option<&String<128>>,
+) -> Vec<String<64>, 16> {
+    let mut block_strings = Vec::<String<64>, 16>::new();
+    for info in infos.iter() {
+        let mut s = String::<64>::new();
+        let name_str = core::str::from_utf8(&info.name).unwrap_or("???");
+        let name_trimmed = name_str.trim_matches('\0');
+        let file_path = join_path(current_path, name_trimmed);
+        if is_mounted(file_path.as_str(), mounted_path) {
+            let _ = s.push('*');
+        }
+        let _ = s.push_str(name_trimmed);
+        if info.is_dir {
+            let _ = s.push_str("/");
+        }
+        let _ = block_strings.push(s);
+    }
+    block_strings
 }
 
 async fn run_file_browser_menu<D, L, Ind, S, Internal>(
@@ -166,7 +190,7 @@ where
                     MenuEvent::Timeout => {
                         if !use_internal && !manager.storage.is_available().await {
                             if ctx.context.cmd_tx
-                                .try_send(crate::InternalCommand::Unmount)
+                                .try_send(InternalCommand::Unmount)
                                 .is_err()
                             {
                                 #[cfg(feature = "defmt")]
@@ -181,7 +205,7 @@ where
                             || (use_internal && manager.current_path.as_str() == "/files")
                         {
                             if ctx.context.cmd_tx
-                                .try_send(crate::InternalCommand::Unmount)
+                                .try_send(InternalCommand::Unmount)
                                 .is_err()
                             {
                                 #[cfg(feature = "defmt")]
@@ -196,15 +220,15 @@ where
                             cursor = state.0;
                             scroll_offset = state.1;
                             *ctx.mounted_file_path = None;
-                            let _ = ctx.context.cmd_tx.send(crate::InternalCommand::Mount(
-                                crate::MountPayload::VirtualDirectory(parent_path, use_internal),
+                            let _ = ctx.context.cmd_tx.send(InternalCommand::Mount(
+                                MountPayload::VirtualDirectory(parent_path, use_internal),
                             )).await;
                             break;
                         }
                     }
                     MenuEvent::Home => {
                         if ctx.context.cmd_tx
-                            .try_send(crate::InternalCommand::Unmount)
+                            .try_send(InternalCommand::Unmount)
                             .is_err()
                         {
                             #[cfg(feature = "defmt")]
@@ -262,7 +286,7 @@ where
                         .await
                         {
                             if ctx.context.cmd_tx
-                                .try_send(crate::InternalCommand::Unmount)
+                                .try_send(InternalCommand::Unmount)
                                 .is_err()
                             {
                                 #[cfg(feature = "defmt")]
@@ -285,21 +309,11 @@ where
                 if infos.is_empty() {
                     break;
                 }
-                let mut block_strings = Vec::<String<64>, 16>::new();
-                for info in infos.iter() {
-                    let mut s = String::<64>::new();
-                    let name_str = core::str::from_utf8(&info.name).unwrap_or("???");
-                    let name_trimmed = name_str.trim_matches('\0');
-                    let file_path = join_path(manager.current_path.as_str(), name_trimmed);
-                    if is_mounted(file_path.as_str(), ctx.mounted_file_path.as_ref()) {
-                        let _ = s.push('*');
-                    }
-                    let _ = s.push_str(name_trimmed);
-                    if info.is_dir {
-                        let _ = s.push_str("/");
-                    }
-                    let _ = block_strings.push(s);
-                }
+                let block_strings = format_menu_block(
+                    &infos,
+                    manager.current_path.as_str(),
+                    ctx.mounted_file_path.as_ref(),
+                );
                 menu.set_block(tb, &block_strings);
             } else {
                 break;
@@ -310,21 +324,11 @@ where
             match menu.run(ctx.display, &ctx.context.action_rx).await {
                 MenuEvent::LoadBlock(tb) => {
                     if let Ok(infos) = manager.ensure_block_loaded(tb).await {
-                        let mut block_strings = Vec::<String<64>, 16>::new();
-                        for info in infos.iter() {
-                            let mut s = String::<64>::new();
-                            let name_str = core::str::from_utf8(&info.name).unwrap_or("???");
-                            let name_trimmed = name_str.trim_matches('\0');
-                            let file_path = join_path(manager.current_path.as_str(), name_trimmed);
-                            if is_mounted(file_path.as_str(), ctx.mounted_file_path.as_ref()) {
-                                let _ = s.push('*');
-                            }
-                            let _ = s.push_str(name_trimmed);
-                            if info.is_dir {
-                                let _ = s.push_str("/");
-                            }
-                            let _ = block_strings.push(s);
-                        }
+                        let block_strings = format_menu_block(
+                            &infos,
+                            manager.current_path.as_str(),
+                            ctx.mounted_file_path.as_ref(),
+                        );
                         menu.set_block(tb, &block_strings);
                     }
                 }
@@ -334,22 +338,11 @@ where
                     }
                     if let Some(tb) = menu.prefetch_target() {
                         if let Ok(infos) = manager.ensure_block_loaded(tb).await {
-                            let mut block_strings = Vec::<String<64>, 16>::new();
-                            for info in infos.iter() {
-                                let mut s = String::<64>::new();
-                                let name_str = core::str::from_utf8(&info.name).unwrap_or("???");
-                                let name_trimmed = name_str.trim_matches('\0');
-                                let file_path =
-                                    join_path(manager.current_path.as_str(), name_trimmed);
-                                if is_mounted(file_path.as_str(), ctx.mounted_file_path.as_ref()) {
-                                    let _ = s.push('*');
-                                }
-                                let _ = s.push_str(name_trimmed);
-                                if info.is_dir {
-                                    let _ = s.push_str("/");
-                                }
-                                let _ = block_strings.push(s);
-                            }
+                            let block_strings = format_menu_block(
+                                &infos,
+                                manager.current_path.as_str(),
+                                ctx.mounted_file_path.as_ref(),
+                            );
                             menu.set_block(tb, &block_strings);
                         }
                     }
@@ -365,7 +358,7 @@ where
             MenuEvent::LoadBlock(_) => {}
             MenuEvent::Timeout => {
                 if ctx.context.cmd_tx
-                    .try_send(crate::InternalCommand::Unmount)
+                    .try_send(InternalCommand::Unmount)
                     .is_err()
                 {
                     #[cfg(feature = "defmt")]
@@ -378,52 +371,17 @@ where
                 return PageState::MainMenu;
             }
             MenuEvent::Selected(idx) => {
-                let mut selected_infos = Vec::<FileInfo, 1>::new();
-                {
-                    let guard = crate::tasks::mount_manager::ACTIVE_CHILDREN.lock().await;
-                    if idx < guard.len() {
-                        let mut name = [0u8; 64];
-                        let nb = guard[idx].real_name.as_bytes();
-                        let len = nb.len().min(63);
-                        name[..len].copy_from_slice(&nb[..len]);
-                        let _ = selected_infos.push(FileInfo {
-                            name,
-                            size: 0,
-                            is_dir: guard[idx].is_dir,
-                        });
-                    }
-                }
-                if selected_infos.is_empty() {
-                    let page_offset = crate::tasks::mount_manager::CURRENT_PAGE
-                        .load(core::sync::atomic::Ordering::Acquire)
-                        * crate::storage::PAGE_CAPACITY;
-                    let start_entry = page_offset + idx;
-                    let fetch_res = if manager.use_internal {
-                        manager
-                            .internal
-                            .list_dir_range(manager.current_path.as_str(), start_entry, 1, |info| {
-                                let _ = selected_infos.push(info);
-                            })
-                            .await
-                    } else {
-                        manager
-                            .storage
-                            .list_dir_range(manager.current_path.as_str(), start_entry, 1, |info| {
-                                let _ = selected_infos.push(info);
-                            })
-                            .await
-                    };
-
-                    if fetch_res.is_err() || selected_infos.is_empty() {
+                let selected = match manager.fetch_entry_at(idx).await {
+                    Some(info) => info,
+                    None => {
                         log::error!("Failed to fetch selected item at index {}", idx);
                         #[cfg(feature = "defmt")]
                         defmt::error!("Failed to fetch selected item at index {}", idx);
                         cursor = 0;
                         continue;
                     }
-                }
+                };
 
-                let selected = selected_infos[0];
                 let selected_name = core::str::from_utf8(&selected.name)
                     .unwrap_or("???")
                     .trim_matches('\0');
@@ -437,8 +395,8 @@ where
                     let _ = cursor_stack.push((cursor, menu.scroll_offset()));
                     cursor = 0;
                     scroll_offset = 0;
-                    let _ = ctx.context.cmd_tx.send(crate::InternalCommand::Mount(
-                        crate::MountPayload::VirtualDirectory(new_path, use_internal),
+                    let _ = ctx.context.cmd_tx.send(InternalCommand::Mount(
+                        MountPayload::VirtualDirectory(new_path, use_internal),
                     )).await;
                 } else {
                     let filename = selected_name;
@@ -456,7 +414,7 @@ where
 
                     if is_mounted(full_path.as_str(), ctx.mounted_file_path.as_ref()) {
                         let _ = ctx.context.cmd_tx
-                            .send(crate::InternalCommand::Mount(crate::MountPayload::VirtualDirectory(
+                            .send(InternalCommand::Mount(MountPayload::VirtualDirectory(
                                 manager.current_path.clone(),
                                 use_internal,
                             )))
@@ -488,7 +446,7 @@ where
                         #[cfg(feature = "defmt")]
                         defmt::info!("Sending Mount for D64...");
                         let _ = ctx.context.cmd_tx
-                            .send(crate::InternalCommand::Mount(crate::MountPayload::D64(
+                            .send(InternalCommand::Mount(MountPayload::D64(
                                 full_path.clone(),
                                 manager.use_internal,
                             )))
@@ -498,7 +456,7 @@ where
                         #[cfg(feature = "defmt")]
                         defmt::info!("Sending Mount for G64...");
                         let _ = ctx.context.cmd_tx
-                            .send(crate::InternalCommand::Mount(crate::MountPayload::G64(
+                            .send(InternalCommand::Mount(MountPayload::G64(
                                 full_path.clone(),
                                 manager.use_internal,
                             )))
@@ -508,7 +466,7 @@ where
                         #[cfg(feature = "defmt")]
                         defmt::info!("Sending Mount for NIB...");
                         let _ = ctx.context.cmd_tx
-                            .send(crate::InternalCommand::Mount(crate::MountPayload::Nib(
+                            .send(InternalCommand::Mount(MountPayload::Nib(
                                 full_path.clone(),
                                 manager.use_internal,
                             )))
@@ -521,7 +479,7 @@ where
                         let _ = ctx
                             .context
                             .cmd_tx
-                            .send(crate::InternalCommand::Mount(crate::MountPayload::Prg(
+                            .send(InternalCommand::Mount(MountPayload::Prg(
                                 full_path.clone(),
                                 manager.use_internal,
                             )))
@@ -535,7 +493,7 @@ where
                     || (use_internal && manager.current_path.as_str() == "/files")
                 {
                     if ctx.context.cmd_tx
-                        .try_send(crate::InternalCommand::Unmount)
+                        .try_send(InternalCommand::Unmount)
                         .is_err()
                     {
                         #[cfg(feature = "defmt")]
@@ -553,13 +511,13 @@ where
                 cursor = state.0;
                 scroll_offset = state.1;
                 *ctx.mounted_file_path = None;
-                let _ = ctx.context.cmd_tx.send(crate::InternalCommand::Mount(
-                    crate::MountPayload::VirtualDirectory(parent_path, use_internal),
+                let _ = ctx.context.cmd_tx.send(InternalCommand::Mount(
+                    MountPayload::VirtualDirectory(parent_path, use_internal),
                 )).await;
             }
             MenuEvent::Home => {
                 if ctx.context.cmd_tx
-                    .try_send(crate::InternalCommand::Unmount)
+                    .try_send(InternalCommand::Unmount)
                     .is_err()
                 {
                     #[cfg(feature = "defmt")]
@@ -620,7 +578,7 @@ where
                 .await
                 {
                     if ctx.context.cmd_tx
-                        .try_send(crate::InternalCommand::Unmount)
+                        .try_send(InternalCommand::Unmount)
                         .is_err()
                     {
                         #[cfg(feature = "defmt")]
