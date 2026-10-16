@@ -29,6 +29,12 @@ pub struct SoftwareMagneticSurface {
     lfsr: Lfsr16,
 }
 
+impl Default for SoftwareMagneticSurface {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SoftwareMagneticSurface {
     pub fn new() -> Self {
         Self {
@@ -48,20 +54,19 @@ impl SoftwareMagneticSurface {
 
     pub fn mutate_weak_ranges(&mut self) {
         if let Some(stream) = self.stream {
+            if stream.data.is_null() {
+                return;
+            }
+            let data = unsafe { &mut *stream.data };
             let count = (stream.weak_range_count as usize).min(MAX_WEAK_RANGES);
             if count > 0 {
-                for range_opt in &stream.weak_ranges[..count] {
-                    if let Some(range) = range_opt {
-                        let start = (range.offset as usize).min(stream.length).min(TRACK_SIZE);
-                        let end = ((range.offset as usize) + (range.length as usize))
-                            .min(stream.length)
-                            .min(TRACK_SIZE);
-                        #[allow(dangerous_implicit_autorefs)]
-                        for idx in start..end {
-                            unsafe {
-                                (*stream.data)[idx] = self.lfsr.next_weak_byte();
-                            }
-                        }
+                for range in stream.weak_ranges[..count].iter().flatten() {
+                    let start = (range.offset as usize).min(stream.length).min(TRACK_SIZE);
+                    let end = ((range.offset as usize) + (range.length as usize))
+                        .min(stream.length)
+                        .min(TRACK_SIZE);
+                    for byte in &mut data[start..end] {
+                        *byte = self.lfsr.next_weak_byte();
                     }
                 }
             }
@@ -90,10 +95,11 @@ impl MagneticSurface for SoftwareMagneticSurface {
         for _ in 0..8 {
             if self.pending_bit_count == 0 {
                 let byte = if let Some(stream) = self.stream {
-                    if stream.length > 0 {
-                        let old_idx = self.stream_idx;
+                    let stream_len = stream.length.min(crate::track_buffer::TRACK_SIZE);
+                    if !stream.data.is_null() && stream_len > 0 {
                         let b = unsafe { (*stream.data)[self.stream_idx] };
-                        self.stream_idx = (self.stream_idx + 1) % stream.length;
+                        let old_idx = self.stream_idx;
+                        self.stream_idx = (self.stream_idx + 1) % stream_len;
                         if self.stream_idx == 0 && old_idx > 0 {
                             self.mutate_weak_ranges();
                         }

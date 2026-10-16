@@ -401,7 +401,7 @@ impl ManagerHandle {
         back_buffer.layout = layout;
 
         // Pad the remainder of the 8192-byte buffer with standard GCR gap byte
-        if length < 8192 {
+        if !back_buffer.data.is_null() && length < 8192 {
             unsafe { (&mut *back_buffer.data)[length..8192].fill(0x55) };
         }
 
@@ -418,19 +418,24 @@ impl ManagerHandle {
         back_buffer.weak_range_count = 0;
 
         if layout == TrackLayout::Accurate {
+            if back_buffer.data.is_null() {
+                return;
+            }
+            let data = unsafe { &mut *back_buffer.data };
             let mut lfsr = Lfsr16::new();
             let scan_len = length.min(TRACK_SIZE);
-            #[allow(dangerous_implicit_autorefs)]
-            let data_slice = unsafe { &mut (*back_buffer.data)[..scan_len] };
             let mut i = 0;
-            while i < data_slice.len() {
-                if data_slice[i] == 0x00 {
+            while i < scan_len {
+                if data[i] == 0x00 {
                     let start = i;
-                    while i < data_slice.len() && data_slice[i] == 0x00 {
-                        data_slice[i] = lfsr.next_weak_byte();
+                    while i < scan_len && data[i] == 0x00 {
                         i += 1;
                     }
-                    let run_len = i - start;
+                    let end = i;
+                    for byte in &mut data[start..end] {
+                        *byte = lfsr.next_weak_byte();
+                    }
+                    let run_len = end - start;
                     if (back_buffer.weak_range_count as usize) < MAX_WEAK_RANGES {
                         back_buffer.weak_ranges[back_buffer.weak_range_count as usize] =
                             Some(WeakBitRange {
