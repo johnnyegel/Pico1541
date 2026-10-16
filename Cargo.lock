@@ -503,20 +503,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "91622ff5e7162018101f2fea40d6ebf4a78bbe5a49736a2020649edf9693679e"
 
 [[package]]
-name = "embassy-defmt-usb"
-version = "0.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4bfbbe19721b26fd1f433f3a85eb0da4ba879cbdd7480b01972a3aaad0fce22"
-dependencies = [
- "critical-section",
- "defmt 1.1.0",
- "embassy-time",
- "embassy-usb",
- "portable-atomic",
- "static_cell",
-]
-
-[[package]]
 name = "embassy-embedded-hal"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1598,51 +1584,6 @@ dependencies = [
  "pio",
  "pio-proc",
  "portable-atomic",
- "ssd1306",
- "static_cell",
-]
-
-[[package]]
-name = "pico1541-rp2040"
-version = "0.1.0"
-dependencies = [
- "cortex-m",
- "cortex-m-rt",
- "critical-section",
- "defmt 1.1.0",
- "defmt-test",
- "display-interface",
- "display-interface-i2c",
- "embassy-defmt-usb",
- "embassy-executor",
- "embassy-futures",
- "embassy-rp",
- "embassy-sync",
- "embassy-time",
- "embassy-usb",
- "embedded-alloc 0.7.0",
- "embedded-graphics",
- "embedded-hal 1.0.0",
- "embedded-hal-async",
- "embedded-hal-bus",
- "embedded-io",
- "embedded-io-async",
- "embedded-storage",
- "embedded-timers",
- "fatfs",
- "heapless 0.9.3",
- "littlefs-rust",
- "panic-halt",
- "panic-probe",
- "pico1541-common",
- "pico1541-emulator",
- "pico1541-manager",
- "pico1541-rp-common",
- "pio",
- "pio-proc",
- "portable-atomic",
- "rp-pac",
- "rp2040-boot2",
  "ssd1306",
  "static_cell",
 ]

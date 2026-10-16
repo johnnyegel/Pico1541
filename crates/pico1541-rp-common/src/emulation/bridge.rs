@@ -367,13 +367,7 @@ impl TrackHandoff for RpTrackHandoff {
         TRACK_REQUEST.store(half_track, Ordering::Relaxed);
         TRACK_SIGNAL.signal(());
         
-        #[cfg(feature = "rp235xa")]
         embassy_rp::pac::TIMER0
-            .intf()
-            .write(|w| w.set_alarm(3, true));
-
-        #[cfg(feature = "rp2040")]
-        embassy_rp::pac::TIMER
             .intf()
             .write(|w| w.set_alarm(3, true));
     }

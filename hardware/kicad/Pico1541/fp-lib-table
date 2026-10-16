@@ -1,4 +1,0 @@
-(fp_lib_table
-	(version 7)
-	(lib (name "Pico1541-footprints") (type "KiCad") (uri "${KIPRJMOD}/Footprints.pretty") (options "") (descr ""))
-)

@@ -7,7 +7,6 @@ members = [
     "crates/pico1541-common",
     "crates/pico1541-manager",
     "crates/pico1541-emulator",
-    "crates/pico1541-rp2040",
     "crates/pico1541-rp2350",
     "crates/pico1541-rp-common",
     "crates/pico1541-perf",

@@ -44,6 +44,5 @@ pio-proc = "0.3"
 
 [features]
 default = []
-rp2040 = ["embassy-rp/rp2040"]
 rp235xa = ["embassy-rp/rp235xa", "embassy-rp/imagedef-none"]
 flight-recorder = ["pico1541-emulator/flight-recorder"]

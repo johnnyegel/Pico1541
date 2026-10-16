@@ -78,11 +78,6 @@ impl PioMagneticSurface {
         cfg.shift_out.direction = embassy_rp::pio::ShiftDirection::Left;
 
         // SET pin mapping to SYNC shadow
-        #[cfg(feature = "rp2040")]
-        let sync_pin = pio
-            .common
-            .make_pio_pin(unsafe { embassy_rp::peripherals::PIN_10::steal() });
-        #[cfg(feature = "rp235xa")]
         let sync_pin = pio
             .common
             .make_pio_pin(unsafe { embassy_rp::peripherals::PIN_24::steal() });
@@ -141,9 +136,6 @@ impl PioMagneticSurface {
             .write_value(core::ptr::addr_of!(CURRENT_TRACK_PTR) as u32);
         ch_b.write_addr()
             .write_value(ch_a.al3_read_addr_trig().as_ptr() as u32);
-        #[cfg(feature = "rp2040")]
-        ch_b.trans_count().write_value(1);
-        #[cfg(feature = "rp235xa")]
         ch_b.trans_count()
             .write_value(embassy_rp::pac::dma::regs::ChTransCount(1));
 
@@ -268,9 +260,6 @@ impl PioMagneticSurface {
         // :: Reconfigure the track pointer and length for the new track
         let dma_ch0 = pac::DMA.ch(0);
         dma_ch0.read_addr().write_value(adjusted_track_ptr);
-        #[cfg(feature = "rp2040")]
-        dma_ch0.trans_count().write_value(adjusted_track_length);
-        #[cfg(feature = "rp235xa")]
         dma_ch0
             .trans_count()
             .write_value(embassy_rp::pac::dma::regs::ChTransCount(
@@ -287,9 +276,6 @@ impl PioMagneticSurface {
             // If the DMA is at the very end of the track when this happens, there is
             // a miniscule chance of a wrap of a few bytes. But this is expected to be
             // garbage anyway, so it is likely completely safe-
-            #[cfg(feature = "rp2040")]
-            dma_ch0.trans_count().write_value(track_length);
-            #[cfg(feature = "rp235xa")]
             dma_ch0
                 .trans_count()
                 .write_value(embassy_rp::pac::dma::regs::ChTransCount(track_length));
@@ -326,9 +312,6 @@ impl MagneticSurface for PioMagneticSurface {
     #[inline(always)]
     fn get_absolute_head_position(&self, _master_clock: u32) -> u32 {
         let _dma = pac::DMA;
-        #[cfg(feature = "rp2040")]
-        let remaining = pac::DMA.ch(0).trans_count().read();
-        #[cfg(feature = "rp235xa")]
         let remaining = pac::DMA.ch(0).trans_count().read().0;
 
         self.stream_length.saturating_sub(remaining)

@@ -42,37 +42,9 @@
   
 # TODO
 
-- There seems to be a possibility of a race condition and a subsequent hang.
-I suspect it has to do with pre-caching of tracks. Since the track loading is faster
-than 15 ms, this should not really be necessary at all.
+- When selecting the >>> MORE >>> and <<< PREV <<< directories, the OLED does not update accordingly,
+although it SHOULD be the same buffer shown by the display that should be presented in the DIR listing
+on the C64. This sounds like an architectural disconnect of functionality again.
 
-- Refactor code to create a crate dedicated for all Core 1 (emulator code), to make SRAM mapping easy and consistent.
- 
-    emulation::run_emulator()
-     └── loop: for _ in 0..500
-          └── emulator.tick(hw)
-               ├── hw.get_sys_time() (Profiler start)
-               ├── self.cpu.step(&mut self.memory, hw)
-               │    ├── bus.read(pc)  --> opcode fetch
-               │    ├── bus.read(...) --> operand fetches
-               │    │    └── SystemBus::read
-               │    │         └── (If addr == $18xx) -> read_io()
-               │    │             ├── self.catch_up(cycle) -> Ticks timers/mechanics up to now
-               │    │             ├── ctx.spin_until(cycle)  <-- WAITS FOR REAL TIME!
-               │    │             ├── self.sync_iec_bus(ctx) <-- Samples physical GPIOs
-               │    │             └── via1.read()
-               │    └── bus.write(...)
-               │         └── (If addr == $18xx) -> write_io()
-               │             ├── self.catch_up(cycle)
-               │             ├── via1.write(val)
-               │             ├── ctx.spin_until(cycle)  <-- WAITS FOR REAL TIME!
-               │             └── self.sync_iec_bus(ctx) <-- Samples physical GPIOs
-               ├── hw.get_sys_time() (Profiler split)
-               ├── self.memory.poll_realtime(hw)
-               │    ├── (If no IO happened this instruction) -> sync_iec_bus(hw)
-               │    └── hardware.step()
-               ├── hw.clear_debug_pins()
-               ├── hw.get_sys_time() (Profiler split)
-               ├── self.memory.catch_up(self.cpu.cycles)
-               └── hw.get_sys_time() (Profiler end)
+
 
