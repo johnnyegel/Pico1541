@@ -281,7 +281,6 @@ fn is_disk_image_name(name: &str) -> bool {
         let ext = &name[dot..];
         ext.eq_ignore_ascii_case(".d64")
             || ext.eq_ignore_ascii_case(".g64")
-            || ext.eq_ignore_ascii_case(".nib")
     } else {
         false
     }

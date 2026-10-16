@@ -98,7 +98,7 @@ pub fn resolve_cd_nav(current: &DriveLocation, cmd: &str) -> CdNavAction {
                 });
             }
 
-            // Check if mounting a disk image (.d64, .g64, .nib)
+            // Check if mounting a disk image (.d64, .g64)
             let is_image = is_disk_image(body);
 
             let mut target_path = String::<128>::new();
@@ -209,7 +209,6 @@ pub fn resolve_cd_action(
         let ext = &p_str[dot..];
         ext.eq_ignore_ascii_case(".d64")
             || ext.eq_ignore_ascii_case(".g64")
-            || ext.eq_ignore_ascii_case(".nib")
     } else {
         false
     };
@@ -252,7 +251,6 @@ pub fn is_disk_image(path: &str) -> bool {
         let ext = &path[dot..];
         ext.eq_ignore_ascii_case(".d64")
             || ext.eq_ignore_ascii_case(".g64")
-            || ext.eq_ignore_ascii_case(".nib")
     } else {
         false
     }

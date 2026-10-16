@@ -1,5 +1,5 @@
 use crate::driver::RgbLedDriver as LedsDriver;
-use crate::formats::{AnyDiskImage, D64Image, G64Image, NibImage, VirtualDiskImage};
+use crate::formats::{AnyDiskImage, D64Image, G64Image, VirtualDiskImage};
 use crate::storage::{DirectoryEntry, DirectorySource, PagedDirectorySource, PAGE_CAPACITY};
 use core::str::FromStr;
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -33,7 +33,7 @@ pub fn status_led_for_location(loc: &DriveLocation) -> crate::driver::StatusLedM
         DriveLocation::VirtualDirectory { .. } => crate::driver::StatusLedMode::VirtualDisk,
         DriveLocation::DiskImage { path, .. } => {
             let p = path.as_str();
-            if has_extension(p, ".g64") || has_extension(p, ".nib") {
+            if has_extension(p, ".g64") {
                 crate::driver::StatusLedMode::AccurateDisk
             } else {
                 crate::driver::StatusLedMode::NonAccurateDisk
@@ -230,12 +230,11 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
 
         let is_d64 = has_extension(p_str, ".d64");
         let is_g64 = has_extension(p_str, ".g64");
-        let is_nib = has_extension(p_str, ".nib");
 
         let ht1 = self.track_handle.get_head_half_track();
         let mut ht2 = ht1;
 
-        if is_d64 || is_g64 || is_nib {
+        if is_d64 || is_g64 {
             {
                 let mut guard = ACTIVE_CHILDREN.lock().await;
                 guard.clear();
@@ -254,12 +253,6 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
                     .await
                     .ok()
                     .map(AnyDiskImage::G64);
-                ht2 = self.track_handle.get_head_half_track();
-            } else if is_nib {
-                self.disk_image = NibImage::from_storage(file)
-                    .await
-                    .ok()
-                    .map(AnyDiskImage::Nib);
                 ht2 = self.track_handle.get_head_half_track();
             }
         } else if is_single_file(p_str) {
@@ -604,7 +597,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
 // ── Path helpers ──────────────────────────────────────────────────────────────
 
 /// Returns `true` when `path` has a file extension that is **not** one of the
-/// recognised disk-image formats (.d64 / .g64 / .nib).  Directories (no `.`
+/// recognised disk-image formats (.d64 / .g64).  Directories (no `.`
 /// after the last `/`) and image files both return `false`.
 fn is_single_file(path: &str) -> bool {
     let seg = last_segment(path);
@@ -612,7 +605,6 @@ fn is_single_file(path: &str) -> bool {
         let ext = &seg[dot..];
         !ext.eq_ignore_ascii_case(".d64")
             && !ext.eq_ignore_ascii_case(".g64")
-            && !ext.eq_ignore_ascii_case(".nib")
     } else {
         false
     }
@@ -710,8 +702,7 @@ impl MountControllerTask {
                             }
                         }
                         crate::MountPayload::D64(p, i)
-                        | crate::MountPayload::G64(p, i)
-                        | crate::MountPayload::Nib(p, i) => DriveLocation::DiskImage {
+                        | crate::MountPayload::G64(p, i) => DriveLocation::DiskImage {
                             path: p,
                             use_internal: i,
                         },

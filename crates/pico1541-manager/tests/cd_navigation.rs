@@ -90,7 +90,6 @@ fn test_resolve_cd_action_navigation() {
     assert_eq!(resolve_cd_action("/", "CD:GAMES"), Some(CdAction::ChangeDir(h("/GAMES"))));
     assert_eq!(resolve_cd_action("/", "CD:GAME.D64"), Some(CdAction::MountImage(h("/GAME.D64"))));
     assert_eq!(resolve_cd_action("/", "CD/GAME.G64"), Some(CdAction::MountImage(h("/GAME.G64"))));
-    assert_eq!(resolve_cd_action("/", "CD/GAME.NIB"), Some(CdAction::MountImage(h("/GAME.NIB"))));
 }
 
 #[test]

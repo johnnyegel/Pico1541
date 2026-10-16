@@ -15,7 +15,7 @@ pub use driver::{
     DisplayDriver, IndicatorDriver, InputDriver, RgbLedDriver, StatusLedMode, StorageDriver,
 };
 
-pub use formats::{AnyDiskImage, D64Image, DiskImage, Error, G64Image, NibImage};
+pub use formats::{AnyDiskImage, D64Image, DiskImage, Error, G64Image};
 pub use storage::{
     MemoryStorage, PagedDirectorySource, PagedDirectorySourceTrait, VectorDirectorySource,
 };
@@ -31,7 +31,7 @@ pub fn get_status_mode<S: Read + Seek, D: DirectorySource>(
         None => StatusLedMode::Unmounted,
         Some(AnyDiskImage::VirtualDisk(_)) => StatusLedMode::VirtualDisk,
         Some(AnyDiskImage::D64(_)) => StatusLedMode::NonAccurateDisk,
-        Some(AnyDiskImage::G64(_)) | Some(AnyDiskImage::Nib(_)) => StatusLedMode::AccurateDisk,
+        Some(AnyDiskImage::G64(_)) => StatusLedMode::AccurateDisk,
     }
 }
 
@@ -40,7 +40,6 @@ pub enum MountPayload {
     VirtualDirectory(heapless::String<128>, bool),
     D64(heapless::String<128>, bool),
     G64(heapless::String<128>, bool),
-    Nib(heapless::String<128>, bool),
     /// Single non-image file (PRG, SEQ, …) served via the track-1 treadmill.
     Prg(heapless::String<128>, bool),
 }
@@ -51,7 +50,6 @@ impl MountPayload {
             Self::VirtualDirectory(p, _)
             | Self::D64(p, _)
             | Self::G64(p, _)
-            | Self::Nib(p, _)
             | Self::Prg(p, _) => p.as_str(),
         }
     }
@@ -61,7 +59,6 @@ impl MountPayload {
             Self::VirtualDirectory(_, i)
             | Self::D64(_, i)
             | Self::G64(_, i)
-            | Self::Nib(_, i)
             | Self::Prg(_, i) => *i,
         }
     }
@@ -70,7 +67,7 @@ impl MountPayload {
         match self {
             Self::VirtualDirectory(..) | Self::Prg(..) => StatusLedMode::VirtualDisk,
             Self::D64(..) => StatusLedMode::NonAccurateDisk,
-            Self::G64(..) | Self::Nib(..) => StatusLedMode::AccurateDisk,
+            Self::G64(..) => StatusLedMode::AccurateDisk,
         }
     }
 
@@ -80,7 +77,6 @@ impl MountPayload {
             Self::VirtualDirectory(p, i)
             | Self::D64(p, i)
             | Self::G64(p, i)
-            | Self::Nib(p, i)
             | Self::Prg(p, i) => (p, i, mode),
         }
     }
