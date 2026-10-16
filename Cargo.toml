@@ -11,6 +11,7 @@ members = [
     "crates/pico1541-rp-common",
     "crates/pico1541-perf",
     "tools/nbz2nib",
+    "tools/nib2g64",
 ]
 
 resolver = "2"
