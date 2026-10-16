@@ -265,13 +265,19 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
                 let d64 = D64Image::new(file).await;
                 self.disk_image = Some(AnyDiskImage::D64(d64));
             } else if is_g64 {
-                self.disk_image = G64Image::from_storage(file)
-                    .await
-                    .ok()
-                    .map(AnyDiskImage::G64);
-                #[cfg(feature = "defmt")]
-                {
-                    _ht2 = self.track_handle.get_head_half_track();
+                match G64Image::from_storage(file).await {
+                    Ok(g64) => {
+                        self.disk_image = Some(AnyDiskImage::G64(g64));
+                        #[cfg(feature = "defmt")]
+                        {
+                            _ht2 = self.track_handle.get_head_half_track();
+                        }
+                    }
+                    Err(_e) => {
+                        #[cfg(feature = "defmt")]
+                        defmt::error!("Failed to mount G64 image \"{}\": {:?}", p_str, _e);
+                        self.disk_image = None;
+                    }
                 }
             }
         } else if is_single_file(p_str) {

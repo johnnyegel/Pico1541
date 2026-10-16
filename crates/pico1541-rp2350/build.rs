@@ -27,7 +27,7 @@ fn main() {
                 "-c",
                 "../../flash-fs",
                 "-s",
-                "524288", // 512KB
+                "2097152", // 2048KB (2MB) for RP2350 Pico 2
                 "-p",
                 "256", // FLASH_PAGE_SIZE
                 "-b",
@@ -40,7 +40,11 @@ fn main() {
         if status.success() {
             println!("cargo:rustc-cfg=has_mklittlefs");
         } else {
-            println!("cargo:warning=mklittlefs execution failed. An empty image will be initialized on boot.");
+            panic!(
+                "\n\n[ERROR] mklittlefs execution failed!\n\
+                The files in 'flash-fs/' exceed the 2 MB partition limit.\n\
+                Please remove unneeded files from 'flash-fs/files/' or move them to an SD card.\n\n"
+            );
         }
     } else {
         println!("cargo:warning=mklittlefs tool is not available. An empty image will be initialized on boot instead.");

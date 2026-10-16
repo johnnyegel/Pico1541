@@ -8,17 +8,17 @@ use littlefs_rust::Storage;
 pub const FS_OFFSET: usize = 1536 * 1024;
 pub const FLASH_SECTOR_SIZE: usize = 4096;
 
-pub struct FlashStorage<'d> {
-    flash: Flash<'d, FLASH, Blocking, { 2 * 1024 * 1024 }>,
+pub struct FlashStorage<'d, const FLASH_SIZE: usize = { 4 * 1024 * 1024 }> {
+    flash: Flash<'d, FLASH, Blocking, FLASH_SIZE>,
 }
 
-impl<'d> FlashStorage<'d> {
-    pub fn new(flash: Flash<'d, FLASH, Blocking, { 2 * 1024 * 1024 }>) -> Self {
+impl<'d, const FLASH_SIZE: usize> FlashStorage<'d, FLASH_SIZE> {
+    pub fn new(flash: Flash<'d, FLASH, Blocking, FLASH_SIZE>) -> Self {
         Self { flash }
     }
 }
 
-impl<'d> Storage for FlashStorage<'d> {
+impl<'d, const FLASH_SIZE: usize> Storage for FlashStorage<'d, FLASH_SIZE> {
     fn read(&mut self, block: u32, offset: u32, buf: &mut [u8]) -> Result<(), Error> {
         let abs_addr = (FS_OFFSET as u32) + (block * (FLASH_SECTOR_SIZE as u32)) + offset;
         self.flash.read(abs_addr, buf).map_err(|_| Error::Io)

@@ -50,7 +50,7 @@ use pico1541_manager::{ACTION_CHANNEL, CMD_CHANNEL, KEYBOARD_CHANNEL, SETTINGS_C
 #[cfg(has_mklittlefs)]
 #[link_section = ".fs"]
 #[used]
-static FS_IMAGE: [u8; 512 * 1024] = *include_bytes!(concat!(env!("OUT_DIR"), "/fs.bin"));
+static FS_IMAGE: [u8; 2048 * 1024] = *include_bytes!(concat!(env!("OUT_DIR"), "/fs.bin"));
 
 // Local drivers
 use pico1541_manager::driver::file_storage::{FatStorage, StorageWrapper};
@@ -189,20 +189,20 @@ async fn main(spawner: Spawner) {
     );
 
     // Initialize Flash for LittleFS
-    // RP2040 has 2MB of flash. We reserved 1MB at the end.
+    // RP2350 Pico 2 has 4MB of flash. We configure 2MB for the internal LittleFS store.
     let flash_driver = embassy_rp::flash::Flash::<
         _,
         embassy_rp::flash::Blocking,
-        { 2 * 1024 * 1024 },
+        { 4 * 1024 * 1024 },
     >::new_blocking(p.FLASH);
     let fs_storage_inst = FlashStorage::new(flash_driver);
 
     fn fs_config() -> littlefs_rust::Config {
-        let mut config = littlefs_rust::Config::new(4096, 128);
+        let mut config = littlefs_rust::Config::new(4096, 512); // 512 blocks * 4KB = 2048 KB (2 MB)
         config.read_size = 256;
         config.prog_size = 256;
         config.cache_size = 256;
-        config.lookahead_size = 16;
+        config.lookahead_size = 32;
         config
     }
 
