@@ -6,7 +6,7 @@ use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 // Private constants for internal use
-const TRACK_SIZE: usize = 8192; // Maximum GCR-encoded track size in
+pub const TRACK_SIZE: usize = 8192; // Maximum GCR-encoded track size in bytes
 const VOID_BYTE: u8 = 0x55; // Byte value for void tracks
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -47,8 +47,10 @@ impl Lfsr16 {
 
     #[inline(always)]
     pub fn next_u8(&mut self) -> u8 {
-        let bit = self.0 & 1;
-        self.0 = (self.0 >> 1) ^ (if bit != 0 { 0xB400 } else { 0 });
+        for _ in 0..8 {
+            let bit = self.0 & 1;
+            self.0 = (self.0 >> 1) ^ (if bit != 0 { 0xB400 } else { 0 });
+        }
         (self.0 & 0xFF) as u8
     }
 
@@ -180,7 +182,6 @@ impl TrackIdentifier {
 
 /// Represents a single track buffer which holds the GCR-encoded data for a track,
 /// along with metadata about the track such as its ID and layout.
-#[repr(C, align(8192))]
 #[repr(C, align(8192))]
 pub struct DualCoreTrackData {
     pub buffers: core::cell::UnsafeCell<[[u8; TRACK_SIZE]; 2]>,
@@ -347,6 +348,8 @@ impl ManagerHandle {
 
         // SAFELY isolate the mutable reference to the dormant buffer.
         let back_buffer = unsafe { &mut (*self.core_buffer.buffers.get())[back_idx] };
+        back_buffer.weak_ranges.fill(None);
+        back_buffer.weak_range_count = 0;
 
         fill_buffer(
             unsafe { &mut *back_buffer.data },
@@ -417,7 +420,8 @@ impl ManagerHandle {
         if layout == TrackLayout::Accurate {
             let mut lfsr = Lfsr16::new();
             let scan_len = length.min(TRACK_SIZE);
-            let data_slice = unsafe { &mut (&mut *back_buffer.data)[..scan_len] };
+            #[allow(dangerous_implicit_autorefs)]
+            let data_slice = unsafe { &mut (*back_buffer.data)[..scan_len] };
             let mut i = 0;
             while i < data_slice.len() {
                 if data_slice[i] == 0x00 {

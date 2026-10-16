@@ -1,4 +1,4 @@
-use crate::track_buffer::TrackBuffer;
+use crate::track_buffer::{Lfsr16, TrackBuffer, MAX_WEAK_RANGES, TRACK_SIZE};
 
 pub trait MagneticSurface {
     /// Returns whether a SYNC mark is currently active.
@@ -12,6 +12,7 @@ pub trait MagneticSurface {
     fn set_motor_running(&mut self, is_running: bool, master_clock: u32);
     fn set_speed_zone(&mut self, zone: u8);
     fn set_stream_source(&mut self, stream: &'static TrackBuffer, master_clock: u32);
+    fn poll_revolution(&mut self) {}
 }
 
 pub struct SoftwareMagneticSurface {
@@ -25,6 +26,7 @@ pub struct SoftwareMagneticSurface {
     pending_bit_count: u8,
     cycle_counter: u32,
     cycle_limit: u32,
+    lfsr: Lfsr16,
 }
 
 impl SoftwareMagneticSurface {
@@ -40,11 +42,38 @@ impl SoftwareMagneticSurface {
             pending_bit_count: 0,
             cycle_counter: 0,
             cycle_limit: 28,
+            lfsr: Lfsr16::new(),
+        }
+    }
+
+    pub fn mutate_weak_ranges(&mut self) {
+        if let Some(stream) = self.stream {
+            let count = (stream.weak_range_count as usize).min(MAX_WEAK_RANGES);
+            if count > 0 {
+                for range_opt in &stream.weak_ranges[..count] {
+                    if let Some(range) = range_opt {
+                        let start = (range.offset as usize).min(stream.length).min(TRACK_SIZE);
+                        let end = ((range.offset as usize) + (range.length as usize))
+                            .min(stream.length)
+                            .min(TRACK_SIZE);
+                        #[allow(dangerous_implicit_autorefs)]
+                        for idx in start..end {
+                            unsafe {
+                                (*stream.data)[idx] = self.lfsr.next_weak_byte();
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
 impl MagneticSurface for SoftwareMagneticSurface {
+    fn poll_revolution(&mut self) {
+        self.mutate_weak_ranges();
+    }
+
     fn is_sync_active(&self) -> bool {
         self.is_sync
     }
@@ -62,8 +91,12 @@ impl MagneticSurface for SoftwareMagneticSurface {
             if self.pending_bit_count == 0 {
                 let byte = if let Some(stream) = self.stream {
                     if stream.length > 0 {
+                        let old_idx = self.stream_idx;
                         let b = unsafe { (*stream.data)[self.stream_idx] };
                         self.stream_idx = (self.stream_idx + 1) % stream.length;
+                        if self.stream_idx == 0 && old_idx > 0 {
+                            self.mutate_weak_ranges();
+                        }
                         b
                     } else {
                         0x55
