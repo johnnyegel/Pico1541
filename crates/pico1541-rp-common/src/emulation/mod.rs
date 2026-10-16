@@ -187,6 +187,7 @@ pub fn run_emulator(
             for _ in 0..512 {
                 emulator.tick(hw);
             }
+            emulator.poll_revolution();
         }
 
         // Report exactly on every loop, HostInterface does a fast atomic write

@@ -46,6 +46,11 @@ impl<S: MagneticSurface> DriveMechanics<S> {
 }
 
 impl<S: MagneticSurface> DriveMechanics<S> {
+    #[inline(always)]
+    pub fn surface_mut(&mut self) -> &mut S {
+        &mut self.surface
+    }
+
     pub fn reset(&mut self) {
         self.halftrack_head_pos = INITIAL_HALF_TRACK;
         self.current_identifier = TrackIdentifier::void();

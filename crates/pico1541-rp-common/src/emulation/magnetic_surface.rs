@@ -33,6 +33,11 @@ pub struct PioMagneticSurface {
 
     current_speed_zone: u8,
     pio_speed_zones: [u32; 4],
+    last_trans_count: u32,
+    lfsr: pico1541_common::track_buffer::Lfsr16,
+    active_weak_ranges: [Option<pico1541_common::track_buffer::WeakBitRange>;
+        pico1541_common::track_buffer::MAX_WEAK_RANGES],
+    active_weak_count: u8,
 }
 
 impl PioMagneticSurface {
@@ -100,6 +105,10 @@ impl PioMagneticSurface {
             _sm: sm,
             current_speed_zone: 0xFF, // invalid to force update on first load
             pio_speed_zones,
+            last_trans_count: 0,
+            lfsr: pico1541_common::track_buffer::Lfsr16::new(),
+            active_weak_ranges: [None; pico1541_common::track_buffer::MAX_WEAK_RANGES],
+            active_weak_count: 0,
         }
     }
 
@@ -375,5 +384,42 @@ impl MagneticSurface for PioMagneticSurface {
 
         // Set the new stream length
         self.stream_length = stream_length;
+        self.active_weak_ranges = stream.weak_ranges;
+        self.active_weak_count = stream.weak_range_count;
+        self.last_trans_count = stream_length;
+    }
+
+    #[link_section = ".core1_text"]
+    #[inline(always)]
+    fn poll_revolution(&mut self) {
+        if self.active_weak_count == 0 || !self.is_motor_on {
+            return;
+        }
+
+        let remaining = pac::DMA.ch(0).trans_count().read().0;
+        if remaining > self.last_trans_count {
+            unsafe {
+                if CURRENT_TRACK_PTR != 0 {
+                    let track_slice = core::slice::from_raw_parts_mut(
+                        CURRENT_TRACK_PTR as *mut u8,
+                        self.stream_length as usize,
+                    );
+                    let count = (self.active_weak_count as usize)
+                        .min(pico1541_common::track_buffer::MAX_WEAK_RANGES);
+                    for i in 0..count {
+                        if let Some(range) = self.active_weak_ranges[i] {
+                            let start = range.offset as usize;
+                            let end = (start + range.length as usize).min(self.stream_length as usize);
+                            if start < end {
+                                for byte in &mut track_slice[start..end] {
+                                    *byte = self.lfsr.next_weak_byte();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        self.last_trans_count = remaining;
     }
 }

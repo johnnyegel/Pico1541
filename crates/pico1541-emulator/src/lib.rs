@@ -204,6 +204,12 @@ impl<H: HostInterface, S: MagneticSurface> Emulator<H, S> {
         elapsed as u32
     }
 
+    #[link_section = ".core1_text"]
+    #[inline(always)]
+    pub fn poll_revolution(&mut self) {
+        self.systembus.mechanics.surface_mut().poll_revolution();
+    }
+
     /// Executes the given number of CPU cycles.
     pub fn run_for(&mut self, hw: &mut H, cycles: u32) {
         let start = self.cycles;
