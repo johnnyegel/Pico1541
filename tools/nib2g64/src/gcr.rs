@@ -120,10 +120,10 @@ pub fn sanitize_weak_bits(track: &mut [u8], keep_raw: bool) -> usize {
 /// Returns nominal capacity and search window `(nominal, start..=end)` for a given speed zone.
 pub fn speed_zone_window(speed_zone: u8) -> (usize, std::ops::RangeInclusive<usize>) {
     match speed_zone {
-        3 => (6250, 5900..=6600),
-        2 => (6666, 6300..=7000),
-        1 => (7142, 6800..=7500),
-        0 => (7692, 7300..=8000),
+        3 => (7692, 7300..=8000),
+        2 => (7142, 6800..=7500),
+        1 => (6666, 6300..=7000),
+        0 => (6250, 5900..=6600),
         _ => (6250, 5900..=6600),
     }
 }
@@ -159,20 +159,23 @@ pub fn find_sector_headers(data: &[u8]) -> Vec<SectorHeader> {
             if i + 5 <= len && data[i] == 0x52 {
                 let header_offset = i;
                 let mut decoded = [0u8; 4];
-                let block: [u8; 5] = match data[header_offset..header_offset + 5].try_into() {
-                    Ok(b) => b,
-                    Err(_) => continue,
-                };
-                decode_gcr_block(&block, &mut decoded);
-                // decoded[0] is block type (0x08 for header), decoded[1] checksum, decoded[2] sector, decoded[3] track
-                if decoded[0] == 0x08 {
-                    headers.push(SectorHeader {
-                        sync_offset: sync_start,
-                        header_offset,
-                        sector: decoded[2],
-                        track: decoded[3],
-                    });
+                if let Ok(block) = data[header_offset..header_offset + 5].try_into() {
+                    decode_gcr_block(&block, &mut decoded);
+                    // decoded[0] is block type (0x08 for header), decoded[1] checksum, decoded[2] sector, decoded[3] track
+                    if decoded[0] == 0x08
+                        && decoded[2] <= 20
+                        && decoded[3] >= 1
+                        && decoded[3] <= 40
+                    {
+                        headers.push(SectorHeader {
+                            sync_offset: sync_start,
+                            header_offset,
+                            sector: decoded[2],
+                            track: decoded[3],
+                        });
+                    }
                 }
+                i += 5;
             }
         } else {
             i += 1;
@@ -202,9 +205,11 @@ pub fn detect_cycle_and_align(
     let mut detected_l = None;
 
     if !headers.is_empty() {
-        // Find the first sector header near offset 0
-        // Search through the earliest sector headers
-        'outer: for first_hdr in headers.iter().take(4) {
+        // Find the first sector header near offset 0 whose repeat could physically fall within raw_len
+        'outer: for first_hdr in headers
+            .iter()
+            .filter(|h| h.header_offset + search_range.start() <= raw_len)
+        {
             for second_hdr in headers.iter() {
                 if second_hdr.header_offset > first_hdr.header_offset {
                     let dist = second_hdr.header_offset - first_hdr.header_offset;
@@ -230,6 +235,14 @@ pub fn detect_cycle_and_align(
 
     let l_slice = &raw_track[..l];
 
+    let align_to_split = |split: usize| -> Vec<u8> {
+        if split + l <= raw_track.len() {
+            raw_track[split..split + l].to_vec()
+        } else {
+            rotate_buffer(l_slice, split)
+        }
+    };
+
     // Alignment
     let aligned = match align_mode {
         AlignMode::None => l_slice.to_vec(),
@@ -240,7 +253,7 @@ pub fn detect_cycle_and_align(
                 l_slice.to_vec()
             } else if let Some(sec0) = slice_headers.iter().find(|h| h.sector == 0) {
                 // Align immediately before sector 0 sync mark
-                rotate_buffer(l_slice, sec0.sync_offset)
+                align_to_split(sec0.sync_offset)
             } else {
                 // Find longest gap between consecutive sector sync marks
                 let mut best_split = slice_headers[0].sync_offset;
@@ -262,13 +275,13 @@ pub fn detect_cycle_and_align(
                         };
                     }
                 }
-                rotate_buffer(l_slice, best_split % l)
+                align_to_split(best_split % l)
             }
         }
         AlignMode::Sync => {
             // Rotate so it starts at the first major sync run
             if let Some(sync_pos) = find_first_sync(l_slice) {
-                rotate_buffer(l_slice, sync_pos)
+                align_to_split(sync_pos)
             } else {
                 l_slice.to_vec()
             }
@@ -449,8 +462,43 @@ mod tests {
     }
 
     #[test]
+    fn test_speed_zone_window() {
+        assert_eq!(speed_zone_window(3), (7692, 7300..=8000));
+        assert_eq!(speed_zone_window(2), (7142, 6800..=7500));
+        assert_eq!(speed_zone_window(1), (6666, 6300..=7000));
+        assert_eq!(speed_zone_window(0), (6250, 5900..=6600));
+        // Default
+        assert_eq!(speed_zone_window(99), (6250, 5900..=6600));
+    }
+
+    #[test]
+    fn test_find_sector_headers_defensive_validation() {
+        // Valid header (Track 18, Sector 12)
+        let valid_sec = synthesize_cbm_sector(18, 12);
+        let headers = find_sector_headers(&valid_sec);
+        assert_eq!(headers.len(), 1);
+        assert_eq!(headers[0].track, 18);
+        assert_eq!(headers[0].sector, 12);
+
+        // Invalid sector ID (> 20)
+        let invalid_sector = synthesize_cbm_sector(18, 21);
+        let headers_bad_sec = find_sector_headers(&invalid_sector);
+        assert!(headers_bad_sec.is_empty());
+
+        // Invalid track ID (0)
+        let invalid_track_0 = synthesize_cbm_sector(0, 5);
+        let headers_bad_trk0 = find_sector_headers(&invalid_track_0);
+        assert!(headers_bad_trk0.is_empty());
+
+        // Invalid track ID (> 40)
+        let invalid_track_41 = synthesize_cbm_sector(41, 5);
+        let headers_bad_trk41 = find_sector_headers(&invalid_track_41);
+        assert!(headers_bad_trk41.is_empty());
+    }
+
+    #[test]
     fn test_detect_cycle_and_align_cbm_sector() {
-        const REPEAT_LEN: usize = 6250;
+        const REPEAT_LEN: usize = 7692; // Zone 3 nominal
         let mut raw = vec![0x55; 8192];
 
         // Synthesize repeating sectors at offset 0 and repeating at REPEAT_LEN
@@ -470,17 +518,38 @@ mod tests {
         let rep_pos = 100 + REPEAT_LEN;
         raw[rep_pos..rep_pos + s0.len()].copy_from_slice(&s0);
 
+        // Zone 3: nominal 7692, search window 7300..=8000
         let (aligned, l) = detect_cycle_and_align(&raw, 3, AlignMode::Auto);
         assert_eq!(l, REPEAT_LEN);
         assert_eq!(aligned.len(), REPEAT_LEN);
         // In Auto mode with Sector 0 present, aligned buffer should start at sector 0's sync
         assert_eq!(aligned[0], 0xFF);
         assert_eq!(aligned[1], 0xFF);
+        // Verify it is a 100% physically contiguous slice directly from raw[100..100 + REPEAT_LEN]
+        assert_eq!(aligned, &raw[100..100 + REPEAT_LEN]);
+    }
+
+    #[test]
+    fn test_detect_cycle_and_align_fallback_rotate() {
+        // Test fallback to rotate_buffer when split + l > raw_track.len()
+        const REPEAT_LEN: usize = 6250; // Zone 0 nominal
+        // Raw buffer is 6400 bytes, split at 200 -> 200 + 6250 = 6450 > 6400
+        let mut raw = vec![0x55; 6400];
+        let s0 = synthesize_cbm_sector(35, 0);
+        let pos = 200;
+        raw[pos..pos + s0.len()].copy_from_slice(&s0);
+
+        let (aligned, l) = detect_cycle_and_align(&raw, 0, AlignMode::Auto);
+        assert_eq!(l, REPEAT_LEN);
+        assert_eq!(aligned.len(), REPEAT_LEN);
+        // In Auto mode with Sector 0 present, starts at sector 0's sync
+        assert_eq!(aligned[0], 0xFF);
+        assert_eq!(aligned[1], 0xFF);
     }
 
     #[test]
     fn test_detect_cycle_and_align_correlation_fallback() {
-        const REPEAT_LEN: usize = 6666;
+        const REPEAT_LEN: usize = 6666; // Zone 1 nominal
         let mut raw = vec![0xAA; 8192];
 
         // Custom non-standard pattern (no CBM headers)
@@ -488,7 +557,7 @@ mod tests {
         raw[50..50 + 64].copy_from_slice(&pattern);
         raw[50 + REPEAT_LEN..50 + REPEAT_LEN + 64].copy_from_slice(&pattern);
 
-        let (aligned, l) = detect_cycle_and_align(&raw, 2, AlignMode::None);
+        let (aligned, l) = detect_cycle_and_align(&raw, 1, AlignMode::None);
         assert_eq!(l, REPEAT_LEN);
         assert_eq!(aligned.len(), REPEAT_LEN);
         assert_eq!(aligned[0], raw[0]);
@@ -498,14 +567,22 @@ mod tests {
     fn test_detect_cycle_and_align_nominal_fallback() {
         // Completely random or constant data with no repeated signature
         let raw = vec![0x00; 8192];
-        let (aligned, l) = detect_cycle_and_align(&raw, 1, AlignMode::None);
-        assert_eq!(l, 7142); // Speed zone 1 nominal
-        assert_eq!(aligned.len(), 7142);
+        let (_aligned0, l0) = detect_cycle_and_align(&raw, 0, AlignMode::None);
+        assert_eq!(l0, 6250); // Speed zone 0 nominal
+
+        let (_aligned1, l1) = detect_cycle_and_align(&raw, 1, AlignMode::None);
+        assert_eq!(l1, 6666); // Speed zone 1 nominal
+
+        let (_aligned2, l2) = detect_cycle_and_align(&raw, 2, AlignMode::None);
+        assert_eq!(l2, 7142); // Speed zone 2 nominal
+
+        let (_aligned3, l3) = detect_cycle_and_align(&raw, 3, AlignMode::None);
+        assert_eq!(l3, 7692); // Speed zone 3 nominal
     }
 
     #[test]
     fn test_align_mode_sync() {
-        const REPEAT_LEN: usize = 6250;
+        const REPEAT_LEN: usize = 7692; // Zone 3 nominal
         let mut raw = vec![0x55; 8192];
         // Put sync at offset 42
         raw[42] = 0xFF;
@@ -518,5 +595,6 @@ mod tests {
         assert_eq!(aligned[0], 0xFF);
         assert_eq!(aligned[1], 0xFF);
         assert_eq!(aligned[2], 0xFF);
+        assert_eq!(aligned, &raw[42..42 + REPEAT_LEN]);
     }
 }

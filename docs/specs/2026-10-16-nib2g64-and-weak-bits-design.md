@@ -61,10 +61,10 @@ cargo run -p nib2g64 -- /path/to/folder/
 ### 2.4 Smart Seam & Overlap Detection
 A raw NIB track captures 8,192 bytes, which exceeds a single 360° disk revolution (200 ms @ 300 RPM).
 Nominal capacities by speed zone:
-- **Zone 3 (Trk 1–17, 250 kHz):** Nominal 6,250 bytes (Search window: 5,900–6,600)
-- **Zone 2 (Trk 18–24, 267 kHz):** Nominal 6,666 bytes (Search window: 6,300–7,000)
-- **Zone 1 (Trk 25–30, 286 kHz):** Nominal 7,142 bytes (Search window: 6,800–7,500)
-- **Zone 0 (Trk 31–40, 308 kHz):** Nominal 7,692 bytes (Search window: 7,300–8,000)
+- **Zone 3 (Trk 1–17, 308 kHz):** Nominal 7,692 bytes (Search window: 7,300–8,000)
+- **Zone 2 (Trk 18–24, 286 kHz):** Nominal 7,142 bytes (Search window: 6,800–7,500)
+- **Zone 1 (Trk 25–30, 267 kHz):** Nominal 6,666 bytes (Search window: 6,300–7,000)
+- **Zone 0 (Trk 31–40, 250 kHz):** Nominal 6,250 bytes (Search window: 5,900–6,600)
 
 **Algorithm:**
 1. **Header Identification:** Scan track for CBM sector headers (sync run followed by GCR block ID `0x52` / `0x08`, track, and sector ID).
