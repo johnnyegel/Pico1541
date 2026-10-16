@@ -37,7 +37,11 @@ pub const MAX_WEAK_RANGES: usize = 8;
 pub struct Lfsr16(pub u16);
 
 impl Lfsr16 {
-    pub const fn new(seed: u16) -> Self {
+    pub const fn new() -> Self {
+        Self(0xACE1)
+    }
+
+    pub const fn with_seed(seed: u16) -> Self {
         Self(if seed == 0 { 0xACE1 } else { seed })
     }
 
@@ -50,15 +54,18 @@ impl Lfsr16 {
 
     #[inline(always)]
     pub fn next_weak_byte(&mut self) -> u8 {
-        // Mask with 0xFE to guarantee no 0xFF bytes, preventing false 10-bit SYNC
-        let b = self.next_u8() & 0xFE;
-        if b == 0 { 0x55 } else { b } // ensure not 0x00 either
+        // Mask with 0x7E (0b0111_1110) to clear bit 7 and bit 0.
+        // Standard GCR bytes before/after the weak range can end/start with up to three 1-bits.
+        // Clearing both bit 7 and bit 0 ensures the byte has at most 6 consecutive 1-bits
+        // and cannot produce 10 consecutive 1s (false SYNC) across byte boundaries.
+        let b = self.next_u8() & 0x7E;
+        if b == 0 { 0x54 } else { b } // ensure not 0x00 either (0x54 has bit 7 and bit 0 as 0)
     }
 }
 
 impl Default for Lfsr16 {
     fn default() -> Self {
-        Self::new(0)
+        Self::new()
     }
 }
 
@@ -408,7 +415,7 @@ impl ManagerHandle {
         back_buffer.weak_range_count = 0;
 
         if layout == TrackLayout::Accurate {
-            let mut lfsr = Lfsr16::new(0);
+            let mut lfsr = Lfsr16::new();
             let scan_len = length.min(TRACK_SIZE);
             let data_slice = unsafe { &mut (&mut *back_buffer.data)[..scan_len] };
             let mut i = 0;
@@ -747,19 +754,27 @@ mod tests {
 
     #[test]
     fn test_lfsr16_noise_properties() {
-        let mut lfsr = Lfsr16::new(0);
+        let mut lfsr = Lfsr16::new();
         assert_eq!(lfsr.0, 0xACE1);
 
-        let custom = Lfsr16::new(0x1234);
+        let custom = Lfsr16::with_seed(0x1234);
         assert_eq!(custom.0, 0x1234);
+
+        let zero_seed = Lfsr16::with_seed(0);
+        assert_eq!(zero_seed.0, 0xACE1);
+
+        let default_lfsr = Lfsr16::default();
+        assert_eq!(default_lfsr.0, 0xACE1);
 
         for _ in 0..10_000 {
             let byte = lfsr.next_weak_byte();
             assert_ne!(byte, 0x00, "Weak byte must not be 0x00");
             assert_ne!(byte, 0xFF, "Weak byte must not be 0xFF to prevent false SYNC");
-            if byte != 0x55 {
-                assert_eq!(byte & 1, 0, "Non-0x55 weak byte bit 0 must be 0 (masked with 0xFE)");
-            }
+            assert_eq!(
+                byte & 0x81,
+                0,
+                "Weak byte bit 7 and bit 0 must be 0 (masked with 0x7E) to avoid boundary false SYNC"
+            );
         }
     }
 
@@ -799,15 +814,17 @@ mod tests {
             assert_eq!(active_buf.weak_ranges[i], None);
         }
 
-        // Verify the 0x00 bytes were replaced with pseudo-random bytes != 0x00 and != 0xFF
+        // Verify the 0x00 bytes were replaced with pseudo-random bytes != 0x00 and != 0xFF, with bits 7 and 0 cleared
         let slice = emulator.get_active_buffer_slice();
         for &b in &slice[100..105] {
             assert_ne!(b, 0x00);
             assert_ne!(b, 0xFF);
+            assert_eq!(b & 0x81, 0);
         }
         for &b in &slice[500..510] {
             assert_ne!(b, 0x00);
             assert_ne!(b, 0xFF);
+            assert_eq!(b & 0x81, 0);
         }
         // Verify surrounding bytes are still 0x55
         assert_eq!(slice[99], 0x55);
