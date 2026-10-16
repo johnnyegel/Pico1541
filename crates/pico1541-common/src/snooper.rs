@@ -67,7 +67,7 @@ impl Display for IecBusState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "IecBusState({:#02X}: ATN={}, CLK={}, DATA={})",
+            "IecBusState({:#04X}: ATN={}, CLK={}, DATA={})",
             self.0,
             self.get_atn(),
             self.get_clk(),

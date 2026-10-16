@@ -96,7 +96,7 @@ pub fn slot_to_track_sector(slot: usize) -> (u8, u8) {
 /// Returns Some(slot) if track is in 11..=17 and sector < 21, otherwise None.
 #[inline(always)]
 pub fn track_sector_to_slot(track: u8, sector: u8) -> Option<usize> {
-    if track >= 11 && track <= 17 && sector < 21 {
+    if (11..=17).contains(&track) && sector < 21 {
         Some((17 - track) as usize * 21 + sector as usize)
     } else {
         None
@@ -195,6 +195,12 @@ impl DualCoreTrackData {
         Self {
             buffers: core::cell::UnsafeCell::new([[0; TRACK_SIZE], [0; TRACK_SIZE]]),
         }
+    }
+}
+
+impl Default for DualCoreTrackData {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -614,6 +620,7 @@ impl EmulatorHandle {
         match buffer.layout {
             TrackLayout::Accurate => {
                 if buffer.length != self.track_byte_size {
+                    #[allow(clippy::manual_checked_ops)]
                     if self.track_byte_size > 0 {
                         // NOTE: RP2040 uses an 8-cycle hardware SIO divider for this operation.
                         // Executing this division once per track change is ~32ns, which is mathematically
