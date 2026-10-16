@@ -56,15 +56,6 @@ impl<S: MagneticSurface> DriveMechanics<S> {
         self.track_handle.is_write_protected()
     }
 
-    pub fn pop_force_disk_change(&mut self) -> bool {
-        self.track_handle.pop_force_disk_change()
-    }
-
-    #[inline(always)]
-    pub fn force_evaluate_track_source(&mut self, master_clock: u32) {
-        self.evaluate_track_source(master_clock);
-    }
-
     pub fn write_byte_at(&mut self, index: u32, data: u8) {
         self.track_handle.seek_to_byte(index);
         let expected_identifier = self.current_identifier;

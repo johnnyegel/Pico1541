@@ -307,19 +307,18 @@ fn test_job_queue_snoop_root_slots() {
 }
 
 #[test]
-fn test_force_disk_change_sets_wpsw() {
+fn test_write_protect_sensor_reflects_on_via2_pb4() {
     let (mut drive, mut bridge) = setup_drive(false, 8);
+    let (handle, _) = bridge.buffer.split();
 
-    drive.bus_mut().memory.write(0x001C, 0);
-    drive.bus_mut().memory.write(0x001D, 0);
+    // Protected: PB4 = 0 (low)
+    handle.set_write_protected(true);
+    for _ in 0..10 { drive.tick(&mut bridge); }
+    assert_eq!(drive.bus_mut().via2.pb_in() & 0x10, 0x00, "Protected disk must set VIA2 PB4 = 0");
 
-    bridge.buffer.split().0.force_disk_change();
-
-    for _ in 0..2000 {
-        drive.tick(&mut bridge);
-    }
-
-    assert_eq!(drive.bus_mut().memory.read(0x001C), 1);
-    assert_eq!(drive.bus_mut().memory.read(0x001D), 1);
+    // Unprotected: PB4 = 0x10 (high)
+    handle.set_write_protected(false);
+    for _ in 0..10 { drive.tick(&mut bridge); }
+    assert_eq!(drive.bus_mut().via2.pb_in() & 0x10, 0x10, "Unprotected disk must set VIA2 PB4 = 0x10");
 }
 

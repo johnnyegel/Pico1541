@@ -214,7 +214,6 @@ pub struct DualCoreTrackBuffer {
     buffers: UnsafeCell<[TrackBuffer; 2]>,
     generation: core::sync::atomic::AtomicU8,
     is_write_protected: AtomicBool,
-    force_disk_change: AtomicBool,
     current_byte_idx: core::sync::atomic::AtomicUsize,
     current_head_half_track: core::sync::atomic::AtomicU8,
 }
@@ -230,7 +229,6 @@ impl DualCoreTrackBuffer {
             buffers: UnsafeCell::new([TrackBuffer::new(ptr0), TrackBuffer::new(ptr1)]),
             generation: core::sync::atomic::AtomicU8::new(0),
             is_write_protected: AtomicBool::new(false),
-            force_disk_change: AtomicBool::new(false),
             current_byte_idx: core::sync::atomic::AtomicUsize::new(0),
             current_head_half_track: core::sync::atomic::AtomicU8::new(34),
         }
@@ -240,8 +238,6 @@ impl DualCoreTrackBuffer {
         self.generation
             .store(0, core::sync::atomic::Ordering::Relaxed);
         self.is_write_protected
-            .store(false, core::sync::atomic::Ordering::Relaxed);
-        self.force_disk_change
             .store(false, core::sync::atomic::Ordering::Relaxed);
         self.current_byte_idx
             .store(0, core::sync::atomic::Ordering::Relaxed);
@@ -433,16 +429,6 @@ impl ManagerHandle {
             .store(wp, Ordering::Release);
     }
 
-    pub fn set_force_disk_change(&self, force: bool) {
-        self.core_buffer
-            .force_disk_change
-            .store(force, Ordering::Release);
-    }
-
-    pub fn force_disk_change(&self) {
-        self.set_force_disk_change(true);
-    }
-
     pub fn get_current_byte_idx(&self) -> usize {
         self.core_buffer.current_byte_idx.load(Ordering::Acquire)
     }
@@ -474,17 +460,6 @@ impl EmulatorHandle {
 
     pub fn is_write_protected(&self) -> bool {
         self.core_buffer.is_write_protected.load(Ordering::Acquire)
-    }
-
-    pub fn pop_force_disk_change(&mut self) -> bool {
-        if self.core_buffer.force_disk_change.load(Ordering::Acquire) {
-            self.core_buffer
-                .force_disk_change
-                .store(false, Ordering::Release);
-            true
-        } else {
-            false
-        }
     }
 
     pub fn get_current_byte_idx(&self) -> usize {

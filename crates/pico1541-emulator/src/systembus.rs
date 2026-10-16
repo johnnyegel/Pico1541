@@ -109,24 +109,17 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             self.poll_mechanics_motor_on(elapsed, current_cycle);
         }
 
-        // Handle device ID and write-protect state changes
+        // Handle device ID changes
         if (current_cycle ^ current_cycle.wrapping_sub(elapsed)) & !0x3FF != 0 {
             self.device_id = hardware.get_device_id();
             self.device_id_pb_bits = (self.device_id & 0x03) << 5;
+        }
 
-            let wp = self.mechanics.is_write_protected();
-            if wp {
-                self.via2.set_pb_in(self.via2.pb_in() & !0x10);
-            } else {
-                self.via2.set_pb_in(self.via2.pb_in() | 0x10);
-            }
-
-            if self.mechanics.pop_force_disk_change() {
-                self.memory.write(0x001C, 0x01);
-                self.memory.write(0x001D, 0x01);
-                self.mechanics.force_evaluate_track_source(current_cycle);
-                crate::emu_info!("DISK SWAP: Core 0 handled force_disk_change! Set RAM 0x001C/0x001D (wpsw) to 1");
-            }
+        let wp = self.mechanics.is_write_protected();
+        if wp {
+            self.via2.set_pb_in(self.via2.pb_in() & !0x10);
+        } else {
+            self.via2.set_pb_in(self.via2.pb_in() | 0x10);
         }
     }
 

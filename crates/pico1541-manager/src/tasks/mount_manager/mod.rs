@@ -194,7 +194,6 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
         self.track_handle.set_write_protected(true); // LOW (sliding in, phototransistor covered)
         embassy_time::Timer::after_millis(50).await;
         self.track_handle.set_write_protected(final_write_protected);
-        self.track_handle.force_disk_change();
     }
 
     async fn mount_root(&mut self) {
