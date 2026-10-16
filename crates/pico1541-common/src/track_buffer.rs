@@ -25,6 +25,43 @@ pub enum TrackLayout {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct TrackIdentifier(pub u16);
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+pub struct WeakBitRange {
+    pub offset: u16,
+    pub length: u16,
+}
+
+pub const MAX_WEAK_RANGES: usize = 8;
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct Lfsr16(pub u16);
+
+impl Lfsr16 {
+    pub const fn new(seed: u16) -> Self {
+        Self(if seed == 0 { 0xACE1 } else { seed })
+    }
+
+    #[inline(always)]
+    pub fn next_u8(&mut self) -> u8 {
+        let bit = self.0 & 1;
+        self.0 = (self.0 >> 1) ^ (if bit != 0 { 0xB400 } else { 0 });
+        (self.0 & 0xFF) as u8
+    }
+
+    #[inline(always)]
+    pub fn next_weak_byte(&mut self) -> u8 {
+        // Mask with 0xFE to guarantee no 0xFF bytes, preventing false 10-bit SYNC
+        let b = self.next_u8() & 0xFE;
+        if b == 0 { 0x55 } else { b } // ensure not 0x00 either
+    }
+}
+
+impl Default for Lfsr16 {
+    fn default() -> Self {
+        Self::new(0)
+    }
+}
+
 /// Converts a full CBM track (1-35) into its corresponding physical half-track index (0-68).
 #[inline(always)]
 pub const fn track_to_half_track(track: u8) -> u8 {
@@ -158,6 +195,8 @@ pub struct TrackBuffer {
     pub identifier: TrackIdentifier,
     pub length: usize, // Valid bytes in the buffer
     pub layout: TrackLayout,
+    pub weak_ranges: [Option<WeakBitRange>; MAX_WEAK_RANGES],
+    pub weak_range_count: u8,
 }
 
 unsafe impl Sync for TrackBuffer {}
@@ -170,6 +209,8 @@ impl TrackBuffer {
             identifier: TrackIdentifier(0), // 0xFF represents invalid/unloaded
             length: 0,
             layout: TrackLayout::Void,
+            weak_ranges: [None; MAX_WEAK_RANGES],
+            weak_range_count: 0,
         }
     }
 
@@ -203,6 +244,8 @@ impl TrackBuffer {
             identifier: TrackIdentifier(0xFF),
             length: 16,
             layout: TrackLayout::Void,
+            weak_ranges: [None; MAX_WEAK_RANGES],
+            weak_range_count: 0,
         };
         &NOISE_BUFFER
     }
@@ -253,6 +296,8 @@ impl DualCoreTrackBuffer {
                 buf.identifier = TrackIdentifier(0xFF);
                 buf.length = 0;
                 buf.layout = TrackLayout::Void;
+                buf.weak_ranges.fill(None);
+                buf.weak_range_count = 0;
             }
         }
     }
@@ -359,6 +404,36 @@ impl ManagerHandle {
         back_buffer.identifier = identifier;
         back_buffer.length = final_length;
 
+        back_buffer.weak_ranges.fill(None);
+        back_buffer.weak_range_count = 0;
+
+        if layout == TrackLayout::Accurate {
+            let mut lfsr = Lfsr16::new(0);
+            let scan_len = length.min(TRACK_SIZE);
+            let data_slice = unsafe { &mut (&mut *back_buffer.data)[..scan_len] };
+            let mut i = 0;
+            while i < data_slice.len() {
+                if data_slice[i] == 0x00 {
+                    let start = i;
+                    while i < data_slice.len() && data_slice[i] == 0x00 {
+                        data_slice[i] = lfsr.next_weak_byte();
+                        i += 1;
+                    }
+                    let run_len = i - start;
+                    if (back_buffer.weak_range_count as usize) < MAX_WEAK_RANGES {
+                        back_buffer.weak_ranges[back_buffer.weak_range_count as usize] =
+                            Some(WeakBitRange {
+                                offset: start as u16,
+                                length: run_len as u16,
+                            });
+                        back_buffer.weak_range_count += 1;
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+        }
+
         // Atomically switch active buffer
         self.core_buffer
             .generation
@@ -380,6 +455,8 @@ impl ManagerHandle {
             back_buffer.layout = active_buffer.layout;
             back_buffer.identifier = active_buffer.identifier;
             back_buffer.length = active_buffer.length;
+            back_buffer.weak_ranges = active_buffer.weak_ranges;
+            back_buffer.weak_range_count = active_buffer.weak_range_count;
 
             &mut *back_buffer.data
         }
@@ -420,6 +497,8 @@ impl ManagerHandle {
             back_buffer.layout = active_buffer.layout;
             back_buffer.identifier = active_buffer.identifier;
             back_buffer.length = active_buffer.length;
+            back_buffer.weak_ranges = active_buffer.weak_ranges;
+            back_buffer.weak_range_count = active_buffer.weak_range_count;
         }
     }
 
@@ -664,5 +743,185 @@ mod tests {
         assert_eq!(track_sector_to_slot(18, 0), None);
         assert_eq!(track_sector_to_slot(10, 0), None);
         assert_eq!(track_sector_to_slot(17, 21), None);
+    }
+
+    #[test]
+    fn test_lfsr16_noise_properties() {
+        let mut lfsr = Lfsr16::new(0);
+        assert_eq!(lfsr.0, 0xACE1);
+
+        let custom = Lfsr16::new(0x1234);
+        assert_eq!(custom.0, 0x1234);
+
+        for _ in 0..10_000 {
+            let byte = lfsr.next_weak_byte();
+            assert_ne!(byte, 0x00, "Weak byte must not be 0x00");
+            assert_ne!(byte, 0xFF, "Weak byte must not be 0xFF to prevent false SYNC");
+            if byte != 0x55 {
+                assert_eq!(byte & 1, 0, "Non-0x55 weak byte bit 0 must be 0 (masked with 0xFE)");
+            }
+        }
+    }
+
+    #[test]
+    fn test_commit_loaded_track_weak_ranges_and_replacement() {
+        let data = Box::into_raw(Box::new([[0u8; 8192]; 2]));
+        let dual_buffer = Box::leak(Box::new(DualCoreTrackBuffer::new(data)));
+        let (manager, emulator) = dual_buffer.split();
+
+        // Populate track buffer with non-zero data and two runs of 0x00
+        let buf = manager.start_track_load();
+        buf.fill(0x55);
+        // 5 bytes of 0x00 at offset 100
+        buf[100..105].fill(0x00);
+        // 10 bytes of 0x00 at offset 500
+        buf[500..510].fill(0x00);
+
+        manager.commit_loaded_track(TrackIdentifier(1), TrackLayout::Accurate, 600);
+
+        let active_buf = emulator.get_active_track_buffer();
+        assert_eq!(active_buf.weak_range_count, 2);
+        assert_eq!(
+            active_buf.weak_ranges[0],
+            Some(WeakBitRange {
+                offset: 100,
+                length: 5
+            })
+        );
+        assert_eq!(
+            active_buf.weak_ranges[1],
+            Some(WeakBitRange {
+                offset: 500,
+                length: 10
+            })
+        );
+        for i in 2..MAX_WEAK_RANGES {
+            assert_eq!(active_buf.weak_ranges[i], None);
+        }
+
+        // Verify the 0x00 bytes were replaced with pseudo-random bytes != 0x00 and != 0xFF
+        let slice = emulator.get_active_buffer_slice();
+        for &b in &slice[100..105] {
+            assert_ne!(b, 0x00);
+            assert_ne!(b, 0xFF);
+        }
+        for &b in &slice[500..510] {
+            assert_ne!(b, 0x00);
+            assert_ne!(b, 0xFF);
+        }
+        // Verify surrounding bytes are still 0x55
+        assert_eq!(slice[99], 0x55);
+        assert_eq!(slice[105], 0x55);
+        assert_eq!(slice[499], 0x55);
+        assert_eq!(slice[510], 0x55);
+    }
+
+    #[test]
+    fn test_commit_loaded_track_clean_gcr() {
+        let data = Box::into_raw(Box::new([[0u8; 8192]; 2]));
+        let dual_buffer = Box::leak(Box::new(DualCoreTrackBuffer::new(data)));
+        let (manager, emulator) = dual_buffer.split();
+
+        let buf = manager.start_track_load();
+        buf.fill(0x55);
+
+        manager.commit_loaded_track(TrackIdentifier(2), TrackLayout::Accurate, 600);
+
+        let active_buf = emulator.get_active_track_buffer();
+        assert_eq!(active_buf.weak_range_count, 0);
+        for range in active_buf.weak_ranges.iter() {
+            assert_eq!(*range, None);
+        }
+        assert_eq!(&emulator.get_active_buffer_slice()[..600], &[0x55; 600]);
+    }
+
+    #[test]
+    fn test_commit_loaded_track_non_accurate_layout() {
+        let data = Box::into_raw(Box::new([[0u8; 8192]; 2]));
+        let dual_buffer = Box::leak(Box::new(DualCoreTrackBuffer::new(data)));
+        let (manager, emulator) = dual_buffer.split();
+
+        let buf = manager.start_track_load();
+        buf.fill(0x00); // All 0x00, but layout is Warped
+
+        manager.commit_loaded_track(TrackIdentifier(3), TrackLayout::Warped(300), 600);
+
+        let active_buf = emulator.get_active_track_buffer();
+        assert_eq!(active_buf.weak_range_count, 0);
+        for range in active_buf.weak_ranges.iter() {
+            assert_eq!(*range, None);
+        }
+    }
+
+    #[test]
+    fn test_duplicate_active_to_inactive_preserves_weak_ranges() {
+        let data = Box::into_raw(Box::new([[0u8; 8192]; 2]));
+        let dual_buffer = Box::leak(Box::new(DualCoreTrackBuffer::new(data)));
+        let (manager, emulator) = dual_buffer.split();
+
+        let buf = manager.start_track_load();
+        buf.fill(0x55);
+        buf[200..208].fill(0x00);
+        manager.commit_loaded_track(TrackIdentifier(4), TrackLayout::Accurate, 500);
+
+        assert_eq!(emulator.get_active_track_buffer().weak_range_count, 1);
+        assert_eq!(
+            emulator.get_active_track_buffer().weak_ranges[0],
+            Some(WeakBitRange {
+                offset: 200,
+                length: 8
+            })
+        );
+
+        // Duplicate active to dormant/inactive
+        manager.duplicate_active_to_inactive();
+        let dormant = manager.get_dormant_buffer_mut();
+        assert_eq!(dormant.weak_range_count, 1);
+        assert_eq!(
+            dormant.weak_ranges[0],
+            Some(WeakBitRange {
+                offset: 200,
+                length: 8
+            })
+        );
+    }
+
+    #[test]
+    fn test_max_weak_ranges_overflow() {
+        let data = Box::into_raw(Box::new([[0u8; 8192]; 2]));
+        let dual_buffer = Box::leak(Box::new(DualCoreTrackBuffer::new(data)));
+        let (manager, emulator) = dual_buffer.split();
+
+        let buf = manager.start_track_load();
+        buf.fill(0x55);
+        // Create 10 runs of 0x00 (more than MAX_WEAK_RANGES = 8)
+        for r in 0..10 {
+            let offset = r * 20;
+            buf[offset..offset + 5].fill(0x00);
+        }
+
+        manager.commit_loaded_track(TrackIdentifier(5), TrackLayout::Accurate, 300);
+
+        let active_buf = emulator.get_active_track_buffer();
+        assert_eq!(active_buf.weak_range_count, MAX_WEAK_RANGES as u8);
+        for r in 0..MAX_WEAK_RANGES {
+            assert_eq!(
+                active_buf.weak_ranges[r],
+                Some(WeakBitRange {
+                    offset: (r * 20) as u16,
+                    length: 5
+                })
+            );
+        }
+
+        // All 10 runs should have their 0x00 bytes replaced
+        let slice = emulator.get_active_buffer_slice();
+        for r in 0..10 {
+            let offset = r * 20;
+            for &b in &slice[offset..offset + 5] {
+                assert_ne!(b, 0x00);
+                assert_ne!(b, 0xFF);
+            }
+        }
     }
 }

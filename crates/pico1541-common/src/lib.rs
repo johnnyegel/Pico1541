@@ -13,6 +13,8 @@ pub mod util;
 pub use iec_com::{IecComHostBus, IecCommander, IecError, IecTransaction};
 pub use interface::{DriveEvent, HostInterface};
 pub use location::DriveLocation;
-pub use track_buffer::{slot_to_track_sector, track_sector_to_slot};
+pub use track_buffer::{
+    slot_to_track_sector, track_sector_to_slot, Lfsr16, WeakBitRange, MAX_WEAK_RANGES,
+};
 
 pub static HALT_EMULATOR: portable_atomic::AtomicBool = portable_atomic::AtomicBool::new(false);

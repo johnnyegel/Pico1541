@@ -622,3 +622,52 @@ fn test_root_directory_virtual_disk_track_18() {
         assert_eq!(s1[entry_idx * 32 + 2], 0, "Unused entry must be 0");
     }
 }
+
+#[test]
+fn test_g64_image_with_weak_bits() {
+    let mut data = vec![0u8; 1024];
+    data[0..8].copy_from_slice(b"GCR-1541");
+    data[8] = 0; // version
+    data[9] = 42; // tracks
+    data[10..12].copy_from_slice(&64u16.to_le_bytes()); // max track length
+
+    // Track 1.0 (HT 0) pointer at 12
+    let track_offset = 100u32;
+    data[12..16].copy_from_slice(&track_offset.to_le_bytes());
+
+    // Track data at offset 100
+    let track_len = 50u16;
+    data[100..102].copy_from_slice(&track_len.to_le_bytes());
+    // Fill with 0x55 but insert a weak bit run (0x00)
+    for i in 0..track_len as usize {
+        data[102 + i] = 0x55;
+    }
+    data[102 + 10..102 + 15].fill(0x00); // 5 weak bytes
+
+    let storage = MemoryStorage::new(&data);
+    let mut img = block_on(G64Image::from_storage(storage)).unwrap();
+
+    let raw_buf = Box::into_raw(Box::new([[0u8; 8192]; 2]));
+    let dual_buf = Box::leak(Box::new(pico1541_common::track_buffer::DualCoreTrackBuffer::new(raw_buf)));
+    let (manager, emulator) = dual_buf.split();
+
+    let dest = manager.start_track_load();
+    let (layout, len, _) = block_on(img.read_track(0, dest)).unwrap();
+    manager.commit_loaded_track(pico1541_common::track_buffer::TrackIdentifier(0), layout, len);
+
+    let active_buf = emulator.get_active_track_buffer();
+    assert_eq!(active_buf.weak_range_count, 1);
+    assert_eq!(
+        active_buf.weak_ranges[0],
+        Some(pico1541_common::track_buffer::WeakBitRange {
+            offset: 10,
+            length: 5
+        })
+    );
+    let slice = emulator.get_active_buffer_slice();
+    for &b in &slice[10..15] {
+        assert_ne!(b, 0x00);
+        assert_ne!(b, 0xFF);
+    }
+}
+
