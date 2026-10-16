@@ -1,6 +1,3 @@
-# Fastload issues
-
-- Proably mis-alignment of track position when changing tracks.
 
 # Fastloaders to test
 
@@ -39,12 +36,6 @@
   timers on the drive to achieve its speed and is extremely sensitive to exact timer emulation and interrupt handling.
 
   • Games to try: California Games, Summer Games II, Winter Games.
-  
-# TODO
-
-- When selecting the >>> MORE >>> and <<< PREV <<< directories, the OLED does not update accordingly,
-although it SHOULD be the same buffer shown by the display that should be presented in the DIR listing
-on the C64. This sounds like an architectural disconnect of functionality again.
 
 
 
