@@ -46,6 +46,7 @@ impl<S: MagneticSurface> DriveMechanics<S> {
 }
 
 impl<S: MagneticSurface> DriveMechanics<S> {
+    #[link_section = ".core1_text"]
     #[inline(always)]
     pub fn surface_mut(&mut self) -> &mut S {
         &mut self.surface

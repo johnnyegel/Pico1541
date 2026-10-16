@@ -398,22 +398,18 @@ impl MagneticSurface for PioMagneticSurface {
 
         let remaining = pac::DMA.ch(0).trans_count().read().0;
         if remaining > self.last_trans_count {
+            let stream_len = (self.stream_length as usize).min(pico1541_common::track_buffer::TRACK_SIZE);
             unsafe {
                 if CURRENT_TRACK_PTR != 0 {
-                    let track_slice = core::slice::from_raw_parts_mut(
-                        CURRENT_TRACK_PTR as *mut u8,
-                        self.stream_length as usize,
-                    );
+                    let base_ptr = CURRENT_TRACK_PTR as *mut u8;
                     let count = (self.active_weak_count as usize)
                         .min(pico1541_common::track_buffer::MAX_WEAK_RANGES);
                     for i in 0..count {
                         if let Some(range) = self.active_weak_ranges[i] {
-                            let start = range.offset as usize;
-                            let end = (start + range.length as usize).min(self.stream_length as usize);
-                            if start < end {
-                                for byte in &mut track_slice[start..end] {
-                                    *byte = self.lfsr.next_weak_byte();
-                                }
+                            let start = (range.offset as usize).min(stream_len);
+                            let end = (start + range.length as usize).min(stream_len);
+                            for offset in start..end {
+                                base_ptr.add(offset).write_volatile(self.lfsr.next_weak_byte());
                             }
                         }
                     }
