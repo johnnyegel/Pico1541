@@ -404,10 +404,14 @@ impl ManagerHandle {
         let back_idx = ((generation % 2) ^ 1) as usize;
         let back_buffer = unsafe { &mut (*self.core_buffer.buffers.get())[back_idx] };
 
+        if back_buffer.data.is_null() {
+            return;
+        }
+
         back_buffer.layout = layout;
 
         // Pad the remainder of the 8192-byte buffer with standard GCR gap byte
-        if !back_buffer.data.is_null() && length < 8192 {
+        if length < 8192 {
             unsafe { (&mut *back_buffer.data)[length..8192].fill(0x55) };
         }
 
@@ -424,9 +428,6 @@ impl ManagerHandle {
         back_buffer.weak_range_count = 0;
 
         if layout == TrackLayout::Accurate {
-            if back_buffer.data.is_null() {
-                return;
-            }
             let data = unsafe { &mut *back_buffer.data };
             let mut lfsr = Lfsr16::new();
             let scan_len = length.min(TRACK_SIZE);
