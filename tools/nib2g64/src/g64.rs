@@ -131,7 +131,7 @@ impl G64Builder {
                 current_offset += 2 + data.len();
             } else {
                 offsets[ht] = 0;
-                speed_zones[ht] = 0;
+                speed_zones[ht] = standard_speed_zone(ht as u8) as u32;
             }
         }
 
@@ -215,11 +215,16 @@ mod tests {
             assert_eq!(offset, 0, "Expected offset 0 at track {}", i);
         }
 
-        // Speed table: all 84 entries should be 0
+        // Speed table: all 84 entries should have standard speed zones
         for i in 0..MAX_TRACKS {
             let speed_pos = SPEED_TABLE_OFFSET + i * 4;
             let speed = u32::from_le_bytes(bytes[speed_pos..speed_pos + 4].try_into().unwrap());
-            assert_eq!(speed, 0, "Expected speed zone 0 at track {}", i);
+            assert_eq!(
+                speed,
+                standard_speed_zone(i as u8) as u32,
+                "Expected standard speed zone at track {}",
+                i
+            );
         }
     }
 

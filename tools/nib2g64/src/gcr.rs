@@ -165,7 +165,7 @@ pub fn find_sector_headers(data: &[u8]) -> Vec<SectorHeader> {
                     if decoded[0] == 0x08
                         && decoded[2] <= 20
                         && decoded[3] >= 1
-                        && decoded[3] <= 40
+                        && decoded[3] <= 42
                     {
                         headers.push(SectorHeader {
                             sync_offset: sync_start,
@@ -480,6 +480,17 @@ mod tests {
         assert_eq!(headers[0].track, 18);
         assert_eq!(headers[0].sector, 12);
 
+        // Valid headers on extended tracks 41 and 42
+        let valid_sec_41 = synthesize_cbm_sector(41, 5);
+        let headers_41 = find_sector_headers(&valid_sec_41);
+        assert_eq!(headers_41.len(), 1);
+        assert_eq!(headers_41[0].track, 41);
+
+        let valid_sec_42 = synthesize_cbm_sector(42, 5);
+        let headers_42 = find_sector_headers(&valid_sec_42);
+        assert_eq!(headers_42.len(), 1);
+        assert_eq!(headers_42[0].track, 42);
+
         // Invalid sector ID (> 20)
         let invalid_sector = synthesize_cbm_sector(18, 21);
         let headers_bad_sec = find_sector_headers(&invalid_sector);
@@ -490,10 +501,10 @@ mod tests {
         let headers_bad_trk0 = find_sector_headers(&invalid_track_0);
         assert!(headers_bad_trk0.is_empty());
 
-        // Invalid track ID (> 40)
-        let invalid_track_41 = synthesize_cbm_sector(41, 5);
-        let headers_bad_trk41 = find_sector_headers(&invalid_track_41);
-        assert!(headers_bad_trk41.is_empty());
+        // Invalid track ID (> 42)
+        let invalid_track_43 = synthesize_cbm_sector(43, 5);
+        let headers_bad_trk43 = find_sector_headers(&invalid_track_43);
+        assert!(headers_bad_trk43.is_empty());
     }
 
     #[test]

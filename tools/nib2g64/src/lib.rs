@@ -66,7 +66,6 @@ pub fn convert_nib_to_g64(
     let nib_image = NibImage::from_bytes(raw_bytes)?;
     let mut builder = G64Builder::new();
     let mut total_weak_bytes = 0;
-    let mut tracks_converted = 0;
     let mut track_reports = Vec::new();
 
     for track in nib_image.tracks() {
@@ -74,7 +73,6 @@ pub fn convert_nib_to_g64(
             detect_cycle_and_align(track.data, track.speed_zone, align_mode);
         let weak_count = sanitize_weak_bits(&mut aligned_buf, keep_raw);
         builder.set_track(track.half_track, track.speed_zone, &aligned_buf);
-        tracks_converted += 1;
         total_weak_bytes += weak_count;
 
         track_reports.push(TrackConversionReport {
@@ -89,7 +87,7 @@ pub fn convert_nib_to_g64(
 
     let g64_bytes = builder.serialize();
     let report = ConversionReport {
-        tracks_converted,
+        tracks_converted: builder.track_count(),
         weak_bytes_sanitized: total_weak_bytes,
         track_reports,
     };

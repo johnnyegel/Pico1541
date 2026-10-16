@@ -64,9 +64,9 @@ impl<'a> NibImage<'a> {
                 break;
             }
 
-            if track_num < 2 {
+            if !(2..=85).contains(&track_num) {
                 return Err(format!(
-                    "Invalid track number {} at table index {} (must be >= 2)",
+                    "Invalid track number {} at table index {} (must be 2..=85)",
                     track_num, entry_index
                 ));
             }
@@ -229,6 +229,16 @@ mod tests {
         data[0x11] = 0;
         let err = NibImage::from_bytes(&data).unwrap_err();
         assert!(err.contains("Invalid track number 1"));
+    }
+
+    #[test]
+    fn test_error_track_num_greater_than_85() {
+        let mut data = vec![0u8; HEADER_SIZE + TRACK_SIZE];
+        data[0..13].copy_from_slice(MAGIC_1541);
+        data[0x10] = 86; // track_num 86 is invalid (> 85)
+        data[0x11] = 0;
+        let err = NibImage::from_bytes(&data).unwrap_err();
+        assert!(err.contains("Invalid track number 86"));
     }
 
     #[test]
