@@ -275,3 +275,164 @@ fn test_illegal_alr_imm() {
     assert_eq!(cpu.p & 0x01, 0x00, "ALR C flag wrong");
     assert_eq!(cycles, 2);
 }
+
+#[test]
+fn test_nop_abs_0c() {
+    let mut cpu = CPU::new();
+    let mut bus = TestBus { mem: [0; 65536] };
+    cpu.pc = 0x8000;
+
+    // NOP $0215 (0x0C 0x15 0x02) - 3 bytes, 4 cycles
+    bus.mem[0x8000] = 0x0C;
+    bus.mem[0x8001] = 0x15;
+    bus.mem[0x8002] = 0x02;
+
+    let cycles = cpu.step(&mut bus, &mut ());
+    assert_eq!(cpu.pc, 0x8003, "NOP abs (0x0C) must advance PC by 3 bytes");
+    assert_eq!(cycles, 4, "NOP abs (0x0C) must take 4 cycles");
+}
+
+#[test]
+fn test_nop_absx_1c() {
+    let mut cpu = CPU::new();
+    let mut bus = TestBus { mem: [0; 65536] };
+    cpu.pc = 0x8000;
+    cpu.x = 0x05;
+
+    // NOP $1234,X (0x1C 0x34 0x12) - 3 bytes, 4 cycles (no page cross)
+    bus.mem[0x8000] = 0x1C;
+    bus.mem[0x8001] = 0x34;
+    bus.mem[0x8002] = 0x12;
+
+    let cycles = cpu.step(&mut bus, &mut ());
+    assert_eq!(cpu.pc, 0x8003, "NOP abs,X (0x1C) must advance PC by 3 bytes");
+    assert_eq!(cycles, 4, "NOP abs,X (0x1C) must take 4 cycles without page cross");
+
+    // Page cross test
+    cpu.pc = 0x8000;
+    cpu.x = 0xFF;
+    bus.mem[0x8001] = 0x05;
+    bus.mem[0x8002] = 0x12;
+    let cycles_cross = cpu.step(&mut bus, &mut ());
+    assert_eq!(cpu.pc, 0x8003);
+    assert_eq!(cycles_cross, 5, "NOP abs,X (0x1C) must take 5 cycles with page cross");
+}
+
+#[test]
+fn test_nop_1byte_1a() {
+    let mut cpu = CPU::new();
+    let mut bus = TestBus { mem: [0; 65536] };
+    cpu.pc = 0x8000;
+
+    // NOP (0x1A) - 1 byte, 2 cycles
+    bus.mem[0x8000] = 0x1A;
+    bus.mem[0x8001] = 0xEA;
+
+    let cycles = cpu.step(&mut bus, &mut ());
+    assert_eq!(cpu.pc, 0x8001, "NOP 1-byte (0x1A) must advance PC by 1 byte");
+    assert_eq!(cycles, 2, "NOP 1-byte (0x1A) must take 2 cycles");
+}
+
+#[test]
+fn test_nop_zp_04() {
+    let mut cpu = CPU::new();
+    let mut bus = TestBus { mem: [0; 65536] };
+    cpu.pc = 0x8000;
+
+    // NOP $10 (0x04 0x10) - 2 bytes, 3 cycles
+    bus.mem[0x8000] = 0x04;
+    bus.mem[0x8001] = 0x10;
+
+    let cycles = cpu.step(&mut bus, &mut ());
+    assert_eq!(cpu.pc, 0x8002, "NOP zp (0x04) must advance PC by 2 bytes");
+    assert_eq!(cycles, 3, "NOP zp (0x04) must take 3 cycles");
+}
+
+#[test]
+fn test_all_1byte_nops() {
+    for &op in &[0x1A, 0x3A, 0x5A, 0x7A, 0xDA, 0xFA] {
+        let mut cpu = CPU::new();
+        let mut bus = TestBus { mem: [0; 65536] };
+        cpu.pc = 0x8000;
+        bus.mem[0x8000] = op;
+        bus.mem[0x8001] = 0xEA;
+
+        let cycles = cpu.step(&mut bus, &mut ());
+        assert_eq!(cpu.pc, 0x8001, "Opcode 0x{:02X} must advance PC by 1", op);
+        assert_eq!(cycles, 2, "Opcode 0x{:02X} must take 2 cycles", op);
+    }
+}
+
+#[test]
+fn test_all_2byte_imm_nops() {
+    for &op in &[0x80, 0x82, 0x89, 0xC2, 0xE2] {
+        let mut cpu = CPU::new();
+        let mut bus = TestBus { mem: [0; 65536] };
+        cpu.pc = 0x8000;
+        bus.mem[0x8000] = op;
+        bus.mem[0x8001] = 0x42;
+
+        let cycles = cpu.step(&mut bus, &mut ());
+        assert_eq!(cpu.pc, 0x8002, "Opcode 0x{:02X} must advance PC by 2", op);
+        assert_eq!(cycles, 2, "Opcode 0x{:02X} must take 2 cycles", op);
+    }
+}
+
+#[test]
+fn test_all_2byte_zp_nops() {
+    for &op in &[0x04, 0x44, 0x64] {
+        let mut cpu = CPU::new();
+        let mut bus = TestBus { mem: [0; 65536] };
+        cpu.pc = 0x8000;
+        bus.mem[0x8000] = op;
+        bus.mem[0x8001] = 0x10;
+
+        let cycles = cpu.step(&mut bus, &mut ());
+        assert_eq!(cpu.pc, 0x8002, "Opcode 0x{:02X} must advance PC by 2", op);
+        assert_eq!(cycles, 3, "Opcode 0x{:02X} must take 3 cycles", op);
+    }
+}
+
+#[test]
+fn test_all_2byte_zpx_nops() {
+    for &op in &[0x14, 0x34, 0x54, 0x74, 0xD4, 0xF4] {
+        let mut cpu = CPU::new();
+        let mut bus = TestBus { mem: [0; 65536] };
+        cpu.pc = 0x8000;
+        cpu.x = 0x05;
+        bus.mem[0x8000] = op;
+        bus.mem[0x8001] = 0x10;
+
+        let cycles = cpu.step(&mut bus, &mut ());
+        assert_eq!(cpu.pc, 0x8002, "Opcode 0x{:02X} must advance PC by 2", op);
+        assert_eq!(cycles, 4, "Opcode 0x{:02X} must take 4 cycles", op);
+    }
+}
+
+#[test]
+fn test_all_3byte_absx_nops() {
+    for &op in &[0x1C, 0x3C, 0x5C, 0x7C, 0xDC, 0xFC] {
+        let mut cpu = CPU::new();
+        let mut bus = TestBus { mem: [0; 65536] };
+        cpu.pc = 0x8000;
+        cpu.x = 0x05;
+        bus.mem[0x8000] = op;
+        bus.mem[0x8001] = 0x34;
+        bus.mem[0x8002] = 0x12;
+
+        let cycles = cpu.step(&mut bus, &mut ());
+        assert_eq!(cpu.pc, 0x8003, "Opcode 0x{:02X} must advance PC by 3", op);
+        assert_eq!(cycles, 4, "Opcode 0x{:02X} must take 4 cycles without page cross", op);
+
+        // Page cross
+        cpu.pc = 0x8000;
+        cpu.x = 0xFF;
+        bus.mem[0x8001] = 0x05;
+        bus.mem[0x8002] = 0x12;
+        let cycles_cross = cpu.step(&mut bus, &mut ());
+        assert_eq!(cpu.pc, 0x8003);
+        assert_eq!(cycles_cross, 5, "Opcode 0x{:02X} must take 5 cycles with page cross", op);
+    }
+}
+
+

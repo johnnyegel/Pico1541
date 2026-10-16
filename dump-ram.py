@@ -25,6 +25,18 @@ def get_ram_pointer_address(nm_path):
                 return int(addr_hex, 16)
     return None
 
+def get_sys_memory_address(nm_path):
+    for path in ELF_PATHS:
+        if not os.path.exists(path): continue
+        result = subprocess.run([nm_path, path], capture_output=True, text=True)
+        if result.returncode != 0: continue
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 3 and "SYS_MEMORY" in parts[-1]:
+                addr_hex = parts[0]
+                return int(addr_hex, 16)
+    return None
+
 def read_memory_binary(addr, size, filename):
     cmd = ["probe-rs", "read", "b8", str(addr), str(size), "--output", filename, "-f", "binary", "--chip", CHIP]
     result = subprocess.run(cmd)
@@ -37,23 +49,34 @@ def read_memory_binary(addr, size, filename):
 def main():
     print(f"Target CHIP is {CHIP}")
 
+    nm_path = "nm"
     if len(sys.argv) > 1:
         addr = int(sys.argv[1], 0)
-        print(f"Using provided RAM_POINTER address: {hex(addr)}")
+        print(f"Using provided address: {hex(addr)}")
+        # Check if caller passed SYS_MEMORY directly or RAM_POINTER
+        # If it looks like CORE1 RAM (>= 0x20040000), use directly
+        if addr >= 0x20040000:
+            ram_addr = addr
+        else:
+            ptr_data = read_memory_binary(addr, 4, "/tmp/ram_ptr.bin")
+            ram_addr = struct.unpack("<I", ptr_data)[0]
     else:
-        nm_path = "nm"
-        addr = get_ram_pointer_address(nm_path)
-        if addr is None:
-            print("Could not find RAM_POINTER in ELF.", file=sys.stderr)
-            print("Usage: ./dump-ram.py [RAM_POINTER_ADDRESS_FROM_LOG]", file=sys.stderr)
-            sys.exit(1)
-        print(f"Found RAM_POINTER at {hex(addr)}")
-        
-    ptr_data = read_memory_binary(addr, 4, "/tmp/ram_ptr.bin")
-    ram_addr = struct.unpack("<I", ptr_data)[0]
+        sys_mem_addr = get_sys_memory_address(nm_path)
+        if sys_mem_addr is not None:
+            print(f"Found SYS_MEMORY directly at {hex(sys_mem_addr)}")
+            ram_addr = sys_mem_addr
+        else:
+            addr = get_ram_pointer_address(nm_path)
+            if addr is None:
+                print("Could not find SYS_MEMORY or RAM_POINTER in ELF.", file=sys.stderr)
+                print("Usage: ./dump-ram.py [SYS_MEMORY_OR_RAM_POINTER_ADDRESS]", file=sys.stderr)
+                sys.exit(1)
+            print(f"Found RAM_POINTER at {hex(addr)}")
+            ptr_data = read_memory_binary(addr, 4, "/tmp/ram_ptr.bin")
+            ram_addr = struct.unpack("<I", ptr_data)[0]
     
     if ram_addr == 0:
-        print("RAM_POINTER is null! Emulator hasn't ticked yet?", file=sys.stderr)
+        print("RAM address is null!", file=sys.stderr)
         sys.exit(1)
         
     print(f"RAM is at {hex(ram_addr)}. Dumping 32768 bytes (SystemBus RAM size)...")

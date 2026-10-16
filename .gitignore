@@ -12,3 +12,6 @@ CLAUDE.md
 # 2. ...except for the configuration files!
 !.cargo/config.toml
 !.cargo/config
+
+*.bin
+

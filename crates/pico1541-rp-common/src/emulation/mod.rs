@@ -111,7 +111,7 @@ pub fn spawn_core1(
             let ptr: *mut Emulator<HardwareBridge, PioMagneticSurface> =
                 core::ptr::addr_of_mut!(EMULATOR).cast();
             let memory = &mut *core::ptr::addr_of_mut!(SYS_MEMORY);
-            RAM_POINTER = memory as *mut _;
+            core::ptr::write_volatile(core::ptr::addr_of_mut!(RAM_POINTER), memory as *mut _);
             let surface = PioMagneticSurface::new(pio0, sys_clock_freq);
             let mechanics = DriveMechanics::new(surface, emulator_handle);
             core::ptr::write(ptr, Emulator::new(rom_buffer, memory, drive_id, mechanics));
