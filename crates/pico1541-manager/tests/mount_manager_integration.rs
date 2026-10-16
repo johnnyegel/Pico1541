@@ -517,9 +517,17 @@ fn test_mount_sequence_d64_does_not_halt_emulator() {
             Err(FormatError::FileNotFound)
         }
         fn open_sd_file(&self, _path: &str) -> Self::FileStorage {
+            assert!(
+                !pico1541_common::HALT_EMULATOR.load(core::sync::atomic::Ordering::Acquire),
+                "HALT_EMULATOR must be false during mount_sequence for real disk images"
+            );
             MemoryStorage::new(&D64_DATA)
         }
         fn open_internal_file(&self, _path: &str) -> Self::FileStorage {
+            assert!(
+                !pico1541_common::HALT_EMULATOR.load(core::sync::atomic::Ordering::Acquire),
+                "HALT_EMULATOR must be false during mount_sequence for real disk images"
+            );
             MemoryStorage::new(&D64_DATA)
         }
         async fn list_dir_range(
@@ -548,14 +556,15 @@ fn test_mount_sequence_d64_does_not_halt_emulator() {
     );
 
     block_on(async {
-        pico1541_common::HALT_EMULATOR.store(false, core::sync::atomic::Ordering::Release);
+        // Simulating entry from CD:image.d64 where Core 0 was halted by CBM DOS command interception
+        pico1541_common::HALT_EMULATOR.store(true, core::sync::atomic::Ordering::Release);
 
         task.mount_sequence(heapless::String::try_from("/GAME.D64").unwrap(), false).await;
 
-        // Verify HALT_EMULATOR was NEVER asserted (still false)
+        // Verify HALT_EMULATOR is false during and after the mount
         assert!(
             !pico1541_common::HALT_EMULATOR.load(core::sync::atomic::Ordering::Acquire),
-            "HALT_EMULATOR must not be asserted when mounting real D64 images"
+            "HALT_EMULATOR must be false after mounting real D64 images even if previously halted"
         );
 
         // Verify final write protected state is false for real disk image

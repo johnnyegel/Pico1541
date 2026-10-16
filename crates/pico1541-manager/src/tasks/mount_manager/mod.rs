@@ -229,7 +229,6 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
         pico1541_common::HALT_EMULATOR.store(false, Ordering::Release);
     }
 
-    #[allow(unused_variables, unused_assignments)]
     pub async fn mount_sequence(&mut self, path: heapless::String<128>, use_internal: bool) {
         let p_str = path.as_str();
 
@@ -238,13 +237,18 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
         let is_real_image = is_d64 || is_g64;
 
         if is_real_image {
+            // Unhalt the emulator if it was halted (e.g. by SD2IEC CD: command interception)
+            // so Core 0 runs continuously during the optical write-protect simulation
+            pico1541_common::HALT_EMULATOR.store(false, Ordering::Release);
             self.track_handle.set_active_layout(TrackLayout::Void);
         } else {
             pico1541_common::HALT_EMULATOR.store(true, Ordering::Release);
         }
 
-        let ht1 = self.track_handle.get_head_half_track();
-        let mut ht2 = ht1;
+        #[cfg(feature = "defmt")]
+        let _ht1 = self.track_handle.get_head_half_track();
+        #[cfg(feature = "defmt")]
+        let mut _ht2 = _ht1;
 
         if is_d64 || is_g64 {
             {
@@ -265,7 +269,10 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
                     .await
                     .ok()
                     .map(AnyDiskImage::G64);
-                ht2 = self.track_handle.get_head_half_track();
+                #[cfg(feature = "defmt")]
+                {
+                    _ht2 = self.track_handle.get_head_half_track();
+                }
             }
         } else if is_single_file(p_str) {
             {
@@ -307,18 +314,17 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
             defmt::info!("PRG mount: \"{}\"", p_str);
         } else {
             // ── Virtual directory listing ─────────────────────────────────────────
-            let mut name_bytes = b"SD CARD".as_slice();
-            if p_str == "/" || p_str.is_empty() || (use_internal && p_str == "/files") {
+            let name_bytes = if p_str == "/" || p_str.is_empty() || (use_internal && p_str == "/files") {
                 if use_internal {
-                    name_bytes = b"INTERNAL".as_slice();
+                    b"INTERNAL".as_slice()
                 } else {
-                    name_bytes = b"SD CARD".as_slice();
+                    b"SD CARD".as_slice()
                 }
             } else if let Some(idx) = p_str.rfind('/') {
-                name_bytes = p_str[idx + 1..].as_bytes();
+                p_str[idx + 1..].as_bytes()
             } else {
-                name_bytes = p_str.as_bytes();
-            }
+                p_str.as_bytes()
+            };
 
             let dir_source = PagedDirectorySource::<SHARED_CACHE_CAPACITY>::new(name_bytes);
             let vdisk = VirtualDiskImage::new(dir_source, name_bytes);
@@ -396,8 +402,8 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
         defmt::info!(
             "Disk Image mounted: {}. Head: {}, {}",
             p_str,
-            ht1,
-            ht2
+            _ht1,
+            _ht2
         );
 
         let final_wp = if let Some(disk) = self.disk_image.as_mut() {
