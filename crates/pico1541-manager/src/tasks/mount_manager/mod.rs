@@ -182,7 +182,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
         embassy_time::Timer::after_millis(50).await;
     }
 
-    async fn simulate_disk_swap(&mut self, final_write_protected: bool) {
+    pub async fn simulate_disk_swap(&mut self, final_write_protected: bool) {
         #[cfg(feature = "defmt")]
         defmt::info!("Simulating physical disk swap (Write Protect sensor toggle).");
 
@@ -230,12 +230,18 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
     }
 
     #[allow(unused_variables, unused_assignments)]
-    async fn mount_sequence(&mut self, path: heapless::String<128>, use_internal: bool) {
-        pico1541_common::HALT_EMULATOR.store(true, Ordering::Release);
+    pub async fn mount_sequence(&mut self, path: heapless::String<128>, use_internal: bool) {
         let p_str = path.as_str();
 
         let is_d64 = has_extension(p_str, ".d64");
         let is_g64 = has_extension(p_str, ".g64");
+        let is_real_image = is_d64 || is_g64;
+
+        if is_real_image {
+            self.track_handle.set_active_layout(TrackLayout::Void);
+        } else {
+            pico1541_common::HALT_EMULATOR.store(true, Ordering::Release);
+        }
 
         let ht1 = self.track_handle.get_head_half_track();
         let mut ht2 = ht1;
@@ -412,7 +418,9 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
 
             self.handle_track_event(half_track).await;
         }
-        pico1541_common::HALT_EMULATOR.store(false, Ordering::Release);
+        if !is_real_image {
+            pico1541_common::HALT_EMULATOR.store(false, Ordering::Release);
+        }
         crate::LOCATION_CHANGED.signal(());
     }
 

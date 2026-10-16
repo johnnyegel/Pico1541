@@ -15,13 +15,18 @@ use pico1541_manager::tasks::mount_manager::{
 };
 use pico1541_manager::{InternalCommand, MountPayload, LOCATION_CHANGED};
 
+static TIME_NOW: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+
 #[no_mangle]
 fn _embassy_time_now() -> u64 {
-    0
+    TIME_NOW.load(core::sync::atomic::Ordering::Acquire)
 }
 
 #[no_mangle]
-fn _embassy_time_schedule_wake(_at: u64, _waker: &core::task::Waker) {}
+fn _embassy_time_schedule_wake(at: u64, waker: &core::task::Waker) {
+    TIME_NOW.fetch_max(at, core::sync::atomic::Ordering::AcqRel);
+    waker.wake_by_ref();
+}
 
 static TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
@@ -456,3 +461,154 @@ fn test_resolve_child_in_memory_mixed_case_d64_image() {
         ))
     );
 }
+
+#[test]
+fn test_simulate_disk_swap_timing_and_layout() {
+    let _lock = TEST_MUTEX.lock().unwrap();
+    static LOCATION: Mutex<CriticalSectionRawMutex, DriveLocation> =
+        Mutex::new(DriveLocation::Root);
+    static MOTOR: AtomicBool = AtomicBool::new(false);
+
+    let raw_buf = Box::into_raw(Box::new([[0u8; 8192]; 2]));
+    let buffer = Box::leak(Box::new(DualCoreTrackBuffer::new(raw_buf)));
+    let (manager_handle, emulator_handle) = buffer.split();
+
+    let mut task = TrackCacheTask::new(
+        manager_handle,
+        DummyOpener,
+        DummyHandoff,
+        &LOCATION,
+        &MOTOR,
+        MockLeds::new(),
+    );
+
+    block_on(async {
+        // Test simulate_disk_swap to final_write_protected = false
+        task.simulate_disk_swap(false).await;
+        assert_eq!(
+            emulator_handle.get_active_track_buffer().layout,
+            pico1541_common::track_buffer::TrackLayout::Void
+        );
+        assert!(!emulator_handle.is_write_protected());
+
+        // Test simulate_disk_swap to final_write_protected = true
+        task.simulate_disk_swap(true).await;
+        assert_eq!(
+            emulator_handle.get_active_track_buffer().layout,
+            pico1541_common::track_buffer::TrackLayout::Void
+        );
+        assert!(emulator_handle.is_write_protected());
+    });
+}
+
+#[test]
+fn test_mount_sequence_d64_does_not_halt_emulator() {
+    let _lock = TEST_MUTEX.lock().unwrap();
+    static LOCATION: Mutex<CriticalSectionRawMutex, DriveLocation> =
+        Mutex::new(DriveLocation::Root);
+    static MOTOR: AtomicBool = AtomicBool::new(false);
+
+    static D64_DATA: [u8; 174848] = [0u8; 174848];
+
+    struct D64Opener;
+    impl FileOpener for D64Opener {
+        type FileStorage = MemoryStorage<'static>;
+        async fn open_file(&self, _petscii: &[u8]) -> Result<Self::FileStorage, FormatError> {
+            Err(FormatError::FileNotFound)
+        }
+        fn open_sd_file(&self, _path: &str) -> Self::FileStorage {
+            MemoryStorage::new(&D64_DATA)
+        }
+        fn open_internal_file(&self, _path: &str) -> Self::FileStorage {
+            MemoryStorage::new(&D64_DATA)
+        }
+        async fn list_dir_range(
+            &self,
+            _path: &str,
+            _use_internal: bool,
+            _start_index: usize,
+            _count: usize,
+            _callback: impl FnMut(DirectoryEntry, &str),
+        ) -> Result<(), FormatError> {
+            Ok(())
+        }
+    }
+
+    let raw_buf = Box::into_raw(Box::new([[0u8; 8192]; 2]));
+    let buffer = Box::leak(Box::new(DualCoreTrackBuffer::new(raw_buf)));
+    let (manager_handle, emulator_handle) = buffer.split();
+
+    let mut task = TrackCacheTask::new(
+        manager_handle,
+        D64Opener,
+        DummyHandoff,
+        &LOCATION,
+        &MOTOR,
+        MockLeds::new(),
+    );
+
+    block_on(async {
+        pico1541_common::HALT_EMULATOR.store(false, core::sync::atomic::Ordering::Release);
+
+        task.mount_sequence(heapless::String::try_from("/GAME.D64").unwrap(), false).await;
+
+        // Verify HALT_EMULATOR was NEVER asserted (still false)
+        assert!(
+            !pico1541_common::HALT_EMULATOR.load(core::sync::atomic::Ordering::Acquire),
+            "HALT_EMULATOR must not be asserted when mounting real D64 images"
+        );
+
+        // Verify final write protected state is false for real disk image
+        assert!(
+            !emulator_handle.is_write_protected(),
+            "D64 disk image must default to write-enabled (not protected)"
+        );
+
+        // Verify active layout was loaded from the D64 image (not Void)
+        assert_ne!(
+            emulator_handle.get_active_track_buffer().layout,
+            pico1541_common::track_buffer::TrackLayout::Void,
+            "Mounted D64 must transition from Void to active track data layout"
+        );
+    });
+}
+
+#[test]
+fn test_mount_sequence_virtual_dir_write_protected() {
+    let _lock = TEST_MUTEX.lock().unwrap();
+    static LOCATION: Mutex<CriticalSectionRawMutex, DriveLocation> =
+        Mutex::new(DriveLocation::Root);
+    static MOTOR: AtomicBool = AtomicBool::new(false);
+
+    let raw_buf = Box::into_raw(Box::new([[0u8; 8192]; 2]));
+    let buffer = Box::leak(Box::new(DualCoreTrackBuffer::new(raw_buf)));
+    let (manager_handle, emulator_handle) = buffer.split();
+
+    let mut task = TrackCacheTask::new(
+        manager_handle,
+        DummyOpener,
+        DummyHandoff,
+        &LOCATION,
+        &MOTOR,
+        MockLeds::new(),
+    );
+
+    block_on(async {
+        pico1541_common::HALT_EMULATOR.store(false, core::sync::atomic::Ordering::Release);
+
+        task.mount_sequence(heapless::String::try_from("/GAMES").unwrap(), false).await;
+
+        // Virtual directory must end with HALT_EMULATOR restored to false
+        assert!(
+            !pico1541_common::HALT_EMULATOR.load(core::sync::atomic::Ordering::Acquire),
+            "HALT_EMULATOR must be unhalted after virtual directory mount completes"
+        );
+
+        // Virtual directory must be write-protected
+        assert!(
+            emulator_handle.is_write_protected(),
+            "Virtual directory must be write-protected"
+        );
+    });
+}
+
