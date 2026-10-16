@@ -1,5 +1,6 @@
 use crate::driver::{DisplayDriver, FileStorageDriver, IndicatorDriver, RgbLedDriver};
 // Removed HardwareTestTask
+use crate::{InternalCommand, SettingsCommand, UiAction};
 use core::str::FromStr;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
@@ -18,14 +19,14 @@ pub mod virtual_directory;
 
 #[derive(Clone, Copy)]
 pub struct UiContext {
-    pub action_rx: Receiver<'static, CriticalSectionRawMutex, crate::UiAction, 16>,
-    pub cmd_tx: Sender<'static, CriticalSectionRawMutex, crate::InternalCommand, 32>,
-    pub settings_tx: Sender<'static, CriticalSectionRawMutex, crate::SettingsCommand, 2>,
+    pub action_rx: Receiver<'static, CriticalSectionRawMutex, UiAction, 16>,
+    pub cmd_tx: Sender<'static, CriticalSectionRawMutex, InternalCommand, 32>,
+    pub settings_tx: Sender<'static, CriticalSectionRawMutex, SettingsCommand, 2>,
 }
 
 pub struct MenuContext<'a, D, L, Ind, S, Internal>
 where
-    Internal: crate::driver::FileStorageDriver,
+    Internal: FileStorageDriver,
 {
     pub display: &'a mut D,
     pub leds: &'a mut L,
@@ -88,7 +89,7 @@ fn join_path(current: &str, sub: &str) -> String<128> {
 }
 
 #[allow(clippy::type_complexity)]
-pub struct MainMenuTask<D, L, Ind, S, Internal: crate::driver::FileStorageDriver> {
+pub struct MainMenuTask<D, L, Ind, S, Internal: FileStorageDriver> {
     display: D,
     leds: L,
     _indicator: Ind,

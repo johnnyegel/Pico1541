@@ -6,6 +6,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_futures::select::{select, Either};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
+use embassy_sync::signal::Signal;
 use embedded_io_async::{Read, Seek};
 use pico1541_common::DriveLocation;
 use pico1541_common::interface::TrackHandoff;
@@ -42,13 +43,15 @@ pub fn status_led_for_location(loc: &DriveLocation) -> crate::driver::StatusLedM
     }
 }
 
+pub const SHARED_CACHE_CAPACITY: usize = PAGE_CAPACITY + 2;
+
 pub struct TrackCacheTask<
     S: Read + Seek + 'static,
     O: FileOpener<FileStorage = S>,
     H: TrackHandoff,
     L: LedsDriver,
 > {
-    pub disk_image: Option<AnyDiskImage<S, PagedDirectorySource<144>>>,
+    pub disk_image: Option<AnyDiskImage<S, PagedDirectorySource<SHARED_CACHE_CAPACITY>>>,
     pub(super) track_handle: ManagerHandle,
     pub(super) opener: O,
     pub(super) handoff: H,
@@ -150,11 +153,15 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
             }
 
             let track_fut = self.handoff.wait_for_change();
+            let wake_fut = TRACK_CACHE_WAKE.wait();
             let timer_fut = embassy_time::Timer::after_millis(20);
 
-            match select(track_fut, timer_fut).await {
-                Either::First(half_track) => {
+            match select(select(track_fut, wake_fut), timer_fut).await {
+                Either::First(Either::First(half_track)) => {
                     self.handle_track_event(half_track).await;
+                }
+                Either::First(Either::Second(())) => {
+                    // Woken immediately by location change, page change, or slot selection!
                 }
                 Either::Second(_) => {
                     self.handle_timer_event(self.last_motor_state).await;
@@ -191,7 +198,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
     }
 
     async fn mount_root(&mut self) {
-        let mut dir_source = PagedDirectorySource::<144>::new(b"STORAGE");
+        let mut dir_source = PagedDirectorySource::<SHARED_CACHE_CAPACITY>::new(b"STORAGE");
         dir_source.set_page_entries(
             0,
             &[
@@ -268,7 +275,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
 
             let name_bytes = last_segment(p_str).as_bytes();
 
-            let dir_source = PagedDirectorySource::<144>::new(name_bytes);
+            let dir_source = PagedDirectorySource::<SHARED_CACHE_CAPACITY>::new(name_bytes);
             let mut vdisk = VirtualDiskImage::new(dir_source, name_bytes);
 
             // Open the file and attach it as the file storage.
@@ -308,13 +315,13 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
                 name_bytes = p_str.as_bytes();
             }
 
-            let dir_source = PagedDirectorySource::<144>::new(name_bytes);
+            let dir_source = PagedDirectorySource::<SHARED_CACHE_CAPACITY>::new(name_bytes);
             let vdisk = VirtualDiskImage::new(dir_source, name_bytes);
             self.disk_image = Some(AnyDiskImage::VirtualDisk(vdisk));
 
             let mut count = 0;
             let mut has_more = false;
-            let mut active_children_batch = heapless::Vec::<CachedChildEntry, 144>::new();
+            let mut active_children_batch = heapless::Vec::<CachedChildEntry, SHARED_CACHE_CAPACITY>::new();
             let disk_image = &mut self.disk_image;
             let _ = self
                 .opener
@@ -429,7 +436,7 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
         let start_entry = page * PAGE_CAPACITY;
         let mut count = 0;
         let mut has_more = false;
-        let mut active_children_batch = heapless::Vec::<CachedChildEntry, 144>::new();
+        let mut active_children_batch = heapless::Vec::<CachedChildEntry, SHARED_CACHE_CAPACITY>::new();
         let disk_image = &mut self.disk_image;
         let _ = self
             .opener
@@ -627,7 +634,21 @@ pub struct CachedChildEntry {
     pub is_dir: bool,
 }
 
-pub static ACTIVE_CHILDREN: Mutex<CriticalSectionRawMutex, heapless::Vec<CachedChildEntry, 144>> =
+impl CachedChildEntry {
+    pub fn to_file_info(&self) -> crate::driver::FileInfo {
+        let mut name = [0u8; 64];
+        let nb = self.real_name.as_bytes();
+        let len = nb.len().min(63);
+        name[..len].copy_from_slice(&nb[..len]);
+        crate::driver::FileInfo {
+            name,
+            size: 0,
+            is_dir: self.is_dir,
+        }
+    }
+}
+
+pub static ACTIVE_CHILDREN: Mutex<CriticalSectionRawMutex, heapless::Vec<CachedChildEntry, SHARED_CACHE_CAPACITY>> =
     Mutex::new(heapless::Vec::new());
 
 pub async fn resolve_active_child(child_name: &str) -> Option<(heapless::String<64>, bool)> {
@@ -648,6 +669,7 @@ pub static CURRENT_PAGE: portable_atomic::AtomicUsize = portable_atomic::AtomicU
 pub static PAGE_CHANGED: portable_atomic::AtomicBool = portable_atomic::AtomicBool::new(false);
 pub static SELECTED_SLOT: portable_atomic::AtomicUsize = portable_atomic::AtomicUsize::new(usize::MAX);
 pub static SLOT_SELECTED: portable_atomic::AtomicBool = portable_atomic::AtomicBool::new(false);
+pub static TRACK_CACHE_WAKE: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 pub struct MountControllerTask {
     location: &'static Mutex<CriticalSectionRawMutex, DriveLocation>,
@@ -708,6 +730,7 @@ impl MountControllerTask {
                         },
                     };
                     *self.location.lock().await = new_loc;
+                    TRACK_CACHE_WAKE.signal(());
                     crate::LOCATION_CHANGED.signal(());
                 }
                 crate::InternalCommand::Unmount => {
@@ -717,6 +740,7 @@ impl MountControllerTask {
                         guard.clear();
                     }
                     *self.location.lock().await = DriveLocation::Root;
+                    TRACK_CACHE_WAKE.signal(());
                     crate::LOCATION_CHANGED.signal(());
                 }
                 crate::InternalCommand::Cd(cd_str) => {
@@ -725,9 +749,16 @@ impl MountControllerTask {
                         DriveLocation::Root => {
                             let nav = cd_handler::resolve_cd_nav(&current_loc, cd_str.as_str());
                             if let cd_handler::CdNavAction::Transition(loc) = nav {
-                                CURRENT_PAGE.store(0, Ordering::Release);
-                                *self.location.lock().await = loc;
-                                crate::LOCATION_CHANGED.signal(());
+                                if loc == current_loc {
+                                    pico1541_common::HALT_EMULATOR.store(false, Ordering::Release);
+                                } else {
+                                    CURRENT_PAGE.store(0, Ordering::Release);
+                                    *self.location.lock().await = loc;
+                                    TRACK_CACHE_WAKE.signal(());
+                                    crate::LOCATION_CHANGED.signal(());
+                                }
+                            } else {
+                                pico1541_common::HALT_EMULATOR.store(false, Ordering::Release);
                             }
                         }
                         DriveLocation::VirtualDirectory { ref path, use_internal } => {
@@ -737,11 +768,13 @@ impl MountControllerTask {
                                     let next = CURRENT_PAGE.load(Ordering::Acquire) + 1;
                                     CURRENT_PAGE.store(next, Ordering::Release);
                                     PAGE_CHANGED.store(true, Ordering::Release);
+                                    TRACK_CACHE_WAKE.signal(());
                                 }
                                 cd_handler::CdNavAction::PrevPage => {
                                     let prev = CURRENT_PAGE.load(Ordering::Acquire).saturating_sub(1);
                                     CURRENT_PAGE.store(prev, Ordering::Release);
                                     PAGE_CHANGED.store(true, Ordering::Release);
+                                    TRACK_CACHE_WAKE.signal(());
                                 }
                                 cd_handler::CdNavAction::Transition(new_loc) => {
                                     let child_seg = cd_handler::extract_cd_target(cd_str.as_str());
@@ -766,19 +799,33 @@ impl MountControllerTask {
                                         }
                                         (other, _) => other,
                                     };
-                                    CURRENT_PAGE.store(0, Ordering::Release);
-                                    *self.location.lock().await = target_loc;
-                                    crate::LOCATION_CHANGED.signal(());
+                                    if target_loc == current_loc {
+                                        pico1541_common::HALT_EMULATOR.store(false, Ordering::Release);
+                                    } else {
+                                        CURRENT_PAGE.store(0, Ordering::Release);
+                                        *self.location.lock().await = target_loc;
+                                        TRACK_CACHE_WAKE.signal(());
+                                        crate::LOCATION_CHANGED.signal(());
+                                    }
                                 }
-                                cd_handler::CdNavAction::Ignore => {}
+                                cd_handler::CdNavAction::Ignore => {
+                                    pico1541_common::HALT_EMULATOR.store(false, Ordering::Release);
+                                }
                             }
                         }
                         DriveLocation::DiskImage { .. } => {
                             let nav = cd_handler::resolve_cd_nav(&current_loc, cd_str.as_str());
                             if let cd_handler::CdNavAction::Transition(loc) = nav {
-                                CURRENT_PAGE.store(0, Ordering::Release);
-                                *self.location.lock().await = loc;
-                                crate::LOCATION_CHANGED.signal(());
+                                if loc == current_loc {
+                                    pico1541_common::HALT_EMULATOR.store(false, Ordering::Release);
+                                } else {
+                                    CURRENT_PAGE.store(0, Ordering::Release);
+                                    *self.location.lock().await = loc;
+                                    TRACK_CACHE_WAKE.signal(());
+                                    crate::LOCATION_CHANGED.signal(());
+                                }
+                            } else {
+                                pico1541_common::HALT_EMULATOR.store(false, Ordering::Release);
                             }
                         }
                     }
@@ -789,6 +836,7 @@ impl MountControllerTask {
                     log::debug!("SelectVirtualFile received for slot {}", slot);
                     SELECTED_SLOT.store(slot, Ordering::Release);
                     SLOT_SELECTED.store(true, Ordering::Release);
+                    TRACK_CACHE_WAKE.signal(());
                 }
             }
         }

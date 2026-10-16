@@ -70,9 +70,10 @@ impl HardwareBridge {
     #[inline(never)]
     pub fn assert_iec_data_busy(&mut self, busy: bool) {
         if busy {
-            // Force PB1 (DATA_OUT) = 1 (asserted low on bus)
+            // Force PB1 (DATA_OUT) = 1 (asserted low on bus) while preserving CLK and ATN_ACK
             let clk_out = (self.last_via1_port_b >> pico1541_common::context::via::VIA1_IEC_BIT_CLK_TX) & 1;
-            let pio_cmd = clk_out | 2; // PB1 = 1 (bit 1 = 2)
+            let pb4 = (self.last_via1_port_b >> (pico1541_common::context::via::VIA1_IEC_BIT_ATN_ACK - 2)) & 4;
+            let pio_cmd = clk_out | 2 | pb4; // PB1 = 1 (bit 1 = 2)
             embassy_rp::pac::PIO1.txf(0).write_value(pio_cmd as u32);
         } else {
             self.write_iec_port(self.last_via1_port_b);

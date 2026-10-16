@@ -386,8 +386,11 @@ impl IecSnoopByteHandler {
                     self.pos += 1;
                 }
 
-                // Check for hijack condition: starts with "CD:"
-                if self.pos >= 3 && &self.buffer[0..3] == b"CD:" {
+                // Check for hijack condition: starts with "CD"
+                if self.pos >= 2
+                    && (self.buffer[0] == b'C' || self.buffer[0] == b'c')
+                    && (self.buffer[1] == b'D' || self.buffer[1] == b'd')
+                {
                     self.hijack_active = true;
                 }
 
