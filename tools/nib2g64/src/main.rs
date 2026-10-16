@@ -5,21 +5,28 @@ use std::process;
 
 use nib2g64::{convert_nib_to_g64, AlignMode, ConversionReport};
 
+const USAGE: &str = "\
+nib2g64 - Convert Commodore .nib and .nbz disk images to .g64 format
+
+Usage:
+    nib2g64 [OPTIONS] <input-path>
+
+Arguments:
+    <input-path>           Path to .nib / .nbz file or directory containing disk images
+
+Options:
+    -o, --output <PATH>    Output .g64 file path (invalid with directory input)
+        --keep-raw         Keep raw captured bits instead of zeroing weak bits
+        --align <MODE>     Track alignment mode: auto, none, sync [default: auto]
+    -v, --verbose          Enable verbose per-track reporting
+    -h, --help             Print help information";
+
 fn print_usage() {
-    eprintln!("nib2g64 - Convert Commodore .nib and .nbz disk images to .g64 format");
-    eprintln!();
-    eprintln!("Usage:");
-    eprintln!("    nib2g64 [OPTIONS] <input-path>");
-    eprintln!();
-    eprintln!("Arguments:");
-    eprintln!("    <input-path>           Path to .nib / .nbz file or directory containing disk images");
-    eprintln!();
-    eprintln!("Options:");
-    eprintln!("    -o, --output <PATH>    Output .g64 file path (invalid with directory input)");
-    eprintln!("        --keep-raw         Keep raw captured bits instead of zeroing weak bits");
-    eprintln!("        --align <MODE>     Track alignment mode: auto, none, sync [default: auto]");
-    eprintln!("    -v, --verbose          Enable verbose per-track reporting");
-    eprintln!("    -h, --help             Print help information");
+    println!("{}", USAGE);
+}
+
+fn print_usage_err() {
+    eprintln!("{}", USAGE);
 }
 
 fn parse_align_mode(s: &str) -> Result<AlignMode, String> {
@@ -61,7 +68,22 @@ fn convert_single_file(
         format!("failed to read input file '{}': {}", input_path.display(), e)
     })?;
 
-    let (g64_bytes, report) = convert_nib_to_g64(&input_bytes, keep_raw, align_mode, verbose)?;
+    let (g64_bytes, report) = convert_nib_to_g64(&input_bytes, keep_raw, align_mode)?;
+
+    if verbose {
+        for tr in &report.track_reports {
+            let track_num = (tr.half_track as f32 / 2.0) + 1.0;
+            println!(
+                "Track {:>4.1} (half-track {:>2}): cycle_len = {:>4}, aligned_len = {:>4}, speed_zone = {}, weak_bytes = {}",
+                track_num,
+                tr.half_track,
+                tr.cycle_len,
+                tr.aligned_len,
+                tr.speed_zone,
+                tr.weak_bytes
+            );
+        }
+    }
 
     fs::write(output_path, &g64_bytes).map_err(|e| {
         format!("failed to write output file '{}': {}", output_path.display(), e)
@@ -73,7 +95,7 @@ fn convert_single_file(
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        print_usage();
+        print_usage_err();
         process::exit(1);
     }
 
@@ -82,11 +104,27 @@ fn main() {
     let mut keep_raw = false;
     let mut align_mode = AlignMode::Auto;
     let mut verbose = false;
+    let mut positional_only = false;
 
     let mut i = 1;
     while i < args.len() {
         let arg = &args[i];
+        if positional_only {
+            if input.is_none() {
+                input = Some(PathBuf::from(arg));
+            } else {
+                eprintln!("Error: unexpected positional argument '{}'", arg);
+                print_usage_err();
+                process::exit(1);
+            }
+            i += 1;
+            continue;
+        }
+
         match arg.as_str() {
+            "--" => {
+                positional_only = true;
+            }
             "-h" | "--help" => {
                 print_usage();
                 process::exit(0);
@@ -101,7 +139,7 @@ fn main() {
                 i += 1;
                 if i >= args.len() {
                     eprintln!("Error: missing argument for -o / --output");
-                    print_usage();
+                    print_usage_err();
                     process::exit(1);
                 }
                 output = Some(PathBuf::from(&args[i]));
@@ -110,7 +148,7 @@ fn main() {
                 i += 1;
                 if i >= args.len() {
                     eprintln!("Error: missing argument for --align");
-                    print_usage();
+                    print_usage_err();
                     process::exit(1);
                 }
                 match parse_align_mode(&args[i]) {
@@ -136,13 +174,13 @@ fn main() {
                     }
                 } else if arg.starts_with('-') {
                     eprintln!("Error: unknown option '{}'", arg);
-                    print_usage();
+                    print_usage_err();
                     process::exit(1);
                 } else if input.is_none() {
                     input = Some(PathBuf::from(arg));
                 } else {
                     eprintln!("Error: unexpected positional argument '{}'", arg);
-                    print_usage();
+                    print_usage_err();
                     process::exit(1);
                 }
             }
@@ -152,7 +190,7 @@ fn main() {
 
     let Some(input_path) = input else {
         eprintln!("Error: missing input file or directory");
-        print_usage();
+        print_usage_err();
         process::exit(1);
     };
 

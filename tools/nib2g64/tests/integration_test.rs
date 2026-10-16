@@ -31,10 +31,15 @@ fn test_synthetic_nib_roundtrip_conversion() {
     let nib_bytes = create_mock_nib(&entries);
 
     let (g64_bytes, report) =
-        convert_nib_to_g64(&nib_bytes, false, AlignMode::None, false)
+        convert_nib_to_g64(&nib_bytes, false, AlignMode::None)
             .expect("synthetic NIB conversion failed");
 
     assert_eq!(report.tracks_converted, 2);
+    assert_eq!(report.track_reports.len(), 2);
+    assert_eq!(report.track_reports[0].half_track, 0);
+    assert_eq!(report.track_reports[0].speed_zone, 3);
+    assert_eq!(report.track_reports[1].half_track, 34);
+    assert_eq!(report.track_reports[1].speed_zone, 1);
 
     // G64 Header validation
     assert!(g64_bytes.len() >= 684);
@@ -102,6 +107,18 @@ fn test_synthetic_nib_roundtrip_conversion() {
     assert!(t34_payload.iter().all(|&b| b == 0xAA));
 }
 
+fn find_fixture(rel: &str) -> Option<std::path::PathBuf> {
+    let p1 = Path::new(rel);
+    if p1.exists() {
+        return Some(p1.to_path_buf());
+    }
+    let p2 = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../").join(rel);
+    if p2.exists() {
+        return Some(p2);
+    }
+    None
+}
+
 #[test]
 fn test_synthetic_weak_bit_sanitization() {
     // Create a track containing 0x00 bytes, which are invalid GCR weak bits
@@ -110,14 +127,14 @@ fn test_synthetic_weak_bit_sanitization() {
 
     // Convert with keep_raw = false (should replace with 0x00 and count them)
     let (g64_sanitized, report_sanitized) =
-        convert_nib_to_g64(&nib_bytes, false, AlignMode::None, false)
+        convert_nib_to_g64(&nib_bytes, false, AlignMode::None)
             .expect("conversion should succeed");
     assert_eq!(report_sanitized.tracks_converted, 1);
     assert!(report_sanitized.weak_bytes_sanitized > 0);
 
     // Convert with keep_raw = true (should report weak bytes but preserve raw bytes)
     let (g64_raw, report_raw) =
-        convert_nib_to_g64(&nib_bytes, true, AlignMode::None, false)
+        convert_nib_to_g64(&nib_bytes, true, AlignMode::None)
             .expect("conversion should succeed");
     assert_eq!(report_raw.tracks_converted, 1);
     assert_eq!(
@@ -129,15 +146,10 @@ fn test_synthetic_weak_bit_sanitization() {
 
 #[test]
 fn test_arkanoid_nib_conversion() {
-    let path = Path::new("temp/arkanoid.nib");
-    if !path.exists() {
-        eprintln!("temp/arkanoid.nib does not exist, skipping test");
-        return;
-    }
-
-    let nib_bytes = fs::read(path).expect("failed to read temp/arkanoid.nib");
+    let path = find_fixture("temp/arkanoid.nib").expect("temp/arkanoid.nib fixture not found");
+    let nib_bytes = fs::read(&path).expect("failed to read temp/arkanoid.nib");
     let (g64_bytes, report) =
-        convert_nib_to_g64(&nib_bytes, false, AlignMode::Auto, false)
+        convert_nib_to_g64(&nib_bytes, false, AlignMode::Auto)
             .expect("conversion of arkanoid.nib failed");
 
     // Arkanoid contains 41 full tracks (tracks 1 to 41, half-tracks 0, 2, ..., 80)
@@ -188,15 +200,10 @@ fn test_arkanoid_nib_conversion() {
 
 #[test]
 fn test_arkanoid_nbz_conversion() {
-    let path = Path::new("temp/arkanoid.nbz");
-    if !path.exists() {
-        eprintln!("temp/arkanoid.nbz does not exist, skipping test");
-        return;
-    }
-
-    let nbz_bytes = fs::read(path).expect("failed to read temp/arkanoid.nbz");
+    let path = find_fixture("temp/arkanoid.nbz").expect("temp/arkanoid.nbz fixture not found");
+    let nbz_bytes = fs::read(&path).expect("failed to read temp/arkanoid.nbz");
     let (g64_bytes, report) =
-        convert_nib_to_g64(&nbz_bytes, false, AlignMode::Auto, false)
+        convert_nib_to_g64(&nbz_bytes, false, AlignMode::Auto)
             .expect("conversion of arkanoid.nbz failed");
 
     assert!(report.tracks_converted >= 40);
