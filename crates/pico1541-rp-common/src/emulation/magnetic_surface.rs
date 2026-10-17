@@ -256,10 +256,10 @@ impl PioMagneticSurface {
         let mut adjusted_track_length = track_length;
 
         // Prevent buffer overflow, which can crash the drive emulation
-        let safe_offset = if offset < track_length {
-            offset
+        let safe_offset = if track_length > 0 {
+            offset % track_length
         } else {
-            offset - track_length
+            0
         };
 
         // Adjust the track_ptr and length to adjust to the start byte index

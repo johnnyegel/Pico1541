@@ -26,7 +26,7 @@ is_one:                    ; --- THE '1' PATH ---
 
     ; --- SYNC CONDITION TRIGGERED (X hit 0) ---
     set pins, 1            ; Drive SYNC high
-    push                   ; Purge framing garbage AND clear shift counter
+    mov isr, null          ; Purge framing garbage AND clear shift counter (without pushing phantom byte)
 sync_wait:
     jmp !osre sync_do      ; Check if OSR has bits
     pull block             ; Fetch next word
