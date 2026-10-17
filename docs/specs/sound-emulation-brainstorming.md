@@ -7,5 +7,5 @@
 - [x] 5. Present design
 - [x] 6. Write design doc
 - [x] 7. Spec self-review
-- [ ] 8. User reviews written spec
+- [x] 8. User reviews written spec
 - [ ] 9. Transition to implementation
