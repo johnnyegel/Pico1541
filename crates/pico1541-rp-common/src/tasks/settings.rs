@@ -149,6 +149,26 @@ pub async fn settings_save_task(
                     }
                 }
             }
+            SettingsCommand::SaveSoundSettings(settings) => {
+                match Filesystem::mount(flash_storage, config) {
+                    Ok(fs) => {
+                        let _ = fs.mkdir("/settings");
+                        if let Ok(file) = fs.open(
+                            "/settings/sound.dat",
+                            OpenFlags::WRITE | OpenFlags::CREATE | OpenFlags::TRUNC,
+                        ) {
+                            let bytes = settings.to_bytes();
+                            let _ = file.write(&bytes);
+                            let _ = file.sync();
+                            defmt::info!("Successfully wrote /settings/sound.dat: {:?}", settings);
+                        }
+                        flash_storage = fs.unmount().unwrap();
+                    }
+                    Err((_, storage)) => {
+                        flash_storage = storage;
+                    }
+                }
+            }
             _ => {}
         }
 

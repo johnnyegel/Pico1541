@@ -20,6 +20,7 @@ pub trait SettingsDriver {
     async fn install_rom_chunk(&mut self, data: &[u8]);
     async fn install_rom_finish(&mut self);
     async fn load_rom_to_memory(&mut self, name: &str);
+    async fn save_sound_settings(&mut self, _settings: &pico1541_common::sound::SoundSettings) {}
 }
 
 #[derive(Clone, Copy, Debug)]

@@ -55,6 +55,9 @@ impl<D: SettingsDriver> SettingsSaveTask<D> {
                 SettingsCommand::LoadRomToMemory(name) => {
                     self.driver.load_rom_to_memory(name.as_str()).await;
                 }
+                SettingsCommand::SaveSoundSettings(settings) => {
+                    self.driver.save_sound_settings(&settings).await;
+                }
                 _ => {}
             }
         }

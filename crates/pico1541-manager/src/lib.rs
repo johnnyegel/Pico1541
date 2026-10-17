@@ -146,6 +146,7 @@ pub enum SettingsCommand {
     InstallRomChunk(heapless::Vec<u8, 256>),
     InstallRomFinish,
     LoadRomToMemory(heapless::String<32>),
+    SaveSoundSettings(pico1541_common::sound::SoundSettings),
 }
 pub static SETTINGS_CHANNEL: Channel<CriticalSectionRawMutex, SettingsCommand, 2> = Channel::new();
 
