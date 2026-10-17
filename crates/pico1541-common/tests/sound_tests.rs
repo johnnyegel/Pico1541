@@ -86,3 +86,34 @@ fn test_sound_step_bumped_flag_persistence() {
     assert_eq!(count2, 0);
     assert!(!bumped2);
 }
+
+#[test]
+fn test_bumped_not_cleared_when_steps_is_zero() {
+    use pico1541_common::sound::SOUND_BUMPED_STOP;
+    use portable_atomic::Ordering;
+
+    let _ = get_and_clear_steps();
+
+    // Simulate bump flag set right before step counter increment (or race condition window)
+    SOUND_BUMPED_STOP.store(true, Ordering::Relaxed);
+
+    // Core 0 polls while steps is still 0
+    let (count, bumped) = get_and_clear_steps();
+    assert_eq!(count, 0);
+    assert!(!bumped);
+
+    // Bumped flag must NOT have been cleared and lost!
+    assert!(SOUND_BUMPED_STOP.load(Ordering::Relaxed));
+
+    // Now Core 1 finishes incrementing step counter
+    notify_step(false);
+
+    let (count2, bumped2) = get_and_clear_steps();
+    assert_eq!(count2, 1);
+    assert!(bumped2);
+
+    // Cleaned up
+    let (count3, bumped3) = get_and_clear_steps();
+    assert_eq!(count3, 0);
+    assert!(!bumped3);
+}

@@ -148,7 +148,7 @@ pub enum SettingsCommand {
     LoadRomToMemory(heapless::String<32>),
     SaveSoundSettings(pico1541_common::sound::SoundSettings),
 }
-pub static SETTINGS_CHANNEL: Channel<CriticalSectionRawMutex, SettingsCommand, 2> = Channel::new();
+pub static SETTINGS_CHANNEL: Channel<CriticalSectionRawMutex, SettingsCommand, 8> = Channel::new();
 
 #[cfg(test)]
 mod test_imports {}

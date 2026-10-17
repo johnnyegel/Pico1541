@@ -13,7 +13,7 @@ pub async fn settings_save_task(
     mut flash_storage: FlashStorage<'static>,
     rom_buffer: RomBufferPtr,
     snooper_config: &'static pico1541_common::snooper::SnooperConfig,
-    rx: Receiver<'static, CriticalSectionRawMutex, SettingsCommand, 2>,
+    rx: Receiver<'static, CriticalSectionRawMutex, SettingsCommand, 8>,
 ) {
     loop {
         let cmd = rx.receive().await;

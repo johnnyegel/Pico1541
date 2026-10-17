@@ -57,7 +57,7 @@ impl SettingsDriver for ObservableMockDriver {
 #[test]
 fn test_settings_save_task_dispatches_save_sound_settings() {
     pollster::block_on(async {
-        static CHANNEL: Channel<CriticalSectionRawMutex, SettingsCommand, 2> = Channel::new();
+        static CHANNEL: Channel<CriticalSectionRawMutex, SettingsCommand, 8> = Channel::new();
         let saved_sound = std::sync::Arc::new(std::sync::Mutex::new(None));
         let driver = ObservableMockDriver {
             saved_sound: saved_sound.clone(),

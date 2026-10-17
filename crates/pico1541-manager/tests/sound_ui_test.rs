@@ -83,7 +83,7 @@ fn test_run_sound_settings_menu_cycle_volume() {
     let mut storage = MockStorage;
     let action_channel = Box::leak(Box::new(Channel::<CriticalSectionRawMutex, UiAction, 16>::new()));
     let cmd_channel = Box::leak(Box::new(Channel::<CriticalSectionRawMutex, InternalCommand, 32>::new()));
-    let settings_channel = Box::leak(Box::new(Channel::<CriticalSectionRawMutex, SettingsCommand, 2>::new()));
+    let settings_channel = Box::leak(Box::new(Channel::<CriticalSectionRawMutex, SettingsCommand, 8>::new()));
 
     let context = UiContext {
         action_rx: action_channel.receiver(),
@@ -122,7 +122,7 @@ fn test_run_sound_settings_menu_toggle_motor_and_stepper() {
     let mut storage = MockStorage;
     let action_channel = Box::leak(Box::new(Channel::<CriticalSectionRawMutex, UiAction, 16>::new()));
     let cmd_channel = Box::leak(Box::new(Channel::<CriticalSectionRawMutex, InternalCommand, 32>::new()));
-    let settings_channel = Box::leak(Box::new(Channel::<CriticalSectionRawMutex, SettingsCommand, 2>::new()));
+    let settings_channel = Box::leak(Box::new(Channel::<CriticalSectionRawMutex, SettingsCommand, 8>::new()));
 
     let context = UiContext {
         action_rx: action_channel.receiver(),
@@ -160,7 +160,7 @@ fn test_run_sound_settings_menu_monitor_shortcut() {
     let mut storage = MockStorage;
     let action_channel = Box::leak(Box::new(Channel::<CriticalSectionRawMutex, UiAction, 16>::new()));
     let cmd_channel = Box::leak(Box::new(Channel::<CriticalSectionRawMutex, InternalCommand, 32>::new()));
-    let settings_channel = Box::leak(Box::new(Channel::<CriticalSectionRawMutex, SettingsCommand, 2>::new()));
+    let settings_channel = Box::leak(Box::new(Channel::<CriticalSectionRawMutex, SettingsCommand, 8>::new()));
 
     let context = UiContext {
         action_rx: action_channel.receiver(),
@@ -188,7 +188,7 @@ fn test_run_sound_settings_menu_home_shortcut() {
     let mut storage = MockStorage;
     let action_channel = Box::leak(Box::new(Channel::<CriticalSectionRawMutex, UiAction, 16>::new()));
     let cmd_channel = Box::leak(Box::new(Channel::<CriticalSectionRawMutex, InternalCommand, 32>::new()));
-    let settings_channel = Box::leak(Box::new(Channel::<CriticalSectionRawMutex, SettingsCommand, 2>::new()));
+    let settings_channel = Box::leak(Box::new(Channel::<CriticalSectionRawMutex, SettingsCommand, 8>::new()));
 
     let context = UiContext {
         action_rx: action_channel.receiver(),

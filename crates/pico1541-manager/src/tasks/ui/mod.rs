@@ -21,7 +21,7 @@ pub mod virtual_directory;
 pub struct UiContext {
     pub action_rx: Receiver<'static, CriticalSectionRawMutex, UiAction, 16>,
     pub cmd_tx: Sender<'static, CriticalSectionRawMutex, InternalCommand, 32>,
-    pub settings_tx: Sender<'static, CriticalSectionRawMutex, SettingsCommand, 2>,
+    pub settings_tx: Sender<'static, CriticalSectionRawMutex, SettingsCommand, 8>,
 }
 
 pub struct MenuContext<'a, D, L, Ind, S, Internal>

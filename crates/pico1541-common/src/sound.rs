@@ -122,7 +122,7 @@ pub fn notify_step(bumped: bool) {
     if bumped {
         SOUND_BUMPED_STOP.store(true, Ordering::Relaxed);
     }
-    SOUND_STEP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    SOUND_STEP_COUNTER.fetch_add(1, Ordering::Release);
 }
 
 /// Core 1 Producer: Notify that the spindle motor running state changed.
@@ -136,8 +136,12 @@ pub fn notify_motor(running: bool) {
 /// Returns `(step_count, bumped)`.
 #[inline(always)]
 pub fn get_and_clear_steps() -> (u32, bool) {
-    let steps = SOUND_STEP_COUNTER.swap(0, Ordering::Relaxed);
-    let bumped = SOUND_BUMPED_STOP.swap(false, Ordering::Relaxed);
+    let steps = SOUND_STEP_COUNTER.swap(0, Ordering::Acquire);
+    let bumped = if steps > 0 {
+        SOUND_BUMPED_STOP.swap(false, Ordering::Relaxed)
+    } else {
+        false
+    };
     (steps, bumped)
 }
 

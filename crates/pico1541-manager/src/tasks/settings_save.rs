@@ -5,11 +5,11 @@ use embassy_sync::channel::Receiver;
 
 pub struct SettingsSaveTask<D: SettingsDriver> {
     driver: D,
-    rx: Receiver<'static, CriticalSectionRawMutex, SettingsCommand, 2>,
+    rx: Receiver<'static, CriticalSectionRawMutex, SettingsCommand, 8>,
 }
 
 impl<D: SettingsDriver> SettingsSaveTask<D> {
-    pub fn new(driver: D, rx: Receiver<'static, CriticalSectionRawMutex, SettingsCommand, 2>) -> Self {
+    pub fn new(driver: D, rx: Receiver<'static, CriticalSectionRawMutex, SettingsCommand, 8>) -> Self {
         Self { driver, rx }
     }
 
