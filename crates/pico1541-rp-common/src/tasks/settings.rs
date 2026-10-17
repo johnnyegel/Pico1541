@@ -150,6 +150,7 @@ pub async fn settings_save_task(
                 }
             }
             SettingsCommand::SaveSoundSettings(settings) => {
+                crate::tasks::sound::CURRENT_SOUND_SETTINGS.set(settings);
                 match Filesystem::mount(flash_storage, config) {
                     Ok(fs) => {
                         let _ = fs.mkdir("/settings");

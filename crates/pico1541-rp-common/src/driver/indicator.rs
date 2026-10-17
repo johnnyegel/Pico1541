@@ -1,20 +1,21 @@
-use crate::driver::speaker::PiezoSpeaker;
 use pico1541_manager::IndicatorDriver;
 
-pub struct ActivityIndicator {
-    pub speaker: PiezoSpeaker,
-}
+pub struct ActivityIndicator;
 
 impl ActivityIndicator {
-    pub fn new(speaker: PiezoSpeaker) -> Self {
-        Self { speaker }
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for ActivityIndicator {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 impl IndicatorDriver for ActivityIndicator {
-    fn beep(&mut self) {
-        self.speaker.beep();
-    }
+    fn beep(&mut self) {}
 }
 
 pub struct IndicatorWrapper<M: embassy_sync::blocking_mutex::raw::RawMutex + 'static>(

@@ -20,7 +20,7 @@ use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::i2c::{Config, InterruptHandler};
 use embassy_rp::multicore::Stack;
-use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, I2C0, PIO0, PIO1};
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, I2C0, PIO0, PIO1, PWM_SLICE1};
 use embassy_rp::spi::{Config as SpiConfig, Spi};
 use embassy_rp::Peri;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -59,7 +59,6 @@ use pico1541_rp_common::driver::buttons::DirectKeyboardInput;
 use pico1541_rp_common::driver::display::{DisplayHardware, DisplayState, DisplayWrapper};
 use pico1541_rp_common::driver::indicator::{ActivityIndicator, IndicatorWrapper};
 use pico1541_rp_common::driver::leds::{StatusLeds, StatusLedsWrapper};
-use pico1541_rp_common::driver::speaker::PiezoSpeaker;
 
 // Tasks and manager components
 
@@ -224,12 +223,20 @@ async fn main(spawner: Spawner) {
     let mut drive_id = DEFAULT_DRIVE_ID;
     let mut rom_name = heapless::String::<32>::new();
     let _ = rom_name.push_str("-- Not available --");
+    let mut sound_settings = pico1541_common::sound::SoundSettings::default();
 
     fs_storage_inst = match littlefs_rust::Filesystem::mount(fs_storage_inst, fs_config()) {
         Ok(fs) => {
             if let Ok(data) = fs.read_to_vec("/settings.dat") {
                 if data.len() == 1 {
                     drive_id = data[0];
+                }
+            }
+
+            if let Ok(data) = fs.read_to_vec("/settings/sound.dat") {
+                if let Some(loaded) = pico1541_common::sound::SoundSettings::from_bytes(&data) {
+                    sound_settings = loaded;
+                    info!("Loaded Sound Settings: {:?}", sound_settings);
                 }
             }
 
@@ -300,6 +307,7 @@ async fn main(spawner: Spawner) {
     };
     info!("Settings loaded. Drive ID: {}", drive_id);
     SNOOPER_CONFIG.update_device_id(drive_id);
+    pico1541_rp_common::tasks::sound::CURRENT_SOUND_SETTINGS.set(sound_settings);
 
     // Force RP2040 Timer to 1us ticks (12 cycles of 12MHz clk_ref)
     let (old_val, new_val) = unsafe {
@@ -340,6 +348,7 @@ async fn main(spawner: Spawner) {
 
     // Pack peripherals for Core 1
     let core1_pins = Core0Pins {
+        pwm_slice1: p.PWM_SLICE1.into(),
         i2c0: p.I2C0.into(),
         sda: p.PIN_4.into(),
         scl: p.PIN_5.into(),
@@ -396,6 +405,7 @@ async fn main(spawner: Spawner) {
         &SNOOPER_CONFIG,
         rom_name,
         manager_handle,
+        sound_settings,
     )
     .await;
 }
@@ -473,6 +483,7 @@ async fn core1_load_run(mut task: pico1541_manager::tasks::Core1LoadTask) {
 }
 
 pub struct Core0Pins {
+    pub pwm_slice1: embassy_rp::Peri<'static, PWM_SLICE1>,
     pub i2c0: embassy_rp::Peri<'static, embassy_rp::peripherals::I2C0>,
     pub sda: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_4>,
     pub scl: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_5>,
@@ -511,6 +522,7 @@ async fn core0_init_task(
     config: &'static SnooperConfig,
     rom_name: heapless::String<32>,
     manager_handle: ManagerHandle,
+    sound_settings: pico1541_common::sound::SoundSettings,
 ) {
     info!("core0_init_task started!");
 
@@ -535,9 +547,10 @@ async fn core0_init_task(
         hw: hw_mutex,
     };
 
-    // 2. Indicators (Piezo + LEDs)
-    let piezo = PiezoSpeaker::new(pins.piezo);
-    let indicator = ActivityIndicator::new(piezo);
+    // 2. Indicators & Sound (Piezo PWM)
+    let indicator = ActivityIndicator::new();
+    let piezo = pico1541_rp_common::driver::speaker::PwmPiezo::new(pins.pwm_slice1, pins.piezo);
+    spawner.spawn(pico1541_rp_common::tasks::sound::sound_task(piezo).unwrap());
 
     static INDICATOR: StaticCell<Mutex<CriticalSectionRawMutex, ActivityIndicator>> =
         StaticCell::new();
@@ -613,7 +626,7 @@ async fn core0_init_task(
         rom_name,
         SYSTEM_CLOCK_FREQ,
         ui_context,
-        pico1541_common::sound::SoundSettings::default(),
+        sound_settings,
     );
 
     spawner.spawn(menu_run(main_menu_task).unwrap());
