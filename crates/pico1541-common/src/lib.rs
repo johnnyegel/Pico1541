@@ -18,3 +18,4 @@ pub use track_buffer::{
 };
 
 pub static HALT_EMULATOR: portable_atomic::AtomicBool = portable_atomic::AtomicBool::new(false);
+pub static VIRTUAL_FS_ACTIVE: portable_atomic::AtomicBool = portable_atomic::AtomicBool::new(true);

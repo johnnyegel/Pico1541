@@ -369,7 +369,10 @@ impl<H: HostInterface, S: MagneticSurface> racc6502v4::bus::Bus for SystemBus<H,
         if (addr & 0x9800) == 0x1800 {
             self.write_io(addr, val, cycle, ctx);
         } else {
-            if addr <= 0x0005 && (val & 0xF0) == 0x80 {
+            if pico1541_common::VIRTUAL_FS_ACTIVE.load(Ordering::Relaxed)
+                && addr <= 0x0005
+                && (val & 0xF0) == 0x80
+            {
                 let (addr77, addr78) = self.memory.get_iec_addresses();
                 if addr77 != 0 && addr78 != 0 {
                     let buf = addr as usize;

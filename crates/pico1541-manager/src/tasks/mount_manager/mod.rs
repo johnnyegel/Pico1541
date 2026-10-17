@@ -120,6 +120,10 @@ impl<S: Read + Seek + 'static, O: FileOpener<FileStorage = S>, H: TrackHandoff, 
             // Check location changes
             let current_loc = self.location.lock().await.clone();
             if current_loc != self.last_location {
+                pico1541_common::VIRTUAL_FS_ACTIVE.store(
+                    !matches!(&current_loc, DriveLocation::DiskImage { .. }),
+                    Ordering::Release,
+                );
                 #[cfg(feature = "defmt")]
                 defmt::info!(
                     "TrackCacheTask detected location change: {:?}",
@@ -713,6 +717,17 @@ impl MountControllerTask {
         CURRENT_PAGE.load(Ordering::Relaxed)
     }
 
+    async fn set_location(&mut self, new_loc: DriveLocation) {
+        CURRENT_PAGE.store(0, Ordering::Release);
+        pico1541_common::VIRTUAL_FS_ACTIVE.store(
+            !matches!(new_loc, DriveLocation::DiskImage { .. }),
+            Ordering::Release,
+        );
+        *self.location.lock().await = new_loc;
+        TRACK_CACHE_WAKE.signal(());
+        crate::LOCATION_CHANGED.signal(());
+    }
+
     pub async fn run(&mut self) {
         loop {
             let cmd = self.cmd_rx.receive().await;
@@ -721,7 +736,6 @@ impl MountControllerTask {
                     self.motor_state.store(active, Ordering::Relaxed);
                 }
                 crate::InternalCommand::Mount(payload) => {
-                    CURRENT_PAGE.store(0, Ordering::Release);
                     {
                         let mut guard = ACTIVE_CHILDREN.lock().await;
                         guard.clear();
@@ -748,19 +762,14 @@ impl MountControllerTask {
                             use_internal: i,
                         },
                     };
-                    *self.location.lock().await = new_loc;
-                    TRACK_CACHE_WAKE.signal(());
-                    crate::LOCATION_CHANGED.signal(());
+                    self.set_location(new_loc).await;
                 }
                 crate::InternalCommand::Unmount => {
-                    CURRENT_PAGE.store(0, Ordering::Release);
                     {
                         let mut guard = ACTIVE_CHILDREN.lock().await;
                         guard.clear();
                     }
-                    *self.location.lock().await = DriveLocation::Root;
-                    TRACK_CACHE_WAKE.signal(());
-                    crate::LOCATION_CHANGED.signal(());
+                    self.set_location(DriveLocation::Root).await;
                 }
                 crate::InternalCommand::Cd(cd_str) => {
                     let current_loc = self.location.lock().await.clone();
@@ -771,10 +780,7 @@ impl MountControllerTask {
                                 if loc == current_loc {
                                     pico1541_common::HALT_EMULATOR.store(false, Ordering::Release);
                                 } else {
-                                    CURRENT_PAGE.store(0, Ordering::Release);
-                                    *self.location.lock().await = loc;
-                                    TRACK_CACHE_WAKE.signal(());
-                                    crate::LOCATION_CHANGED.signal(());
+                                    self.set_location(loc).await;
                                 }
                             } else {
                                 pico1541_common::HALT_EMULATOR.store(false, Ordering::Release);
@@ -801,8 +807,8 @@ impl MountControllerTask {
                                     let target_loc = match (new_loc, resolved_child) {
                                         (DriveLocation::Root, _) => DriveLocation::Root,
                                         (DriveLocation::VirtualDirectory { path: p, .. }, Some((name, true))) => {
-                                            let next_p = cd_handler::go_to_child(path.as_str(), name.as_str()).unwrap_or(p);
-                                            DriveLocation::VirtualDirectory { path: next_p, use_internal }
+                                             let next_p = cd_handler::go_to_child(path.as_str(), name.as_str()).unwrap_or(p);
+                                             DriveLocation::VirtualDirectory { path: next_p, use_internal }
                                         }
                                         (DriveLocation::VirtualDirectory { path: p, .. }, Some((name, false))) => {
                                             if cd_handler::is_disk_image(name.as_str()) {
@@ -821,10 +827,7 @@ impl MountControllerTask {
                                     if target_loc == current_loc {
                                         pico1541_common::HALT_EMULATOR.store(false, Ordering::Release);
                                     } else {
-                                        CURRENT_PAGE.store(0, Ordering::Release);
-                                        *self.location.lock().await = target_loc;
-                                        TRACK_CACHE_WAKE.signal(());
-                                        crate::LOCATION_CHANGED.signal(());
+                                        self.set_location(target_loc).await;
                                     }
                                 }
                                 cd_handler::CdNavAction::Ignore => {
@@ -838,10 +841,7 @@ impl MountControllerTask {
                                 if loc == current_loc {
                                     pico1541_common::HALT_EMULATOR.store(false, Ordering::Release);
                                 } else {
-                                    CURRENT_PAGE.store(0, Ordering::Release);
-                                    *self.location.lock().await = loc;
-                                    TRACK_CACHE_WAKE.signal(());
-                                    crate::LOCATION_CHANGED.signal(());
+                                    self.set_location(loc).await;
                                 }
                             } else {
                                 pico1541_common::HALT_EMULATOR.store(false, Ordering::Release);
@@ -850,12 +850,15 @@ impl MountControllerTask {
                     }
                 }
                 crate::InternalCommand::SelectVirtualFile(slot) => {
-                    #[cfg(feature = "defmt")]
-                    defmt::debug!("SelectVirtualFile received for slot {}", slot);
-                    log::debug!("SelectVirtualFile received for slot {}", slot);
-                    SELECTED_SLOT.store(slot, Ordering::Release);
-                    SLOT_SELECTED.store(true, Ordering::Release);
-                    TRACK_CACHE_WAKE.signal(());
+                    let current_loc = self.location.lock().await.clone();
+                    if !matches!(current_loc, DriveLocation::DiskImage { .. }) {
+                        #[cfg(feature = "defmt")]
+                        defmt::debug!("SelectVirtualFile received for slot {}", slot);
+                        log::debug!("SelectVirtualFile received for slot {}", slot);
+                        SELECTED_SLOT.store(slot, Ordering::Release);
+                        SLOT_SELECTED.store(true, Ordering::Release);
+                        TRACK_CACHE_WAKE.signal(());
+                    }
                 }
             }
         }

@@ -758,7 +758,7 @@ mod tests {
 
         for slot in 0..(7 * 21) {
             let (track, sector) = slot_to_track_sector(slot);
-            assert!(track >= 11 && track <= 17);
+            assert!((11..=17).contains(&track));
             assert!(sector < 21);
             assert_eq!(track_sector_to_slot(track, sector), Some(slot));
         }

@@ -177,11 +177,28 @@ fn test_mount_controller_commands() {
                     use_internal: false,
                 }
             );
+            assert_eq!(
+                pico1541_common::VIRTUAL_FS_ACTIVE.load(core::sync::atomic::Ordering::Acquire),
+                false
+            );
+
+            // While in DiskImage, verify SelectVirtualFile is dropped and does NOT set SLOT_SELECTED
+            pico1541_manager::tasks::mount_manager::SLOT_SELECTED.store(false, core::sync::atomic::Ordering::Release);
+            CMD_CH.send(InternalCommand::SelectVirtualFile(5)).await;
+            embassy_futures::yield_now().await;
+            assert_eq!(
+                pico1541_manager::tasks::mount_manager::SLOT_SELECTED.load(core::sync::atomic::Ordering::Acquire),
+                false
+            );
 
             // 6. Unmount
             CMD_CH.send(InternalCommand::Unmount).await;
             LOCATION_CHANGED.wait().await;
             assert_eq!(*LOCATION.lock().await, DriveLocation::Root);
+            assert_eq!(
+                pico1541_common::VIRTUAL_FS_ACTIVE.load(core::sync::atomic::Ordering::Acquire),
+                true
+            );
 
             // 7. Page navigation
             *LOCATION.lock().await = DriveLocation::VirtualDirectory {

@@ -282,6 +282,17 @@ fn test_job_queue_snoop_select_virtual_file() {
             non_read_job
         );
     }
+
+    // Test that when VIRTUAL_FS_ACTIVE is false (e.g. physical .d64 / .g64 mounted),
+    // normal sector reads on tracks 11..17 do NOT trigger select_virtual_file!
+    pico1541_common::VIRTUAL_FS_ACTIVE.store(false, core::sync::atomic::Ordering::Release);
+    drive.bus_mut().write(&mut bridge, 0x0000, 0x80, 0);
+    assert_eq!(
+        bridge.selected_virtual_files,
+        vec![2, 26],
+        "VIRTUAL_FS_ACTIVE=false must suppress select_virtual_file"
+    );
+    pico1541_common::VIRTUAL_FS_ACTIVE.store(true, core::sync::atomic::Ordering::Release);
 }
 
 #[test]
