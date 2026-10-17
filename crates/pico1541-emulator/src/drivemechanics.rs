@@ -177,6 +177,11 @@ impl<S: MagneticSurface> DriveMechanics<S> {
                 _ => 0,
             };
 
+            let bumped = (step < 0 && last_half_track_pos <= MIN_HALF_TRACK)
+                || (step > 0 && last_half_track_pos >= MAX_HALF_TRACK);
+
+            pico1541_common::sound::notify_step(bumped);
+
             if step != 0 {
                 self.halftrack_head_pos =
                     (last_half_track_pos + step).clamp(MIN_HALF_TRACK, MAX_HALF_TRACK);
@@ -196,7 +201,20 @@ impl<S: MagneticSurface> DriveMechanics<S> {
         if (state_changes & pico1541_common::context::via::VIA2_MASK_MOTOR) != 0 {
             let motor_on = (full_state & pico1541_common::context::via::VIA2_MASK_MOTOR) != 0;
             self.surface.set_motor_running(motor_on, master_clock);
+            pico1541_common::sound::notify_motor(motor_on);
         }
+    }
+
+    /// Helper to update state with argument order `(full_state, last_state, master_clock, hardware)`.
+    #[inline(always)]
+    pub fn update_from_state<H: HostInterface>(
+        &mut self,
+        full_state: u8,
+        last_state: u8,
+        master_clock: u32,
+        hardware: &mut H,
+    ) {
+        self.update_state(full_state, last_state, hardware, master_clock);
     }
 
     #[link_section = ".core1_text"]
