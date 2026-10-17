@@ -7,6 +7,7 @@ pub mod interface;
 pub mod location;
 pub mod magnetic_surface;
 pub mod snooper;
+pub mod sound;
 pub mod track_buffer;
 pub mod util;
 
