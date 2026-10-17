@@ -26,6 +26,16 @@ pub enum SoundVolume {
 }
 
 impl SoundVolume {
+    /// Cycles to the next volume level in order: Off -> Low -> Medium -> High -> Off.
+    pub const fn cycle(self) -> Self {
+        match self {
+            Self::Off => Self::Low,
+            Self::Low => Self::Medium,
+            Self::Medium => Self::High,
+            Self::High => Self::Off,
+        }
+    }
+
     /// Converts a raw byte to a [`SoundVolume`].
     /// Any value outside `1..=3` defaults to [`SoundVolume::Off`].
     pub const fn from_u8(v: u8) -> Self {

@@ -44,6 +44,7 @@ where
     pub context: UiContext,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PageState {
     BootScreen,
     MainMenu,

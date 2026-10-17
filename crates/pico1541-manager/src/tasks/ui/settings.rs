@@ -119,12 +119,7 @@ where
                 cursor = idx;
                 match idx {
                     0 => {
-                        sound_settings.volume = match sound_settings.volume {
-                            pico1541_common::sound::SoundVolume::Off => pico1541_common::sound::SoundVolume::Low,
-                            pico1541_common::sound::SoundVolume::Low => pico1541_common::sound::SoundVolume::Medium,
-                            pico1541_common::sound::SoundVolume::Medium => pico1541_common::sound::SoundVolume::High,
-                            pico1541_common::sound::SoundVolume::High => pico1541_common::sound::SoundVolume::Off,
-                        };
+                        sound_settings.volume = sound_settings.volume.cycle();
                         let _ = context.settings_tx.try_send(crate::SettingsCommand::SaveSoundSettings(*sound_settings));
                     }
                     1 => {
@@ -141,6 +136,7 @@ where
             }
             MenuEvent::Back => return PageState::Settings,
             MenuEvent::Home => return PageState::MainMenu,
+            MenuEvent::Monitor => return PageState::Monitor,
             MenuEvent::Timeout => {
                 cursor = menu.selected_index();
             }
