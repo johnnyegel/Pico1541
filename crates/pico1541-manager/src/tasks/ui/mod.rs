@@ -50,6 +50,7 @@ pub enum PageState {
     SdCardMenu,
     InternalMenu,
     Settings,
+    SoundSettings,
     Monitor,
     DeviceIdSelect,
     BootRomSelect,
@@ -104,6 +105,7 @@ pub struct MainMenuTask<D, L, Ind, S, Internal: FileStorageDriver> {
     rom_name: String<32>,
     sys_clock_freq: u32,
     context: UiContext,
+    sound_settings: pico1541_common::sound::SoundSettings,
 }
 
 #[allow(clippy::type_complexity)]
@@ -127,6 +129,7 @@ where
         rom_name: String<32>,
         sys_clock_freq: u32,
         context: UiContext,
+        sound_settings: pico1541_common::sound::SoundSettings,
     ) -> Self {
         Self {
             display,
@@ -143,6 +146,7 @@ where
             rom_name,
             sys_clock_freq,
             context,
+            sound_settings,
         }
     }
 
@@ -250,6 +254,15 @@ where
                 PageState::Settings => {
                     settings::run_settings_menu(&mut self.display, &mut self.internal, self.config, &self.context)
                         .await
+                }
+                PageState::SoundSettings => {
+                    settings::run_sound_settings_menu(
+                        &mut self.display,
+                        &mut self.internal,
+                        &self.context,
+                        &mut self.sound_settings,
+                    )
+                    .await
                 }
                 PageState::DeviceIdSelect => {
                     settings::run_device_id_menu(&mut self.display, &mut self.internal, self.config, &self.context)

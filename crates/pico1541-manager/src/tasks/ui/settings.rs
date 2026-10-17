@@ -20,7 +20,7 @@ where
 {
     let mut cursor = 0;
     loop {
-        let mut items = Vec::<String<32>, 3>::new();
+        let mut items = Vec::<String<32>, 4>::new();
 
         let mut id_str = String::<32>::new();
         let _ = core::fmt::write(
@@ -30,6 +30,8 @@ where
         let _ = items.push(id_str);
 
         let _ = items.push(String::from_str("Select ROM").unwrap());
+
+        let _ = items.push(String::from_str("Sound Settings").unwrap());
 
         let _ = items.push(String::from_str("Monitor").unwrap());
 
@@ -47,6 +49,9 @@ where
                         return PageState::BootRomSelect;
                     }
                     2 => {
+                        return PageState::SoundSettings;
+                    }
+                    3 => {
                         return PageState::Monitor;
                     }
                     _ => {}
@@ -58,6 +63,84 @@ where
                 return PageState::Monitor;
             }
             MenuEvent::LoadBlock(_) => {}
+            MenuEvent::Timeout => {
+                cursor = menu.selected_index();
+            }
+            _ => {}
+        }
+    }
+}
+
+pub async fn run_sound_settings_menu<D, Internal>(
+    display: &mut D,
+    _internal: &mut Internal,
+    context: &crate::tasks::ui::UiContext,
+    sound_settings: &mut pico1541_common::sound::SoundSettings,
+) -> PageState
+where
+    D: DisplayDriver,
+    Internal: FileStorageDriver,
+{
+    let mut cursor = 0;
+    loop {
+        let mut items = Vec::<String<32>, 4>::new();
+
+        let mut vol_str = String::<32>::new();
+        let vol_name = match sound_settings.volume {
+            pico1541_common::sound::SoundVolume::Off => "Off",
+            pico1541_common::sound::SoundVolume::Low => "Low",
+            pico1541_common::sound::SoundVolume::Medium => "Medium",
+            pico1541_common::sound::SoundVolume::High => "High",
+        };
+        let _ = core::fmt::write(&mut vol_str, format_args!("Volume: {}", vol_name));
+        let _ = items.push(vol_str);
+
+        let mut mot_str = String::<32>::new();
+        let _ = core::fmt::write(
+            &mut mot_str,
+            format_args!("Motor: {}", if sound_settings.motor_enabled { "On" } else { "Off" }),
+        );
+        let _ = items.push(mot_str);
+
+        let mut step_str = String::<32>::new();
+        let _ = core::fmt::write(
+            &mut step_str,
+            format_args!("Stepper: {}", if sound_settings.stepper_enabled { "On" } else { "Off" }),
+        );
+        let _ = items.push(step_str);
+
+        let _ = items.push(String::from_str("Back").unwrap());
+
+        let mut menu = Menu::new("--- Sound Settings ---", items);
+        menu.set_cursor(cursor);
+
+        match menu.run(display, &context.action_rx).await {
+            MenuEvent::Selected(idx) => {
+                cursor = idx;
+                match idx {
+                    0 => {
+                        sound_settings.volume = match sound_settings.volume {
+                            pico1541_common::sound::SoundVolume::Off => pico1541_common::sound::SoundVolume::Low,
+                            pico1541_common::sound::SoundVolume::Low => pico1541_common::sound::SoundVolume::Medium,
+                            pico1541_common::sound::SoundVolume::Medium => pico1541_common::sound::SoundVolume::High,
+                            pico1541_common::sound::SoundVolume::High => pico1541_common::sound::SoundVolume::Off,
+                        };
+                        let _ = context.settings_tx.try_send(crate::SettingsCommand::SaveSoundSettings(*sound_settings));
+                    }
+                    1 => {
+                        sound_settings.motor_enabled = !sound_settings.motor_enabled;
+                        let _ = context.settings_tx.try_send(crate::SettingsCommand::SaveSoundSettings(*sound_settings));
+                    }
+                    2 => {
+                        sound_settings.stepper_enabled = !sound_settings.stepper_enabled;
+                        let _ = context.settings_tx.try_send(crate::SettingsCommand::SaveSoundSettings(*sound_settings));
+                    }
+                    3 => return PageState::Settings,
+                    _ => {}
+                }
+            }
+            MenuEvent::Back => return PageState::Settings,
+            MenuEvent::Home => return PageState::MainMenu,
             MenuEvent::Timeout => {
                 cursor = menu.selected_index();
             }

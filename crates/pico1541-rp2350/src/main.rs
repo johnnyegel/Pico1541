@@ -613,6 +613,7 @@ async fn core0_init_task(
         rom_name,
         SYSTEM_CLOCK_FREQ,
         ui_context,
+        pico1541_common::sound::SoundSettings::default(),
     );
 
     spawner.spawn(menu_run(main_menu_task).unwrap());
