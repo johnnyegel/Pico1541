@@ -38,6 +38,7 @@ impl SoundSettingsCell {
 #[embassy_executor::task]
 pub async fn sound_task(mut piezo: PwmPiezo<'static>) {
     let mut playing_motor = false;
+    let mut last_volume = CURRENT_SOUND_SETTINGS.get().volume;
 
     loop {
         let settings = CURRENT_SOUND_SETTINGS.get();
@@ -48,6 +49,7 @@ pub async fn sound_task(mut piezo: PwmPiezo<'static>) {
                 piezo.stop_motor_hum();
                 playing_motor = false;
             }
+            let _ = get_and_clear_steps();
             Timer::after(Duration::from_millis(10)).await;
             continue;
         }
@@ -72,6 +74,7 @@ pub async fn sound_task(mut piezo: PwmPiezo<'static>) {
             if is_motor_running() && settings.motor_enabled {
                 piezo.resume_motor_hum_after_tone(settings.volume);
                 playing_motor = true;
+                last_volume = settings.volume;
             } else if playing_motor {
                 piezo.stop_motor_hum();
                 playing_motor = false;
@@ -80,9 +83,11 @@ pub async fn sound_task(mut piezo: PwmPiezo<'static>) {
             if !playing_motor {
                 piezo.start_motor_hum(settings.volume);
                 playing_motor = true;
-            } else {
+                last_volume = settings.volume;
+            } else if settings.volume != last_volume {
                 // Apply live volume updates if changed in menu
                 piezo.update_motor_volume(settings.volume);
+                last_volume = settings.volume;
             }
             Timer::after(Duration::from_millis(2)).await;
         } else {

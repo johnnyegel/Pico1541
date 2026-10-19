@@ -137,6 +137,9 @@ impl<'d> PwmPiezo<'d> {
     /// If volume is `Off`, DMA is stopped. Otherwise, the duty cycle values in `MOTOR_DUTY_BUFFER`
     /// are updated in place so the next circular DMA period plays at the new volume level.
     pub fn update_motor_volume(&mut self, volume: SoundVolume) {
+        if volume == self.current_volume {
+            return;
+        }
         if volume == SoundVolume::Off {
             self.stop_motor_hum();
         } else {
