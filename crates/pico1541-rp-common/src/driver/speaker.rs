@@ -27,6 +27,7 @@ static mut MOTOR_BUFFER_PTR: *const u16 = core::ptr::null();
 pub struct PwmPiezo<'d> {
     pwm: Pwm<'d>,
     motor_humming: bool,
+    current_volume: SoundVolume,
 }
 
 impl<'d> PwmPiezo<'d> {
@@ -41,10 +42,11 @@ impl<'d> PwmPiezo<'d> {
         Self {
             pwm,
             motor_humming: false,
+            current_volume: SoundVolume::Off,
         }
     }
 
-    /// Stops tone generation. If motor hum was active, pauses DMA so tone/silence can take effect.
+    /// Stops tone generation or motor hum, setting PWM compare and top to 0 and clearing humming state.
     pub fn stop(&mut self) {
         if self.motor_humming {
             Self::stop_dma();
@@ -53,6 +55,7 @@ impl<'d> PwmPiezo<'d> {
         config.top = 0;
         config.compare_a = 0;
         self.pwm.set_config(&config);
+        self.motor_humming = false;
     }
 
     /// Set frequency in Hz and duty cycle percent (0-50%).
@@ -99,13 +102,8 @@ impl<'d> PwmPiezo<'d> {
             Self::stop_dma();
         }
 
-        let buf_ptr = core::ptr::addr_of_mut!(MOTOR_DUTY_BUFFER) as *mut u16;
-        unsafe {
-            MOTOR_BUFFER_PTR = buf_ptr;
-            for i in 0..8819 {
-                *buf_ptr.add(i) = sample_to_pwm_duty(MOTOR_HUM_SAMPLE[i], MOTOR_PWM_TOP, volume);
-            }
-        }
+        Self::populate_duty_buffer(volume);
+        self.current_volume = volume;
 
         let mut config = PwmConfig::default();
         config.divider = 1u8.into();
@@ -136,17 +134,15 @@ impl<'d> PwmPiezo<'d> {
         if volume == SoundVolume::Off {
             self.stop_motor_hum();
         } else {
-            let buf_ptr = core::ptr::addr_of_mut!(MOTOR_DUTY_BUFFER) as *mut u16;
-            unsafe {
-                MOTOR_BUFFER_PTR = buf_ptr;
-                for i in 0..8819 {
-                    *buf_ptr.add(i) = sample_to_pwm_duty(MOTOR_HUM_SAMPLE[i], MOTOR_PWM_TOP, volume);
-                }
-            }
+            Self::populate_duty_buffer(volume);
+            self.current_volume = volume;
         }
     }
 
     /// Restores ultrasonic carrier (22,050 Hz) and restarts DMA after playing a stepper click or head bump tone.
+    ///
+    /// If `volume` has not changed from `current_volume`, the buffer recomputation is skipped,
+    /// restarting DMA immediately.
     pub fn resume_motor_hum_after_tone(&mut self, volume: SoundVolume) {
         if !self.motor_humming {
             return;
@@ -157,12 +153,9 @@ impl<'d> PwmPiezo<'d> {
             return;
         }
 
-        let buf_ptr = core::ptr::addr_of_mut!(MOTOR_DUTY_BUFFER) as *mut u16;
-        unsafe {
-            MOTOR_BUFFER_PTR = buf_ptr;
-            for i in 0..8819 {
-                *buf_ptr.add(i) = sample_to_pwm_duty(MOTOR_HUM_SAMPLE[i], MOTOR_PWM_TOP, volume);
-            }
+        if volume != self.current_volume {
+            Self::populate_duty_buffer(volume);
+            self.current_volume = volume;
         }
 
         let mut config = PwmConfig::default();
@@ -172,6 +165,16 @@ impl<'d> PwmPiezo<'d> {
         self.pwm.set_config(&config);
 
         Self::start_dma();
+    }
+
+    fn populate_duty_buffer(volume: SoundVolume) {
+        let buf_ptr = core::ptr::addr_of_mut!(MOTOR_DUTY_BUFFER) as *mut u16;
+        unsafe {
+            MOTOR_BUFFER_PTR = buf_ptr;
+            for i in 0..8819 {
+                *buf_ptr.add(i) = sample_to_pwm_duty(MOTOR_HUM_SAMPLE[i], MOTOR_PWM_TOP, volume);
+            }
+        }
     }
 
     fn stop_dma() {
@@ -247,6 +250,9 @@ impl<'d> PwmPiezo<'d> {
         ch_reloader
             .al1_ctrl()
             .modify(|w| *w |= DMA_CHANNEL_ENABLE_MASK);
+
+        // Ensure all buffer and register writes are committed prior to DMA trigger
+        core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
 
         // Enable and trigger Worker Channel (Ch 2):
         ch_worker.ctrl_trig().modify(|w| w.set_en(true));
