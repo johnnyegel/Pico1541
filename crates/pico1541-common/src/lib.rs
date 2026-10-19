@@ -6,6 +6,7 @@ pub mod iec_com;
 pub mod interface;
 pub mod location;
 pub mod magnetic_surface;
+pub mod motor_sample;
 pub mod snooper;
 pub mod sound;
 pub mod track_buffer;
