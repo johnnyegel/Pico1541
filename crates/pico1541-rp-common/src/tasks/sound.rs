@@ -45,7 +45,7 @@ pub async fn sound_task(mut piezo: PwmPiezo<'static>) {
 
         if volume_percent == 0 {
             if playing_motor {
-                piezo.stop();
+                piezo.stop_motor_hum();
                 playing_motor = false;
             }
             Timer::after(Duration::from_millis(10)).await;
@@ -55,30 +55,39 @@ pub async fn sound_task(mut piezo: PwmPiezo<'static>) {
         let (steps, bumped) = get_and_clear_steps();
 
         if steps > 0 && settings.stepper_enabled {
-            if playing_motor {
-                piezo.stop();
-                playing_motor = false;
-            }
-            // Play stepping clicks
+            // Note: play_tone inside PwmPiezo automatically pauses DMA if motor_humming is true!
+            // Play stepping clicks:
             for i in 0..steps.min(10) {
                 let duration_us = if bumped && i == 0 { 2800 } else { 1800 };
                 piezo.play_tone(1200, volume_percent);
                 Timer::after(Duration::from_micros(duration_us)).await;
 
-                piezo.stop();
+                piezo.stop(); // Silence between clicks
                 if steps > 1 {
                     Timer::after(Duration::from_micros(500)).await;
                 }
             }
+
+            // After tone sequence finishes:
+            if is_motor_running() && settings.motor_enabled {
+                piezo.resume_motor_hum_after_tone(settings.volume);
+                playing_motor = true;
+            } else if playing_motor {
+                piezo.stop_motor_hum();
+                playing_motor = false;
+            }
         } else if is_motor_running() && settings.motor_enabled {
             if !playing_motor {
-                piezo.play_tone(110, volume_percent / 2); // Soft low-frequency hum
+                piezo.start_motor_hum(settings.volume);
                 playing_motor = true;
+            } else {
+                // Apply live volume updates if changed in menu
+                piezo.update_motor_volume(settings.volume);
             }
             Timer::after(Duration::from_millis(2)).await;
         } else {
             if playing_motor {
-                piezo.stop();
+                piezo.stop_motor_hum();
                 playing_motor = false;
             }
             Timer::after(Duration::from_millis(2)).await;
