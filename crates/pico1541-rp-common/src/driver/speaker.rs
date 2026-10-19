@@ -1,4 +1,5 @@
 use embassy_rp::pac;
+use embassy_rp::peripherals::{DMA_CH2, DMA_CH3};
 use embassy_rp::pwm::{ChannelAPin, Config as PwmConfig, Pwm, Slice};
 use embassy_rp::Peri;
 use pico1541_common::motor_sample::{sample_to_pwm_duty, MOTOR_HUM_SAMPLE, MOTOR_SAMPLE_RATE};
@@ -41,6 +42,8 @@ impl<'d> PwmPiezo<'d> {
     pub fn new<T: Slice>(
         slice: Peri<'d, T>,
         pin: Peri<'d, impl ChannelAPin<T>>,
+        _dma_worker: Peri<'d, DMA_CH2>,
+        _dma_reloader: Peri<'d, DMA_CH3>,
     ) -> Self {
         let mut config = PwmConfig::default();
         config.top = 0;
@@ -167,6 +170,7 @@ impl<'d> PwmPiezo<'d> {
                 *buf_ptr.add(i) = sample_to_pwm_duty(MOTOR_HUM_SAMPLE[i], MOTOR_PWM_TOP, volume);
             }
         }
+        cortex_m::asm::dmb();
         core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
     }
 
@@ -245,6 +249,7 @@ impl<'d> PwmPiezo<'d> {
             .modify(|w| *w |= DMA_CHANNEL_ENABLE_MASK);
 
         // Ensure all buffer and register writes are committed prior to DMA trigger
+        cortex_m::asm::dmb();
         core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
 
         // Enable and trigger Worker Channel (Ch 2):

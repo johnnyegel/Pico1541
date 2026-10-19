@@ -351,13 +351,15 @@ async fn main(spawner: Spawner) {
         &mut *ptr
     };
 
-    // Pack peripherals for Core 1
-    let core1_pins = Core0Pins {
+    // Pack peripherals for Core 0
+    let core0_pins = Core0Pins {
         pwm_slice1: p.PWM_SLICE1.into(),
+        piezo: p.PIN_2.into(),
+        dma_ch2: p.DMA_CH2.into(),
+        dma_ch3: p.DMA_CH3.into(),
         i2c0: p.I2C0.into(),
         sda: p.PIN_4.into(),
         scl: p.PIN_5.into(),
-        piezo: p.PIN_2.into(),
         rgb_red: p.PIN_16.into(),
         rgb_green: p.PIN_17.into(),
         rgb_blue: p.PIN_18.into(),
@@ -406,7 +408,7 @@ async fn main(spawner: Spawner) {
     );
     core0_init_task(
         spawner,
-        core1_pins,
+        core0_pins,
         &SNOOPER_CONFIG,
         rom_name,
         manager_handle,
@@ -489,11 +491,13 @@ async fn core1_load_run(mut task: pico1541_manager::tasks::Core1LoadTask) {
 
 pub struct Core0Pins {
     pub pwm_slice1: embassy_rp::Peri<'static, PWM_SLICE1>,
+    pub piezo: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_2>,
+    pub dma_ch2: embassy_rp::Peri<'static, embassy_rp::peripherals::DMA_CH2>,
+    pub dma_ch3: embassy_rp::Peri<'static, embassy_rp::peripherals::DMA_CH3>,
+
     pub i2c0: embassy_rp::Peri<'static, embassy_rp::peripherals::I2C0>,
     pub sda: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_4>,
     pub scl: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_5>,
-
-    pub piezo: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_2>,
 
     pub rgb_red: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_16>,
     pub rgb_green: embassy_rp::Peri<'static, embassy_rp::peripherals::PIN_17>,
@@ -554,7 +558,12 @@ async fn core0_init_task(
 
     // 2. Indicators & Sound (Piezo PWM)
     let indicator = ActivityIndicator::new();
-    let piezo = pico1541_rp_common::driver::speaker::PwmPiezo::new(pins.pwm_slice1, pins.piezo);
+    let piezo = pico1541_rp_common::driver::speaker::PwmPiezo::new(
+        pins.pwm_slice1,
+        pins.piezo,
+        pins.dma_ch2,
+        pins.dma_ch3,
+    );
     spawner.spawn(pico1541_rp_common::tasks::sound::sound_task(piezo).unwrap());
 
     static INDICATOR: StaticCell<Mutex<CriticalSectionRawMutex, ActivityIndicator>> =
