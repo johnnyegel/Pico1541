@@ -70,6 +70,9 @@ pub async fn sound_task(mut piezo: PwmPiezo<'static>) {
                 }
             }
 
+            piezo.stop();
+            Timer::after(Duration::from_micros(500)).await;
+
             // After tone sequence finishes:
             if is_motor_running() && settings.motor_enabled {
                 piezo.resume_motor_hum_after_tone(settings.volume);

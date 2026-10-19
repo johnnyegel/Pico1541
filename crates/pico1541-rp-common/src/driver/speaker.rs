@@ -27,6 +27,10 @@ const DMA_CHANNEL_ENABLE_MASK: u32 = 1 << 0;
 static mut MOTOR_DUTY_BUFFER: [u16; MOTOR_SAMPLE_COUNT] = [0; MOTOR_SAMPLE_COUNT];
 static mut MOTOR_BUFFER_PTR: *const u16 = core::ptr::null();
 
+/// PWM Piezo audio driver for stepper clicks, tone generation, and spindle motor sound.
+///
+/// Sample DMA streaming specifically targets PWM Slice 1 Channel A (GPIO 2) and utilizes
+/// hardware DMA Channels 2 & 3 in a circular ping-pong configuration.
 pub struct PwmPiezo<'d> {
     pwm: Pwm<'d>,
     motor_humming: bool,
@@ -71,6 +75,7 @@ impl<'d> PwmPiezo<'d> {
 
         if self.motor_humming {
             Self::stop_dma();
+            self.motor_humming = false;
         }
 
         // System clock is 250 MHz or 125 MHz. Use divider 64 to fit 16-bit TOP.

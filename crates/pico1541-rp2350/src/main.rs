@@ -79,6 +79,11 @@ use pico1541_rp_common::storage_manager::*;
 use pico1541_rp_common::flash_storage::FlashStorage;
 use pico1541_rp_common::littlefs_storage::LittleFsStorage;
 
+// Hardware DMA Channel Allocation Map:
+// - DMA Channel 0: Floppy Magnetic Surface Worker (PIO0 TX)
+// - DMA Channel 1: Floppy Magnetic Surface Reloader (Infinite Loop)
+// - DMA Channel 2: Speaker Spindle Motor Hum Worker (PWM_WRAP1)
+// - DMA Channel 3: Speaker Spindle Motor Hum Reloader (Infinite Loop)
 bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => embassy_rp::usb::InterruptHandler<embassy_rp::peripherals::USB>;
     I2C0_IRQ => InterruptHandler<I2C0>;
