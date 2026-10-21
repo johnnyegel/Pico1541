@@ -268,13 +268,9 @@ pub fn mixed_sample_to_pwm_duty_faded(
     let full_center = (top / 2) as u32;
     let center = ((full_center * clamped_step) / max_steps_u32) as i32;
 
-    let full_motor_gain = match volume {
-        SoundVolume::Off => 0,
-        SoundVolume::Low => (top as i32) / 250,
-        SoundVolume::Medium => (top as i32) / 100,
-        SoundVolume::High => (top as i32) / 60,
-    };
+    let full_motor_gain = crate::motor_sample::volume_gain(volume, top);
     let full_step_gain = volume_gain(volume, top);
+
 
     let motor_gain = (full_motor_gain * clamped_step as i32) / (max_steps_u32 as i32);
     let step_gain = (full_step_gain * clamped_step as i32) / (max_steps_u32 as i32);

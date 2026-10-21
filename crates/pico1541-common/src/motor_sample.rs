@@ -457,7 +457,7 @@ pub const MOTOR_HUM_SAMPLE: [i8; 8819] = [
 ];
 
 #[inline]
-fn volume_gain(volume: SoundVolume, top: u16) -> i32 {
+pub(crate) fn volume_gain(volume: SoundVolume, top: u16) -> i32 {
     match volume {
         SoundVolume::Off => 0,
         SoundVolume::Low => (top as i32) / 250,
@@ -465,6 +465,7 @@ fn volume_gain(volume: SoundVolume, top: u16) -> i32 {
         SoundVolume::High => (top as i32) / 60,
     }
 }
+
 
 #[inline]
 pub fn sample_to_pwm_duty(sample: i8, top: u16, volume: SoundVolume) -> u16 {

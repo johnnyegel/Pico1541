@@ -165,9 +165,23 @@ fn test_mixed_sample_to_pwm_duty_faded() {
     let duty_min_clamp = mixed_sample_to_pwm_duty_faded(-128, -128, top, SoundVolume::High, 15, 15);
     assert_eq!(duty_min_clamp, 0);
 
+    // Zero output on max_steps = 0
+    assert_eq!(mixed_sample_to_pwm_duty_faded(10, 20, top, SoundVolume::High, 5, 0), 0);
+
+    // Overrun clamping: step > max_steps clamps to max_steps
+    assert_eq!(
+        mixed_sample_to_pwm_duty_faded(20, 20, top, SoundVolume::High, 25, 15),
+        mixed_sample_to_pwm_duty_faded(20, 20, top, SoundVolume::High, 15, 15)
+    );
+
+    // Destructive AC interference
+    let duty_opposing = mixed_sample_to_pwm_duty_faded(20, -20, top, SoundVolume::High, 15, 15);
+    assert!(duty_opposing < duty_both_pos);
+
     // Envelope scaling at mid-step (e.g. 7 of 15)
     let duty_mid_dc = mixed_sample_to_pwm_duty_faded(0, 0, top, SoundVolume::High, 7, 15);
     let expected_center = ((top as u32 / 2) * 7 / 15) as u16;
     assert_eq!(duty_mid_dc, expected_center);
 }
+
 
