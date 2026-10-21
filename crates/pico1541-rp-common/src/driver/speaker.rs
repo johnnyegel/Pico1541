@@ -5,7 +5,8 @@ use embassy_rp::Peri;
 use pico1541_common::motor_sample::{sample_to_pwm_duty, MOTOR_HUM_SAMPLE, MOTOR_SAMPLE_RATE};
 use pico1541_common::sound::SoundVolume;
 use pico1541_common::stepper_sample::{
-    stepper_sample_to_pwm_duty, stepper_sample_to_pwm_duty_stopped, BUMP_SAMPLE, STEPPING_SAMPLE,
+    mixed_sample_to_pwm_duty_faded, stepper_sample_to_pwm_duty, stepper_sample_to_pwm_duty_stopped,
+    BUMP_SAMPLE, STEPPING_SAMPLE,
 };
 
 /// Ultrasonic PWM carrier frequency wrap rate (22,050 Hz @ 250 MHz system clock).
@@ -285,23 +286,75 @@ impl<'d> PwmPiezo<'d> {
         len
     }
 
-    /// Plays an authentic mechanical stepper or bump sample while the spindle motor is active.
+    fn populate_stepper_buffer_mixed(
+        volume: SoundVolume,
+        is_bump: bool,
+        start_motor_idx: usize,
+        envelope_step: u8,
+        max_steps: u8,
+    ) -> usize {
+        let buf_ptr = core::ptr::addr_of_mut!(STEPPER_DUTY_BUFFER) as *mut u16;
+        let len = if is_bump {
+            BUMP_SAMPLE.len()
+        } else {
+            STEPPING_SAMPLE.len()
+        };
+
+        unsafe {
+            for i in 0..len {
+                let motor_idx = (start_motor_idx + i) % MOTOR_SAMPLE_COUNT;
+                let motor_sample = MOTOR_HUM_SAMPLE[motor_idx];
+                let step_sample = if is_bump {
+                    BUMP_SAMPLE[i]
+                } else {
+                    STEPPING_SAMPLE[i]
+                };
+                *buf_ptr.add(i) = mixed_sample_to_pwm_duty_faded(
+                    motor_sample,
+                    step_sample,
+                    MOTOR_PWM_TOP,
+                    volume,
+                    envelope_step,
+                    max_steps,
+                );
+            }
+        }
+        cortex_m::asm::dmb();
+        core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
+        len
+    }
+
+    /// Plays an authentic mechanical stepper or bump sample mixed with the running motor hum.
     ///
-    /// Temporarily points Worker DMA Channel 2 to `STEPPER_DUTY_BUFFER`, streaming the 31.3 ms
-    /// step (or 118.6 ms bump) at 22,050 Hz without dropping the ultrasonic carrier or 1.65V DC center.
-    /// When the sample completes, seamlessly restores circular motor hum streaming.
-    pub async fn play_active_step_click(&mut self, volume: SoundVolume, is_bump: bool) {
+    /// Samples the current DMA read pointer to identify the exact motor phase index, populates
+    /// `STEPPER_DUTY_BUFFER` with the combined waveform, streams it at 22,050 Hz without dropping
+    /// DC bias or muting the motor, then seamlessly resumes circular motor hum at the exact forward
+    /// phase position.
+    pub async fn play_active_step_click(
+        &mut self,
+        volume: SoundVolume,
+        is_bump: bool,
+        envelope_step: u8,
+        max_steps: u8,
+    ) {
         if !self.motor_humming || volume == SoundVolume::Off {
             return;
         }
 
-        let len = Self::populate_stepper_buffer(volume, is_bump, false);
-        Self::pause_motor_dma();
-
         let dma = pac::DMA;
         let ch_worker = dma.ch(DMA_CH_WORKER);
 
-        // Configure Worker Channel 2 to stream the stepper buffer (unchained):
+        // 1. Sample current read pointer to determine the exact motor hum phase index
+        let curr_addr = ch_worker.read_addr().read() as usize;
+        let base_addr = core::ptr::addr_of!(MOTOR_DUTY_BUFFER) as usize;
+        let offset_bytes = curr_addr.saturating_sub(base_addr);
+        let curr_idx = (offset_bytes / 2) % MOTOR_SAMPLE_COUNT;
+
+        // 2. Populate STEPPER_DUTY_BUFFER with mixed audio (motor hum + step clack)
+        let len = Self::populate_stepper_buffer_mixed(volume, is_bump, curr_idx, envelope_step, max_steps);
+        Self::pause_motor_dma();
+
+        // 3. Configure Worker Channel 2 to stream the mixed buffer (unchained)
         ch_worker
             .read_addr()
             .write_value(core::ptr::addr_of!(STEPPER_DUTY_BUFFER) as u32);
@@ -316,18 +369,20 @@ impl<'d> PwmPiezo<'d> {
             w.set_en(true);
         });
 
-        // Await sample playback completion: 691 samples ≈ 31.3 ms (32 ms), 2616 samples ≈ 118.6 ms (120 ms)
+        // 4. Await sample playback completion (32 ms for step, 120 ms for bump)
         let duration_ms = if is_bump { 120 } else { 32 };
         embassy_time::Timer::after(embassy_time::Duration::from_millis(duration_ms)).await;
 
-        // Restore Worker Channel 2 to circular motor hum buffer
+        // 5. Seamlessly resume circular motor hum at the exact forward phase position
+        let resume_idx = (curr_idx + len) % MOTOR_SAMPLE_COUNT;
+        let remaining_samples = MOTOR_SAMPLE_COUNT - resume_idx;
+        let resume_addr = base_addr + (resume_idx * 2);
+
         Self::pause_motor_dma();
-        ch_worker
-            .read_addr()
-            .write_value(core::ptr::addr_of!(MOTOR_DUTY_BUFFER) as u32);
+        ch_worker.read_addr().write_value(resume_addr as u32);
         ch_worker
             .trans_count()
-            .write_value(pac::dma::regs::ChTransCount(MOTOR_SAMPLE_COUNT as u32));
+            .write_value(pac::dma::regs::ChTransCount(remaining_samples as u32));
 
         cortex_m::asm::dmb();
         core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);

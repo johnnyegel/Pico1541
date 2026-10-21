@@ -75,8 +75,17 @@ pub async fn sound_task(mut piezo: PwmPiezo<'static>) {
                     // Motor stopped: authentic mechanical sample with smooth DC ramp
                     piezo.play_stopped_step_click(settings.volume, is_bump).await;
                 } else {
-                    // Motor active: authentic mechanical sample streamed over ultrasonic carrier
-                    piezo.play_active_step_click(settings.volume, is_bump).await;
+                    // Motor active: authentic mechanical sample mixed with running motor hum
+                    let (envelope_step, max_steps) = match envelope {
+                        MotorEnvelope::Running => (FADE_STEPS, FADE_STEPS),
+                        MotorEnvelope::FadingIn { step } | MotorEnvelope::FadingOut { step } => {
+                            (step, FADE_STEPS)
+                        }
+                        MotorEnvelope::Stopped => (0, FADE_STEPS),
+                    };
+                    piezo
+                        .play_active_step_click(settings.volume, is_bump, envelope_step, max_steps)
+                        .await;
                 }
 
                 if steps > 1 && i + 1 < steps.min(10) {
