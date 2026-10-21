@@ -46,9 +46,7 @@ impl TimeKeeper {
 
     #[link_section = ".core1_text"]
     #[inline(always)]
-    pub fn spin_until(&mut self, target_cycle: u32) -> bool {
-        // Use u64 to prevent a discontinuity every 17.18 seconds when target_cycle * 250 overflows u32
-        let target_ticks = target_cycle * (self.sys_clock_freq / 1_000_000);
+    fn spin_until_ticks(&mut self, target_ticks: u32) -> bool {
         let target_time = self.base_time_24.wrapping_add(target_ticks) & 0x00FFFFFF;
 
         let mut did_wait = false;
@@ -60,6 +58,24 @@ impl TimeKeeper {
             }
         }
         did_wait
+    }
+
+    #[link_section = ".core1_text"]
+    #[inline(always)]
+    pub fn spin_until(&mut self, target_cycle: u32) -> bool {
+        let ticks_per_cycle = self.sys_clock_freq / 1_000_000;
+        let target_ticks = target_cycle.wrapping_mul(ticks_per_cycle);
+        self.spin_until_ticks(target_ticks)
+    }
+
+    #[link_section = ".core1_text"]
+    #[inline(always)]
+    pub fn spin_until_half_cycle(&mut self, target_cycle: u32) -> bool {
+        let ticks_per_cycle = self.sys_clock_freq / 1_000_000;
+        let target_ticks = target_cycle
+            .wrapping_mul(ticks_per_cycle)
+            .wrapping_add(ticks_per_cycle / 2);
+        self.spin_until_ticks(target_ticks)
     }
 
 }
