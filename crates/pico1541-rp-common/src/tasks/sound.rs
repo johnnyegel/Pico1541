@@ -1,6 +1,4 @@
-use crate::driver::speaker::{
-    PwmPiezo, STEPPER_BUMP_DURATION_US, STEPPER_CLICK_DURATION_US, STEPPER_CLICK_FREQ_HZ,
-};
+use crate::driver::speaker::PwmPiezo;
 use embassy_time::{Duration, Timer};
 use pico1541_common::sound::{get_and_clear_steps, is_motor_running, SoundSettings, SoundVolume};
 use portable_atomic::{AtomicBool, AtomicU8, Ordering};
@@ -74,22 +72,15 @@ pub async fn sound_task(mut piezo: PwmPiezo<'static>) {
             for i in 0..steps.min(10) {
                 let is_bump = bumped && i == 0;
                 if envelope == MotorEnvelope::Stopped {
-                    // Motor stopped: standard tone click
-                    let duration_us = if is_bump {
-                        STEPPER_BUMP_DURATION_US
-                    } else {
-                        STEPPER_CLICK_DURATION_US
-                    };
-                    piezo.play_tone(STEPPER_CLICK_FREQ_HZ, volume_percent);
-                    Timer::after(Duration::from_micros(duration_us)).await;
-                    piezo.stop();
+                    // Motor stopped: authentic mechanical sample with smooth DC ramp
+                    piezo.play_stopped_step_click(settings.volume, is_bump).await;
                 } else {
-                    // Motor active: carrier-locked click without dropping DC bias or restarting DMA
+                    // Motor active: authentic mechanical sample streamed over ultrasonic carrier
                     piezo.play_active_step_click(settings.volume, is_bump).await;
                 }
 
                 if steps > 1 {
-                    Timer::after(Duration::from_micros(500)).await;
+                    Timer::after(Duration::from_millis(4)).await;
                 }
             }
         }
