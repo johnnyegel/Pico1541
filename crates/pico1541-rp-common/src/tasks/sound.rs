@@ -81,8 +81,9 @@ pub async fn sound_task(mut piezo: PwmPiezo<'static>) {
                         MotorEnvelope::FadingIn { step } | MotorEnvelope::FadingOut { step } => {
                             (step, FADE_STEPS)
                         }
-                        MotorEnvelope::Stopped => (0, FADE_STEPS),
+                        MotorEnvelope::Stopped => unreachable!(),
                     };
+
                     piezo
                         .play_active_step_click(settings.volume, is_bump, envelope_step, max_steps)
                         .await;
