@@ -191,21 +191,34 @@ pub const BUMP_SAMPLE: [i8; 2616] = [
 ];
 
 #[inline]
+fn volume_gain(volume: SoundVolume, top: u16) -> i32 {
+    match volume {
+        SoundVolume::Off => 0,
+        SoundVolume::Low => (top as i32) / 250,
+        SoundVolume::Medium => (top as i32) / 120,
+        SoundVolume::High => (top as i32) / 70,
+    }
+}
+
+/// Converts a signed 8-bit PCM sample to a 16-bit PWM counter duty value,
+/// centered around `top / 2` (1.65V DC), modulated by volume gain.
+///
+/// Used when the spindle motor is active and the ultrasonic carrier is already running.
+#[inline]
 pub fn stepper_sample_to_pwm_duty(sample: i8, top: u16, volume: SoundVolume) -> u16 {
     if volume == SoundVolume::Off {
         return 0;
     }
     let center = (top / 2) as i32;
-    let gain = match volume {
-        SoundVolume::Off => 0,
-        SoundVolume::Low => (top as i32) / 250,
-        SoundVolume::Medium => (top as i32) / 120,
-        SoundVolume::High => (top as i32) / 70,
-    };
+    let gain = volume_gain(volume, top);
     let duty = center + (sample as i32 * gain);
     duty.clamp(0, top as i32) as u16
 }
 
+/// Converts a signed 8-bit PCM sample to a 16-bit PWM counter duty value with
+/// a smooth 1.1 ms sub-audible DC ramp-in and ramp-out to eliminate capacitive switching clicks.
+///
+/// Used when the spindle motor is stopped and the audio starts/ends at 0V DC.
 #[inline]
 pub fn stepper_sample_to_pwm_duty_stopped(
     sample: i8,
@@ -218,12 +231,7 @@ pub fn stepper_sample_to_pwm_duty_stopped(
         return 0;
     }
     let full_center = (top / 2) as u32;
-    let full_gain = match volume {
-        SoundVolume::Off => 0,
-        SoundVolume::Low => (top as i32) / 250,
-        SoundVolume::Medium => (top as i32) / 120,
-        SoundVolume::High => (top as i32) / 70,
-    };
+    let full_gain = volume_gain(volume, top);
 
     let scale = if index < STEPPER_DC_RAMP_SAMPLES {
         ((index as u32) * 256 / STEPPER_DC_RAMP_SAMPLES as u32) as i32
@@ -239,3 +247,4 @@ pub fn stepper_sample_to_pwm_duty_stopped(
     let duty = center + (sample as i32 * gain);
     duty.clamp(0, top as i32) as u16
 }
+

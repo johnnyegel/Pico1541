@@ -17,14 +17,18 @@ fn test_stepper_sample_table_properties() {
     assert_eq!(BUMP_SAMPLE[0], 3);
     assert_eq!(BUMP_SAMPLE[2615], -3);
 
-    // Verify all samples are within valid range
-    for &s in STEPPING_SAMPLE.iter() {
-        assert!(s >= -30 && s <= 35, "Stepping sample out of bounds: {}", s);
-    }
-    for &s in BUMP_SAMPLE.iter() {
-        assert!(s >= -110 && s <= 100, "Bump sample out of bounds: {}", s);
-    }
+    // Verify all samples are within valid range and exact extrema match
+    let min_step = *STEPPING_SAMPLE.iter().min().unwrap();
+    let max_step = *STEPPING_SAMPLE.iter().max().unwrap();
+    assert_eq!(min_step, -28);
+    assert_eq!(max_step, 31);
+
+    let min_bump = *BUMP_SAMPLE.iter().min().unwrap();
+    let max_bump = *BUMP_SAMPLE.iter().max().unwrap();
+    assert_eq!(min_bump, -101);
+    assert_eq!(max_bump, 90);
 }
+
 
 #[test]
 fn test_stepper_sample_to_pwm_duty() {
@@ -120,4 +124,15 @@ fn test_stepper_sample_to_pwm_duty_stopped_ramping() {
         assert!(dc <= prev_dc, "Ramp down DC bias must be non-increasing: {} vs {}", dc, prev_dc);
         prev_dc = dc;
     }
+
+    // Verify bump sample stopped duty ramping boundaries
+    let bump_len = BUMP_SAMPLE.len();
+    assert_eq!(stepper_sample_to_pwm_duty_stopped(0, top, SoundVolume::High, 0, bump_len), 0);
+    assert_eq!(stepper_sample_to_pwm_duty_stopped(0, top, SoundVolume::High, bump_len - 1, bump_len), 0);
+    let bump_mid = bump_len / 2;
+    assert_eq!(
+        stepper_sample_to_pwm_duty_stopped(BUMP_SAMPLE[bump_mid], top, SoundVolume::High, bump_mid, bump_len),
+        stepper_sample_to_pwm_duty(BUMP_SAMPLE[bump_mid], top, SoundVolume::High)
+    );
 }
+
