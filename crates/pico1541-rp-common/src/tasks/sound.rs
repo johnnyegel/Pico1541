@@ -62,7 +62,7 @@ pub async fn sound_task(mut piezo: PwmPiezo<'static>) {
                 envelope = MotorEnvelope::Stopped;
             }
             let _ = get_and_clear_steps();
-            Timer::after(Duration::from_millis(10)).await;
+            Timer::after(Duration::from_millis(FADE_STEP_DURATION_MS)).await;
             continue;
         }
 
@@ -105,7 +105,7 @@ pub async fn sound_task(mut piezo: PwmPiezo<'static>) {
                     piezo.set_motor_envelope_step(settings.volume, 1, FADE_STEPS);
                     envelope = MotorEnvelope::FadingIn { step: 1 };
                 }
-                Timer::after(Duration::from_millis(10)).await;
+                Timer::after(Duration::from_millis(FADE_STEP_DURATION_MS)).await;
             }
             MotorEnvelope::FadingIn { step } => {
                 if !motor_should_run {
@@ -126,7 +126,7 @@ pub async fn sound_task(mut piezo: PwmPiezo<'static>) {
                     envelope = MotorEnvelope::FadingOut { step: FADE_STEPS - 1 };
                     Timer::after(Duration::from_millis(FADE_STEP_DURATION_MS)).await;
                 } else {
-                    Timer::after(Duration::from_millis(10)).await;
+                    Timer::after(Duration::from_millis(FADE_STEP_DURATION_MS)).await;
                 }
             }
             MotorEnvelope::FadingOut { step } => {
@@ -137,7 +137,7 @@ pub async fn sound_task(mut piezo: PwmPiezo<'static>) {
                 } else if step <= 1 {
                     piezo.set_motor_envelope_step(settings.volume, 0, FADE_STEPS);
                     envelope = MotorEnvelope::Stopped;
-                    Timer::after(Duration::from_millis(10)).await;
+                    Timer::after(Duration::from_millis(FADE_STEP_DURATION_MS)).await;
                 } else {
                     let next_step = step - 1;
                     piezo.set_motor_envelope_step(settings.volume, next_step, FADE_STEPS);
