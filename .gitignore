@@ -3,6 +3,7 @@ temp/**
 target/**
 GEMINI.md
 CLAUDE.md
+.claude/**
 .antigravitycli/**
 .superpowers/**
 

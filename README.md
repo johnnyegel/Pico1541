@@ -20,6 +20,7 @@ Unlike high-level IEC drive emulators (such as standard SD2IEC devices), **Pico1
   - [Building the Release Binary](#building-the-release-binary)
   - [Flashing via USB (BOOTSEL Mode)](#flashing-via-usb-bootsel-mode)
   - [Flashing via SWD Debugger](#flashing-via-swd-debugger)
+- [Disk Image Conversion Tools (`nib2g64`)](#disk-image-conversion-tools-nib2g64)
 - [Usage & Operation](#usage--operation)
   - [IEC Cable Connection](#iec-cable-connection)
   - [OLED Menu Navigation](#oled-menu-navigation)
@@ -37,6 +38,7 @@ Unlike high-level IEC drive emulators (such as standard SD2IEC devices), **Pico1
   - **`.D64`**: Standard 35-track and 40-track Commodore disk images (dynamic on-the-fly GCR encoding/decoding).
   - **`.G64`**: Raw GCR track bitstreams with custom sector interleave and variable speed zones.
   - **`.PRG`**: Mount standalone PRG files as virtual single-file disks on the fly.
+- **Weak-Bit (Unstable Flux) Emulation:** Dynamically mutates weak-bit areas (unstable GCR flux) across track revolutions using an LFSR pseudorandom generator without generating false SYNC markers, enabling copy-protected titles that rely on non-deterministic data (e.g. *Bruce Lee*, *Paperboy*) to load successfully.
 - **Dual-Core Architecture (RP2350):**
   - **Core 1 (Emulator):** Dedicated entirely to the cycle-exact 6502 CPU, 6522 VIAs, and PIO magnetic surface streaming.
   - **Core 0 (Manager):** Runs asynchronous Embassy tasks managing the SD card, flash filesystem, OLED display, navigation buttons, and virtual directory synthesis.
@@ -48,9 +50,10 @@ Unlike high-level IEC drive emulators (such as standard SD2IEC devices), **Pico1
   - 128x64 I2C SSD1306 OLED display.
   - 4-button tactile keypad (Up, Down, Select/Enter, Back/Exit).
   - RGB Status LED and Dual-color Drive Activity LED.
-  - Piezo speaker providing authentic mechanical head-stepping acoustics and seek sounds.
+  - **Drive Sound Emulation:** Piezo speaker with PWM sample playback modeling authentic drive acoustics: motor hum with smooth acceleration/deceleration fade, head stepping clicks, and track 0 knocking sounds. Configurable volume (Muted, Low, Medium, High) and motor/stepper toggles saved in persistent flash.
 - **SD2IEC Navigation & File Browser:** Intercepts `CD:` commands on IEC channel 15 to allow navigating SD card folders and disk images using standard Commodore 64 file browsers such as `fb64`.
 - **Configurable Drive ID:** Switch drive device address between 8, 9, 10, or 11 with settings saved persistently in on-board flash.
+- **Bundled Image Conversion Tools:** Includes standalone Rust CLI tools (`nib2g64` and `nbz2nib`) for converting raw `.NIB` and compressed `.NBZ` disk captures into standard `.G64` format with automatic seam detection, alignment, and weak-bit sanitization.
 
 ---
 
@@ -59,8 +62,8 @@ Unlike high-level IEC drive emulators (such as standard SD2IEC devices), **Pico1
 Pico1541 actively strives for cycle-exact 1541 hardware behavior. However, full compatibility remains an ongoing development effort:
 
 - **Cycle Accuracy Status:** While the micro-instruction 6502 core and dual 6522 VIA emulation pass instruction-level test suites and run most fastloaders, cycle-accurate behavior is **not yet 100% complete**. A small number of advanced demos utilizing extreme cycle-tight fastloaders do not yet load correctly.
-- **No Weak Bit / Unstable Flux Support:** The magnetic surface engine faithfully reproduces GCR track bitstreams, but currently has **no support for "weak bit" (unstable/fuzzy flux) emulation**. Copy-protected software that verifies weak bits (expecting non-deterministic byte values across consecutive track revolutions) will fail protection checks.
-- **Disk Image Formats:** Native emulation supports `.D64`, `.G64`, and `.PRG`. Raw `.NIB` format images are not supported directly in firmware; users should convert `.NIB` captures to `.G64` using external utilities (such as `nibconv`) prior to loading.
+- **Weak-Bit Support:** The magnetic surface engine includes weak-bit emulation for `.G64` images. Weak byte ranges (represented by `0x00` bytes in `.G64`) mutate pseudorandomly on each revolution without generating false SYNC pulses. This allows copy-protected games relying on weak bits (such as *Bruce Lee* and *Paperboy*) to pass protection checks and boot. Advanced multi-revolution density-drift protections may still behave unpredictably.
+- **Disk Image Formats:** Native on-device emulation directly supports `.D64`, `.G64`, and `.PRG`. Raw `.NIB` format images cannot be processed directly on the microcontroller due to memory constraints; users can convert `.NIB` and `.NBZ` captures to `.G64` using the bundled `nib2g64` tool (see below) or external utilities prior to loading.
 
 ---
 
@@ -225,6 +228,26 @@ cargo flash-swd
 
 ---
 
+## Disk Image Conversion Tools (`nib2g64`)
+
+While Pico1541's microcontroller firmware natively supports `.D64`, `.G64`, and `.PRG` formats, raw `.NIB` captures cannot be held entirely in the RP2350 RAM alongside the active emulation buffers. To make working with `.NIB` and `.NBZ` images seamless, Pico1541 includes host CLI conversion tools located in `tools/`:
+
+- **Automatic Seam Detection & Alignment:** Detects track loop overlaps and aligns tracks to standard sector headers.
+- **Weak-Bit Processing:** Identifies bad GCR runs and corrupt flux sequences, mapping them to weak-bit regions (`0x00`) so the firmware's magnetic surface engine can simulate non-deterministic flux at runtime.
+- **Single File or Batch Processing:** Convert an individual image or point to a directory to batch-convert all `.nib` and `.nbz` files.
+
+### Converting Images
+
+```bash
+# Convert a single .nib or .nbz to .g64
+cargo run -p nib2g64 -- game.nib -o game.g64
+
+# Batch convert an entire folder of disk images
+cargo run -p nib2g64 -- /path/to/disks/
+```
+
+---
+
 ## Usage & Operation
 
 ### IEC Cable Connection
@@ -239,6 +262,15 @@ Pico1541 uses a 4-button navigation scheme:
 - **Select / Enter:** Open a directory, mount a disk image (`.D64`, `.G64`), or mount a `.PRG`.
 - **Back:** Navigate up one directory level, or unmount the current image and return to the main menu.
 - **Fast Scroll:** Holding the Up or Down buttons skips through large lists quickly.
+
+#### Menus Overview:
+- **SD Card Browser:** Browse files and folders on your MicroSD card.
+- **Internal Flash Browser:** Browse files stored on internal LittleFS flash storage (such as bundled utilities).
+- **Settings:**
+  - **Drive ID:** Configure device address between 8, 9, 10, or 11.
+  - **Select ROM:** Choose which DOS ROM to load from internal flash.
+  - **Sound Settings:** Configure volume (Muted, Low, Medium, High) and toggle motor hum or head-stepping sounds.
+  - **Monitor:** Real-time bus and drive activity diagnostics display.
 
 ### C64 Commands & Browser
 
@@ -267,7 +299,7 @@ Pico1541/
 │   ├── pico1541-emulator/     # Pure 6502 and dual 6522 VIA emulation engine
 │   ├── racc6502v4/            # Cycle-accurate micro-step 6502 CPU implementation
 │   ├── pico1541-manager/      # Async Embassy manager, disk formats, GCR, UI logic
-│   ├── pico1541-rp-common/    # Shared hardware drivers (PIO, SPI, Display)
+│   ├── pico1541-rp-common/    # Shared hardware drivers (PIO, SPI, Display, Audio)
 │   ├── pico1541-rp2350/       # Firmware entry point for Raspberry Pi Pico 2 (RP2350)
 │   └── pico1541-common/       # Common definitions, events, and inter-core buffers
 ├── flash-fs/                  # Root filesystem packed into on-chip LittleFS partition
@@ -275,6 +307,10 @@ Pico1541/
 ├── hardware/                  # KiCad schematics, PCB layouts, and Gerber files
 │   └── kicad/
 │       └── Pico1541v2/        # Hardware Revision 2 interface hat (RP2350)
+├── tools/
+│   ├── nib2g64/               # Standalone NIB/NBZ to G64 converter CLI tool
+│   └── nbz2nib/               # Standalone NBZ decompressor CLI utility
+├── scripts/                   # Tracing, logic analysis, and code generation scripts
 ├── COMMERCIAL_LICENSE.md      # Commercial manufacturing terms
 └── LICENSE.md                 # Firmware license (PolyForm Noncommercial 1.0.0)
 ```
