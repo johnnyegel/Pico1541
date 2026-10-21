@@ -126,6 +126,12 @@ impl HostInterface for HardwareBridge {
 
     #[link_section = ".core1_text"]
     #[inline(always)]
+    fn spin_until_half_cycle(&mut self, target_cycle: u32) -> bool {
+        self.timekeeper.spin_until_half_cycle(target_cycle)
+    }
+
+    #[link_section = ".core1_text"]
+    #[inline(always)]
     fn intercept_cd_command(&mut self, path: &str) {
         let mut s = heapless::String::<64>::new();
         let _ = s.push_str(path);

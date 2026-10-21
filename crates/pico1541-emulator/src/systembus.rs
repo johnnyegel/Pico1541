@@ -294,8 +294,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             let reg = (addr & 0x0F) as usize;
             if reg == 0x00 || reg == 0x0F {
                 // Emulate the 6522 VIA's Phase 2 falling-edge latch.
-                // The physical pins are latched exactly at the end of the cycle (trailing edge).
-                ctx.spin_until(cycle + 1);
+                // The physical change happens on the low edge of the clock (half a cycle later).
+                ctx.spin_until_half_cycle(cycle);
                 self.sync_iec_bus(ctx, cycle, self.current_pc);
             }
 
@@ -317,8 +317,8 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
             self.via1.write(addr, val);
             if reg == 0x00 || reg == 0x02 || reg == 0x0F {
                 // Emulate the 6522 VIA's Phase 2 falling-edge latch.
-                // The physical output pins transition exactly at the end of the cycle (trailing edge).
-                ctx.spin_until(cycle + 1);
+                // The physical change happens on the low edge of the clock (half a cycle later).
+                ctx.spin_until_half_cycle(cycle);
                 self.sync_iec_bus(ctx, cycle, self.current_pc);
             }
         } else {
@@ -473,5 +473,50 @@ mod tests {
         use racc6502v4::bus::Bus;
         bus.write(&mut hw, 0x0100, 0xAB, 0);
         assert_eq!(bus.read(&mut hw, 0x0100, 0), 0xAB);
+    }
+
+    struct MockSpinHardware {
+        spin_half_cycles: alloc::vec::Vec<u32>,
+    }
+
+    impl ViaHardware for MockSpinHardware {}
+
+    impl HostInterface for MockSpinHardware {
+        fn send_event(&mut self, _: DriveEvent) {}
+
+        fn spin_until_half_cycle(&mut self, target_cycle: u32) -> bool {
+            self.spin_half_cycles.push(target_cycle);
+            true
+        }
+    }
+
+    #[test]
+    fn test_io_spin_until_half_cycle() {
+        static ROM: [u8; 16384] = [0; 16384];
+        let handle = Box::leak(Box::new(
+            pico1541_common::track_buffer::DualCoreTrackBuffer::new(Box::leak(Box::new([[0u8; 8192]; 2]))),
+        ))
+        .split()
+        .1;
+        let surface = pico1541_common::magnetic_surface::SoftwareMagneticSurface::new();
+        let mechanics = crate::drivemechanics::DriveMechanics::new(surface, handle);
+        let mut bus = SystemBus::<MockSpinHardware, _>::new(
+            &ROM,
+            alloc::boxed::Box::leak(alloc::boxed::Box::new([0u8; 32768])),
+            8,
+            mechanics,
+        );
+        let mut hw = MockSpinHardware {
+            spin_half_cycles: alloc::vec::Vec::new(),
+        };
+        use racc6502v4::bus::Bus;
+
+        // Write to VIA1 Port B (0x1800) at cycle 42
+        bus.write(&mut hw, 0x1800, 0x55, 42);
+        assert_eq!(hw.spin_half_cycles, alloc::vec![42]);
+
+        // Read from VIA1 Port B (0x1800) at cycle 99
+        let _ = bus.read(&mut hw, 0x1800, 99);
+        assert_eq!(hw.spin_half_cycles, alloc::vec![42, 99]);
     }
 }
