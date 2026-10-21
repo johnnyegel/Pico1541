@@ -9,6 +9,7 @@ pub mod magnetic_surface;
 pub mod motor_sample;
 pub mod snooper;
 pub mod sound;
+pub mod stepper_sample;
 pub mod track_buffer;
 pub mod util;
 
