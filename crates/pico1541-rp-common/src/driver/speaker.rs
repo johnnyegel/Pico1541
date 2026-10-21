@@ -319,13 +319,13 @@ impl<'d> PwmPiezo<'d> {
         ch_worker
             .trans_count()
             .write_value(pac::dma::regs::ChTransCount(len as u32));
-        ch_worker
-            .ctrl_trig()
-            .modify(|w| w.set_chain_to(DMA_CH_WORKER as u8));
 
         cortex_m::asm::dmb();
         core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
-        ch_worker.ctrl_trig().modify(|w| w.set_en(true));
+        ch_worker.ctrl_trig().modify(|w| {
+            w.set_chain_to(DMA_CH_WORKER as u8);
+            w.set_en(true);
+        });
 
         // Await sample playback completion: 691 samples ≈ 31.3 ms (32 ms), 2616 samples ≈ 118.6 ms (120 ms)
         let duration_ms = if is_bump { 120 } else { 32 };
@@ -339,13 +339,13 @@ impl<'d> PwmPiezo<'d> {
         ch_worker
             .trans_count()
             .write_value(pac::dma::regs::ChTransCount(MOTOR_SAMPLE_COUNT as u32));
-        ch_worker
-            .ctrl_trig()
-            .modify(|w| w.set_chain_to(DMA_CH_RELOADER as u8));
 
         cortex_m::asm::dmb();
         core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
-        ch_worker.ctrl_trig().modify(|w| w.set_en(true));
+        ch_worker.ctrl_trig().modify(|w| {
+            w.set_chain_to(DMA_CH_RELOADER as u8);
+            w.set_en(true);
+        });
     }
 
     /// Plays an authentic mechanical stepper or bump sample when the spindle motor is stopped.
@@ -398,9 +398,11 @@ impl<'d> PwmPiezo<'d> {
         let duration_ms = if is_bump { 120 } else { 32 };
         embassy_time::Timer::after(embassy_time::Duration::from_millis(duration_ms)).await;
 
-        // Silence PWM and set compare to 0
+        // Silence PWM and disable DMA channel
+        Self::pause_motor_dma();
         self.stop();
     }
+
 
     fn zero_duty_buffer() {
         let buf_ptr = core::ptr::addr_of_mut!(MOTOR_DUTY_BUFFER) as *mut u16;
