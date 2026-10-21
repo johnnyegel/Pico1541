@@ -162,6 +162,115 @@ impl<'d> PwmPiezo<'d> {
         self.start_motor_hum(volume);
     }
 
+    /// Updates the motor duty buffer to a specific envelope progress step (0..=max_steps).
+    ///
+    /// When step == 0 or volume == Off, the buffer is zeroed and if humming, stops DMA.
+    /// When step > 0, populates the buffer with `sample_to_pwm_duty_faded` and ensures
+    /// DMA and the 22,050 Hz PWM carrier are actively streaming.
+    pub fn set_motor_envelope_step(&mut self, volume: SoundVolume, step: u8, max_steps: u8) {
+        if volume == SoundVolume::Off || step == 0 {
+            Self::zero_duty_buffer();
+            if self.motor_humming {
+                Self::stop_dma();
+                let mut config = PwmConfig::default();
+                config.top = 0;
+                config.compare_a = 0;
+                self.pwm.set_config(&config);
+                self.motor_humming = false;
+            }
+            return;
+        }
+
+        let buf_ptr = core::ptr::addr_of_mut!(MOTOR_DUTY_BUFFER) as *mut u16;
+        unsafe {
+            MOTOR_BUFFER_PTR = buf_ptr;
+            for i in 0..MOTOR_SAMPLE_COUNT {
+                *buf_ptr.add(i) = pico1541_common::motor_sample::sample_to_pwm_duty_faded(
+                    MOTOR_HUM_SAMPLE[i],
+                    MOTOR_PWM_TOP,
+                    volume,
+                    step,
+                    max_steps,
+                );
+            }
+        }
+        cortex_m::asm::dmb();
+        core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
+
+        if !self.motor_humming {
+            let mut config = PwmConfig::default();
+            config.divider = 1u8.into();
+            config.top = MOTOR_PWM_TOP;
+            config.compare_a = 0;
+            self.pwm.set_config(&config);
+
+            Self::start_dma();
+            self.motor_humming = true;
+        }
+    }
+
+    /// Temporarily pauses Worker Channel 2 without resetting the chaining configuration.
+    pub fn pause_motor_dma() {
+        let dma = pac::DMA;
+        dma.ch(DMA_CH_WORKER)
+            .al1_ctrl()
+            .modify(|w| *w &= !DMA_CHANNEL_ENABLE_MASK);
+    }
+
+    /// Resumes Worker Channel 2 streaming immediately.
+    pub fn resume_motor_dma() {
+        let dma = pac::DMA;
+        cortex_m::asm::dmb();
+        core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
+        dma.ch(DMA_CH_WORKER)
+            .ctrl_trig()
+            .modify(|w| w.set_en(true));
+    }
+
+    /// Plays a sharp 1.2 kHz stepper click while the motor hum is active.
+    ///
+    /// Preserves the 22,050 Hz ultrasonic carrier and 1.65V DC center, toggling compare
+    /// between center +/- amplitude for ~1.66 ms (or ~2.5 ms on track 1 bump), then
+    /// immediately resumes motor DMA with zero DC transient pop or dropout.
+    pub async fn play_active_step_click(&mut self, volume: SoundVolume, is_bump: bool) {
+        Self::pause_motor_dma();
+
+        let center = (MOTOR_PWM_TOP / 2) as u32;
+        let amp = match volume {
+            SoundVolume::Off => 0,
+            SoundVolume::Low => (MOTOR_PWM_TOP as u32) / 6,
+            SoundVolume::Medium => (MOTOR_PWM_TOP as u32) / 4,
+            SoundVolume::High => (MOTOR_PWM_TOP as u32) / 3,
+        };
+
+        let high = (center + amp).min(MOTOR_PWM_TOP as u32) as u16;
+        let low = center.saturating_sub(amp) as u16;
+
+        let cycles = if is_bump { 3 } else { 2 };
+        for _ in 0..cycles {
+            // Half period of 1200 Hz is ~416 us
+            pac::PWM.ch(1).cc().write(|w| w.set_a(high));
+            embassy_time::Timer::after(embassy_time::Duration::from_micros(416)).await;
+            pac::PWM.ch(1).cc().write(|w| w.set_a(low));
+            embassy_time::Timer::after(embassy_time::Duration::from_micros(416)).await;
+        }
+
+        // Return compare to center prior to unpausing DMA
+        pac::PWM.ch(1).cc().write(|w| w.set_a(center as u16));
+        Self::resume_motor_dma();
+    }
+
+    fn zero_duty_buffer() {
+        let buf_ptr = core::ptr::addr_of_mut!(MOTOR_DUTY_BUFFER) as *mut u16;
+        unsafe {
+            for i in 0..MOTOR_SAMPLE_COUNT {
+                *buf_ptr.add(i) = 0;
+            }
+        }
+        cortex_m::asm::dmb();
+        core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
+    }
+
     fn populate_duty_buffer(volume: SoundVolume) {
         let buf_ptr = core::ptr::addr_of_mut!(MOTOR_DUTY_BUFFER) as *mut u16;
         unsafe {
