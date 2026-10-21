@@ -457,21 +457,23 @@ pub const MOTOR_HUM_SAMPLE: [i8; 8819] = [
 ];
 
 #[inline]
+fn volume_gain(volume: SoundVolume, top: u16) -> i32 {
+    match volume {
+        SoundVolume::Off => 0,
+        SoundVolume::Low => (top as i32) / 250,
+        SoundVolume::Medium => (top as i32) / 100,
+        SoundVolume::High => (top as i32) / 60,
+    }
+}
+
+#[inline]
 pub fn sample_to_pwm_duty(sample: i8, top: u16, volume: SoundVolume) -> u16 {
     if volume == SoundVolume::Off {
         return 0;
     }
 
     let center = (top / 2) as i32;
-    // Maximum raw sample amplitude in hum[] is ~25.
-    // Scale factor per volume level (normalized to fit well within [0, top])
-    let gain = match volume {
-        SoundVolume::Off => 0,
-        SoundVolume::Low => (top as i32) / 250,
-        SoundVolume::Medium => (top as i32) / 100,
-        SoundVolume::High => (top as i32) / 60,
-    };
-
+    let gain = volume_gain(volume, top);
     let duty = center + (sample as i32 * gain);
     duty.clamp(0, top as i32) as u16
 }
@@ -498,15 +500,8 @@ pub fn sample_to_pwm_duty_faded(
     let full_center = (top / 2) as u32;
     let center = ((full_center * clamped_step) / max_steps_u32) as i32;
 
-    // Full volume gain
-    let full_gain = match volume {
-        SoundVolume::Off => 0,
-        SoundVolume::Low => (top as i32) / 250,
-        SoundVolume::Medium => (top as i32) / 100,
-        SoundVolume::High => (top as i32) / 60,
-    };
-
-    // Ramped gain: 0 -> full_gain
+    // Full volume gain scaled by envelope progress
+    let full_gain = volume_gain(volume, top);
     let gain = (full_gain * clamped_step as i32) / (max_steps_u32 as i32);
 
     let duty = center + (sample as i32 * gain);

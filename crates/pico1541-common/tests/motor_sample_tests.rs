@@ -77,5 +77,18 @@ fn test_sample_to_pwm_duty_faded_boundaries() {
         assert!(dc >= prev_dc, "DC bias must be monotonically non-decreasing");
         prev_dc = dc;
     }
+
+    // Defensive edge cases:
+    // 1. max_steps == 0 must return 0 and not panic with divide by zero
+    assert_eq!(sample_to_pwm_duty_faded(20, top, SoundVolume::High, 5, 0), 0);
+
+    // 2. step > max_steps must clamp to max_steps behavior
+    assert_eq!(
+        sample_to_pwm_duty_faded(20, top, SoundVolume::High, 20, 15),
+        sample_to_pwm_duty(20, top, SoundVolume::High)
+    );
+
+    // 3. SoundVolume::Off must always return 0 regardless of step
+    assert_eq!(sample_to_pwm_duty_faded(20, top, SoundVolume::Off, 10, 15), 0);
 }
 
