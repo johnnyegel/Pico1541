@@ -164,12 +164,11 @@ impl<'d> PwmPiezo<'d> {
 
     /// Updates the motor duty buffer to a specific envelope progress step (0..=max_steps).
     ///
-    /// When step == 0 or volume == Off, the buffer is zeroed and if humming, stops DMA.
-    /// When step > 0, populates the buffer with `sample_to_pwm_duty_faded` and ensures
-    /// DMA and the 22,050 Hz PWM carrier are actively streaming.
+    /// When step == 0 or volume == Off, stops DMA if humming, zeroes the buffer, and sets current_volume to Off.
+    /// When step == max_steps, populates the buffer and sets current_volume to volume.
+    /// When 0 < step < max_steps, populates the buffer and sets current_volume to Off.
     pub fn set_motor_envelope_step(&mut self, volume: SoundVolume, step: u8, max_steps: u8) {
         if volume == SoundVolume::Off || step == 0 {
-            Self::zero_duty_buffer();
             if self.motor_humming {
                 Self::stop_dma();
                 let mut config = PwmConfig::default();
@@ -178,7 +177,15 @@ impl<'d> PwmPiezo<'d> {
                 self.pwm.set_config(&config);
                 self.motor_humming = false;
             }
+            Self::zero_duty_buffer();
+            self.current_volume = SoundVolume::Off;
             return;
+        }
+
+        if step == max_steps {
+            self.current_volume = volume;
+        } else {
+            self.current_volume = SoundVolume::Off;
         }
 
         let buf_ptr = core::ptr::addr_of_mut!(MOTOR_DUTY_BUFFER) as *mut u16;
@@ -223,8 +230,8 @@ impl<'d> PwmPiezo<'d> {
         cortex_m::asm::dmb();
         core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
         dma.ch(DMA_CH_WORKER)
-            .ctrl_trig()
-            .modify(|w| w.set_en(true));
+            .al1_ctrl()
+            .modify(|w| *w |= DMA_CHANNEL_ENABLE_MASK);
     }
 
     /// Plays a sharp 1.2 kHz stepper click while the motor hum is active.
@@ -233,6 +240,10 @@ impl<'d> PwmPiezo<'d> {
     /// between center +/- amplitude for ~1.66 ms (or ~2.5 ms on track 1 bump), then
     /// immediately resumes motor DMA with zero DC transient pop or dropout.
     pub async fn play_active_step_click(&mut self, volume: SoundVolume, is_bump: bool) {
+        if !self.motor_humming || volume == SoundVolume::Off {
+            return;
+        }
+
         Self::pause_motor_dma();
 
         let center = (MOTOR_PWM_TOP / 2) as u32;
