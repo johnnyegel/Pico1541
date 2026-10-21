@@ -36,10 +36,20 @@ fn test_sample_to_pwm_duty_scaling() {
     let duty_neg = sample_to_pwm_duty(-20, top, SoundVolume::Medium);
     assert!(duty_neg < center);
 
-    // High volume should have greater excursion than Low volume
+    // Monotonic volume scaling: High > Medium > Low
     let excursion_low = (sample_to_pwm_duty(20, top, SoundVolume::Low) as i32 - center as i32).abs();
+    let excursion_med = (sample_to_pwm_duty(20, top, SoundVolume::Medium) as i32 - center as i32).abs();
     let excursion_high = (sample_to_pwm_duty(20, top, SoundVolume::High) as i32 - center as i32).abs();
-    assert!(excursion_high > excursion_low);
+    assert!(excursion_high > excursion_med);
+    assert!(excursion_med > excursion_low);
+
+    // Calibrated excursion checks at TOP = 11337:
+    // Low: top / 1000 = 11 -> 20 * 11 = 220
+    // Med: top / 400 = 28 -> 20 * 28 = 560
+    // High: top / 200 = 56 -> 20 * 56 = 1120
+    assert_eq!(excursion_low, 220);
+    assert_eq!(excursion_med, 560);
+    assert_eq!(excursion_high, 1120);
 }
 
 #[test]

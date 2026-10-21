@@ -460,9 +460,9 @@ pub const MOTOR_HUM_SAMPLE: [i8; 8819] = [
 pub(crate) fn volume_gain(volume: SoundVolume, top: u16) -> i32 {
     match volume {
         SoundVolume::Off => 0,
-        SoundVolume::Low => (top as i32) / 250,
-        SoundVolume::Medium => (top as i32) / 100,
-        SoundVolume::High => (top as i32) / 60,
+        SoundVolume::Low => (top as i32) / 1000,
+        SoundVolume::Medium => (top as i32) / 400,
+        SoundVolume::High => (top as i32) / 200,
     }
 }
 
