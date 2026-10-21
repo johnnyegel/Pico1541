@@ -86,9 +86,9 @@ impl<H: HostInterface, S: MagneticSurface> SystemBus<H, S> {
         self.mechanics.reset();
         self.device_id_pb_bits = (self.device_id & 0x03) << 5;
         self.via1.set_pb_in(0xFF);
-        // Initialize last_via2_out to the ACTUAL reset state of the VIA to prevent
-        // artificial phase changes triggering spurious track steps on boot.
-        self.last_via2_out = self.via2.get_pb_out();
+        // Initialize last_via2_out to the ACTUAL reset state of the VIA (with motor ON
+        // to emulate the VIA inputs pulling high on boot/reset until DOS configures DDRB).
+        self.last_via2_out = self.via2.get_pb_out() | pico1541_common::context::via::VIA2_MASK_MOTOR;
         self.last_atn = false;
         self.current_pc = 0;
 

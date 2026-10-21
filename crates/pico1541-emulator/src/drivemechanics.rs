@@ -56,6 +56,8 @@ impl<S: MagneticSurface> DriveMechanics<S> {
         self.halftrack_head_pos = INITIAL_HALF_TRACK;
         self.current_identifier = TrackIdentifier::void();
         self.last_requested_sector = 0xFF;
+        self.surface.set_motor_running(true, 0);
+        pico1541_common::sound::notify_motor(true);
     }
 
     pub fn is_write_protected(&self) -> bool {

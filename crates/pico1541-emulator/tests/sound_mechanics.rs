@@ -73,3 +73,18 @@ fn test_mechanics_sound_triggers_and_bumping() {
     assert_eq!(steps, 1);
     assert!(bumped, "Should flag head bumped when stepping above MAX_HALF_TRACK");
 }
+
+#[test]
+fn test_mechanics_reset_fires_motor_on() {
+    pico1541_common::sound::notify_motor(false);
+    assert!(!is_motor_running());
+
+    let track_data = Box::leak(Box::new([[0u8; 8192]; 2]));
+    let hw_buffer = Box::leak(Box::new(DualCoreTrackBuffer::new(track_data)));
+    let (_manager, emulator) = hw_buffer.split();
+    let surface = SoftwareMagneticSurface::new();
+    let mut mechanics = DriveMechanics::new(surface, emulator);
+
+    mechanics.reset();
+    assert!(is_motor_running(), "Reset must fire motor ON event for authentic boot hum");
+}
