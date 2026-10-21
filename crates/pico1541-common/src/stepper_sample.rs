@@ -194,9 +194,9 @@ pub const BUMP_SAMPLE: [i8; 2616] = [
 fn volume_gain(volume: SoundVolume, top: u16) -> i32 {
     match volume {
         SoundVolume::Off => 0,
-        SoundVolume::Low => (top as i32) / 250,
-        SoundVolume::Medium => (top as i32) / 120,
-        SoundVolume::High => (top as i32) / 70,
+        SoundVolume::Low => (top as i32) / 120,
+        SoundVolume::Medium => (top as i32) / 50,
+        SoundVolume::High => (top as i32) / 30,
     }
 }
 
