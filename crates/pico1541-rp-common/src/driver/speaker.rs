@@ -14,6 +14,18 @@ pub const MOTOR_SAMPLE_RATE_HZ: u32 = MOTOR_SAMPLE_RATE;
 /// Total number of PCM audio samples in the circular spindle motor buffer.
 pub const MOTOR_SAMPLE_COUNT: usize = MOTOR_HUM_SAMPLE.len();
 
+/// Stepper click frequency in Hz for head stepping sound emulation.
+pub const STEPPER_CLICK_FREQ_HZ: u32 = 600;
+
+/// Half-period duration in microseconds for active stepper clicks (1 / (2 * 600 Hz) ≈ 833 µs).
+pub const STEPPER_HALF_PERIOD_US: u64 = 1_000_000 / (2 * STEPPER_CLICK_FREQ_HZ as u64);
+
+/// Stepper click pulse duration in microseconds when the motor is stopped (1 full cycle ≈ 1667 µs).
+pub const STEPPER_CLICK_DURATION_US: u64 = 1_000_000 / STEPPER_CLICK_FREQ_HZ as u64;
+
+/// Track 1 bump knock duration in microseconds when the motor is stopped (2 full cycles ≈ 3333 µs).
+pub const STEPPER_BUMP_DURATION_US: u64 = 2 * STEPPER_CLICK_DURATION_US;
+
 /// DMA Channel 2 is used as Worker streaming samples to PWM Slice 1 Channel A.
 const DMA_CH_WORKER: usize = 2;
 /// DMA Channel 3 is used as Reloader resetting Channel 2 in an infinite circular loop.
@@ -257,13 +269,12 @@ impl<'d> PwmPiezo<'d> {
         let high = (center + amp).min(MOTOR_PWM_TOP as u32) as u16;
         let low = center.saturating_sub(amp) as u16;
 
-        let cycles = if is_bump { 3 } else { 2 };
+        let cycles = if is_bump { 2 } else { 1 };
         for _ in 0..cycles {
-            // Half period of 1200 Hz is ~416 us
             pac::PWM.ch(1).cc().write(|w| w.set_a(high));
-            embassy_time::Timer::after(embassy_time::Duration::from_micros(416)).await;
+            embassy_time::Timer::after(embassy_time::Duration::from_micros(STEPPER_HALF_PERIOD_US)).await;
             pac::PWM.ch(1).cc().write(|w| w.set_a(low));
-            embassy_time::Timer::after(embassy_time::Duration::from_micros(416)).await;
+            embassy_time::Timer::after(embassy_time::Duration::from_micros(STEPPER_HALF_PERIOD_US)).await;
         }
 
         // Return compare to center prior to unpausing DMA

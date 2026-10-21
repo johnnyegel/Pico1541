@@ -1,4 +1,6 @@
-use crate::driver::speaker::PwmPiezo;
+use crate::driver::speaker::{
+    PwmPiezo, STEPPER_BUMP_DURATION_US, STEPPER_CLICK_DURATION_US, STEPPER_CLICK_FREQ_HZ,
+};
 use embassy_time::{Duration, Timer};
 use pico1541_common::sound::{get_and_clear_steps, is_motor_running, SoundSettings, SoundVolume};
 use portable_atomic::{AtomicBool, AtomicU8, Ordering};
@@ -73,8 +75,12 @@ pub async fn sound_task(mut piezo: PwmPiezo<'static>) {
                 let is_bump = bumped && i == 0;
                 if envelope == MotorEnvelope::Stopped {
                     // Motor stopped: standard tone click
-                    let duration_us = if is_bump { 2800 } else { 1800 };
-                    piezo.play_tone(1200, volume_percent);
+                    let duration_us = if is_bump {
+                        STEPPER_BUMP_DURATION_US
+                    } else {
+                        STEPPER_CLICK_DURATION_US
+                    };
+                    piezo.play_tone(STEPPER_CLICK_FREQ_HZ, volume_percent);
                     Timer::after(Duration::from_micros(duration_us)).await;
                     piezo.stop();
                 } else {
