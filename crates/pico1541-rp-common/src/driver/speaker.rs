@@ -5,9 +5,10 @@ use embassy_rp::Peri;
 use pico1541_common::motor_sample::{sample_to_pwm_duty, MOTOR_HUM_SAMPLE, MOTOR_SAMPLE_RATE};
 use pico1541_common::sound::SoundVolume;
 use pico1541_common::stepper_sample::{
-    mixed_sample_to_pwm_duty_faded, stepper_sample_to_pwm_duty, stepper_sample_to_pwm_duty_stopped,
-    BUMP_SAMPLE, STEPPING_SAMPLE,
+    mixed_sample_to_pwm_duty_faded, stepper_sample_to_pwm_duty_stopped, BUMP_SAMPLE,
+    STEPPING_SAMPLE,
 };
+
 
 /// Ultrasonic PWM carrier frequency wrap rate (22,050 Hz @ 250 MHz system clock).
 pub const MOTOR_PWM_TOP: u16 = 11337;
@@ -242,7 +243,7 @@ impl<'d> PwmPiezo<'d> {
             .modify(|w| *w |= DMA_CHANNEL_ENABLE_MASK);
     }
 
-    fn populate_stepper_buffer(volume: SoundVolume, is_bump: bool, stopped: bool) -> usize {
+    fn populate_stopped_stepper_buffer(volume: SoundVolume, is_bump: bool) -> usize {
         let buf_ptr = core::ptr::addr_of_mut!(STEPPER_DUTY_BUFFER) as *mut u16;
         let len = if is_bump {
             BUMP_SAMPLE.len()
@@ -251,40 +252,26 @@ impl<'d> PwmPiezo<'d> {
         };
 
         unsafe {
-            if stopped {
-                for i in 0..len {
-                    let sample = if is_bump {
-                        BUMP_SAMPLE[i]
-                    } else {
-                        STEPPING_SAMPLE[i]
-                    };
-                    *buf_ptr.add(i) = stepper_sample_to_pwm_duty_stopped(
-                        sample,
-                        MOTOR_PWM_TOP,
-                        volume,
-                        i,
-                        len,
-                    );
-                }
-            } else {
-                for i in 0..len {
-                    let sample = if is_bump {
-                        BUMP_SAMPLE[i]
-                    } else {
-                        STEPPING_SAMPLE[i]
-                    };
-                    *buf_ptr.add(i) = stepper_sample_to_pwm_duty(
-                        sample,
-                        MOTOR_PWM_TOP,
-                        volume,
-                    );
-                }
+            for i in 0..len {
+                let sample = if is_bump {
+                    BUMP_SAMPLE[i]
+                } else {
+                    STEPPING_SAMPLE[i]
+                };
+                *buf_ptr.add(i) = stepper_sample_to_pwm_duty_stopped(
+                    sample,
+                    MOTOR_PWM_TOP,
+                    volume,
+                    i,
+                    len,
+                );
             }
         }
         cortex_m::asm::dmb();
         core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
         len
     }
+
 
     /// Plays an authentic mechanical stepper or bump sample mixed in-place with the running motor hum.
     ///
@@ -378,7 +365,7 @@ impl<'d> PwmPiezo<'d> {
             return;
         }
 
-        let len = Self::populate_stepper_buffer(volume, is_bump, true);
+        let len = Self::populate_stopped_stepper_buffer(volume, is_bump);
 
         // Configure PWM slice for 22,050 Hz carrier
         let mut config = PwmConfig::default();
