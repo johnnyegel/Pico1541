@@ -92,9 +92,12 @@ pub async fn sound_task(mut piezo: PwmPiezo<'static>) {
         if settings.volume != last_volume {
             if envelope == MotorEnvelope::Running {
                 piezo.update_motor_volume(settings.volume);
+                last_volume = settings.volume;
+            } else if envelope == MotorEnvelope::Stopped {
+                last_volume = settings.volume;
             }
-            last_volume = settings.volume;
         }
+
 
         match envelope {
             MotorEnvelope::Stopped => {
