@@ -248,3 +248,39 @@ pub fn stepper_sample_to_pwm_duty_stopped(
     duty.clamp(0, top as i32) as u16
 }
 
+/// Combines a signed 8-bit motor hum sample and a signed 8-bit stepper/bump sample
+/// into a single 16-bit PWM counter duty value, scaled according to the envelope progress.
+#[inline]
+pub fn mixed_sample_to_pwm_duty_faded(
+    motor_sample: i8,
+    step_sample: i8,
+    top: u16,
+    volume: SoundVolume,
+    step: u8,
+    max_steps: u8,
+) -> u16 {
+    if volume == SoundVolume::Off || step == 0 || max_steps == 0 {
+        return 0;
+    }
+    let clamped_step = step.min(max_steps) as u32;
+    let max_steps_u32 = max_steps as u32;
+
+    let full_center = (top / 2) as u32;
+    let center = ((full_center * clamped_step) / max_steps_u32) as i32;
+
+    let full_motor_gain = match volume {
+        SoundVolume::Off => 0,
+        SoundVolume::Low => (top as i32) / 250,
+        SoundVolume::Medium => (top as i32) / 100,
+        SoundVolume::High => (top as i32) / 60,
+    };
+    let full_step_gain = volume_gain(volume, top);
+
+    let motor_gain = (full_motor_gain * clamped_step as i32) / (max_steps_u32 as i32);
+    let step_gain = (full_step_gain * clamped_step as i32) / (max_steps_u32 as i32);
+
+    let ac = (motor_sample as i32 * motor_gain) + (step_sample as i32 * step_gain);
+    let duty = center + ac;
+    duty.clamp(0, top as i32) as u16
+}
+

@@ -1,7 +1,8 @@
 use pico1541_common::sound::SoundVolume;
 use pico1541_common::stepper_sample::{
-    stepper_sample_to_pwm_duty, stepper_sample_to_pwm_duty_stopped, BUMP_SAMPLE,
-    STEPPING_SAMPLE, STEPPER_DC_RAMP_SAMPLES, STEPPER_SAMPLE_RATE,
+    mixed_sample_to_pwm_duty_faded, stepper_sample_to_pwm_duty,
+    stepper_sample_to_pwm_duty_stopped, BUMP_SAMPLE, STEPPING_SAMPLE, STEPPER_DC_RAMP_SAMPLES,
+    STEPPER_SAMPLE_RATE,
 };
 
 #[test]
@@ -134,5 +135,39 @@ fn test_stepper_sample_to_pwm_duty_stopped_ramping() {
         stepper_sample_to_pwm_duty_stopped(BUMP_SAMPLE[bump_mid], top, SoundVolume::High, bump_mid, bump_len),
         stepper_sample_to_pwm_duty(BUMP_SAMPLE[bump_mid], top, SoundVolume::High)
     );
+}
+
+#[test]
+fn test_mixed_sample_to_pwm_duty_faded() {
+    let top = 11337u16;
+    let center = top / 2;
+
+    // Volume Off or step 0 produces 0
+    assert_eq!(mixed_sample_to_pwm_duty_faded(10, 20, top, SoundVolume::Off, 15, 15), 0);
+    assert_eq!(mixed_sample_to_pwm_duty_faded(10, 20, top, SoundVolume::High, 0, 15), 0);
+
+    // Zero samples at steady state (step 15/15) produces center
+    assert_eq!(mixed_sample_to_pwm_duty_faded(0, 0, top, SoundVolume::High, 15, 15), center);
+    assert_eq!(mixed_sample_to_pwm_duty_faded(0, 0, top, SoundVolume::Medium, 15, 15), center);
+    assert_eq!(mixed_sample_to_pwm_duty_faded(0, 0, top, SoundVolume::Low, 15, 15), center);
+
+    // Sum of AC excursions
+    let duty_both_pos = mixed_sample_to_pwm_duty_faded(20, 20, top, SoundVolume::High, 15, 15);
+    let duty_motor_only = mixed_sample_to_pwm_duty_faded(20, 0, top, SoundVolume::High, 15, 15);
+    let duty_step_only = mixed_sample_to_pwm_duty_faded(0, 20, top, SoundVolume::High, 15, 15);
+    assert!(duty_both_pos > duty_motor_only);
+    assert!(duty_both_pos > duty_step_only);
+    assert!(duty_both_pos <= top);
+
+    // Clamping limits
+    let duty_max_clamp = mixed_sample_to_pwm_duty_faded(127, 127, top, SoundVolume::High, 15, 15);
+    assert_eq!(duty_max_clamp, top);
+    let duty_min_clamp = mixed_sample_to_pwm_duty_faded(-128, -128, top, SoundVolume::High, 15, 15);
+    assert_eq!(duty_min_clamp, 0);
+
+    // Envelope scaling at mid-step (e.g. 7 of 15)
+    let duty_mid_dc = mixed_sample_to_pwm_duty_faded(0, 0, top, SoundVolume::High, 7, 15);
+    let expected_center = ((top as u32 / 2) * 7 / 15) as u16;
+    assert_eq!(duty_mid_dc, expected_center);
 }
 
