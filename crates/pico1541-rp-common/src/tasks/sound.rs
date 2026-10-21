@@ -35,70 +35,116 @@ impl SoundSettingsCell {
     }
 }
 
+const FADE_STEPS: u8 = 15;
+const FADE_STEP_DURATION_MS: u64 = 10;
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum MotorEnvelope {
+    Stopped,
+    FadingIn { step: u8 },
+    Running,
+    FadingOut { step: u8 },
+}
+
 #[embassy_executor::task]
 pub async fn sound_task(mut piezo: PwmPiezo<'static>) {
-    let mut playing_motor = false;
+    let mut envelope = MotorEnvelope::Stopped;
     let mut last_volume = CURRENT_SOUND_SETTINGS.get().volume;
 
     loop {
         let settings = CURRENT_SOUND_SETTINGS.get();
         let volume_percent = settings.volume.duty_percent();
 
+        // 1. Muted Volume Handling
         if volume_percent == 0 {
-            if playing_motor {
+            if envelope != MotorEnvelope::Stopped {
                 piezo.stop_motor_hum();
-                playing_motor = false;
+                envelope = MotorEnvelope::Stopped;
             }
             let _ = get_and_clear_steps();
             Timer::after(Duration::from_millis(10)).await;
             continue;
         }
 
+        // 2. Stepper Click Handling
         let (steps, bumped) = get_and_clear_steps();
-
         if steps > 0 && settings.stepper_enabled {
-            // Note: play_tone inside PwmPiezo automatically pauses DMA if motor_humming is true!
-            // Play stepping clicks:
             for i in 0..steps.min(10) {
-                let duration_us = if bumped && i == 0 { 2800 } else { 1800 };
-                piezo.play_tone(1200, volume_percent);
-                Timer::after(Duration::from_micros(duration_us)).await;
+                let is_bump = bumped && i == 0;
+                if envelope == MotorEnvelope::Stopped {
+                    // Motor stopped: standard tone click
+                    let duration_us = if is_bump { 2800 } else { 1800 };
+                    piezo.play_tone(1200, volume_percent);
+                    Timer::after(Duration::from_micros(duration_us)).await;
+                    piezo.stop();
+                } else {
+                    // Motor active: carrier-locked click without dropping DC bias or restarting DMA
+                    piezo.play_active_step_click(settings.volume, is_bump).await;
+                }
 
-                piezo.stop(); // Silence between clicks
                 if steps > 1 {
                     Timer::after(Duration::from_micros(500)).await;
                 }
             }
+        }
 
-            piezo.stop();
-            Timer::after(Duration::from_micros(500)).await;
+        // 3. Spindle Motor Envelope State Machine
+        let motor_should_run = is_motor_running() && settings.motor_enabled;
 
-            // After tone sequence finishes:
-            if is_motor_running() && settings.motor_enabled {
-                piezo.resume_motor_hum_after_tone(settings.volume);
-                playing_motor = true;
-                last_volume = settings.volume;
-            } else if playing_motor {
-                piezo.stop_motor_hum();
-                playing_motor = false;
-            }
-        } else if is_motor_running() && settings.motor_enabled {
-            if !playing_motor {
-                piezo.start_motor_hum(settings.volume);
-                playing_motor = true;
-                last_volume = settings.volume;
-            } else if settings.volume != last_volume {
-                // Apply live volume updates if changed in menu
+        // Handle live volume change while running
+        if settings.volume != last_volume {
+            if envelope == MotorEnvelope::Running {
                 piezo.update_motor_volume(settings.volume);
-                last_volume = settings.volume;
             }
-            Timer::after(Duration::from_millis(2)).await;
-        } else {
-            if playing_motor {
-                piezo.stop_motor_hum();
-                playing_motor = false;
+            last_volume = settings.volume;
+        }
+
+        match envelope {
+            MotorEnvelope::Stopped => {
+                if motor_should_run {
+                    piezo.set_motor_envelope_step(settings.volume, 1, FADE_STEPS);
+                    envelope = MotorEnvelope::FadingIn { step: 1 };
+                }
+                Timer::after(Duration::from_millis(10)).await;
             }
-            Timer::after(Duration::from_millis(2)).await;
+            MotorEnvelope::FadingIn { step } => {
+                if !motor_should_run {
+                    // Motor stopped mid-fade-in: reverse to fading out
+                    envelope = MotorEnvelope::FadingOut { step };
+                } else if step >= FADE_STEPS {
+                    envelope = MotorEnvelope::Running;
+                } else {
+                    let next_step = step + 1;
+                    piezo.set_motor_envelope_step(settings.volume, next_step, FADE_STEPS);
+                    envelope = MotorEnvelope::FadingIn { step: next_step };
+                }
+                Timer::after(Duration::from_millis(FADE_STEP_DURATION_MS)).await;
+            }
+            MotorEnvelope::Running => {
+                if !motor_should_run {
+                    piezo.set_motor_envelope_step(settings.volume, FADE_STEPS - 1, FADE_STEPS);
+                    envelope = MotorEnvelope::FadingOut { step: FADE_STEPS - 1 };
+                    Timer::after(Duration::from_millis(FADE_STEP_DURATION_MS)).await;
+                } else {
+                    Timer::after(Duration::from_millis(10)).await;
+                }
+            }
+            MotorEnvelope::FadingOut { step } => {
+                if motor_should_run {
+                    // Motor re-triggered mid-fade-out: reverse to fading in
+                    envelope = MotorEnvelope::FadingIn { step };
+                    Timer::after(Duration::from_millis(FADE_STEP_DURATION_MS)).await;
+                } else if step <= 1 {
+                    piezo.set_motor_envelope_step(settings.volume, 0, FADE_STEPS);
+                    envelope = MotorEnvelope::Stopped;
+                    Timer::after(Duration::from_millis(10)).await;
+                } else {
+                    let next_step = step - 1;
+                    piezo.set_motor_envelope_step(settings.volume, next_step, FADE_STEPS);
+                    envelope = MotorEnvelope::FadingOut { step: next_step };
+                    Timer::after(Duration::from_millis(FADE_STEP_DURATION_MS)).await;
+                }
+            }
         }
     }
 }
