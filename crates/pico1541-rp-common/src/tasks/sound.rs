@@ -79,9 +79,10 @@ pub async fn sound_task(mut piezo: PwmPiezo<'static>) {
                     piezo.play_active_step_click(settings.volume, is_bump).await;
                 }
 
-                if steps > 1 {
+                if steps > 1 && i + 1 < steps.min(10) {
                     Timer::after(Duration::from_millis(4)).await;
                 }
+
             }
         }
 

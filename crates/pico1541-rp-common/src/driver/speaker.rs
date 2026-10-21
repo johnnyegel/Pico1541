@@ -17,17 +17,6 @@ pub const MOTOR_SAMPLE_RATE_HZ: u32 = MOTOR_SAMPLE_RATE;
 /// Total number of PCM audio samples in the circular spindle motor buffer.
 pub const MOTOR_SAMPLE_COUNT: usize = MOTOR_HUM_SAMPLE.len();
 
-/// Stepper click frequency in Hz for head stepping sound emulation.
-pub const STEPPER_CLICK_FREQ_HZ: u32 = 600;
-
-/// Half-period duration in microseconds for active stepper clicks (1 / (2 * 600 Hz) ≈ 833 µs).
-pub const STEPPER_HALF_PERIOD_US: u64 = 1_000_000 / (2 * STEPPER_CLICK_FREQ_HZ as u64);
-
-/// Stepper click pulse duration in microseconds when the motor is stopped (1 full cycle ≈ 1667 µs).
-pub const STEPPER_CLICK_DURATION_US: u64 = 1_000_000 / STEPPER_CLICK_FREQ_HZ as u64;
-
-/// Track 1 bump knock duration in microseconds when the motor is stopped (2 full cycles ≈ 3333 µs).
-pub const STEPPER_BUMP_DURATION_US: u64 = 2 * STEPPER_CLICK_DURATION_US;
 
 /// DMA Channel 2 is used as Worker streaming samples to PWM Slice 1 Channel A.
 const DMA_CH_WORKER: usize = 2;
