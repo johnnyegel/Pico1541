@@ -1,4 +1,6 @@
-use pico1541_common::motor_sample::{sample_to_pwm_duty, MOTOR_HUM_SAMPLE, MOTOR_SAMPLE_RATE};
+use pico1541_common::motor_sample::{
+    sample_to_pwm_duty, sample_to_pwm_duty_faded, MOTOR_HUM_SAMPLE, MOTOR_SAMPLE_RATE,
+};
 use pico1541_common::sound::SoundVolume;
 
 #[test]
@@ -39,3 +41,41 @@ fn test_sample_to_pwm_duty_scaling() {
     let excursion_high = (sample_to_pwm_duty(20, top, SoundVolume::High) as i32 - center as i32).abs();
     assert!(excursion_high > excursion_low);
 }
+
+#[test]
+fn test_sample_to_pwm_duty_faded_boundaries() {
+    let top = 11337u16;
+
+    // Step 0 should always produce duty = 0 (0V DC)
+    for sample in [-128i8, -25, 0, 25, 127] {
+        assert_eq!(sample_to_pwm_duty_faded(sample, top, SoundVolume::High, 0, 15), 0);
+        assert_eq!(sample_to_pwm_duty_faded(sample, top, SoundVolume::Medium, 0, 15), 0);
+        assert_eq!(sample_to_pwm_duty_faded(sample, top, SoundVolume::Low, 0, 15), 0);
+    }
+
+    // Step max_steps should match sample_to_pwm_duty
+    for sample in [-25i8, 0, 25] {
+        assert_eq!(
+            sample_to_pwm_duty_faded(sample, top, SoundVolume::High, 15, 15),
+            sample_to_pwm_duty(sample, top, SoundVolume::High)
+        );
+        assert_eq!(
+            sample_to_pwm_duty_faded(sample, top, SoundVolume::Medium, 15, 15),
+            sample_to_pwm_duty(sample, top, SoundVolume::Medium)
+        );
+    }
+
+    // Mid-step (e.g. step 7 of 15) must scale both DC center and AC amplitude smoothly
+    let duty_mid_zero = sample_to_pwm_duty_faded(0, top, SoundVolume::High, 7, 15);
+    let expected_center = ((top as u32 / 2) * 7 / 15) as u16;
+    assert_eq!(duty_mid_zero, expected_center);
+
+    // Monotonic DC center progression
+    let mut prev_dc = 0;
+    for step in 0..=15 {
+        let dc = sample_to_pwm_duty_faded(0, top, SoundVolume::High, step, 15);
+        assert!(dc >= prev_dc, "DC bias must be monotonically non-decreasing");
+        prev_dc = dc;
+    }
+}
+

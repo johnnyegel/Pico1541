@@ -475,3 +475,41 @@ pub fn sample_to_pwm_duty(sample: i8, top: u16, volume: SoundVolume) -> u16 {
     let duty = center + (sample as i32 * gain);
     duty.clamp(0, top as i32) as u16
 }
+
+/// Scales a signed 8-bit PCM sample to a 16-bit PWM counter duty value,
+/// simultaneously ramping the DC bias (from 0 to top/2) and AC gain (from 0 to volume gain)
+/// according to the envelope step progress `step / max_steps`.
+#[inline]
+pub fn sample_to_pwm_duty_faded(
+    sample: i8,
+    top: u16,
+    volume: SoundVolume,
+    step: u8,
+    max_steps: u8,
+) -> u16 {
+    if volume == SoundVolume::Off || step == 0 || max_steps == 0 {
+        return 0;
+    }
+
+    let clamped_step = step.min(max_steps) as u32;
+    let max_steps_u32 = max_steps as u32;
+
+    // Ramped DC center: 0 -> top / 2
+    let full_center = (top / 2) as u32;
+    let center = ((full_center * clamped_step) / max_steps_u32) as i32;
+
+    // Full volume gain
+    let full_gain = match volume {
+        SoundVolume::Off => 0,
+        SoundVolume::Low => (top as i32) / 250,
+        SoundVolume::Medium => (top as i32) / 100,
+        SoundVolume::High => (top as i32) / 60,
+    };
+
+    // Ramped gain: 0 -> full_gain
+    let gain = (full_gain * clamped_step as i32) / (max_steps_u32 as i32);
+
+    let duty = center + (sample as i32 * gain);
+    duty.clamp(0, top as i32) as u16
+}
+
