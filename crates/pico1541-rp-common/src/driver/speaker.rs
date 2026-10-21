@@ -4,6 +4,9 @@ use embassy_rp::pwm::{ChannelAPin, Config as PwmConfig, Pwm, Slice};
 use embassy_rp::Peri;
 use pico1541_common::motor_sample::{sample_to_pwm_duty, MOTOR_HUM_SAMPLE, MOTOR_SAMPLE_RATE};
 use pico1541_common::sound::SoundVolume;
+use pico1541_common::stepper_sample::{
+    stepper_sample_to_pwm_duty, stepper_sample_to_pwm_duty_stopped, BUMP_SAMPLE, STEPPING_SAMPLE,
+};
 
 /// Ultrasonic PWM carrier frequency wrap rate (22,050 Hz @ 250 MHz system clock).
 pub const MOTOR_PWM_TOP: u16 = 11337;
@@ -39,6 +42,9 @@ const DMA_CHANNEL_ENABLE_MASK: u32 = 1 << 0;
 
 static mut MOTOR_DUTY_BUFFER: [u16; MOTOR_SAMPLE_COUNT] = [0; MOTOR_SAMPLE_COUNT];
 static mut MOTOR_BUFFER_PTR: *const u16 = core::ptr::null();
+
+pub const STEPPER_BUFFER_CAPACITY: usize = BUMP_SAMPLE.len();
+static mut STEPPER_DUTY_BUFFER: [u16; STEPPER_BUFFER_CAPACITY] = [0; STEPPER_BUFFER_CAPACITY];
 
 /// PWM Piezo audio driver for stepper clicks, tone generation, and spindle motor sound.
 ///
@@ -246,40 +252,154 @@ impl<'d> PwmPiezo<'d> {
             .modify(|w| *w |= DMA_CHANNEL_ENABLE_MASK);
     }
 
-    /// Plays a sharp 1.2 kHz stepper click while the motor hum is active.
+    fn populate_stepper_buffer(volume: SoundVolume, is_bump: bool, stopped: bool) -> usize {
+        let buf_ptr = core::ptr::addr_of_mut!(STEPPER_DUTY_BUFFER) as *mut u16;
+        let len = if is_bump {
+            BUMP_SAMPLE.len()
+        } else {
+            STEPPING_SAMPLE.len()
+        };
+
+        unsafe {
+            if stopped {
+                for i in 0..len {
+                    let sample = if is_bump {
+                        BUMP_SAMPLE[i]
+                    } else {
+                        STEPPING_SAMPLE[i]
+                    };
+                    *buf_ptr.add(i) = stepper_sample_to_pwm_duty_stopped(
+                        sample,
+                        MOTOR_PWM_TOP,
+                        volume,
+                        i,
+                        len,
+                    );
+                }
+            } else {
+                for i in 0..len {
+                    let sample = if is_bump {
+                        BUMP_SAMPLE[i]
+                    } else {
+                        STEPPING_SAMPLE[i]
+                    };
+                    *buf_ptr.add(i) = stepper_sample_to_pwm_duty(
+                        sample,
+                        MOTOR_PWM_TOP,
+                        volume,
+                    );
+                }
+            }
+        }
+        cortex_m::asm::dmb();
+        core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
+        len
+    }
+
+    /// Plays an authentic mechanical stepper or bump sample while the spindle motor is active.
     ///
-    /// Preserves the 22,050 Hz ultrasonic carrier and 1.65V DC center, toggling compare
-    /// between center +/- amplitude for ~1.66 ms (or ~2.5 ms on track 1 bump), then
-    /// immediately resumes motor DMA with zero DC transient pop or dropout.
+    /// Temporarily points Worker DMA Channel 2 to `STEPPER_DUTY_BUFFER`, streaming the 31.3 ms
+    /// step (or 118.6 ms bump) at 22,050 Hz without dropping the ultrasonic carrier or 1.65V DC center.
+    /// When the sample completes, seamlessly restores circular motor hum streaming.
     pub async fn play_active_step_click(&mut self, volume: SoundVolume, is_bump: bool) {
         if !self.motor_humming || volume == SoundVolume::Off {
             return;
         }
 
+        let len = Self::populate_stepper_buffer(volume, is_bump, false);
         Self::pause_motor_dma();
 
-        let center = (MOTOR_PWM_TOP / 2) as u32;
-        let amp = match volume {
-            SoundVolume::Off => 0,
-            SoundVolume::Low => (MOTOR_PWM_TOP as u32) / 6,
-            SoundVolume::Medium => (MOTOR_PWM_TOP as u32) / 4,
-            SoundVolume::High => (MOTOR_PWM_TOP as u32) / 3,
-        };
+        let dma = pac::DMA;
+        let ch_worker = dma.ch(DMA_CH_WORKER);
 
-        let high = (center + amp).min(MOTOR_PWM_TOP as u32) as u16;
-        let low = center.saturating_sub(amp) as u16;
+        // Configure Worker Channel 2 to stream the stepper buffer (unchained):
+        ch_worker
+            .read_addr()
+            .write_value(core::ptr::addr_of!(STEPPER_DUTY_BUFFER) as u32);
+        ch_worker
+            .trans_count()
+            .write_value(pac::dma::regs::ChTransCount(len as u32));
+        ch_worker
+            .ctrl_trig()
+            .modify(|w| w.set_chain_to(DMA_CH_WORKER as u8));
 
-        let cycles = if is_bump { 2 } else { 1 };
-        for _ in 0..cycles {
-            pac::PWM.ch(1).cc().write(|w| w.set_a(high));
-            embassy_time::Timer::after(embassy_time::Duration::from_micros(STEPPER_HALF_PERIOD_US)).await;
-            pac::PWM.ch(1).cc().write(|w| w.set_a(low));
-            embassy_time::Timer::after(embassy_time::Duration::from_micros(STEPPER_HALF_PERIOD_US)).await;
+        cortex_m::asm::dmb();
+        core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
+        ch_worker.ctrl_trig().modify(|w| w.set_en(true));
+
+        // Await sample playback completion: 691 samples ≈ 31.3 ms (32 ms), 2616 samples ≈ 118.6 ms (120 ms)
+        let duration_ms = if is_bump { 120 } else { 32 };
+        embassy_time::Timer::after(embassy_time::Duration::from_millis(duration_ms)).await;
+
+        // Restore Worker Channel 2 to circular motor hum buffer
+        Self::pause_motor_dma();
+        ch_worker
+            .read_addr()
+            .write_value(core::ptr::addr_of!(MOTOR_DUTY_BUFFER) as u32);
+        ch_worker
+            .trans_count()
+            .write_value(pac::dma::regs::ChTransCount(MOTOR_SAMPLE_COUNT as u32));
+        ch_worker
+            .ctrl_trig()
+            .modify(|w| w.set_chain_to(DMA_CH_RELOADER as u8));
+
+        cortex_m::asm::dmb();
+        core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
+        ch_worker.ctrl_trig().modify(|w| w.set_en(true));
+    }
+
+    /// Plays an authentic mechanical stepper or bump sample when the spindle motor is stopped.
+    ///
+    /// Sets the PWM carrier to 22,050 Hz and streams the DC-ramped sample via one-shot DMA.
+    /// The sub-audible 1.1 ms ramp at the start and end prevents capacitive clicks, delivering
+    /// a crisp, authentic mechanical click of the head stepping while the spindle is parked.
+    pub async fn play_stopped_step_click(&mut self, volume: SoundVolume, is_bump: bool) {
+        if volume == SoundVolume::Off {
+            return;
         }
 
-        // Return compare to center prior to unpausing DMA
-        pac::PWM.ch(1).cc().write(|w| w.set_a(center as u16));
-        Self::resume_motor_dma();
+        let len = Self::populate_stepper_buffer(volume, is_bump, true);
+
+        // Configure PWM slice for 22,050 Hz carrier
+        let mut config = PwmConfig::default();
+        config.divider = 1u8.into();
+        config.top = MOTOR_PWM_TOP;
+        config.compare_a = 0;
+        self.pwm.set_config(&config);
+
+        let dma = pac::DMA;
+        let ch_worker = dma.ch(DMA_CH_WORKER);
+
+        ch_worker
+            .write_addr()
+            .write_value(pac::PWM.ch(1).cc().as_ptr() as u32);
+        ch_worker
+            .read_addr()
+            .write_value(core::ptr::addr_of!(STEPPER_DUTY_BUFFER) as u32);
+        ch_worker
+            .trans_count()
+            .write_value(pac::dma::regs::ChTransCount(len as u32));
+
+        let mut ctrl_worker = ch_worker.ctrl_trig().read();
+        ctrl_worker.set_data_size(pac::dma::vals::DataSize::SIZE_HALFWORD);
+        ctrl_worker.set_incr_read(true);
+        ctrl_worker.set_incr_write(false);
+        ctrl_worker.set_treq_sel(pac::dma::vals::TreqSel::PWM_WRAP1);
+        ctrl_worker.set_chain_to(DMA_CH_WORKER as u8);
+        ctrl_worker.set_ring_sel(false);
+        ctrl_worker.set_ring_size(0);
+        ctrl_worker.set_en(false);
+        ch_worker.ctrl_trig().write_value(ctrl_worker);
+
+        cortex_m::asm::dmb();
+        core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::Release);
+        ch_worker.ctrl_trig().modify(|w| w.set_en(true));
+
+        let duration_ms = if is_bump { 120 } else { 32 };
+        embassy_time::Timer::after(embassy_time::Duration::from_millis(duration_ms)).await;
+
+        // Silence PWM and set compare to 0
+        self.stop();
     }
 
     fn zero_duty_buffer() {
